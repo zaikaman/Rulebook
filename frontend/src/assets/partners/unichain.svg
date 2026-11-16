@@ -1,0 +1,7 @@
+<svg viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(4, 4)">
+    <circle cx="14" cy="14" r="13" stroke="#22C55E" stroke-width="2.5" fill="#22C55E" fill-opacity="0.12"/>
+    <path d="M9 14H19M14 9V19" stroke="#4ADE80" stroke-width="2.5" stroke-linecap="round"/>
+  </g>
+  <text x="42" y="23" fill="#FFFFFF" font-family="'Manrope', sans-serif" font-weight="600" font-size="14" letter-spacing="-0.02em">Unichain</text>
+</svg>

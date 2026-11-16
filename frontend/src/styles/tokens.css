@@ -5,11 +5,12 @@
   --rb-funds: #14b8a6;
   --rb-funds-ink: #e6fffb;
 
-  --rb-surface: #0b0d12;
-  --rb-surface-raised: #141822;
-  --rb-border: #232a38;
-  --rb-ink: #eef1f7;
-  --rb-ink-muted: #9aa4b8;
+  /* Cloned from Parallel's design tokens */
+  --rb-surface: #020202;
+  --rb-surface-raised: #0a0a0a;
+  --rb-border: rgba(255, 255, 255, 0.08);
+  --rb-ink: #ededed;
+  --rb-ink-muted: #a3a3a3;
 
   /* Status colours: latched and silent must never look like active. */
   --rb-status-active: #22c55e;

@@ -1,0 +1,8 @@
+<svg viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(4, 4)">
+    <circle cx="14" cy="14" r="13" stroke="#FF007A" stroke-width="2.5" fill="#FF007A" fill-opacity="0.12"/>
+    <path d="M14 6C17 8 20 12 18 16C16 20 12 21 9 19C7 17 8 13 11 11L14 6Z" fill="#FF007A"/>
+    <circle cx="18" cy="11" r="1.5" fill="#FFFFFF"/>
+  </g>
+  <text x="42" y="23" fill="#FFFFFF" font-family="'Manrope', sans-serif" font-weight="600" font-size="14" letter-spacing="-0.02em">Uniswap</text>
+</svg>

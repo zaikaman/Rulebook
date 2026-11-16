@@ -1,0 +1,7 @@
+<svg viewBox="0 0 130 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(6, 4)">
+    <path d="M12 2L4 15L12 19L20 15L12 2Z" fill="#627EEA"/>
+    <path d="M12 20.5L4 16.5L12 28L20 16.5L12 20.5Z" fill="#627EEA"/>
+  </g>
+  <text x="38" y="23" fill="#FFFFFF" font-family="'Manrope', sans-serif" font-weight="600" font-size="14" letter-spacing="-0.02em">Ethereum</text>
+</svg>

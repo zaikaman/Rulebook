@@ -19,7 +19,9 @@ export default {
         silent: 'var(--rb-status-silent)',
       },
       fontFamily: {
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['var(--font-geist-sans)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-geist-mono)', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        heading: ['var(--font-manrope)', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
     },
   },
