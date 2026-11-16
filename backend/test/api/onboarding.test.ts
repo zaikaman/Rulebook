@@ -16,6 +16,7 @@ const AGENT = '0xcccccccccccccccccccccccccccccccccccccccc' as Address;
 const VAULT = '0xdddddddddddddddddddddddddddddddddddddddd' as Address;
 const HASH = `0x${'1'.repeat(64)}` as Hex;
 const HASH2 = `0x${'2'.repeat(64)}` as Hex;
+const AUTHORIZATION = { deadline: '2000000000', signature: `0x${'1'.repeat(130)}` };
 
 const config: AppConfig = {
   PORT: 8787,
@@ -119,7 +120,7 @@ describe('POST /v1/onboarding', () => {
     const first = await app.inject({
       method: 'POST',
       url: '/v1/onboarding',
-      payload: { owner: OWNER },
+      payload: { owner: OWNER, vault_authorization: AUTHORIZATION },
     });
     expect(first.statusCode).toBe(200);
     const body = onboardingResponseSchema.parse(first.json());
@@ -145,7 +146,7 @@ describe('POST /v1/onboarding', () => {
     const second = await app.inject({
       method: 'POST',
       url: '/v1/onboarding',
-      payload: { owner: OWNER },
+      payload: { owner: OWNER, vault_authorization: AUTHORIZATION },
     });
     const retried = onboardingResponseSchema.parse(second.json());
     expect(retried.setup_state).toBe('complete');
@@ -168,7 +169,7 @@ describe('POST /v1/onboarding', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/onboarding',
-      payload: { owner: OWNER },
+      payload: { owner: OWNER, vault_authorization: AUTHORIZATION },
     });
     const body = onboardingResponseSchema.parse(response.json());
 
@@ -188,7 +189,7 @@ describe('POST /v1/onboarding', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/v1/onboarding',
-      payload: { owner: OWNER },
+      payload: { owner: OWNER, vault_authorization: AUTHORIZATION },
     });
     const body = onboardingResponseSchema.parse(response.json());
 
@@ -200,6 +201,30 @@ describe('POST /v1/onboarding', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'vault', status: 'failed' })]),
     );
 
+    await app.close();
+  });
+
+  it('creates the Agent first and requires an owner signature before the Vault deploy', async () => {
+    const { app } = makeHarness(state);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/v1/onboarding',
+      payload: { owner: OWNER },
+    });
+    const body = onboardingResponseSchema.parse(response.json());
+
+    expect(body.setup_state).toBe('agent_only');
+    expect(body.agent).toBe(AGENT);
+    expect(body.vault).toBeUndefined();
+    expect(state.agentDeploys).toBe(1);
+    expect(state.vaultDeploys).toBe(0);
+    expect(body.steps).toContainEqual(
+      expect.objectContaining({
+        name: 'vault',
+        status: 'skipped',
+        error: 'owner_signature_required',
+      }),
+    );
     await app.close();
   });
 

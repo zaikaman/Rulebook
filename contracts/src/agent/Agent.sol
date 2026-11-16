@@ -180,16 +180,13 @@ contract Agent is Ownable {
     }
 
     /// @notice Links this account to its funds-side vault on `chainId`.
-    /// @dev One vault per chain. Re-linking the same vault is idempotent.
+    /// @dev Owner-authorized metadata only. Cross-chain code cannot be read synchronously.
+    /// The VaultFactory independently verifies an owner signature binding this Agent to its Vault.
     function linkVault(uint256 chainId, address vault) external onlyAgentOwner {
         if (!ChainConfig.isSupported(chainId)) {
             revert InvalidTemplateParams();
         }
         if (vault == address(0)) revert InvalidTemplateParams();
-        (bool ok, bytes memory data) = vault.staticcall(abi.encodeCall(IVaultAgent.agent, ()));
-        if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) {
-            revert InvalidTemplateParams();
-        }
         address existing = _vaults[chainId];
         if (existing != address(0) && existing != vault) revert InvalidTemplateParams();
         _vaults[chainId] = vault;
@@ -318,8 +315,4 @@ contract Agent is Ownable {
     function _isCancelled(RuleLib.Rule storage rule) private view returns (bool) {
         return (rule.flags & RuleLib.FLAG_CANCELLED) != 0;
     }
-}
-
-interface IVaultAgent {
-    function agent() external view returns (address agent);
 }

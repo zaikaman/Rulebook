@@ -7,6 +7,11 @@ import { toFunctionSelector } from 'viem';
  */
 const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   { signature: 'NotOwner()', message: 'Only the owner can do this.' },
+  {
+    signature: 'InvalidVaultAuthorization()',
+    message:
+      'The Vault setup authorization is invalid or expired. Sign a fresh authorization and retry.',
+  },
   { signature: 'NotAgent()', message: 'This call must come from your automation account.' },
   {
     signature: 'AgentAlreadyLinked()',
@@ -14,7 +19,7 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   },
   {
     signature: 'AgentNotLinked()',
-    message: "This vault is not linked to the Agent yet. Finish setup before it can run rules.",
+    message: 'This vault is not linked to the Agent yet. Finish setup before it can run rules.',
   },
   { signature: 'UnknownTemplate(uint8)', message: 'This rule type is not in the catalog.' },
   { signature: 'UnsupportedChain(uint16)', message: 'Rules cannot target this network.' },

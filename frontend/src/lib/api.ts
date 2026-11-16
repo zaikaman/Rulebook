@@ -80,11 +80,17 @@ export class ApiClient {
     return this.request(`/v1/accounts/${agent}`, accountSchema);
   }
 
-  onboarding(owner: Address): Promise<OnboardingResponse> {
+  onboarding(
+    owner: Address,
+    vaultAuthorization?: { deadline: string; signature: `0x${string}` },
+  ): Promise<OnboardingResponse> {
     return this.request('/v1/onboarding', onboardingResponseSchema, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ owner }),
+      body: JSON.stringify({
+        owner,
+        ...(vaultAuthorization ? { vault_authorization: vaultAuthorization } : {}),
+      }),
     });
   }
 
@@ -101,17 +107,13 @@ export class ApiClient {
   }
 
   rules(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all'): Promise<Rule[]> {
-    return this.request(
-      `/v1/accounts/${agent}/rules?status=${status}`,
-      rulesResponseSchema,
-    ).then((response) => response.rules);
+    return this.request(`/v1/accounts/${agent}/rules?status=${status}`, rulesResponseSchema).then(
+      (response) => response.rules,
+    );
   }
 
   ruleDetail(agent: string, ruleId: string) {
-    return this.request(
-      `/v1/accounts/${agent}/rules/${ruleId}`,
-      ruleDetailResponseSchema,
-    );
+    return this.request(`/v1/accounts/${agent}/rules/${ruleId}`, ruleDetailResponseSchema);
   }
 
   proof(reactiveTxHash: string): Promise<Proof> {

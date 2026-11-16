@@ -18,7 +18,7 @@
     "manifest"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc --build tsconfig.json --force",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "generate": "tsx scripts/copy-abis.ts && tsx scripts/generate.ts"

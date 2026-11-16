@@ -1,4 +1,4 @@
-import type { Account, Address } from '@rulebook/shared';
+import type { Account, Address, OnboardingResponse } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -46,26 +46,31 @@ function wrapper({ children }: { readonly children: ReactNode }) {
 function makeApi(account: Account) {
   return {
     account: vi.fn(async () => account),
-    onboarding: vi.fn(async () => ({
-      setup_state: 'partial' as const,
-      agent: AGENT,
-      vault: VAULT,
-      steps: [
-        { name: 'agent' as const, status: 'skipped' as const, chain_id: 5_318_007 },
-        {
-          name: 'vault' as const,
-          status: 'confirmed' as const,
-          tx_hash: HASH,
-          chain_id: 1301,
-        },
-        {
-          name: 'link' as const,
-          status: 'skipped' as const,
-          chain_id: 5_318_007,
-          error: 'owner_signature_required',
-        },
-      ],
-    })),
+    onboarding: vi.fn(
+      async (
+        _owner: Address,
+        _authorization?: { deadline: string; signature: `0x${string}` },
+      ): Promise<OnboardingResponse> => ({
+        setup_state: 'partial' as const,
+        agent: AGENT,
+        vault: VAULT,
+        steps: [
+          { name: 'agent' as const, status: 'skipped' as const, chain_id: 5_318_007 },
+          {
+            name: 'vault' as const,
+            status: 'confirmed' as const,
+            tx_hash: HASH,
+            chain_id: 1301,
+          },
+          {
+            name: 'link' as const,
+            status: 'skipped' as const,
+            chain_id: 5_318_007,
+            error: 'owner_signature_required',
+          },
+        ],
+      }),
+    ),
     starterFunds: vi.fn(async () => ({
       tx_hash: HASH,
       amount_usdc: 10_000_000n,
@@ -80,6 +85,10 @@ function makeWallet() {
     chainId: 1301,
     getAgent: vi.fn(async () => AGENT),
     getVault: vi.fn(async () => null),
+    authorizeVault: vi.fn(async () => ({
+      deadline: '2000000000',
+      signature: `0x${'1'.repeat(130)}` as const,
+    })),
     switchToLasna: vi.fn(async () => undefined),
     linkVault: vi.fn(async () => HASH),
   } satisfies SetupWallet;
@@ -105,6 +114,60 @@ describe('useAccountSetup', () => {
     expect(wallet.linkVault).toHaveBeenCalledTimes(1);
     expect(wallet.linkVault).toHaveBeenCalledWith(AGENT, VAULT, 1301);
     expect(api.starterFunds).not.toHaveBeenCalled();
+  });
+
+  it('signs a factory-bound authorization after the Agent exists, then links the Vault', async () => {
+    const api = makeApi(agentOnly);
+    const awaitingSignature: OnboardingResponse = {
+      setup_state: 'agent_only',
+      agent: AGENT,
+      steps: [
+        { name: 'agent', status: 'confirmed', tx_hash: HASH, chain_id: 5_318_007 },
+        { name: 'vault', status: 'skipped', chain_id: 1301, error: 'owner_signature_required' },
+      ],
+    };
+    api.onboarding
+      .mockReset()
+      .mockResolvedValueOnce(awaitingSignature)
+      .mockResolvedValue({
+        setup_state: 'partial',
+        agent: AGENT,
+        vault: VAULT,
+        steps: [
+          { name: 'agent', status: 'skipped', chain_id: 5_318_007 },
+          { name: 'vault', status: 'confirmed', tx_hash: HASH, chain_id: 1301 },
+          {
+            name: 'link',
+            status: 'skipped',
+            chain_id: 5_318_007,
+            error: 'owner_signature_required',
+          },
+        ],
+      });
+    const wallet = makeWallet();
+    const { result } = renderHook(() => useAccountSetup({ owner: OWNER, api, wallet }), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.setupState).toBe('agent_only'));
+    const completedFlows: Array<OnboardingResponse | null> = [];
+    await act(async () => {
+      completedFlows.push(await result.current.resume());
+    });
+
+    expect(api.onboarding).toHaveBeenNthCalledWith(1, OWNER);
+    expect(wallet.authorizeVault).toHaveBeenCalledWith(OWNER, AGENT);
+    expect(api.onboarding).toHaveBeenNthCalledWith(2, OWNER, {
+      deadline: '2000000000',
+      signature: `0x${'1'.repeat(130)}`,
+    });
+    expect(wallet.linkVault).toHaveBeenCalledWith(AGENT, VAULT, 1301);
+    expect(completedFlows[0]?.steps).toContainEqual(
+      expect.objectContaining({ name: 'link', status: 'confirmed', tx_hash: HASH }),
+    );
+    expect(completedFlows[0]?.steps).toContainEqual(
+      expect.objectContaining({ name: 'agent', status: 'confirmed', tx_hash: HASH }),
+    );
   });
 
   it('never restarts a completed account', async () => {

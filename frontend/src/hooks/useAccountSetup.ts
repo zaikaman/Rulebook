@@ -1,5 +1,4 @@
 import {
-  LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Account,
   type Address,
@@ -14,7 +13,10 @@ import { ApiError } from '../lib/api.js';
 /** The API surface onboarding needs; injected so the hook is testable without a server. */
 export interface AccountSetupApi {
   account(agent: string): Promise<Account>;
-  onboarding(owner: Address): Promise<OnboardingResponse>;
+  onboarding(
+    owner: Address,
+    vaultAuthorization?: { deadline: string; signature: `0x${string}` },
+  ): Promise<OnboardingResponse>;
   starterFunds(owner: Address, vault: Address): Promise<StarterFundsResponse>;
 }
 
@@ -27,6 +29,10 @@ export interface SetupWallet {
   readonly chainId?: number;
   getAgent(owner: Address): Promise<Address | null>;
   getVault(owner: Address): Promise<Address | null>;
+  authorizeVault(
+    owner: Address,
+    agent: Address,
+  ): Promise<{ deadline: string; signature: `0x${string}` }>;
   switchToLasna(): Promise<void>;
   linkVault(agent: Address, vault: Address, chainId: number): Promise<`0x${string}`>;
 }
@@ -82,10 +88,33 @@ export function useAccountSetup({ owner, api, wallet }: AccountSetupOptions): Ac
       if (!owner) throw new Error('Connect a wallet before creating an account.');
       if (setupState === 'complete') return null;
 
-      const result = await api.onboarding(owner);
+      let result = await api.onboarding(owner);
+      if (result.setup_state === 'agent_only' && result.agent && !result.vault) {
+        const authorization = await wallet.authorizeVault(owner, result.agent);
+        const authorized = await api.onboarding(owner, authorization);
+        const steps = new Map(result.steps.map((step) => [step.name, step]));
+        for (const step of authorized.steps) {
+          const previous = steps.get(step.name);
+          if (previous?.status === 'confirmed' && step.status === 'skipped') continue;
+          steps.set(step.name, step);
+        }
+        result = { ...authorized, steps: [...steps.values()] };
+      }
       if (result.setup_state === 'partial' && result.agent && result.vault) {
-        if (wallet.chainId !== LASNA_CHAIN_ID) await wallet.switchToLasna();
-        await wallet.linkVault(result.agent, result.vault, UNICHAIN_SEPOLIA_CHAIN_ID);
+        await wallet.switchToLasna();
+        const linkTx = await wallet.linkVault(
+          result.agent,
+          result.vault,
+          UNICHAIN_SEPOLIA_CHAIN_ID,
+        );
+        result = {
+          ...result,
+          steps: result.steps.map((step) =>
+            step.name === 'link'
+              ? { ...step, status: 'confirmed', tx_hash: linkTx, error: null }
+              : step,
+          ),
+        };
       }
       return result;
     },

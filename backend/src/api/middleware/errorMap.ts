@@ -14,6 +14,12 @@ const DESCRIPTORS: ReadonlyArray<{
   human: string;
 }> = [
   { signature: 'NotOwner()', code: 'not_owner', human: 'Only the owner can do that.' },
+  {
+    signature: 'InvalidVaultAuthorization()',
+    code: 'invalid_vault_authorization',
+    human:
+      'The Vault setup authorization is invalid or expired. Sign a fresh authorization and retry.',
+  },
   { signature: 'NotAgent()', code: 'not_agent', human: 'That caller is not the linked agent.' },
   {
     signature: 'AgentAlreadyLinked()',

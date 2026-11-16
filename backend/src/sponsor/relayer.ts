@@ -30,6 +30,8 @@ const ERC20_ABI = parseAbi(['function approve(address spender, uint256 amount) r
 const VAULT_DEPOSIT_ABI = parseAbi(['function deposit(address token, uint256 amount)']);
 const APPROVE_SELECTOR = toFunctionSelector('function approve(address,uint256)');
 const DEPOSIT_SELECTOR = toFunctionSelector('function deposit(address,uint256)');
+const DEPLOYMENT_READ_ATTEMPTS = 7;
+const DEPLOYMENT_READ_BACKOFF_MS = 250;
 
 /** Raised before signing when a call is not on the sponsor's selector allowlist (T091). */
 export class SelectorNotAllowed extends Error {
@@ -119,7 +121,9 @@ export class SponsorRelayer {
       ],
       [
         addresses.vaultFactory.toLowerCase(),
-        new Set([toFunctionSelector('function deploy(address,address,address,address)')]),
+        new Set([
+          toFunctionSelector('function deploy(address,address,address,address,uint256,bytes)'),
+        ]),
       ],
       [
         addresses.systemContract.toLowerCase(),
@@ -162,17 +166,24 @@ export class SponsorRelayer {
     });
     const txHash = await this.send(LASNA_CHAIN_ID, this.addresses.agentFactory, data, 0n);
     const receipt = await this.wait(LASNA_CHAIN_ID, txHash);
-    const agent = await this.transport.readAgentOf(this.addresses.agentFactory, owner);
+    const agent = await this.readDeploymentRecord(() =>
+      this.transport.readAgentOf(this.addresses.agentFactory, owner),
+    );
     if (!agent) throw new Error('Agent deployment confirmed without an agentOf record');
     return { address: agent, txHash, blockNumber: receipt.blockNumber };
   }
 
   /** Deploys the Vault with `owner` as owner and `agent` as its only callback sender. */
-  async deployVault(owner: Address, agent: Address): Promise<Deployment> {
+  async deployVault(
+    owner: Address,
+    agent: Address,
+    deadline: bigint,
+    authorization: Hex,
+  ): Promise<Deployment> {
     const data = encodeFunctionData({
       abi: vaultFactoryAbi,
       functionName: 'deploy',
-      args: [owner, agent, this.addresses.usdc, this.addresses.weth],
+      args: [owner, agent, this.addresses.usdc, this.addresses.weth, deadline, authorization],
     });
     const txHash = await this.send(
       UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -181,7 +192,9 @@ export class SponsorRelayer {
       0n,
     );
     const receipt = await this.wait(UNICHAIN_SEPOLIA_CHAIN_ID, txHash);
-    const vault = await this.transport.readVaultOf(this.addresses.vaultFactory, owner);
+    const vault = await this.readDeploymentRecord(() =>
+      this.transport.readVaultOf(this.addresses.vaultFactory, owner),
+    );
     if (!vault) throw new Error('Vault deployment confirmed without a vaultOf record');
     return { address: vault, txHash, blockNumber: receipt.blockNumber };
   }
@@ -264,6 +277,19 @@ export class SponsorRelayer {
     return this.transport.sendTransaction({ chainId: LASNA_CHAIN_ID, to, data: '0x', value });
   }
 
+  /** Some RPC gateways lag the receipt's head when a post-deployment mapping is read. */
+  private async readDeploymentRecord(read: () => Promise<Address | null>): Promise<Address | null> {
+    for (let attempt = 0; attempt < DEPLOYMENT_READ_ATTEMPTS; attempt += 1) {
+      const value = await read();
+      if (value) return value;
+      if (attempt + 1 < DEPLOYMENT_READ_ATTEMPTS) {
+        const delay = Math.min(DEPLOYMENT_READ_BACKOFF_MS * 2 ** attempt, 2_000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+    return null;
+  }
+
   /** A vault deposit is allowed only on the vault being funded, never on an arbitrary one. */
   private async sendVaultDeposit(vault: Address, data: Hex): Promise<Hex> {
     if (data.slice(0, 10).toLowerCase() !== DEPOSIT_SELECTOR) {
@@ -323,6 +349,8 @@ export function relayerOptions(config: AppConfig): RelayerOptions {
 
 /** Production transport: one wallet client per chain, reads through the public clients. */
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
+// Lasna's RPC reports a zero priority fee, but validators require a 1-wei tip.
+const LASNA_MIN_PRIORITY_FEE_PER_GAS = 1n;
 
 /** A missing mapping entry reads as the zero address; onboarding treats it as absent. */
 function normalize(value: Address | null): Address | null {
@@ -358,7 +386,16 @@ export function createRelayerTransport(config: AppConfig, clients: ChainClients)
   return {
     sendTransaction: async ({ chainId, to, data, value }) => {
       const wallet = chainId === LASNA_CHAIN_ID ? lasnaWallet : unichainWallet;
-      return wallet.sendTransaction({ account, chain: null, to, data, value });
+      return wallet.sendTransaction({
+        account,
+        chain: null,
+        to,
+        data,
+        value,
+        ...(chainId === LASNA_CHAIN_ID
+          ? { maxPriorityFeePerGas: LASNA_MIN_PRIORITY_FEE_PER_GAS }
+          : {}),
+      });
     },
     waitForReceipt: async (chainId, hash) => {
       const receipt = await clientFor(clients, chainId).waitForTransactionReceipt({ hash });

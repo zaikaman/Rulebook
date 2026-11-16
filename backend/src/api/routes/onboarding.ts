@@ -11,15 +11,29 @@ import { z } from 'zod';
 import type { ServerDeps } from '../../deps.js';
 import { sendError } from './errors.js';
 
-const bodySchema = z.object({ owner: addressSchema });
+const bodySchema = z.object({
+  owner: addressSchema,
+  vault_authorization: z
+    .object({
+      deadline: z
+        .string()
+        .regex(/^[0-9]+$/)
+        .transform(BigInt),
+      signature: z
+        .string()
+        .regex(/^0x[0-9a-fA-F]{130}$/)
+        .transform((value) => value as `0x${string}`),
+    })
+    .optional(),
+});
 
 type Warn = (error: unknown, message: string) => void;
 
 /**
  * Registers `POST /v1/onboarding`. The relayer deploys the Agent (Lasna) and the Vault
  * (Unichain Sepolia) with the requested owner, then funds execution credit and gas. The
- * `linkVault` step is necessarily skipped: only the owner can sign it, so the response tells
- * the client to resume with that signature (FR-004, ADR 0004).
+ * Vault creation requires an owner EIP-712 authorization bound to the Unichain factory. The
+ * first call creates/resolves the Agent; the client signs for that Agent and resumes onboarding.
  */
 export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps): void {
   app.post('/v1/onboarding', async (request, reply) => {
@@ -35,7 +49,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
         'The sponsor relayer is not configured in this environment.',
       );
     }
-    const owner = parsed.data.owner;
+    const { owner, vault_authorization: vaultAuthorization } = parsed.data;
     if (!deps.onboardingLimiter.allow(owner)) {
       return sendError(
         reply,
@@ -94,8 +108,20 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
       vault = existingVault ? (existingVault.toLowerCase() as `0x${string}`) : null;
       if (vault) {
         steps.push({ name: 'vault', status: 'skipped', chain_id: UNICHAIN_SEPOLIA_CHAIN_ID });
+      } else if (!vaultAuthorization) {
+        steps.push({
+          name: 'vault',
+          status: 'skipped',
+          chain_id: UNICHAIN_SEPOLIA_CHAIN_ID,
+          error: 'owner_signature_required',
+        });
       } else {
-        const deployment = await relayer.deployVault(owner, agent);
+        const deployment = await relayer.deployVault(
+          owner,
+          agent,
+          vaultAuthorization.deadline,
+          vaultAuthorization.signature,
+        );
         vault = deployment.address.toLowerCase() as `0x${string}`;
         steps.push({
           name: 'vault',
@@ -129,6 +155,9 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
     }
 
     if (!vault) {
+      if (steps.some((step) => step.error === 'owner_signature_required')) {
+        steps.push(await fund(warn, relayer, owner, agent));
+      }
       return { setup_state: 'agent_only' as const, steps, agent };
     }
 

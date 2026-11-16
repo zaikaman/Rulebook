@@ -3,10 +3,11 @@ pragma solidity 0.8.29;
 
 // Custom errors only (Constitution IV). No revert string may appear in contracts/src.
 error NotOwner();
+error InvalidVaultAuthorization();
 error NotAgent();
 // Required by the factory ordering invariant (onchain-interfaces.md §4, FR-004).
 error AgentAlreadyLinked();
-// Raised by a vault whose Agent has not recorded it through `linkVault`.
+// Retained for decoding errors from earlier deployments; new Vaults do not read remote Agent state.
 error AgentNotLinked();
 error UnknownTemplate(uint8 template);
 error UnsupportedChain(uint16 chainId);

@@ -249,20 +249,16 @@ contract AgentTest is Test {
     }
 
     function test_linkVaultValidatesArgumentsAndIsIdempotent() public {
-        MockVaultLink vault = new MockVaultLink(address(agent));
         MockVaultLink other = new MockVaultLink(address(agent));
         MockVaultLink foreign = new MockVaultLink(address(0xDEAD));
 
         vm.startPrank(USER);
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
-        agent.linkVault(999, address(vault));
+        agent.linkVault(999, address(foreign));
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
         agent.linkVault(1301, address(0));
-        vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
         agent.linkVault(1301, address(foreign));
-
-        agent.linkVault(1301, address(vault));
-        agent.linkVault(1301, address(vault));
+        agent.linkVault(1301, address(foreign));
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
         agent.linkVault(1301, address(other));
         vm.stopPrank();

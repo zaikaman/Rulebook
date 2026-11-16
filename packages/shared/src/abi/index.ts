@@ -25,6 +25,19 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_SPEND_PER_RUN",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "activeRuleCount",
     "inputs": [],
     "outputs": [
@@ -815,6 +828,22 @@ export const agentAbi = [
   },
   {
     "type": "error",
+    "name": "ExceedsPerRunCap",
+    "inputs": [
+      {
+        "name": "requested",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "cap",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidAmount",
     "inputs": []
   },
@@ -1431,11 +1460,6 @@ export const vaultAbi = [
   },
   {
     "type": "error",
-    "name": "AgentNotLinked",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "CallbackSenderMismatch",
     "inputs": [
       {
@@ -1676,6 +1700,32 @@ export const vaultFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_AUTHORIZATION_LIFETIME",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "VAULT_DEPLOYMENT_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "callbackProxy",
     "inputs": [],
     "outputs": [
@@ -1710,6 +1760,16 @@ export const vaultFactoryAbi = [
         "name": "tokenOut_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "deadline_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "authorization_",
+        "type": "bytes",
+        "internalType": "bytes"
       }
     ],
     "outputs": [
@@ -1720,6 +1780,68 @@ export const vaultFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "eip712Domain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "fields",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "version",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "verifyingContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "extensions",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "nonces",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1761,6 +1883,12 @@ export const vaultFactoryAbi = [
   },
   {
     "type": "event",
+    "name": "EIP712DomainChanged",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "VaultDeployed",
     "inputs": [
       {
@@ -1797,18 +1925,29 @@ export const vaultFactoryAbi = [
   },
   {
     "type": "error",
+    "name": "InvalidShortString",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidTemplateParams",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotAgent",
+    "name": "InvalidVaultAuthorization",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "NotOwner",
-    "inputs": []
+    "name": "StringTooLong",
+    "inputs": [
+      {
+        "name": "str",
+        "type": "string",
+        "internalType": "string"
+      }
+    ]
   },
   {
     "type": "error",

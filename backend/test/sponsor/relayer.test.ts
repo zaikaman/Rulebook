@@ -12,6 +12,8 @@ const OWNER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address;
 const AGENT = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Address;
 const VAULT = '0xcccccccccccccccccccccccccccccccccccccccc' as Address;
 const HASH = `0x${'d'.repeat(64)}` as Hex;
+const SIGNATURE = `0x${'1'.repeat(130)}` as Hex;
+const DEADLINE = 2_000_000_000n;
 
 const ADDRESSES: RelayerAddresses = {
   agentFactory: '0x1111111111111111111111111111111111111111',
@@ -62,7 +64,7 @@ describe('sponsor relayer allowlist', () => {
     );
     relayer.assertCallAllowed(
       ADDRESSES.vaultFactory,
-      toFunctionSelector('function deploy(address,address,address,address)'),
+      toFunctionSelector('function deploy(address,address,address,address,uint256,bytes)'),
     );
     relayer.assertCallAllowed(
       ADDRESSES.systemContract,
@@ -103,15 +105,29 @@ describe('sponsor relayer allowlist', () => {
     expect(sent[0]?.value).toBe(0n);
   });
 
-  it('deployVault passes the owner, agent, and allowlisted pair', async () => {
+  it('waits for the factory read model to catch up with a confirmed deployment', async () => {
+    let reads = 0;
+    const { relayer } = makeHarness({
+      readAgentOf: async () => {
+        reads += 1;
+        return reads < 2 ? null : AGENT;
+      },
+    });
+    const deployment = await relayer.deployAgent(OWNER);
+
+    expect(deployment.address).toBe(AGENT);
+    expect(reads).toBe(2);
+  });
+
+  it('deployVault passes the owner signature, agent, deadline, and allowlisted pair', async () => {
     const { relayer, sent } = makeHarness({ readVaultOf: async () => VAULT });
-    const deployment = await relayer.deployVault(OWNER, AGENT);
+    const deployment = await relayer.deployVault(OWNER, AGENT, DEADLINE, SIGNATURE);
 
     expect(deployment.address).toBe(VAULT);
     expect(sent[0]?.to).toBe(ADDRESSES.vaultFactory);
     expect(
       sent[0]?.data.startsWith(
-        toFunctionSelector('function deploy(address,address,address,address)'),
+        toFunctionSelector('function deploy(address,address,address,address,uint256,bytes)'),
       ),
     ).toBe(true);
   });

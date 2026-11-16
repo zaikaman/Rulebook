@@ -8,7 +8,6 @@ import {AbstractCallback} from "@reactive/abstract-base/AbstractCallback.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
 import {
-    AgentNotLinked,
     CallbackSenderMismatch,
     ConditionNotMet,
     InsufficientPrincipal,
@@ -23,8 +22,7 @@ import {
 /// @title Vault
 /// @notice One user's funds-side account on Unichain Sepolia. Holds principal, enforces limits,
 /// and executes only when the linked Agent is the callback sender.
-/// @dev Authentication is inherited from Reactive's `AbstractCallback`; this contract never
-/// reimplements the proxy allowlist.
+/// @dev Callback authentication checks both the trusted proxy and the injected Reactive Agent ID.
 contract Vault is AbstractCallback, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -168,12 +166,10 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     /// @notice Reactive callback entry point. The `agent` argument is compared, never trusted.
     /// @dev Phase 2 ships authentication, the pause check, and payload decoding. The transfer
     /// path lands in T171 and the swap path in T174; until then no funds can move from here.
-    /// @dev A vault the Agent has not recorded through `linkVault` refuses every callback: a
-    /// deployment alone is not enough to move this vault's funds (FR-003).
+    /// @dev The factory deploys this Vault only against an owner signature that binds its Agent.
     function execute(address agent_, uint256 ruleId, bytes calldata data) external view {
         _authenticate(agent_);
         if (paused) revert ConditionNotMet();
-        _requireLinkedAgent();
         if (ruleId > type(uint32).max) revert InvalidTemplateParams();
         uint16 template = _decodeTemplate(data);
         if (template < 1 || template > 13) revert UnknownTemplate(uint8(template));
@@ -189,16 +185,6 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     function _authenticate(address agent_) private view {
         if (!senders[msg.sender]) revert NotServiceProvider();
         if (agent_ != agent) revert CallbackSenderMismatch(agent, agent_);
-    }
-
-    /// @dev Reads the Agent's destination-vault record. A failed or empty read is a refusal, so
-    /// a vault cannot execute merely because someone constructed it with this Agent address.
-    function _requireLinkedAgent() private view {
-        (bool ok, bytes memory data) =
-            agent.staticcall(abi.encodeCall(IAgentVaults.getVault, (block.chainid)));
-        if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) {
-            revert AgentNotLinked();
-        }
     }
 
     /// @dev The callback payload always starts with the template id.
@@ -219,8 +205,4 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         uint256 balance1 = token1 == address(0) ? 0 : IERC20(token1).balanceOf(address(this));
         emit Balances(token0, balance0, token1, balance1);
     }
-}
-
-interface IAgentVaults {
-    function getVault(uint256 chainId) external view returns (address vault);
 }

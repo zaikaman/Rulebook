@@ -1,7 +1,11 @@
 {
   "chainId": 1301,
-  "name": "Unichain Sepolia",
   "explorer": "https://sepolia.uniscan.xyz",
-  "contracts": [],
-  "updatedAt": null
+  "commit": "local-uncommitted",
+  "deployer": "0xC2500C19C77de23443AF5B559a3dADB283DAD41C",
+  "contracts": [
+    { "name": "RuleRegistry", "address": "0x5bC7900786B78a7e7d7c73F9eA62159783E3De18", "chainId": 1301, "explorer": "https://sepolia.uniscan.xyz" },
+    { "name": "AgentFactory", "address": "0x83bDcff4041e2B8b3490D4498c784CD2734F39fc", "chainId": 1301, "explorer": "https://sepolia.uniscan.xyz" },
+    { "name": "VaultFactory", "address": "0x50a816A84e532D9bAf7e5f463e3470473af52e64", "chainId": 1301, "explorer": "https://sepolia.uniscan.xyz" }
+  ]
 }

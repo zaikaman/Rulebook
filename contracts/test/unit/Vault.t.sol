@@ -6,7 +6,6 @@ import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
 import {Vault} from "../../src/vault/Vault.sol";
 import {
-    AgentNotLinked,
     CallbackSenderMismatch,
     ConditionNotMet,
     InvalidAmount,
@@ -71,13 +70,13 @@ contract VaultTest is Test {
         vault.execute(address(0xBAD), 1, "");
     }
 
-    function test_executeRejectsVaultTheAgentHasNotLinked() public {
+    function test_executeDoesNotReadAgentStateAcrossChains() public {
         agentRegistry.setLinkedVault(address(0));
         bytes memory validPayload = abi.encode(
             uint16(1), address(usdc), uint256(0), uint256(50), uint64(type(uint64).max), uint256(0)
         );
         vm.prank(address(proxy));
-        vm.expectRevert(AgentNotLinked.selector);
+        vm.expectRevert(ConditionNotMet.selector);
         vault.execute(address(agentRegistry), 1, validPayload);
     }
 

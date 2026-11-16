@@ -9,12 +9,7 @@ import {AgentFactory} from "../../src/agent/AgentFactory.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
 import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
-import {
-    AgentNotLinked,
-    InvalidTemplateParams,
-    NotAgent,
-    NotOwner
-} from "../../src/shared/Errors.sol";
+import {InvalidTemplateParams} from "../../src/shared/Errors.sol";
 import {Vault} from "../../src/vault/Vault.sol";
 import {VaultFactory} from "../../src/vault/VaultFactory.sol";
 import {MockCallbackProxy} from "../mocks/MockCallbackProxy.sol";
@@ -24,7 +19,10 @@ import {MockSystemContract} from "../mocks/MockSystemContract.sol";
 
 /// @notice Proves factory → agent → vault → registry wiring end to end, in the required order.
 contract OnboardingTest is Test {
-    address internal constant USER = address(0xA11CE);
+    uint256 internal constant USER_KEY = 0xA11CE;
+    uint256 internal constant STRANGER_KEY = 0xB0B;
+    address internal USER;
+    address internal STRANGER;
 
     MockSystemContract internal system;
     MockCallbackProxy internal proxy;
@@ -37,6 +35,8 @@ contract OnboardingTest is Test {
 
     function setUp() public {
         vm.chainId(1301);
+        USER = vm.addr(USER_KEY);
+        STRANGER = vm.addr(STRANGER_KEY);
         system = new MockSystemContract();
         proxy = new MockCallbackProxy();
         usdc = new MockERC20("USD Coin", "USDC", 6);
@@ -49,7 +49,7 @@ contract OnboardingTest is Test {
 
     function test_fullOnboardingWiring() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
 
         vm.prank(USER);
         Agent(agent).linkVault(1301, vault);
@@ -78,13 +78,15 @@ contract OnboardingTest is Test {
 
     function test_repeatedOnboardingDoesNotDuplicate() public {
         address agent = agentFactory.deploy(USER);
-        vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        _deployVault(USER, USER_KEY, agent);
 
         vm.expectRevert();
         agentFactory.deploy(USER);
 
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _authorization(USER, USER_KEY, agent, deadline);
         vm.expectRevert();
-        vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        vaultFactory.deploy(USER, agent, address(usdc), address(weth), deadline, signature);
     }
 
     function test_agentCanBeDeployedWithoutAVault() public {
@@ -93,34 +95,34 @@ contract OnboardingTest is Test {
         assertEq(Agent(agent).getVault(1301), address(0));
     }
 
-    function test_vaultDeployRejectsAnAddressWithNoAgentCode() public {
-        vm.expectRevert(NotAgent.selector);
-        vaultFactory.deploy(USER, address(0), address(usdc), address(weth));
+    function test_vaultDeploymentBindsOwnerAuthorizedRemoteAgent() public {
+        address vault = _deployVault(USER, USER_KEY, address(0xDEAD));
+        assertEq(Vault(payable(vault)).agent(), address(0xDEAD));
     }
 
     function test_linkVaultIsOwnerOnly() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
 
-        vm.prank(address(0xB0B));
+        vm.prank(STRANGER);
         vm.expectRevert();
         Agent(agent).linkVault(1301, vault);
     }
 
-    function test_linkVaultRejectsAVaultForAnotherAgent() public {
+    function test_linkVaultStoresOwnerAuthorizedCrossChainMetadata() public {
         address agent = agentFactory.deploy(USER);
         address strangerAgent = agentFactory.deploy(address(0xB0B));
         address strangerVault =
-            vaultFactory.deploy(address(0xB0B), strangerAgent, address(usdc), address(weth));
+            _deployVault(STRANGER, STRANGER_KEY, strangerAgent);
 
         vm.prank(USER);
-        vm.expectRevert(InvalidTemplateParams.selector);
         Agent(agent).linkVault(1301, strangerVault);
+        assertEq(Agent(agent).getVault(1301), strangerVault);
     }
 
     function test_linkVaultRejectsUnsupportedChainAndZeroAddress() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
 
         vm.startPrank(USER);
         vm.expectRevert(InvalidTemplateParams.selector);
@@ -132,7 +134,7 @@ contract OnboardingTest is Test {
 
     function test_linkVaultEmitsAndRefusesRelinkToAnotherVault() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
 
         vm.expectEmit(true, true, false, true, agent);
         emit Agent.VaultLinked(1301, vault);
@@ -144,15 +146,15 @@ contract OnboardingTest is Test {
         assertEq(Agent(agent).getVault(1301), vault);
     }
 
-    function test_unlinkedVaultRejectsExecute() public {
+    function test_callbackRemainsBoundToTheOwnerAuthorizedAgent() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
         bytes memory payload = abi.encode(
             uint16(1), address(usdc), uint256(0), uint256(50), uint64(type(uint64).max), uint256(0)
         );
 
         vm.prank(address(proxy));
-        vm.expectRevert(AgentNotLinked.selector);
+        vm.expectRevert();
         Vault(payable(vault)).execute(agent, 0, payload);
 
         vm.prank(USER);
@@ -165,7 +167,7 @@ contract OnboardingTest is Test {
 
     function test_withdrawReturnsTheFullPrincipalToTheOwner() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
         vm.prank(USER);
         Agent(agent).linkVault(1301, vault);
 
@@ -189,11 +191,49 @@ contract OnboardingTest is Test {
 
     function test_ownerIsNeverTheFactoryOrOperator() public {
         address agent = agentFactory.deploy(USER);
-        address vault = vaultFactory.deploy(USER, agent, address(usdc), address(weth));
+        address vault = _deployVault(USER, USER_KEY, agent);
         assertEq(Agent(agent).owner(), USER);
         assertEq(Vault(payable(vault)).owner(), USER);
         assertTrue(Agent(agent).owner() != address(agentFactory));
         assertTrue(Vault(payable(vault)).owner() != address(vaultFactory));
         assertEq(Vault(payable(vault)).agent(), agent);
+    }
+
+    function _deployVault(address owner, uint256 ownerKey, address agent) private returns (address) {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory signature = _authorization(owner, ownerKey, agent, deadline);
+        return vaultFactory.deploy(
+            owner, agent, address(usdc), address(weth), deadline, signature
+        );
+    }
+
+    function _authorization(address owner, uint256 ownerKey, address agent, uint256 deadline)
+        private
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                vaultFactory.VAULT_DEPLOYMENT_TYPEHASH(),
+                owner,
+                agent,
+                address(usdc),
+                address(weth),
+                vaultFactory.nonces(owner),
+                deadline
+            )
+        );
+        bytes32 domainSeparator = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256("Rulebook Vault Factory"),
+                keccak256("1"),
+                block.chainid,
+                address(vaultFactory)
+            )
+        );
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerKey, digest);
+        return abi.encodePacked(r, s, v);
     }
 }

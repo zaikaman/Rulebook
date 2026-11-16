@@ -14,7 +14,7 @@
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "migrate": "tsx scripts/migrate.ts",
+    "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
     "reindex": "tsx src/indexer/backfill.ts --reindex",
     "verify:reconcile": "tsx scripts/reconcile.ts"
   },

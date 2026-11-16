@@ -20,18 +20,17 @@ Free-plan constraints that shape the design:
 
 ## Decision
 
-1. **Project**: `Rulebook`, ref `onvbgrphxiobacsviire`, region `ap-northeast-1` (Tokyo),
-   Postgres 17.11, free plan, status `ACTIVE_HEALTHY` at creation.
-   Project URL: `https://onvbgrphxiobacsviire.supabase.co`.
-2. **Region**: Tokyo is the closest Supabase region to the target users. Heroku offers only
-   `us` and `eu`; the backend runs in `eu` to match the operator's existing apps, so a
-   cross-region hop is accepted. Indexing is asynchronous and never on a user request path,
-   so latency costs throughput, not correctness.
+1. **Project**: Reuse the existing Supabase project from the retired Second-Wind prototype,
+   ref `iexsnxlgxxjedmgulnpa`. Project URL: `https://iexsnxlgxxjedmgulnpa.supabase.co`.
+   Do not provision a second project for Rulebook.
+2. **Region**: Inherit the existing project's region. Indexing is asynchronous and never on a
+   user request path, so latency costs throughput, not correctness.
 3. **Everything is derived.** Every table is rebuildable from a block cursor plus the chain.
    No table is authoritative and none may hold state that cannot be reconstructed.
-4. **Backend-only access.** The service-role key lives in Heroku config vars and is used
-   only by the indexer/API. The SPA never receives a Supabase key — every read goes through
-   the API — so row-level security is defence in depth, not the security boundary.
+4. **Backend-only access.** The reused service-role key lives only in ignored local env files
+   or backend deployment config and is used only by the indexer/API. The SPA never receives
+   a Supabase key — every read goes through the API — so row-level security is defence in
+   depth, not the security boundary.
 5. **Keep-alive, if enabled, must be a real `SELECT`** against a small table. A HEAD request
    or health ping does not count as activity and will not prevent a pause. A pause is
    handled by the indexer on wake-up, which resumes from its stored cursor.
@@ -40,8 +39,10 @@ Free-plan constraints that shape the design:
 
 ## Consequence
 
-- Losing the project is a replay operation, not a restore. The indexer's cursor storage is
-  therefore the only state worth protecting, and it is small.
+- Rulebook uses distinct table names and migrations in the shared project; do not run the
+  Second-Wind migration set for Rulebook. Losing the project is a replay operation, not a
+  restore. The indexer's cursor storage is therefore the only state worth protecting, and it
+  is small.
 - The 500 MB cap is monitored as an operational metric; ingest must stay restricted to
   events referenced by rules plus their execution outcomes.
 - `psql` is not installed locally, so schema changes go through the Supabase CLI

@@ -1,8 +1,11 @@
 {
   "chainId": 5318007,
-  "name": "Reactive Lasna",
   "explorer": "https://reactscan.net",
-  "note": "Chain ID and explorer route confirmed against Reactive docs; re-confirm on-chain in spike 0.5 before trusting either value in a demo.",
-  "contracts": [],
-  "updatedAt": null
+  "commit": "local-uncommitted",
+  "deployer": "0xC2500C19C77de23443AF5B559a3dADB283DAD41C",
+  "contracts": [
+    { "name": "RuleRegistry", "address": "0x743Bd5c1DE57Fb4E4F88CF020dcfFAeE670b959e", "chainId": 5318007, "explorer": "https://reactscan.net" },
+    { "name": "AgentFactory", "address": "0xAcA7168a4f0aD5C5CAc670bc8F744B4b37790AC6", "chainId": 5318007, "explorer": "https://reactscan.net" },
+    { "name": "VaultFactory", "address": "0xb9Fc7944114539d01f177366dDE86f05A9197F4a", "chainId": 5318007, "explorer": "https://reactscan.net" }
+  ]
 }
