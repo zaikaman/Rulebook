@@ -66,76 +66,76 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### 2A. Contracts core (T023–T042)
 
-- [ ] T023 Create `contracts/src/shared/Errors.sol` with every custom error from `contracts/onchain-interfaces.md` §1 verbatim — no revert strings anywhere in `contracts/src/`.
-- [ ] T024 [P] Write failing tests first for reserve→price math, slippage, and scale rounding in `contracts/test/unit/PriceMath.t.sol` (price scaled 1e18; `scaleBps` rounds down; zero-reserve reverts).
-- [ ] T025 Implement `contracts/src/libraries/PriceMath.sol` until T024 is green: `priceFromReserves`, `expectedOut`, `applySlippage`, `scaleAmount`.
-- [ ] T026 [P] Write failing tests first for struct packing and validation in `contracts/test/unit/RuleLib.t.sol`, covering every rule in `data-model.md` §1.1: `template ∈ 1..13`, `amountIn > 0` for money templates and `== 0` for alert templates, `threshold > 0` for threshold templates, `pair != 0` for price templates, `tokenOut != 0` for swap templates, `secondary` bounds (trailing ≤ 10000 bps, inactivity 1..365 days).
-- [ ] T027 Implement `contracts/src/libraries/RuleLib.sol` (pack/unpack into the 8-slot layout from `data-model.md` §1.1, `validate`, `paramsHash`) until T026 is green.
-- [ ] T028 [P] Create `contracts/src/chain/ChainConfig.sol`: the single per-chain constant module keyed by chain ID (system contract, callback proxy, router, WETH, USDC, pair) for `5318007` and `1301` only; no address literal may appear anywhere else in `src/`.
-- [ ] T029 [P] Build the mock suite in `contracts/test/mocks/`: `MockSystemContract` (records `requestCallbackV_1_0`, serves a settable `getCallbacks` array, tracks `reserves`/`debt`), `MockPair` (real `getReserves`, settable, emits `Sync`), `MockRouter`, `MockERC20`, `MockCallbackProxy`.
-- [ ] T030 [P] Write failing tests first in `contracts/test/unit/Agent.t.sol`: `react()` rejects non-system caller, `addRule` rejects non-owner, rule limit of 5 reverts `RuleLimitReached`, `RuleCreated` emitted with correct `template`, `getRuleIds()` returns evaluation order.
-- [ ] T031 Implement `contracts/src/agent/Agent.sol` storage, `addRule` with full `RuleLib.validate`, `pauseRule`/`resumeRule`/`cancelRule`/`resetRule`/`reorderRules`/`linkVault` skeletons, and all views from `contracts/onchain-interfaces.md` §2 until T030 is green.
-- [ ] T032 [P] Write failing tests first in `contracts/test/unit/Vault.t.sol`: wrong proxy sender reverts `NotServiceProvider`; wrong first argument reverts `CallbackSenderMismatch`; non-owner `withdraw` reverts; `setLimits` enforces allowlist; `paused` blocks `execute` but not `withdraw`; `Balances` emitted after deposit and withdraw.
-- [ ] T033 Implement `contracts/src/vault/Vault.sol` inheriting Reactive's `AbstractCallback` with `constructor(IPayable proxy, address agent, address router)` restrictions, plus `withdraw`, `setPayoutAddress`, `setLimits`, `setPaused`, `principalOf`, and the `execute` skeleton until T032 is green.
-- [ ] T034 [P] Write failing tests first in `contracts/test/unit/VaultFactory.t.sol`: deploy requires an existing agent, owner is set to the user, `vaultOf(owner)` is populated, a second deploy for the same `(owner, chainId)` reverts `AgentAlreadyLinked`, `VaultDeployed` emitted.
-- [ ] T035 Implement `contracts/src/vault/VaultFactory.sol` until T034 is green.
-- [ ] T036 [P] Write failing tests first in `contracts/test/unit/AgentFactory.t.sol`: one agent per owner, owner set to the user, `agentOf` populated, `AgentDeployed` emitted, redeploy reverts.
-- [ ] T037 Implement `contracts/src/agent/AgentFactory.sol` until T036 is green.
-- [ ] T038 [P] Write failing tests first in `contracts/test/unit/RuleRegistry.t.sol`: only the listing author may `list`/`delist`, `paramsHash` is stable for identical params, `listingCount` increments, and no function on the contract can move funds or call a vault.
-- [ ] T039 Implement `contracts/src/registry/RuleRegistry.sol` until T038 is green.
-- [ ] T040 Write `contracts/test/integration/Onboarding.t.sol` proving factory → agent → vault → registry wiring end to end against the mocks from T029.
-- [ ] T041 Write `contracts/script/Deploy.s.sol` deploying both factories and the registry, reading addresses from `ChainConfig`, and writing `deployments/{lasna,unichain-sepolia}.json` entries with chain ID, address, contract name, commit SHA, deployer, explorer link.
-- [ ] T042 Add `contracts/.gas-snapshot` (`forge snapshot`) and `scripts/coverage-gate.mjs` asserting ≥90% branch coverage on `Agent`, `Vault`, `AgentFactory`, `VaultFactory`, `RuleRegistry`; wire both into the CI job from T006.
+- [x] T023 Create `contracts/src/shared/Errors.sol` with every custom error from `contracts/onchain-interfaces.md` §1 verbatim — no revert strings anywhere in `contracts/src/`.
+- [x] T024 [P] Write failing tests first for reserve→price math, slippage, and scale rounding in `contracts/test/unit/PriceMath.t.sol` (price scaled 1e18; `scaleBps` rounds down; zero-reserve reverts).
+- [x] T025 Implement `contracts/src/libraries/PriceMath.sol` until T024 is green: `priceFromReserves`, `expectedOut`, `applySlippage`, `scaleAmount`.
+- [x] T026 [P] Write failing tests first for struct packing and validation in `contracts/test/unit/RuleLib.t.sol`, covering every rule in `data-model.md` §1.1: `template ∈ 1..13`, `amountIn > 0` for money templates and `== 0` for alert templates, `threshold > 0` for threshold templates, `pair != 0` for price templates, `tokenOut != 0` for swap templates, `secondary` bounds (trailing ≤ 10000 bps, inactivity 1..365 days).
+- [x] T027 Implement `contracts/src/libraries/RuleLib.sol` (pack/unpack into the 8-slot layout from `data-model.md` §1.1, `validate`, `paramsHash`) until T026 is green.
+- [x] T028 [P] Create `contracts/src/chain/ChainConfig.sol`: the single per-chain constant module keyed by chain ID (system contract, callback proxy, router, WETH, USDC, pair) for `5318007` and `1301` only; no address literal may appear anywhere else in `src/`.
+- [x] T029 [P] Build the mock suite in `contracts/test/mocks/`: `MockSystemContract` (records `requestCallbackV_1_0`, serves a settable `getCallbacks` array, tracks `reserves`/`debt`), `MockPair` (real `getReserves`, settable, emits `Sync`), `MockRouter`, `MockERC20`, `MockCallbackProxy`.
+- [x] T030 [P] Write failing tests first in `contracts/test/unit/Agent.t.sol`: `react()` rejects non-system caller, `addRule` rejects non-owner, rule limit of 5 reverts `RuleLimitReached`, `RuleCreated` emitted with correct `template`, `getRuleIds()` returns evaluation order.
+- [x] T031 Implement `contracts/src/agent/Agent.sol` storage, `addRule` with full `RuleLib.validate`, `pauseRule`/`resumeRule`/`cancelRule`/`resetRule`/`reorderRules`/`linkVault` skeletons, and all views from `contracts/onchain-interfaces.md` §2 until T030 is green.
+- [x] T032 [P] Write failing tests first in `contracts/test/unit/Vault.t.sol`: wrong proxy sender reverts `NotServiceProvider`; wrong first argument reverts `CallbackSenderMismatch`; non-owner `withdraw` reverts; `setLimits` enforces allowlist; `paused` blocks `execute` but not `withdraw`; `Balances` emitted after deposit and withdraw.
+- [x] T033 Implement `contracts/src/vault/Vault.sol` inheriting Reactive's `AbstractCallback` with `constructor(IPayable proxy, address agent, address router)` restrictions, plus `withdraw`, `setPayoutAddress`, `setLimits`, `setPaused`, `principalOf`, and the `execute` skeleton until T032 is green.
+- [x] T034 [P] Write failing tests first in `contracts/test/unit/VaultFactory.t.sol`: deploy requires an existing agent, owner is set to the user, `vaultOf(owner)` is populated, a second deploy for the same `(owner, chainId)` reverts `AgentAlreadyLinked`, `VaultDeployed` emitted.
+- [x] T035 Implement `contracts/src/vault/VaultFactory.sol` until T034 is green.
+- [x] T036 [P] Write failing tests first in `contracts/test/unit/AgentFactory.t.sol`: one agent per owner, owner set to the user, `agentOf` populated, `AgentDeployed` emitted, redeploy reverts.
+- [x] T037 Implement `contracts/src/agent/AgentFactory.sol` until T036 is green.
+- [x] T038 [P] Write failing tests first in `contracts/test/unit/RuleRegistry.t.sol`: only the listing author may `list`/`delist`, `paramsHash` is stable for identical params, `listingCount` increments, and no function on the contract can move funds or call a vault.
+- [x] T039 Implement `contracts/src/registry/RuleRegistry.sol` until T038 is green.
+- [x] T040 Write `contracts/test/integration/Onboarding.t.sol` proving factory → agent → vault → registry wiring end to end against the mocks from T029.
+- [x] T041 Write `contracts/script/Deploy.s.sol` deploying both factories and the registry, reading addresses from `ChainConfig`, and writing `deployments/{lasna,unichain-sepolia}.json` entries with chain ID, address, contract name, commit SHA, deployer, explorer link.
+- [x] T042 Add `contracts/.gas-snapshot` (`forge snapshot`) and `scripts/coverage-gate.mjs` asserting ≥90% branch coverage on `Agent`, `Vault`, `AgentFactory`, `VaultFactory`, `RuleRegistry`; wire both into the CI job from T006.
 
 ### 2B. Shared package (T043–T052)
 
-- [ ] T043 Write `packages/shared/manifest/templates.json` declaring all 13 templates from `spec.md` §5 with `id`, `name`, `category` (`trading`/`personal`/`alert`), `trigger`, `condition`, `action`, `sentence`, and `slots[]` (key, kind, label, required, min, max, unit) — including the documented caveats: #2 has no indicators, #6 is a price band not a portfolio ratio, #9 listens to `Balances`, #12 watches a price range not a V3 position.
-- [ ] T044 Write `packages/shared/scripts/generate.ts` emitting `packages/shared/src/generated/templates.ts`, `contracts/src/libraries/TemplateCatalog.sol`, `docs/catalog.md`'s table, and `contracts/test/templates/fixtures.generated.ts` from the single manifest.
-- [ ] T045 [P] Write `packages/shared/test/generate.test.ts` asserting the generator is idempotent (second run produces byte-identical output) and that the manifest validates against its JSON schema, with 13 unique ids and every slot reachable.
-- [ ] T046 Create `packages/shared/src/chains.ts`: typed per-chain config keyed by chain ID (name, role, RPC default, explorer URL, router, WETH, USDC, pair, callback proxy, system contract) for `5318007` and `1301`, plus `supportedTemplates` per chain.
-- [ ] T047 [P] Write `packages/shared/src/schemas.ts` with zod schemas for `Address`, `TxHash`, `Uint256` (decimal string → `bigint`, reject > `2^256-1`), `Rule`, `Execution`, `Proof`, `Listing`, `Account`, `SponsorStatus`, `Health`; export inferred TS types only — no hand-written duplicates.
-- [ ] T048 Write `packages/shared/scripts/copy-abis.ts` copying `contracts/out/**/*.json` ABIs into `packages/shared/src/abi/` and generating a typed `index.ts`; add a CI check that the committed ABIs match a fresh build.
-- [ ] T049 Write `packages/shared/src/encode.ts`: `encodeAddRule(agentAddress, draft)` via viem `encodeFunctionData`, `readableSentence(draft)`, and `missingSlots(draft)`; reject free-text and unknown slot keys; reject `tokenIn == tokenOut`.
-- [ ] T050 [P] Write `packages/shared/test/encode.test.ts` with golden calldata per template (13 cases), a missing-slot case per template, a conflicting-slot case, and a guarantee that no encoding path accepts an unvalidated string.
-- [ ] T051 [P] Write `contracts/test/unit/TemplateCatalog.t.sol` asserting the generated Solidity constants equal `packages/shared/manifest/templates.json` (parameter counts, ids, categories) so a manifest edit cannot silently desynchronise the contract.
-- [ ] T052 [P] Write `packages/shared/manifest/seed-rules.json` with 3–4 team-authored public rules (DCA, limit buy, stop loss, price alert), each flagged `authorBadge: "team"`.
+- [x] T043 Write `packages/shared/manifest/templates.json` declaring all 13 templates from `spec.md` §5 with `id`, `name`, `category` (`trading`/`personal`/`alert`), `trigger`, `condition`, `action`, `sentence`, and `slots[]` (key, kind, label, required, min, max, unit) — including the documented caveats: #2 has no indicators, #6 is a price band not a portfolio ratio, #9 listens to `Balances`, #12 watches a price range not a V3 position.
+- [x] T044 Write `packages/shared/scripts/generate.ts` emitting `packages/shared/src/generated/templates.ts`, `contracts/src/libraries/TemplateCatalog.sol`, `docs/catalog.md`'s table, and `contracts/test/templates/fixtures.generated.ts` from the single manifest.
+- [x] T045 [P] Write `packages/shared/test/generate.test.ts` asserting the generator is idempotent (second run produces byte-identical output) and that the manifest validates against its JSON schema, with 13 unique ids and every slot reachable.
+- [x] T046 Create `packages/shared/src/chains.ts`: typed per-chain config keyed by chain ID (name, role, RPC default, explorer URL, router, WETH, USDC, pair, callback proxy, system contract) for `5318007` and `1301`, plus `supportedTemplates` per chain.
+- [x] T047 [P] Write `packages/shared/src/schemas.ts` with zod schemas for `Address`, `TxHash`, `Uint256` (decimal string → `bigint`, reject > `2^256-1`), `Rule`, `Execution`, `Proof`, `Listing`, `Account`, `SponsorStatus`, `Health`; export inferred TS types only — no hand-written duplicates.
+- [x] T048 Write `packages/shared/scripts/copy-abis.ts` copying `contracts/out/**/*.json` ABIs into `packages/shared/src/abi/` and generating a typed `index.ts`; add a CI check that the committed ABIs match a fresh build.
+- [x] T049 Write `packages/shared/src/encode.ts`: `encodeAddRule(agentAddress, draft)` via viem `encodeFunctionData`, `readableSentence(draft)`, and `missingSlots(draft)`; reject free-text and unknown slot keys; reject `tokenIn == tokenOut`.
+- [x] T050 [P] Write `packages/shared/test/encode.test.ts` with golden calldata per template (13 cases), a missing-slot case per template, a conflicting-slot case, and a guarantee that no encoding path accepts an unvalidated string.
+- [x] T051 [P] Write `contracts/test/unit/TemplateCatalog.t.sol` asserting the generated Solidity constants equal `packages/shared/manifest/templates.json` (parameter counts, ids, categories) so a manifest edit cannot silently desynchronise the contract.
+- [x] T052 [P] Write `packages/shared/manifest/seed-rules.json` with 3–4 team-authored public rules (DCA, limit buy, stop loss, price alert), each flagged `authorBadge: "team"`.
 
 ### 2C. Backend shell and indexer spine (T053–T072)
 
-- [ ] T053 Write `backend/src/config.ts` parsing every env var with zod (`PORT`, `NODE_ENV`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `LASNA_RPC_URL`, `UNICHAIN_RPC_URL`, `INDEXER_ENABLED`, `INDEXER_START_BLOCK_LASNA`, `INDEXER_START_BLOCK_UNICHAIN`, `SPONSOR_PRIVATE_KEY`), failing fast with a readable list of missing vars.
-- [ ] T054 [P] Write `backend/db/migrations/0001_init.sql` creating every table and index from `data-model.md` §2 with its constraints verbatim: `rules.status` CHECK in (`active`,`paused`,`cancelled`), PK `(agent, rule_id)`, PK `(chain_id, tx_hash, log_index)`, PK `(reactive_tx_hash, callback_index)`, `mirrors.scale_bps <= 10000`, `mirrors.hourly_cap BETWEEN 1 AND 10`.
-- [ ] T055 Write `backend/scripts/migrate.ts` applying `db/migrations/*.sql` in order against Supabase (and a local Postgres for tests) with a `schema_migrations` table; expose `npm run migrate`.
-- [ ] T056 Write `backend/src/db/client.ts` creating the service-role Supabase client (server only) plus a `probeDatabase()` used by health and the keep-alive job.
-- [ ] T057 Write `backend/src/chain/clients.ts` with viem clients for Lasna and Unichain Sepolia using fallback transports (primary + documented alternate RPC) and chain-scoped helpers.
-- [ ] T058 Write `backend/src/server.ts` bootstrapping Fastify: pino logger, CORS allowlist from config, request ids, zod validation, and a global error handler emitting the `Error` schema from `contracts/http-api.yaml` with the underlying chain error preserved.
-- [ ] T059 Write `backend/src/api/routes/health.ts` returning indexer enabled state, lag seconds, per-chain cursors, database reachability, `paused_hint`, and per-chain RPC health.
-- [ ] T060 Write `backend/src/api/routes/chains.ts` returning chains and the template catalog from `packages/shared`.
-- [ ] T061 [P] Write `backend/test/api/contract.test.ts` validating every response against the zod schemas and asserting the route set equals the paths declared in `contracts/http-api.yaml`.
-- [ ] T062 Write `backend/src/indexer/cursors.ts`: get/set per-chain cursor with block hash, guarded against regression beyond confirmation depth.
-- [ ] T063 Write `backend/src/indexer/poller.ts`: cursor-driven `getLogs` in bounded ranges, confirmation depth 12 (Unichain) and 20 (Lasna), exponential backoff, graceful shutdown, and in-flight range protection on restart.
-- [ ] T064 Write `backend/src/indexer/decoders/index.ts` mapping `topic0` → decoder for every event in `contracts/onchain-interfaces.md` §8, each decoded then validated by a zod schema before any write.
-- [ ] T065 [P] Write `backend/test/indexer/idempotency.test.ts` replaying the same log fixture twice and asserting one row, plus a reorg fixture that removes a row whose tx no longer exists.
-- [ ] T066 Write repositories in `backend/src/db/repositories/` (agents, vaults, rules, rule_events, executions, callbacks, mirrors, listings, price_observations, sponsor_ledger) with idempotent upserts on the keys from `data-model.md` §2.
-- [ ] T067 Write `backend/src/indexer/backfill.ts` and `npm run reindex` to truncate derived tables, reset cursors to the configured start blocks, and replay — the Constitution V runbook must be executable by this command.
-- [ ] T068 Write `backend/scripts/reconcile.ts` (`npm run verify:reconcile`) comparing each rule's `runs` against `count(executions)` and exiting non-zero on any mismatch.
-- [ ] T069 Create the `dead_letter` table migration and write path in `backend/src/indexer/deadLetter.ts`; surface the count in `/health` so an undecodable log is never silently dropped.
-- [ ] T070 [P] Write `backend/src/jobs/keepalive.ts` performing a real `SELECT` against a table (not an RPC returning a constant) once per day, plus the Heroku Scheduler entry in `docs/runbooks/top-up-reserves.md`… keep-alive instructions live in `docs/decisions/0002-supabase-project.md`.
-- [ ] T071 Add `backend/Procfile` (`web: node dist/server.js`) and `heroku-postbuild` building `packages/shared` then `backend`; bind `0.0.0.0:$PORT` and verify a Heroku deploy serves `/health`.
-- [ ] T072 Write `backend/src/api/middleware/errorMap.ts` translating contract custom-error selectors into `{code, message, detail}` while preserving the raw selector (FR-051), and unit-test it against the selectors in `contracts/src/shared/Errors.sol`.
+- [x] T053 Write `backend/src/config.ts` parsing every env var with zod (`PORT`, `NODE_ENV`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `LASNA_RPC_URL`, `UNICHAIN_RPC_URL`, `INDEXER_ENABLED`, `INDEXER_START_BLOCK_LASNA`, `INDEXER_START_BLOCK_UNICHAIN`, `SPONSOR_PRIVATE_KEY`), failing fast with a readable list of missing vars.
+- [x] T054 [P] Write `backend/db/migrations/0001_init.sql` creating every table and index from `data-model.md` §2 with its constraints verbatim: `rules.status` CHECK in (`active`,`paused`,`cancelled`), PK `(agent, rule_id)`, PK `(chain_id, tx_hash, log_index)`, PK `(reactive_tx_hash, callback_index)`, `mirrors.scale_bps <= 10000`, `mirrors.hourly_cap BETWEEN 1 AND 10`.
+- [x] T055 Write `backend/scripts/migrate.ts` applying `db/migrations/*.sql` in order against Supabase (and a local Postgres for tests) with a `schema_migrations` table; expose `npm run migrate`.
+- [x] T056 Write `backend/src/db/client.ts` creating the service-role Supabase client (server only) plus a `probeDatabase()` used by health and the keep-alive job.
+- [x] T057 Write `backend/src/chain/clients.ts` with viem clients for Lasna and Unichain Sepolia using fallback transports (primary + documented alternate RPC) and chain-scoped helpers.
+- [x] T058 Write `backend/src/server.ts` bootstrapping Fastify: pino logger, CORS allowlist from config, request ids, zod validation, and a global error handler emitting the `Error` schema from `contracts/http-api.yaml` with the underlying chain error preserved.
+- [x] T059 Write `backend/src/api/routes/health.ts` returning indexer enabled state, lag seconds, per-chain cursors, database reachability, `paused_hint`, and per-chain RPC health.
+- [x] T060 Write `backend/src/api/routes/chains.ts` returning chains and the template catalog from `packages/shared`.
+- [x] T061 [P] Write `backend/test/api/contract.test.ts` validating every response against the zod schemas and asserting the route set equals the paths declared in `contracts/http-api.yaml`.
+- [x] T062 Write `backend/src/indexer/cursors.ts`: get/set per-chain cursor with block hash, guarded against regression beyond confirmation depth.
+- [x] T063 Write `backend/src/indexer/poller.ts`: cursor-driven `getLogs` in bounded ranges, confirmation depth 12 (Unichain) and 20 (Lasna), exponential backoff, graceful shutdown, and in-flight range protection on restart.
+- [x] T064 Write `backend/src/indexer/decoders/index.ts` mapping `topic0` → decoder for every event in `contracts/onchain-interfaces.md` §8, each decoded then validated by a zod schema before any write.
+- [x] T065 [P] Write `backend/test/indexer/idempotency.test.ts` replaying the same log fixture twice and asserting one row, plus a reorg fixture that removes a row whose tx no longer exists.
+- [x] T066 Write repositories in `backend/src/db/repositories/` (agents, vaults, rules, rule_events, executions, callbacks, mirrors, listings, price_observations, sponsor_ledger) with idempotent upserts on the keys from `data-model.md` §2.
+- [x] T067 Write `backend/src/indexer/backfill.ts` and `npm run reindex` to truncate derived tables, reset cursors to the configured start blocks, and replay — the Constitution V runbook must be executable by this command.
+- [x] T068 Write `backend/scripts/reconcile.ts` (`npm run verify:reconcile`) comparing each rule's `runs` against `count(executions)` and exiting non-zero on any mismatch.
+- [x] T069 Create the `dead_letter` table migration and write path in `backend/src/indexer/deadLetter.ts`; surface the count in `/health` so an undecodable log is never silently dropped.
+- [x] T070 [P] Write `backend/src/jobs/keepalive.ts` performing a real `SELECT` against a table (not an RPC returning a constant) once per day, plus the Heroku Scheduler entry in `docs/runbooks/top-up-reserves.md`… keep-alive instructions live in `docs/decisions/0002-supabase-project.md`.
+- [x] T071 Add `backend/Procfile` (`web: node dist/server.js`) and `heroku-postbuild` building `packages/shared` then `backend`; bind `0.0.0.0:$PORT` and verify a Heroku deploy serves `/health`.
+- [x] T072 Write `backend/src/api/middleware/errorMap.ts` translating contract custom-error selectors into `{code, message, detail}` while preserving the raw selector (FR-051), and unit-test it against the selectors in `contracts/src/shared/Errors.sol`.
 
 ### 2D. Frontend shell (T073–T083)
 
-- [ ] T073 Write `frontend/src/lib/wagmi.ts`: two-chain config (Lasna `5318007`, Unichain Sepolia `1301`), injected + WalletConnect connectors (`VITE_WALLETCONNECT_PROJECT_ID`), and chain-scoped write helpers that refuse a write on the wrong chain.
-- [ ] T074 Write `frontend/src/lib/api.ts`: typed fetch wrapper that parses every response with the zod schemas from `packages/shared`, throws an `ApiError` carrying `code`/`detail`/HTTP status, and never casts with `any`.
-- [ ] T075 Write `frontend/src/main.tsx` and `frontend/src/app/router.tsx` with the eight routes from `plan.md`: `/`, `/create`, `/rules/:agent/:ruleId`, `/proof/:reactiveTxHash`, `/marketplace`, `/leaderboard`, `/account`, `/cost`.
-- [ ] T076 Write `frontend/src/components/AppShell.tsx`: header, wallet connect/disconnect, active-network indicator, nav, and the footer line stating that the operator never holds custody.
-- [ ] T077 [P] Write `frontend/src/components/NetworkBadge.tsx` reading labels from `packages/shared/src/chains.ts`; the same component is used on every signature surface.
-- [ ] T078 [P] Write `frontend/src/components/TxLink.tsx` building explorer URLs from the per-chain config only — no hard-coded explorer hosts in components.
-- [ ] T079 [P] Write `frontend/src/components/StatusPill.tsx` rendering `active`, `paused`, `cancelled`, `latched`, `silent` (budget exhausted) with distinct styling; `latched` and `silent` must never look like `active`.
-- [ ] T080 [P] Write `frontend/src/components/BalanceTrio.tsx` showing principal, funds-side execution cost, and watching-side credit as three separately labelled figures (FR-008) — the component has no API for merging them.
-- [ ] T081 [P] Write `frontend/src/components/ErrorState.tsx` + `frontend/src/app/ErrorBoundary.tsx` rendering the chain selector next to a plain-language message (FR-051).
-- [ ] T082 [P] Configure `frontend/src/lib/queryClient.ts` (TanStack Query defaults: 30s stale for chain reads, no retry on 4xx, retry twice on 5xx).
-- [ ] T083 Write `frontend/test/deeplink.test.ts` asserting the `vercel.json` rewrite serves `/proof/:hash` and `/rules/:agent/:id` to `index.html`.
+- [x] T073 Write `frontend/src/lib/wagmi.ts`: two-chain config (Lasna `5318007`, Unichain Sepolia `1301`), injected + WalletConnect connectors (`VITE_WALLETCONNECT_PROJECT_ID`), and chain-scoped write helpers that refuse a write on the wrong chain.
+- [x] T074 Write `frontend/src/lib/api.ts`: typed fetch wrapper that parses every response with the zod schemas from `packages/shared`, throws an `ApiError` carrying `code`/`detail`/HTTP status, and never casts with `any`.
+- [x] T075 Write `frontend/src/main.tsx` and `frontend/src/app/router.tsx` with the eight routes from `plan.md`: `/`, `/create`, `/rules/:agent/:ruleId`, `/proof/:reactiveTxHash`, `/marketplace`, `/leaderboard`, `/account`, `/cost`.
+- [x] T076 Write `frontend/src/components/AppShell.tsx`: header, wallet connect/disconnect, active-network indicator, nav, and the footer line stating that the operator never holds custody.
+- [x] T077 [P] Write `frontend/src/components/NetworkBadge.tsx` reading labels from `packages/shared/src/chains.ts`; the same component is used on every signature surface.
+- [x] T078 [P] Write `frontend/src/components/TxLink.tsx` building explorer URLs from the per-chain config only — no hard-coded explorer hosts in components.
+- [x] T079 [P] Write `frontend/src/components/StatusPill.tsx` rendering `active`, `paused`, `cancelled`, `latched`, `silent` (budget exhausted) with distinct styling; `latched` and `silent` must never look like `active`.
+- [x] T080 [P] Write `frontend/src/components/BalanceTrio.tsx` showing principal, funds-side execution cost, and watching-side credit as three separately labelled figures (FR-008) — the component has no API for merging them.
+- [x] T081 [P] Write `frontend/src/components/ErrorState.tsx` + `frontend/src/app/ErrorBoundary.tsx` rendering the chain selector next to a plain-language message (FR-051).
+- [x] T082 [P] Configure `frontend/src/lib/queryClient.ts` (TanStack Query defaults: 30s stale for chain reads, no retry on 4xx, retry twice on 5xx).
+- [x] T083 Write `frontend/test/deeplink.test.ts` asserting the `vercel.json` rewrite serves `/proof/:hash` and `/rules/:agent/:id` to `index.html`.
 
 ---
 

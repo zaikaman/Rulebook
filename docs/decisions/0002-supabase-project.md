@@ -48,3 +48,15 @@ Free-plan constraints that shape the design:
   (`supabase link` then `supabase db push`) or the dashboard SQL editor.
 - A `--output json` capability exists on the CLI, so provisioning details above are
   reproducible with `supabase projects list --output json`.
+
+## Keep-alive job
+
+Heroku Scheduler runs one daily command from the backend dyno's working directory:
+
+```
+node dist/jobs/keepalive.js
+```
+
+It performs a real `SELECT` against `indexer_cursors` (not a health ping), which counts as
+project activity and defers the free-plan pause. If the project is paused anyway, the
+indexer resumes from its stored cursor on the next request.

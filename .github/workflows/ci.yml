@@ -29,8 +29,10 @@ jobs:
         run: forge build
       - name: Test
         run: forge test
-      - name: Coverage
-        run: forge coverage --report summary
+      - name: Gas snapshot
+        run: forge snapshot --check
+      - name: Coverage gate
+        run: node ../scripts/coverage-gate.mjs
 
   node:
     name: node
@@ -42,8 +44,14 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - uses: foundry-rs/foundry-toolchain@v1
       - name: Build shared package
         run: npm run build -w packages/shared
+      - name: Verify generated artifacts
+        run: |
+          npm run build -w contracts
+          npm run generate -w packages/shared
+          git diff --exit-code
       - name: Typecheck
         run: |
           npm run typecheck -w packages/shared

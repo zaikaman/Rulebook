@@ -22,7 +22,8 @@
     "format:check": "prettier --check .",
     "generate": "npm run generate -w packages/shared",
     "check": "node scripts/check.mjs",
-    "prepare": "husky"
+    "prepare": "husky",
+    "heroku-postbuild": "npm run build -w packages/shared && npm run build -w backend"
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",

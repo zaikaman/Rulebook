@@ -53,7 +53,13 @@ export default [
   },
   {
     // Scripts and the indexer legitimately log.
-    files: ['scripts/**/*.mjs', 'backend/scripts/**/*.ts', 'backend/src/indexer/**/*.ts'],
+    files: [
+      'scripts/**/*.mjs',
+      'packages/shared/scripts/**/*.ts',
+      'backend/scripts/**/*.ts',
+      'backend/src/indexer/**/*.ts',
+      'backend/src/jobs/**/*.ts',
+    ],
     rules: { 'no-console': 'off' },
   },
 ];

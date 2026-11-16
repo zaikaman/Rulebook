@@ -21,7 +21,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "generate": "tsx scripts/generate.ts"
+    "generate": "tsx scripts/copy-abis.ts && tsx scripts/generate.ts"
   },
   "dependencies": {
     "viem": "^2.21.0",

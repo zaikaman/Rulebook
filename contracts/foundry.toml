@@ -12,7 +12,10 @@ via_ir = false
 bytecode_hash = "none"
 cbor_metadata = false
 # TemplateCatalog.sol is generated from the shared manifest; the parity test reads it back.
-fs_permissions = [{ access = "read", path = "../packages/shared/manifest" }]
+fs_permissions = [
+  { access = "read", path = "../packages/shared/manifest" },
+  { access = "read-write", path = "../deployments" },
+]
 
 [profile.default.fuzz]
 runs = 512

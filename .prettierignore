@@ -7,6 +7,9 @@ broadcast/
 coverage/
 contracts/lib/
 packages/shared/src/generated/
+packages/shared/src/abi/
+contracts/test/templates/fixtures.generated.ts
+docs/catalog.md
 package-lock.json
 playwright-report/
 test-results/
