@@ -1,0 +1,703 @@
+openapi: 3.1.0
+info:
+  title: Rulebook Read API
+  version: 0.1.0
+  description: |
+    API serving the Rulebook frontend from the Supabase-derived index, plus the sponsor
+    relayer used only during onboarding.
+
+    **No endpoint here can create, modify, pause, or cancel a rule, and none can move
+    principal.** Rule changes are signed by the user's wallet against the Agent contract
+    on Lasna; every fund movement happens on Unichain Sepolia inside the user's own Vault.
+
+    Exactly two write endpoints exist and both are sponsor-only:
+    `POST /v1/onboarding` deploys the user's Agent and Vault (both owned by the requested
+    address, never by the operator), and `POST /v1/starter-funds` sends demo tokens into
+    that user's Vault. The sponsor key behind them can only call factory `deploy`,
+    `depositTo`, and fixed demo-token transfers. It holds no admin right over any Vault,
+    cannot withdraw principal, and cannot reach a rule. Scope, caps, and rotation are
+    recorded in `docs/decisions/0003-sponsor-relayer-key.md`.
+
+    Every response is validated against a zod schema in `packages/shared/src/schemas.ts`
+    before serialization. Amounts and ids are uint256 and therefore serialized as decimal
+    strings, never JSON numbers.
+servers:
+  - url: https://api.rulebook.example
+    description: Production (Heroku)
+  - url: http://localhost:8787
+    description: Local
+
+tags:
+  - name: health
+  - name: chains
+  - name: accounts
+  - name: rules
+  - name: executions
+  - name: proofs
+  - name: marketplace
+  - name: sponsor
+
+components:
+  securitySchemes:
+    none:
+      type: apiKey
+      in: header
+      name: X-Read-Only
+      description: Placeholder for symmetry; the API is public and unauthenticated.
+
+  parameters:
+    AgentAddress:
+      name: agent
+      in: path
+      required: true
+      schema: { type: string, pattern: '^0x[a-fA-F0-9]{40}$' }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[0-9]+$', description: uint256 as decimal string }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+      description: Opaque pagination cursor returned by the previous page.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+
+  schemas:
+    Uint256:
+      type: string
+      pattern: '^[0-9]+$'
+      description: uint256 encoded as a decimal string (values exceed JSON safe integers).
+    Address:
+      type: string
+      pattern: '^0x[a-fA-F0-9]{40}$'
+    TxHash:
+      type: string
+      pattern: '^0x[a-fA-F0-9]{64}$'
+    BlockTime:
+      type: string
+      format: date-time
+
+    Health:
+      type: object
+      required: [status, indexer, database, chains]
+      properties:
+        status: { type: string, enum: [ok, degraded, down] }
+        indexer:
+          type: object
+          required: [enabled, lag_seconds, cursors]
+          properties:
+            enabled: { type: boolean }
+            lag_seconds: { type: integer }
+            cursors:
+              type: array
+              items:
+                type: object
+                required: [chain_id, last_block, updated_at]
+                properties:
+                  chain_id: { type: integer }
+                  last_block: { type: integer }
+                  updated_at: { type: string, format: date-time }
+        database:
+          type: object
+          required: [reachable, paused_hint]
+          properties:
+            reachable: { type: boolean }
+            paused_hint:
+              type: string
+              nullable: true
+              description: Set when Supabase reports a paused or restoring project.
+        chains:
+          type: array
+          items:
+            type: object
+            required: [chain_id, rpc_ok]
+            properties:
+              chain_id: { type: integer }
+              rpc_ok: { type: boolean }
+
+    Chain:
+      type: object
+      required: [chain_id, name, role, explorer, is_origin, is_destination]
+      properties:
+        chain_id: { type: integer, examples: [5318007, 1301] }
+        name: { type: string, examples: [Reactive Lasna, Unichain Sepolia] }
+        role: { type: string, enum: [automation, funds] }
+        explorer: { type: string, format: uri }
+        is_origin: { type: boolean }
+        is_destination: { type: boolean }
+        supported_templates:
+          type: array
+          items: { type: integer, minimum: 1, maximum: 13 }
+
+    Template:
+      type: object
+      required: [id, name, category, sentence, slots]
+      properties:
+        id: { type: integer, minimum: 1, maximum: 13 }
+        name: { type: string }
+        category: { type: string, enum: [trading, personal, alert] }
+        sentence:
+          type: string
+          description: Template with slot placeholders, e.g. "[Every] [Friday] [buy] [amount] [of] [token]"
+        slots:
+          type: array
+          items:
+            type: object
+            required: [key, kind, label, required]
+            properties:
+              key: { type: string }
+              kind: { type: string, enum: [schedule, amount, token, price, percent, duration, address] }
+              label: { type: string }
+              required: { type: boolean }
+              min: { type: string, nullable: true }
+              max: { type: string, nullable: true }
+
+    Account:
+      type: object
+      required: [owner, agent, vaults, setup_state]
+      properties:
+        owner: { $ref: '#/components/schemas/Address' }
+        agent:
+          type: object
+          nullable: true
+          properties:
+            address: { $ref: '#/components/schemas/Address' }
+            created_tx: { $ref: '#/components/schemas/TxHash' }
+            active_rules: { type: integer }
+        vaults:
+          type: array
+          items:
+            type: object
+            required: [address, chain_id, connected, paused, mirror_mode]
+            properties:
+              address: { $ref: '#/components/schemas/Address' }
+              chain_id: { type: integer }
+              connected: { type: boolean, description: agent link confirmed on both contracts }
+              paused: { type: boolean }
+              mirror_mode: { type: boolean }
+              max_spend_per_run: { $ref: '#/components/schemas/Uint256' }
+        setup_state:
+          type: string
+          enum: [none, agent_only, partial, complete]
+          description: |
+            `partial` is the resumable half-built state (US1 scenario 2). `agent_only`
+            means the funds-side deploy has not succeeded and must be retried.
+
+    Rule:
+      type: object
+      required: [agent, rule_id, template, chain_id, status, latched, runs]
+      properties:
+        agent: { $ref: '#/components/schemas/Address' }
+        rule_id: { $ref: '#/components/schemas/Uint256' }
+        template: { type: integer, minimum: 1, maximum: 13 }
+        chain_id: { type: integer }
+        status: { type: string, enum: [active, paused, cancelled] }
+        latched:
+          type: boolean
+          description: Fired once and not re-armed; the UI must show this, not "active".
+        pair: { $ref: '#/components/schemas/Address' }
+        token_in: { $ref: '#/components/schemas/Address' }
+        token_out: { $ref: '#/components/schemas/Address' }
+        amount_in: { $ref: '#/components/schemas/Uint256' }
+        threshold: { $ref: '#/components/schemas/Uint256' }
+        secondary: { $ref: '#/components/schemas/Uint256' }
+        runs: { type: integer }
+        last_run_at: { $ref: '#/components/schemas/BlockTime' }
+        is_public: { type: boolean }
+        cached_price:
+          type: object
+          nullable: true
+          description: |
+            Last traded price for price-based templates. Labelled "last traded price"
+            in the UI with `observed_at`; never presented as a live quote (FR-020).
+          properties:
+            price: { $ref: '#/components/schemas/Uint256' }
+            observed_at: { $ref: '#/components/schemas/BlockTime' }
+
+    Execution:
+      type: object
+      required: [chain_id, tx_hash, vault, agent, rule_id, kind, block_time]
+      properties:
+        chain_id: { type: integer }
+        tx_hash: { $ref: '#/components/schemas/TxHash' }
+        vault: { $ref: '#/components/schemas/Address' }
+        agent: { $ref: '#/components/schemas/Address' }
+        rule_id: { $ref: '#/components/schemas/Uint256' }
+        kind: { type: string, enum: [executed, mirrored] }
+        token_in: { $ref: '#/components/schemas/Address' }
+        token_out: { $ref: '#/components/schemas/Address' }
+        amount_in: { $ref: '#/components/schemas/Uint256' }
+        amount_out: { $ref: '#/components/schemas/Uint256' }
+        block_time: { $ref: '#/components/schemas/BlockTime' }
+        leader_tx: { $ref: '#/components/schemas/TxHash' }
+        status:
+          type: string
+          enum: [confirmed, refused, pending]
+          description: |
+            `refused` means the funds-side call reverted; the UI must show the reason and
+            must not count it as a run (FR-031).
+
+    Proof:
+      type: object
+      required: [reactive_tx, source, rows]
+      properties:
+        reactive_tx: { $ref: '#/components/schemas/TxHash' }
+        source:
+          type: string
+          enum: [chain, cache]
+          description: |
+            `chain` means built live from `getCallbacks` + destination RPC. `cache` means
+            the chain read failed and a stored copy was served, with `cache_age_seconds`
+            set (SC-005).
+        cache_age_seconds: { type: integer, nullable: true }
+        latency_ms:
+          type: integer
+          nullable: true
+          description: Origin event timestamp → destination confirmation timestamp.
+        rows:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [role, chain_id, tx_hash, explorer_url]
+            properties:
+              role: { type: string, enum: [origin, automation, destination] }
+              chain_id: { type: integer }
+              tx_hash: { $ref: '#/components/schemas/TxHash' }
+              block_number: { type: integer }
+              timestamp: { $ref: '#/components/schemas/BlockTime' }
+              explorer_url: { type: string, format: uri }
+              error:
+                type: object
+                nullable: true
+                description: Present when the destination call reverted; `selector` is preserved verbatim (FR-051).
+                properties:
+                  selector: { type: string }
+                  message: { type: string }
+                  human: { type: string }
+
+    Listing:
+      type: object
+      required: [listing_id, agent, rule_id, template, author, runs, success_rate]
+      properties:
+        listing_id: { $ref: '#/components/schemas/Uint256' }
+        agent: { $ref: '#/components/schemas/Address' }
+        rule_id: { $ref: '#/components/schemas/Uint256' }
+        template: { type: integer, minimum: 1, maximum: 13 }
+        author: { $ref: '#/components/schemas/Address' }
+        author_badge:
+          type: string
+          enum: [team, community]
+          description: Team-authored seeds must be badged (FR-041).
+        name: { type: string }
+        description: { type: string }
+        runs: { type: integer }
+        success_rate: { type: number, minimum: 0, maximum: 1 }
+        cloned_count: { type: integer }
+
+    LeaderboardRow:
+      type: object
+      required: [rank, agent, rule_id, runs, success_rate]
+      properties:
+        rank: { type: integer }
+        agent: { $ref: '#/components/schemas/Address' }
+        rule_id: { $ref: '#/components/schemas/Uint256' }
+        template: { type: integer }
+        runs: { type: integer }
+        success_rate: { type: number }
+        author_badge: { type: string, enum: [team, community] }
+
+    SponsorStatus:
+      type: object
+      required: [agent, chains]
+      properties:
+        agent: { $ref: '#/components/schemas/Address' }
+        chains:
+          type: array
+          items:
+            type: object
+            required: [chain_id, reserves, debt, state]
+            properties:
+              chain_id: { type: integer }
+              reserves: { $ref: '#/components/schemas/Uint256' }
+              debt: { $ref: '#/components/schemas/Uint256' }
+              state:
+                type: string
+                enum: [healthy, low, exhausted, debt]
+                description: |
+                  `low` triggers the at-risk warning (FR-032, SC-015). `debt` means the
+                  account is silent — the UI must say so instead of showing "active".
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, examples: [not_found, rpc_unavailable, invalid_query] }
+            message: { type: string }
+            detail: { type: string, nullable: true }
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Liveness, indexer lag, database reachability
+      responses:
+        '200':
+          description: Service status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  /v1/chains:
+    get:
+      tags: [chains]
+      summary: Configured chains, their roles, and supported templates
+      responses:
+        '200':
+          description: Chain list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [chains, templates]
+                properties:
+                  chains:
+                    type: array
+                    items: { $ref: '#/components/schemas/Chain' }
+                  templates:
+                    type: array
+                    items: { $ref: '#/components/schemas/Template' }
+
+  /v1/accounts/{agent}:
+    get:
+      tags: [accounts]
+      summary: Account setup state and balances
+      description: Returns `setup_state` so onboarding can resume instead of restarting (FR-004).
+      parameters:
+        - $ref: '#/components/parameters/AgentAddress'
+      responses:
+        '200':
+          description: Account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Account' }
+        '404':
+          description: Unknown agent
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/accounts/{agent}/rules:
+    get:
+      tags: [rules]
+      summary: Rules for an account, in evaluation order
+      description: |
+        Order is the on-chain evaluation order (FR-014); the frontend must render it as
+        such, because dragging a rule up changes which rule runs first under the gas cap.
+      parameters:
+        - $ref: '#/components/parameters/AgentAddress'
+        - name: status
+          in: query
+          schema: { type: string, enum: [active, paused, cancelled, all], default: active }
+      responses:
+        '200':
+          description: Rules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rules]
+                properties:
+                  rules:
+                    type: array
+                    items: { $ref: '#/components/schemas/Rule' }
+
+  /v1/accounts/{agent}/rules/{ruleId}:
+    get:
+      tags: [rules]
+      summary: One rule with budget and recent executions
+      parameters:
+        - $ref: '#/components/parameters/AgentAddress'
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Rule detail
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rule, recent_executions]
+                properties:
+                  rule: { $ref: '#/components/schemas/Rule' }
+                  recent_executions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Execution' }
+        '404':
+          description: Unknown rule
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/executions:
+    get:
+      tags: [executions]
+      summary: Execution feed, newest first
+      parameters:
+        - name: agent
+          in: query
+          schema: { type: string }
+        - name: ruleId
+          in: query
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema: { type: string, enum: [executed, mirrored] }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Page of executions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [executions]
+                properties:
+                  executions:
+                    type: array
+                    items: { $ref: '#/components/schemas/Execution' }
+                  next_cursor: { type: string, nullable: true }
+
+  /v1/proofs/{reactiveTxHash}:
+    get:
+      tags: [proofs]
+      summary: Three-row proof built from chain state
+      description: |
+        Reads `getCallbacks(uint256)` on the Lasna system contract, then resolves the
+        destination transaction on Unichain Sepolia. Supabase is a cache only; a cached
+        response is always labelled `source: cache` with its age. This endpoint is the
+        reason the submission survives its own database dying (SC-005, FR-034).
+      parameters:
+        - name: reactiveTxHash
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/TxHash' }
+      responses:
+        '200':
+          description: Proof
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Proof' }
+        '404':
+          description: No callback recorded yet (validators may not have written it)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: Both the chain read and the cache failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/marketplace:
+    get:
+      tags: [marketplace]
+      summary: Public rules
+      parameters:
+        - name: template
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 13 }
+        - name: sort
+          in: query
+          schema: { type: string, enum: [newest, runs, success_rate], default: newest }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Public listings (seeded with badged team rules, FR-041)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [listings]
+                properties:
+                  listings:
+                    type: array
+                    items: { $ref: '#/components/schemas/Listing' }
+                  next_cursor: { type: string, nullable: true }
+
+  /v1/leaderboard:
+    get:
+      tags: [marketplace]
+      summary: Rules by run count and success rate
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Ranked rows
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [rows]
+                properties:
+                  rows:
+                    type: array
+                    items: { $ref: '#/components/schemas/LeaderboardRow' }
+
+  /v1/sponsor/{agent}:
+    get:
+      tags: [sponsor]
+      summary: Execution credit state for an account
+      description: |
+        Reserves and debt per chain. A `debt` state means execution has stopped — the UI
+        must surface that, never "active" (FR-032).
+      parameters:
+        - $ref: '#/components/parameters/AgentAddress'
+      responses:
+        '200':
+          description: Credit state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SponsorStatus' }
+
+  /v1/onboarding:
+    post:
+      tags: [accounts]
+      summary: Deploy the caller's Agent and Vault via the sponsor relayer
+      description: |
+        Idempotent and resumable. Returns `setup_state` after attempting every missing step,
+        so a half-built account is completed rather than duplicated (US1 scenario 2). The
+        relayer deploys contracts whose owner is `owner` from the request body — it never
+        becomes an owner itself. Rate limited per address and globally capped.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner]
+              properties:
+                owner: { $ref: '#/components/schemas/Address' }
+      responses:
+        '200':
+          description: Onboarding attempt result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [setup_state, steps]
+                properties:
+                  setup_state: { type: string, enum: [none, agent_only, partial, complete] }
+                  steps:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, status]
+                      properties:
+                        name: { type: string, enum: [agent, vault, link, fund_credit] }
+                        status: { type: string, enum: [skipped, submitted, confirmed, failed] }
+                        tx_hash: { $ref: '#/components/schemas/TxHash' }
+                        chain_id: { type: integer }
+                        error: { type: string, nullable: true }
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '503':
+          description: Relayer unavailable or out of sponsored funds
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/starter-funds:
+    post:
+      tags: [accounts]
+      summary: Send demo tokens into a user's Vault
+      description: |
+        Sends a small, capped amount of demo USDC/WETH from the sponsor's demo wallet to the
+        user's Vault, so a first rule can run without a faucet detour. Cannot withdraw, cannot
+        target an address that is not a Vault owned by `owner`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner, vault]
+              properties:
+                owner: { $ref: '#/components/schemas/Address' }
+                vault: { $ref: '#/components/schemas/Address' }
+      responses:
+        '200':
+          description: Transfer submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [tx_hash, amount_usdc, amount_weth]
+                properties:
+                  tx_hash: { $ref: '#/components/schemas/TxHash' }
+                  amount_usdc: { $ref: '#/components/schemas/Uint256' }
+                  amount_weth: { $ref: '#/components/schemas/Uint256' }
+        '409':
+          description: Starter funds already claimed for this owner
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/encode/preview:
+    post:
+      tags: [rules]
+      summary: Encode a rule draft into the exact calldata the wallet will submit
+      description: |
+        Stateless and side-effect free, used to keep the frontend's client-side preview and
+        the shared encoder provably identical. This endpoint produces **calldata only** —
+        it cannot submit, sign, or store anything, and it never touches a chain.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template, chain_id, slots]
+              properties:
+                template: { type: integer, minimum: 1, maximum: 13 }
+                chain_id: { type: integer }
+                slots:
+                  type: object
+                  additionalProperties:
+                    oneOf:
+                      - type: string
+                      - type: boolean
+      responses:
+        '200':
+          description: Encoded call
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [to, data, readable_sentence]
+                properties:
+                  to: { $ref: '#/components/schemas/Address' }
+                  data: { type: string, pattern: '^0x[a-fA-F0-9]*$' }
+                  readable_sentence: { type: string }
+                  missing_slots:
+                    type: array
+                    items: { type: string }
+        '422':
+          description: Draft is incomplete or contradictory (FR-017)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
