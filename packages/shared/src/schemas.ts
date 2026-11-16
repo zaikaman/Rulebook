@@ -277,3 +277,11 @@ export const apiErrorSchema = z.object({
   }),
 });
 export type ApiError = z.infer<typeof apiErrorSchema>;
+
+export const encodePreviewResponseSchema = z.object({
+  to: addressSchema,
+  data: z.string().regex(/^0x[fF0-9a-fA-F]*$/, 'not calldata'),
+  readable_sentence: z.string(),
+  missing_slots: z.array(z.string()).default([]),
+});
+export type EncodePreviewResponse = z.infer<typeof encodePreviewResponseSchema>;

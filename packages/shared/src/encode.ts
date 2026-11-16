@@ -140,8 +140,19 @@ export function encodeAddRule(agentAddress: Address, draft: RuleDraft): `0x${str
     throw new DraftError('incomplete', `Missing slot(s): ${missing.join(', ')}`, missing);
   }
 
-  const wantsPair = template.slots.some((slot) => slot.key === 'pair');
-  const pair = (slotValue(draft, 'pair') ?? (wantsPair ? chain.pair : ZERO_ADDRESS)) as Address;
+  // The Rule struct has one numeric field per role, so two slot keys share a field when a
+  // template declares both. A schedule always lands in `secondary` unless that template also
+  // uses `secondary` (a dip band or inactivity period), in which case it uses `threshold`.
+  const hasSlot = (key: string): boolean => template.slots.some((slot) => slot.key === key);
+  const schedule = numericSlot(draft, 'schedule');
+  const threshold = hasSlot('schedule') && hasSlot('secondary') ? schedule : numericSlot(draft, 'threshold');
+  const secondary = hasSlot('schedule') && !hasSlot('secondary') ? schedule : numericSlot(draft, 'secondary');
+
+  // Personal templates use `pair`, which is otherwise a price-pair field, for their recipient.
+  // Templates that move money without exposing a pair still need one on chain (the Agent caches
+  // a price for it), so they fall back to the chain's canonical pool.
+  const recipient = slotValue(draft, 'destination') ?? slotValue(draft, 'source_wallet');
+  const pair = (slotValue(draft, 'pair') ?? recipient ?? chain.pair ?? ZERO_ADDRESS) as Address;
   const tokenIn = (slotValue(draft, 'token_in') ?? ZERO_ADDRESS) as Address;
   const tokenOut = (slotValue(draft, 'token_out') ?? ZERO_ADDRESS) as Address;
 
@@ -157,12 +168,59 @@ export function encodeAddRule(agentAddress: Address, draft: RuleDraft): `0x${str
         tokenIn,
         tokenOut,
         amountIn: numericSlot(draft, 'amount_in'),
-        threshold: numericSlot(draft, 'threshold'),
-        secondary: numericSlot(draft, 'secondary'),
+        threshold,
+        secondary,
         lastRun: 0n,
         runs: 0,
       },
       false,
     ],
   });
+}
+
+/** The rule fields the read model returns, used to rebuild a sentence. */
+export interface StoredRuleFields {
+  readonly template: number;
+  readonly chain_id: number;
+  readonly pair?: string | undefined;
+  readonly token_in?: string | undefined;
+  readonly token_out?: string | undefined;
+  readonly amount_in?: bigint | undefined;
+  readonly threshold?: bigint | undefined;
+  readonly secondary?: bigint | undefined;
+  readonly destination?: string | undefined;
+}
+
+/**
+ * Rebuilds a draft from stored rule parameters so a rule can be rendered as the exact sentence
+ * its owner signed. This is the inverse of `encodeAddRule`'s slot mapping, including the
+ * schedule field shared with `secondary`/`threshold` and the recipient stored in `pair`.
+ */
+export function draftFromRule(rule: StoredRuleFields): RuleDraft {
+  const template = getTemplate(rule.template);
+  if (!template) {
+    throw new DraftError('unknown_template', `Unknown template ${rule.template}`, ['template']);
+  }
+  const hasSlot = (key: string): boolean => template.slots.some((slot) => slot.key === key);
+  const slots: Record<string, string> = {};
+
+  if (rule.pair) {
+    if (hasSlot('pair')) slots.pair = rule.pair;
+    else if (hasSlot('destination')) slots.destination = rule.pair;
+    else if (hasSlot('source_wallet')) slots.source_wallet = rule.pair;
+  }
+  if (rule.token_in) slots.token_in = rule.token_in;
+  if (rule.token_out) slots.token_out = rule.token_out;
+  if (rule.amount_in !== undefined && rule.amount_in > 0n) slots.amount_in = rule.amount_in.toString();
+
+  const threshold = rule.threshold?.toString();
+  const secondary = rule.secondary?.toString();
+  if (hasSlot('schedule')) {
+    const schedule = hasSlot('secondary') ? threshold : secondary;
+    if (schedule) slots.schedule = schedule;
+  }
+  if (hasSlot('threshold') && threshold) slots.threshold = threshold;
+  if (hasSlot('secondary') && secondary) slots.secondary = secondary;
+
+  return { template: rule.template, chainId: rule.chain_id, slots };
 }

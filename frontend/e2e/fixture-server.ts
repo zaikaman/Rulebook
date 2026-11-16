@@ -52,6 +52,9 @@ function artifact(path: string): Artifact {
 const agentFactoryArtifact = artifact('../../contracts/out/AgentFactory.sol/AgentFactory.json');
 const vaultFactoryArtifact = artifact('../../contracts/out/VaultFactory.sol/VaultFactory.json');
 const mockErc20Artifact = artifact('../../contracts/out/MockERC20.sol/MockERC20.json');
+const mockSystemArtifact = artifact(
+  '../../contracts/out/MockSystemContract.sol/MockSystemContract.json',
+);
 
 const anvilChain = {
   id: 1301,
@@ -108,6 +111,13 @@ async function main(): Promise<void> {  const anvilPath =
     chain: anvilChain,
     transport: http(ANVIL_RPC_URL),
   });
+
+  // Lasna's system contract is at a fixed address with no code locally. Installing the double
+  // there lets an Agent's subscribe() call succeed, exactly as it does on the real network.
+  await publicClient.request({
+    method: 'anvil_setCode',
+    params: [getChain(LASNA_CHAIN_ID).systemContract, mockSystemArtifact.deployedBytecode.object],
+  } as never);
 
   const agentFactoryTx = await wallet.deployContract({
     abi: agentFactoryArtifact.abi,

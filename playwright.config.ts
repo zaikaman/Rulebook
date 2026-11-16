@@ -14,6 +14,8 @@ import {
 export default defineConfig({
   testDir: './frontend/e2e',
   fullyParallel: false,
+  // Every spec shares one anvil and one sponsor nonce sequence, so they must not overlap.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',

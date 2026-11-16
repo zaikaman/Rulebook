@@ -5,11 +5,14 @@ import {
   executionsResponseSchema,
   healthSchema,
   onboardingResponseSchema,
+  ruleDetailResponseSchema,
+  rulesResponseSchema,
   starterFundsResponseSchema,
   type Account,
   type Address,
   type Health,
   type OnboardingResponse,
+  type Rule,
   type StarterFundsResponse,
 } from '@rulebook/shared';
 import type { z } from 'zod';
@@ -93,6 +96,20 @@ export class ApiClient {
 
   executions() {
     return this.request('/v1/executions', executionsResponseSchema);
+  }
+
+  rules(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all'): Promise<Rule[]> {
+    return this.request(
+      `/v1/accounts/${agent}/rules?status=${status}`,
+      rulesResponseSchema,
+    ).then((response) => response.rules);
+  }
+
+  ruleDetail(agent: string, ruleId: string) {
+    return this.request(
+      `/v1/accounts/${agent}/rules/${ruleId}`,
+      ruleDetailResponseSchema,
+    );
   }
 }
 

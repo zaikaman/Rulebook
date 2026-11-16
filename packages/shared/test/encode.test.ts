@@ -38,8 +38,16 @@ describe('encodeAddRule', () => {
       expect(rule.template).toBe(fixture.template);
       expect(rule.chainId).toBe(CHAIN_ID);
       expect(String(rule.amountIn)).toBe(BigInt(draft.slots.amount_in ?? '0').toString());
-      expect(String(rule.threshold)).toBe(BigInt(draft.slots.threshold ?? '0').toString());
-      expect(String(rule.secondary)).toBe(BigInt(draft.slots.secondary ?? '0').toString());
+      const hasSchedule = template?.slots.some((slot) => slot.key === 'schedule') ?? false;
+      const hasSecondary = template?.slots.some((slot) => slot.key === 'secondary') ?? false;
+      const expectedThreshold = hasSchedule && hasSecondary
+        ? (draft.slots.schedule ?? '0')
+        : (draft.slots.threshold ?? '0');
+      const expectedSecondary = hasSchedule && !hasSecondary
+        ? (draft.slots.schedule ?? '0')
+        : (draft.slots.secondary ?? '0');
+      expect(String(rule.threshold)).toBe(BigInt(expectedThreshold).toString());
+      expect(String(rule.secondary)).toBe(BigInt(expectedSecondary).toString());
       if (draft.slots.token_in) expect(rule.tokenIn).toBe(draft.slots.token_in);
       if (draft.slots.token_out) expect(rule.tokenOut).toBe(draft.slots.token_out);
       if (template?.slots.some((slot) => slot.key === 'pair')) {
@@ -84,6 +92,14 @@ describe('encodeAddRule', () => {
     expect(() =>
       encodeAddRule(AGENT, { ...draft, slots: { ...draft.slots, prompt: 'buy the dip' } }),
     ).toThrow(/Unknown slot/);
+  });
+
+  it('rejects a zero amount before encoding', () => {
+    const draft = drafts.find((entry) => entry.fixture.template === 1)?.draft;
+    if (!draft) throw new Error('no fixture');
+    expect(() =>
+      encodeAddRule(AGENT, { ...draft, slots: { ...draft.slots, amount_in: '0' } }),
+    ).toThrow(/below its minimum/);
   });
 
   it('rejects a value that is not a number of the slot kind', () => {

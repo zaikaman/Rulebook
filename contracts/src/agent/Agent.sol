@@ -9,6 +9,7 @@ import {PriceMath} from "../libraries/PriceMath.sol";
 import {RuleLib} from "../libraries/RuleLib.sol";
 import {IReactiveSystem} from "../shared/ReactiveTypes.sol";
 import {
+    ExceedsPerRunCap,
     InvalidSecondary,
     InvalidTemplateParams,
     NotOwner,
@@ -58,6 +59,11 @@ contract Agent is Ownable {
     /// @notice Topic0 of a Uniswap V2 pair's `Sync` event.
     bytes32 internal constant SYNC_TOPIC = keccak256("Sync(uint112,uint112)");
 
+    /// @notice Hard ceiling for one rule's spend per run (FR-015, FR-027). The Vault's own
+    /// `maxSpendPerRun` is the funds-side ceiling; the Agent cannot read it across chains, so
+    /// this is the pre-approval bound enforced at `addRule`.
+    uint256 public constant MAX_SPEND_PER_RUN = 100_000_000;
+
     /// @notice The Reactive system contract allowed to call `react()`.
     IReactiveSystem public immutable systemContract;
     /// @notice Factory that deployed this agent, recorded for provenance.
@@ -103,6 +109,9 @@ contract Agent is Ownable {
             revert RuleLimitReached(activeRules, RuleLib.MAX_ACTIVE_RULES);
         }
         RuleLib.validate(rule);
+        if (rule.amountIn > MAX_SPEND_PER_RUN) {
+            revert ExceedsPerRunCap(rule.amountIn, MAX_SPEND_PER_RUN);
+        }
 
         RuleLib.Rule memory stored = rule;
         stored.flags = RuleLib.FLAG_ACTIVE;

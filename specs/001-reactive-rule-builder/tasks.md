@@ -182,35 +182,35 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 2 ⚠️ (write first, confirm each fails)
 
-- [ ] T105 [P] [US2] Composer reducer tests `frontend/test/composer.reducer.test.ts`: for all 13 templates, setting a slot mutates exactly one parameter; clearing a required slot marks it missing; changing template resets incompatible slots.
-- [ ] T106 [P] [US2] Calldata parity test: the client-side encoder and `POST /v1/encode/preview` produce byte-identical `data` for the same draft across all 13 templates (uses the fixtures from T050).
-- [ ] T107 [P] [US2] Contract test: `addRule` stores every parameter exactly as supplied, emits `RuleCreated` with the right `template`, and adds the topic subscription once (via `MockSystemContract` call count) (`contracts/test/unit/Agent.t.sol`).
-- [ ] T108 [P] [US2] Contract test: `addRule` reverts `RuleLimitReached` at the sixth active rule, `ExceedsPerRunCap` above the vault ceiling, `UnknownTemplate` for id 14, `InvalidTemplateParams` when `tokenOut` is missing on a swap template (`contracts/test/unit/Agent.t.sol`).
+- [x] T105 [P] [US2] Composer reducer tests `frontend/test/composer.reducer.test.ts`: for all 13 templates, setting a slot mutates exactly one parameter; clearing a required slot marks it missing; changing template resets incompatible slots.
+- [x] T106 [P] [US2] Calldata parity test: the client-side encoder and `POST /v1/encode/preview` produce byte-identical `data` for the same draft across all 13 templates (uses the fixtures from T050).
+- [x] T107 [P] [US2] Contract test: `addRule` stores every parameter exactly as supplied, emits `RuleCreated` with the right `template`, and adds the topic subscription once (via `MockSystemContract` call count) (`contracts/test/unit/Agent.t.sol`).
+- [x] T108 [P] [US2] Contract test: `addRule` reverts `RuleLimitReached` at the sixth active rule, `ExceedsPerRunCap` above the vault ceiling, `UnknownTemplate` for id 14, `InvalidTemplateParams` when `tokenOut` is missing on a swap template (`contracts/test/unit/Agent.t.sol`).
 
 ### Implementation for User Story 2
 
-- [ ] T109 [US2] Write `frontend/src/composer/types.ts`: a discriminated union over the generated `TemplateId`, where each member declares its required slots — the type makes an incomplete rule unrepresentable for money templates.
-- [ ] T110 [US2] Write `frontend/src/composer/reducer.ts` with `selectTemplate`, `setSlot`, `clearSlot`, `reset`, and `canSign` derived from `missingSlots`.
-- [ ] T111 [US2] Build `frontend/src/composer/ChipPalette.tsx`: value chips grouped by slot kind (schedule, amount, token, price, percent, duration, address), sourced from the manifest.
-- [ ] T112 [US2] Build `frontend/src/composer/SentenceCanvas.tsx`: `DndContext` + `SortableContext` with keyboard sensors, rendering slots inline in trigger → condition → action order.
-- [ ] T113 [US2] Build `frontend/src/composer/SlotChip.tsx`: droppable slot with `aria-label`, drag handle, keyboard move support, and an invalid-state style driven by validation.
-- [ ] T114 [US2] Build `frontend/src/composer/LiveCalldata.tsx`: memoised `encodeAddRule`, 50 ms debounce, copy button, and the target contract address labelled by network.
-- [ ] T115 [US2] Write `frontend/src/composer/validation.ts` delegating to the manifest slot rules from `packages/shared` (min/max, integer-only amounts, price scale) and returning per-slot messages.
-- [ ] T116 [US2] Build `frontend/src/pages/Create.tsx` wiring palette, sentence, validation, live calldata, and the create action into one screen.
-- [ ] T117 [US2] Write `frontend/src/hooks/useCreateRule.ts`: simulate with `eth_call` first, surface the decoded custom error on failure, then send the Lasna write and wait for the receipt; distinguish simulated-failure from wallet-rejection.
-- [ ] T118 [US2] Implement `POST /v1/encode/preview` in `backend/src/api/routes/encode.ts` returning `to`, `data`, `readable_sentence`, `missing_slots`, and 422 when the draft is incomplete (FR-017).
-- [ ] T119 [US2] Add indexer handling for `RuleCreated` → upsert into `rules` with `status: active`, increment `agents.rule_count`, write a `rule_events` row (`backend/src/indexer/decoders/index.ts`).
-- [ ] T120 [US2] Implement `GET /v1/accounts/:agent/rules` (evaluation order, `status` filter) and `GET /v1/accounts/:agent/rules/:ruleId` (rule + recent executions) in `backend/src/api/routes/rules.ts`.
-- [ ] T121 [US2] Build `frontend/src/pages/Home.tsx`: rule list ordered by on-chain evaluation order, each row showing status pill, run count, last run, remaining budget.
-- [ ] T122 [US2] Build `frontend/src/pages/RuleDetail.tsx`: parameters rendered back as the same sentence, execution table, and actions slot.
-- [ ] T123 [P] [US2] RTL test: pressing create with a missing amount blocks submission, highlights the amount slot, and names it (`frontend/test/create.validation.test.tsx`).
-- [ ] T124 [US2] Playwright `frontend/e2e/compose-dca.spec.ts`: drag chips into a DCA sentence, assert the calldata equals the fixture, sign (mock wallet), assert the success state.
-- [ ] T125 [US2] Accessibility pass on the composer: complete a rule with keyboard only; add an axe check over `/create` with zero violations.
-- [ ] T126 [US2] Write `frontend/src/lib/errors.ts` mapping every selector from `contracts/src/shared/Errors.sol` to a plain-language message while preserving the selector for display.
-- [ ] T127 [US2] Add `frontend/src/components/CreateSuccess.tsx`: rule id, sentence, tx link, and next actions (view rule, build another).
-- [ ] T128 [US2] Add empty and loading states for `/`, `/rules/:agent/:ruleId`, and the rule list (no blank screens, no layout shift).
-- [ ] T129 [P] [US2] Unit test: a draft with `tokenIn == tokenOut`, zero amount, or an out-of-range percent is rejected before any encoding happens (`packages/shared/test/encode.test.ts`).
-- [ ] T130 [US2] Write `docs/composer.md` describing the sentence model, why it is not a canvas (`IDEA.md` §14), and the chip → calldata mapping with two worked examples.
+- [x] T109 [US2] Write `frontend/src/composer/types.ts`: a discriminated union over the generated `TemplateId`, where each member declares its required slots — the type makes an incomplete rule unrepresentable for money templates.
+- [x] T110 [US2] Write `frontend/src/composer/reducer.ts` with `selectTemplate`, `setSlot`, `clearSlot`, `reset`, and `canSign` derived from `missingSlots`.
+- [x] T111 [US2] Build `frontend/src/composer/ChipPalette.tsx`: value chips grouped by slot kind (schedule, amount, token, price, percent, duration, address), sourced from the manifest.
+- [x] T112 [US2] Build `frontend/src/composer/SentenceCanvas.tsx`: `DndContext` + `SortableContext` with keyboard sensors, rendering slots inline in trigger → condition → action order.
+- [x] T113 [US2] Build `frontend/src/composer/SlotChip.tsx`: droppable slot with `aria-label`, drag handle, keyboard move support, and an invalid-state style driven by validation.
+- [x] T114 [US2] Build `frontend/src/composer/LiveCalldata.tsx`: memoised `encodeAddRule`, 50 ms debounce, copy button, and the target contract address labelled by network.
+- [x] T115 [US2] Write `frontend/src/composer/validation.ts` delegating to the manifest slot rules from `packages/shared` (min/max, integer-only amounts, price scale) and returning per-slot messages.
+- [x] T116 [US2] Build `frontend/src/pages/Create.tsx` wiring palette, sentence, validation, live calldata, and the create action into one screen.
+- [x] T117 [US2] Write `frontend/src/hooks/useCreateRule.ts`: simulate with `eth_call` first, surface the decoded custom error on failure, then send the Lasna write and wait for the receipt; distinguish simulated-failure from wallet-rejection.
+- [x] T118 [US2] Implement `POST /v1/encode/preview` in `backend/src/api/routes/encode.ts` returning `to`, `data`, `readable_sentence`, `missing_slots`, and 422 when the draft is incomplete (FR-017).
+- [x] T119 [US2] Add indexer handling for `RuleCreated` → upsert into `rules` with `status: active`, increment `agents.rule_count`, write a `rule_events` row (`backend/src/indexer/decoders/index.ts`).
+- [x] T120 [US2] Implement `GET /v1/accounts/:agent/rules` (evaluation order, `status` filter) and `GET /v1/accounts/:agent/rules/:ruleId` (rule + recent executions) in `backend/src/api/routes/rules.ts`.
+- [x] T121 [US2] Build `frontend/src/pages/Home.tsx`: rule list ordered by on-chain evaluation order, each row showing status pill, run count, last run, remaining budget.
+- [x] T122 [US2] Build `frontend/src/pages/RuleDetail.tsx`: parameters rendered back as the same sentence, execution table, and actions slot.
+- [x] T123 [P] [US2] RTL test: pressing create with a missing amount blocks submission, highlights the amount slot, and names it (`frontend/test/create.validation.test.tsx`).
+- [x] T124 [US2] Playwright `frontend/e2e/compose-dca.spec.ts`: drag chips into a DCA sentence, assert the calldata equals the fixture, sign (mock wallet), assert the success state.
+- [x] T125 [US2] Accessibility pass on the composer: complete a rule with keyboard only; add an axe check over `/create` with zero violations.
+- [x] T126 [US2] Write `frontend/src/lib/errors.ts` mapping every selector from `contracts/src/shared/Errors.sol` to a plain-language message while preserving the selector for display.
+- [x] T127 [US2] Add `frontend/src/components/CreateSuccess.tsx`: rule id, sentence, tx link, and next actions (view rule, build another).
+- [x] T128 [US2] Add empty and loading states for `/`, `/rules/:agent/:ruleId`, and the rule list (no blank screens, no layout shift).
+- [x] T129 [P] [US2] Unit test: a draft with `tokenIn == tokenOut`, zero amount, or an out-of-range percent is rejected before any encoding happens (`packages/shared/test/encode.test.ts`).
+- [x] T130 [US2] Write `docs/composer.md` describing the sentence model, why it is not a canvas (`IDEA.md` §14), and the chip → calldata mapping with two worked examples.
 
 ---
 

@@ -9,12 +9,14 @@ import {AgentFactory} from "../../src/agent/AgentFactory.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
 import {
+    ExceedsPerRunCap,
     InvalidSecondary,
     InvalidTemplateParams,
     NotOwner,
     NotServiceProvider,
     RuleLimitReached,
-    RuleNotActive
+    RuleNotActive,
+    UnknownTemplate
 } from "../../src/shared/Errors.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
@@ -362,7 +364,75 @@ contract AgentTest is Test {
         RuleLib.Rule memory rule = _rule();
         rule.template = 14;
         vm.prank(USER);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(UnknownTemplate.selector, 14));
         agent.addRule(rule, false);
     }
+
+    function test_addRuleStoresEveryParameterExactly() public {
+        RuleLib.Rule memory rule = _rule();
+        rule.template = 3;
+        rule.threshold = 1_500e18;
+        rule.secondary = 4_102_444_800;
+
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(rule, false);
+
+        RuleLib.Rule memory stored = agent.getRule(ruleId);
+        assertEq(stored.template, rule.template);
+        assertEq(stored.chainId, rule.chainId);
+        assertEq(stored.pair, rule.pair);
+        assertEq(stored.tokenIn, rule.tokenIn);
+        assertEq(stored.tokenOut, rule.tokenOut);
+        assertEq(stored.amountIn, rule.amountIn);
+        assertEq(stored.threshold, rule.threshold);
+        assertEq(stored.secondary, rule.secondary);
+        assertEq(stored.lastRun, 0);
+        assertEq(stored.runs, 0);
+        assertEq(stored.flags, RuleLib.FLAG_ACTIVE);
+    }
+
+    function test_addRuleSubscribesOnceForIdenticalTopics() public {
+        uint256 first = _addRule();
+        uint256 second = _addRule();
+        assertEq(system.subscribeCount(), 1);
+
+        vm.startPrank(USER);
+        agent.pauseRule(first);
+        assertEq(system.unsubscribeCount(), 0);
+        agent.pauseRule(second);
+        assertEq(system.unsubscribeCount(), 1);
+        vm.stopPrank();
+    }
+
+    function test_addRuleRejectsAnAmountAboveThePerRunCeiling() public {
+        uint256 ceiling = agent.MAX_SPEND_PER_RUN();
+        RuleLib.Rule memory rule = _rule();
+        rule.amountIn = ceiling + 1;
+
+        vm.prank(USER);
+        vm.expectRevert(abi.encodeWithSelector(ExceedsPerRunCap.selector, rule.amountIn, ceiling));
+        agent.addRule(rule, false);
+    }
+
+    function test_addRuleRejectsASwapWithoutTokenOut() public {
+        RuleLib.Rule memory rule = _rule();
+        rule.tokenOut = address(0);
+
+        vm.prank(USER);
+        vm.expectRevert(InvalidTemplateParams.selector);
+        agent.addRule(rule, false);
+    }
+
+    function test_addRuleAcceptsAlertTemplatesWithZeroAmount() public {
+        RuleLib.Rule memory rule;
+        rule.template = 11;
+        rule.chainId = 1301;
+        rule.pair = address(pair);
+        rule.threshold = 2_000e18;
+
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(rule, false);
+        assertEq(agent.getRule(ruleId).amountIn, 0);
+    }
 }
+
