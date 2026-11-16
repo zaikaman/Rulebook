@@ -14,5 +14,6 @@ export {
   vaultAbi,
   vaultFactoryAbi,
 } from './abi/index.js';
+export { systemContractAbi } from './abi/system.js';
 
 export const SHARED_PACKAGE_VERSION = '0.1.0';

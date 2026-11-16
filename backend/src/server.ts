@@ -5,6 +5,7 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { createChainClients, lasnaChain, ping, unichainSepoliaChain } from './chain/clients.js';
+import { createProofSource } from './chain/proofSource.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
 import { createRepositories } from './db/repositories/index.js';
@@ -98,6 +99,7 @@ export async function startServer(): Promise<void> {
     repositories,
     cursors,
     accountChain: new PublicAccountChain(clients),
+    proofSource: createProofSource(clients),
     onboardingLimiter: new OnboardingRateLimiter(
       config.ONBOARDING_RATE_LIMIT_PER_MINUTE,
       config.ONBOARDING_DAILY_CAP,

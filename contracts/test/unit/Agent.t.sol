@@ -360,6 +360,44 @@ contract AgentTest is Test {
         agent.react(log);
     }
 
+    function _alertRule(uint256 threshold) internal view returns (RuleLib.Rule memory rule) {
+        rule.template = 11;
+        rule.chainId = 1301;
+        rule.pair = address(pair);
+        rule.threshold = threshold;
+    }
+
+    function _syncLog() internal view returns (IReactive.LogRecord memory log) {
+        log.chain_id = 1301;
+        log._contract = address(pair);
+        log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
+        log.data = abi.encode(uint112(1_000), uint112(2_000));
+        log.tx_hash = uint256(keccak256("origin-tx"));
+        log.log_index = 9;
+    }
+
+    function test_reactEmitsFiredTrueForARuleWhoseConditionHolds() public {
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(_alertRule(1e18), false);
+        IReactive.LogRecord memory log = _syncLog();
+
+        vm.expectEmit(true, true, false, true, address(agent));
+        emit Agent.RuleEvaluated(ruleId, 1301, bytes32(uint256(keccak256("origin-tx"))), 9, true);
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function test_reactEmitsFiredFalseForARuleWhoseConditionDoesNotHold() public {
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(_alertRule(5e18), false);
+        IReactive.LogRecord memory log = _syncLog();
+
+        vm.expectEmit(true, true, false, true, address(agent));
+        emit Agent.RuleEvaluated(ruleId, 1301, bytes32(uint256(keccak256("origin-tx"))), 9, false);
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
     function test_addRuleRejectsAnUnknownTemplate() public {
         RuleLib.Rule memory rule = _rule();
         rule.template = 14;

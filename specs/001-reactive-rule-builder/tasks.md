@@ -222,27 +222,27 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 3 ⚠️ (write first, confirm each fails)
 
-- [ ] T131 [P] [US3] Contract test: `react()` emits `RuleEvaluated` with `originChainId`, `originTxHash`, and `originLogIndex` copied from the `LogRecord` — for a rule that fired and for one that did not (`contracts/test/unit/Agent.t.sol`).
-- [ ] T132 [P] [US3] Backend test `backend/test/api/proofs.test.ts`: chain-first read succeeds and returns `source: chain`; RPC failure returns `source: cache` with `cache_age_seconds`; both unavailable returns 503; an empty `getCallbacks` array returns 404 rather than a fake success.
-- [ ] T133 [P] [US3] RTL test: the proof page renders three rows with roles, block times, explorer links, and exactly one latency value; a refused execution shows the selector plus a plain-language reason and no success state (`frontend/test/proof.test.tsx`).
+- [x] T131 [P] [US3] Contract test: `react()` emits `RuleEvaluated` with `originChainId`, `originTxHash`, and `originLogIndex` copied from the `LogRecord` — for a rule that fired and for one that did not (`contracts/test/unit/Agent.t.sol`).
+- [x] T132 [P] [US3] Backend test `backend/test/api/proofs.test.ts`: chain-first read succeeds and returns `source: chain`; RPC failure returns `source: cache` with `cache_age_seconds`; both unavailable returns 503; an empty `getCallbacks` array returns 404 rather than a fake success.
+- [x] T133 [P] [US3] RTL test: the proof page renders three rows with roles, block times, explorer links, and exactly one latency value; a refused execution shows the selector plus a plain-language reason and no success state (`frontend/test/proof.test.tsx`).
 
 ### Implementation for User Story 3
 
-- [ ] T134 [US3] Emit `RuleEvaluated` in `Agent.react()` for every rule evaluated (fired or not), copying the origin `chainId`/`txHash`/`logIndex` from `LogRecord` — this is what supplies the origin row `getCallbacks` cannot (`contracts/onchain-interfaces.md` §2 provenance).
-- [ ] T135 [US3] Write `backend/src/chain/lasnaCallbacks.ts` reading `getCallbacks(uint256)` with the tuple ABI `(uint256,address,uint256,uint256,uint256,bytes)[]` from `packages/shared`, decoding into `CallbackRecord` with a zod schema.
-- [ ] T136 [US3] Implement `GET /v1/proofs/:reactiveTxHash` in `backend/src/api/routes/proofs.ts`: join `RuleEvaluated` (origin) → receipt hash (reactive) → `getCallbacks` (destination) → destination tx from the Unichain RPC; compute `latency_ms` from origin block time to destination block time.
-- [ ] T137 [US3] Add the `callbacks` cache write path with TTL, `source`, and `cache_age_seconds`; never present a cached proof as live (`backend/src/api/routes/proofs.ts`).
-- [ ] T138 [US3] Add indexer persistence for `RuleEvaluated` → `rule_events` rows carrying `origin_tx`, `origin_log_index`, and `fired` (`backend/src/indexer/decoders/index.ts`).
-- [ ] T139 [US3] Build `frontend/src/pages/Proof.tsx`: three rows, one latency figure, a `source` badge when cached, and a copyable reactive tx hash.
-- [ ] T140 [US3] Build `frontend/src/components/ProofRow.tsx`: role label, chain badge, block number, timestamp, explorer link, and an `error` detail block that keeps the raw selector visible.
-- [ ] T141 [US3] Wire the deep link `/proof/:reactiveTxHash` and confirm the Vercel rewrite from T083 serves it in a preview deployment.
-- [ ] T142 [US3] Write `frontend/src/hooks/useProof.ts` distinguishing 404 (validators have not written the record yet), 503 (both sources down), and cached responses, each with distinct copy.
-- [ ] T143 [US3] Playwright `frontend/e2e/proof.spec.ts`: render a proof from a fixture with three rows, assert the latency value and that all links carry the correct explorer host per chain.
-- [ ] T144 [US3] Build `frontend/src/components/ChainOnlyProof.tsx`, a documented fallback that reads `getCallbacks` from the browser if the backend is unreachable during judging; hidden behind `VITE_ENABLE_CHAIN_ONLY_PROOF`.
-- [ ] T145 [US3] Build `frontend/src/components/ExecutionTable.tsx` linking each execution row to its proof view by reactive tx hash.
-- [ ] T146 [US3] Backend test: a callback record with non-empty `error_data` surfaces the selector and human message and is never reported as a successful run (FR-031, FR-051) (`backend/test/api/proofs.test.ts`).
+- [x] T134 [US3] Emit `RuleEvaluated` in `Agent.react()` for every rule evaluated (fired or not), copying the origin `chainId`/`txHash`/`logIndex` from `LogRecord` — this is what supplies the origin row `getCallbacks` cannot (`contracts/onchain-interfaces.md` §2 provenance).
+- [x] T135 [US3] Write `backend/src/chain/lasnaCallbacks.ts` reading `getCallbacks(uint256)` with the tuple ABI `(uint256,address,uint256,uint256,uint256,bytes)[]` from `packages/shared`, decoding into `CallbackRecord` with a zod schema.
+- [x] T136 [US3] Implement `GET /v1/proofs/:reactiveTxHash` in `backend/src/api/routes/proofs.ts`: join `RuleEvaluated` (origin) → receipt hash (reactive) → `getCallbacks` (destination) → destination tx from the Unichain RPC; compute `latency_ms` from origin block time to destination block time.
+- [x] T137 [US3] Add the `callbacks` cache write path with TTL, `source`, and `cache_age_seconds`; never present a cached proof as live (`backend/src/api/routes/proofs.ts`).
+- [x] T138 [US3] Add indexer persistence for `RuleEvaluated` → `rule_events` rows carrying `origin_tx`, `origin_log_index`, and `fired` (`backend/src/indexer/decoders/index.ts`).
+- [x] T139 [US3] Build `frontend/src/pages/Proof.tsx`: three rows, one latency figure, a `source` badge when cached, and a copyable reactive tx hash.
+- [x] T140 [US3] Build `frontend/src/components/ProofRow.tsx`: role label, chain badge, block number, timestamp, explorer link, and an `error` detail block that keeps the raw selector visible.
+- [x] T141 [US3] Wire the deep link `/proof/:reactiveTxHash` and confirm the Vercel rewrite from T083 serves it in a preview deployment.
+- [x] T142 [US3] Write `frontend/src/hooks/useProof.ts` distinguishing 404 (validators have not written the record yet), 503 (both sources down), and cached responses, each with distinct copy.
+- [x] T143 [US3] Playwright `frontend/e2e/proof.spec.ts`: render a proof from a fixture with three rows, assert the latency value and that all links carry the correct explorer host per chain.
+- [x] T144 [US3] Build `frontend/src/components/ChainOnlyProof.tsx`, a documented fallback that reads `getCallbacks` from the browser if the backend is unreachable during judging; hidden behind `VITE_ENABLE_CHAIN_ONLY_PROOF`.
+- [x] T145 [US3] Build `frontend/src/components/ExecutionTable.tsx` linking each execution row to its proof view by reactive tx hash.
+- [x] T146 [US3] Backend test: a callback record with non-empty `error_data` surfaces the selector and human message and is never reported as a successful run (FR-031, FR-051) (`backend/test/api/proofs.test.ts`).
 - [ ] T147 [US3] Run quickstart V4 on testnet: capture 10 end-to-end latencies and write them with tx hashes to `docs/measurements.md`.
-- [ ] T148 [US3] Write `docs/decisions/0005-chain-first-proof.md` recording why the proof endpoint reads chain first and what `cached: true` promises the user.
+- [x] T148 [US3] Write `docs/decisions/0005-chain-first-proof.md` recording why the proof endpoint reads chain first and what `cached: true` promises the user.
 
 ---
 

@@ -364,6 +364,10 @@ export async function persistDecodedEvent(
         rule_id: asString(args.ruleId),
         kind: fired ? 'evaluated_fired' : 'evaluated',
         block_time: event.blockTime,
+        origin_chain_id: asNumber(args.originChainId),
+        origin_tx: asString(args.originTxHash).toLowerCase(),
+        origin_log_index: asNumber(args.originLogIndex),
+        fired,
       });
       return;
     }

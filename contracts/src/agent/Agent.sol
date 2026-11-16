@@ -217,8 +217,9 @@ contract Agent is Ownable {
         uint256 length = _order.length;
         for (uint256 i = 0; i < length; ++i) {
             uint256 ruleId = _order[i];
+            bool fired = _evaluatesTrue(_rules[ruleId], log);
             emit RuleEvaluated(
-                ruleId, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false
+                ruleId, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), fired
             );
         }
     }
@@ -257,6 +258,20 @@ contract Agent is Ownable {
     /// @notice Returns the trailing-stop / grid reference recorded for `ruleId`.
     function getHighWater(uint256 ruleId) external view returns (uint256 referencePrice) {
         referencePrice = _highWater[ruleId];
+    }
+
+    /// @dev Decides whether a rule's condition holds for this observation. Phase 5 needs a
+    /// truthful `fired` flag for the proof event; the remaining templates join this decision
+    /// point as they land, so the event shape never changes.
+    function _evaluatesTrue(RuleLib.Rule storage rule, IReactive.LogRecord calldata log)
+        private
+        view
+        returns (bool)
+    {
+        if (!_isActive(rule) || rule.template != 11) return false;
+        if (bytes32(log.topic_0) != SYNC_TOPIC || log._contract != rule.pair) return false;
+        uint256 price = _cachedPrice[rule.pair];
+        return price != 0 && price >= rule.threshold;
     }
 
     /// @dev Refreshes the per-pair price cache from a `Sync` observation.

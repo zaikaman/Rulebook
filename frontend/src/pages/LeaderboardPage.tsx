@@ -1,4 +1,4 @@
-import { Award01Icon, CheckmarkCircle02Icon } from '@hugeicons/core-free-icons';
+import { CheckmarkCircle02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 import { PageHeading } from '@/components/chrome/PageHeading.js';

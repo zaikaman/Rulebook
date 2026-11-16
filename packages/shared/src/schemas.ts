@@ -81,9 +81,21 @@ export const executionSchema = z.object({
   amount_out: uint256Schema.optional(),
   block_time: blockTimeSchema,
   leader_tx: txHashSchema.optional(),
+  /** Reactive transaction that produced this destination execution, when known. */
+  reactive_tx_hash: txHashSchema.optional(),
   status: executionStatusSchema.default('confirmed'),
 });
 export type Execution = z.infer<typeof executionSchema>;
+
+export const callbackRecordSchema = z.object({
+  block_number: z.number().int().nonnegative(),
+  reacting_contract: addressSchema,
+  callback_index: z.number().int().nonnegative(),
+  destination_chain_id: chainIdSchema,
+  destination_tx_hash: txHashSchema,
+  error_data: z.string(),
+});
+export type CallbackRecord = z.infer<typeof callbackRecordSchema>;
 
 export const proofErrorSchema = z.object({
   selector: z.string(),

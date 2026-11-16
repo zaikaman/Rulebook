@@ -1,3 +1,4 @@
+import type { ProofSource } from './chain/proofSource.js';
 import type { AppConfig } from './config.js';
 import type { Repositories } from './db/repositories/index.js';
 import type { CursorStore } from './indexer/cursors.js';
@@ -15,6 +16,8 @@ export interface ServerDeps {
   readonly relayer?: OnboardingRelayer;
   /** Read-only chain facts used to derive `setup_state` and check vault ownership. */
   readonly accountChain: AccountChain;
+  /** Chain-first proof reader; absent in tests that exercise the cache-only fallback. */
+  readonly proofSource?: ProofSource;
   /** Per-address and global onboarding limiter; one instance per server process. */
   readonly onboardingLimiter: { allow(key: string): boolean };
 }

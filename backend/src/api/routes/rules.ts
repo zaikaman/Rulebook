@@ -45,23 +45,33 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
         { agent, rule_id: rule.rule_id },
         10,
       );
+      const recentExecutions = await Promise.all(
+        executions.map(async (execution) => {
+          const callback = await deps.repositories.callbacks.findByDestinationTx(
+            execution.tx_hash,
+          );
+          return {
+            chain_id: execution.chain_id,
+            tx_hash: execution.tx_hash,
+            vault: execution.vault,
+            agent: execution.agent,
+            rule_id: execution.rule_id,
+            kind: execution.kind,
+            block_time: execution.block_time,
+            status: execution.status,
+            ...(execution.token_in ? { token_in: execution.token_in } : {}),
+            ...(execution.token_out ? { token_out: execution.token_out } : {}),
+            ...(execution.amount_in ? { amount_in: execution.amount_in } : {}),
+            ...(execution.amount_out ? { amount_out: execution.amount_out } : {}),
+            ...(execution.leader_tx ? { leader_tx: execution.leader_tx } : {}),
+            ...(callback ? { reactive_tx_hash: callback.reactive_tx_hash } : {}),
+          };
+        }),
+      );
+
       return {
         rule: toApiRule(rule),
-        recent_executions: executions.map((execution) => ({
-          chain_id: execution.chain_id,
-          tx_hash: execution.tx_hash,
-          vault: execution.vault,
-          agent: execution.agent,
-          rule_id: execution.rule_id,
-          kind: execution.kind,
-          block_time: execution.block_time,
-          status: execution.status,
-          ...(execution.token_in ? { token_in: execution.token_in } : {}),
-          ...(execution.token_out ? { token_out: execution.token_out } : {}),
-          ...(execution.amount_in ? { amount_in: execution.amount_in } : {}),
-          ...(execution.amount_out ? { amount_out: execution.amount_out } : {}),
-          ...(execution.leader_tx ? { leader_tx: execution.leader_tx } : {}),
-        })),
+        recent_executions: recentExecutions,
       };
     },
   );

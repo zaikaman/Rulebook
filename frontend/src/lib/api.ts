@@ -5,6 +5,7 @@ import {
   executionsResponseSchema,
   healthSchema,
   onboardingResponseSchema,
+  proofSchema,
   ruleDetailResponseSchema,
   rulesResponseSchema,
   starterFundsResponseSchema,
@@ -12,6 +13,7 @@ import {
   type Address,
   type Health,
   type OnboardingResponse,
+  type Proof,
   type Rule,
   type StarterFundsResponse,
 } from '@rulebook/shared';
@@ -110,6 +112,10 @@ export class ApiClient {
       `/v1/accounts/${agent}/rules/${ruleId}`,
       ruleDetailResponseSchema,
     );
+  }
+
+  proof(reactiveTxHash: string): Promise<Proof> {
+    return this.request(`/v1/proofs/${encodeURIComponent(reactiveTxHash)}`, proofSchema);
   }
 }
 

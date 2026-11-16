@@ -1,4 +1,4 @@
-import type { FC } from 'react';
+import type { ComponentProps } from 'react';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Link, useLocation } from 'react-router';
 import { cx } from '@/lib/cx';
@@ -18,7 +18,7 @@ export function SidebarSection({
 }: {
   readonly label: string;
   readonly href: AppHref | string;
-  readonly icon: any;
+  readonly icon: ComponentProps<typeof HugeiconsIcon>['icon'];
   readonly items?: readonly TreeChild[];
   readonly nested?: boolean;
 }) {

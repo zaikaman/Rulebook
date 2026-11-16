@@ -8,7 +8,7 @@ import { Home } from '../pages/Home.js';
 import { LandingPage } from '../pages/LandingPage.js';
 import { LeaderboardPage } from '../pages/LeaderboardPage.js';
 import { MarketplacePage } from '../pages/MarketplacePage.js';
-import { ProofPage } from '../pages/ProofPage.js';
+import { Proof } from '../pages/Proof.js';
 import { RuleDetail } from '../pages/RuleDetail.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
@@ -25,8 +25,8 @@ export function AppRouter() {
             <Route path="rules" element={<Home />} />
             <Route path="create" element={<Create />} />
             <Route path="rules/:agent/:ruleId" element={<RuleDetail />} />
-            <Route path="proof" element={<ProofPage />} />
-            <Route path="proof/:reactiveTxHash" element={<ProofPage />} />
+            <Route path="proof" element={<Proof />} />
+            <Route path="proof/:reactiveTxHash" element={<Proof />} />
             <Route path="marketplace" element={<MarketplacePage />} />
             <Route path="leaderboard" element={<LeaderboardPage />} />
             <Route path="account" element={<Account />} />

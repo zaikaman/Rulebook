@@ -24,22 +24,30 @@ export function registerExecutionRoutes(app: FastifyInstance, deps: ServerDeps):
     const page = rows.slice(offset, offset + limit);
     const hasMore = rows.length > offset + limit;
 
+    const executions = await Promise.all(
+      page.map(async (row) => {
+        const callback = await deps.repositories.callbacks.findByDestinationTx(row.tx_hash);
+        return {
+          chain_id: row.chain_id,
+          tx_hash: row.tx_hash,
+          vault: row.vault,
+          agent: row.agent,
+          rule_id: row.rule_id,
+          kind: row.kind,
+          block_time: row.block_time,
+          status: row.status,
+          ...(row.token_in ? { token_in: row.token_in } : {}),
+          ...(row.token_out ? { token_out: row.token_out } : {}),
+          ...(row.amount_in ? { amount_in: row.amount_in } : {}),
+          ...(row.amount_out ? { amount_out: row.amount_out } : {}),
+          ...(row.leader_tx ? { leader_tx: row.leader_tx } : {}),
+          ...(callback ? { reactive_tx_hash: callback.reactive_tx_hash } : {}),
+        };
+      }),
+    );
+
     return {
-      executions: page.map((row) => ({
-        chain_id: row.chain_id,
-        tx_hash: row.tx_hash,
-        vault: row.vault,
-        agent: row.agent,
-        rule_id: row.rule_id,
-        kind: row.kind,
-        block_time: row.block_time,
-        status: row.status,
-        ...(row.token_in ? { token_in: row.token_in } : {}),
-        ...(row.token_out ? { token_out: row.token_out } : {}),
-        ...(row.amount_in ? { amount_in: row.amount_in } : {}),
-        ...(row.amount_out ? { amount_out: row.amount_out } : {}),
-        ...(row.leader_tx ? { leader_tx: row.leader_tx } : {}),
-      })),
+      executions,
       next_cursor: hasMore ? encodeCursor(offset + limit) : null,
     };
   });

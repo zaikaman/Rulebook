@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Add01Icon, Book02Icon, Store01Icon } from '@hugeicons/core-free-icons';
+import { Add01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 import { PageHeading } from '@/components/chrome/PageHeading.js';

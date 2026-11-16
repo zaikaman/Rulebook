@@ -56,6 +56,11 @@ export type RuleEventRow = {
   rule_id: string;
   kind: string;
   block_time: string;
+  /** Origin log copied from `RuleEvaluated`; null on events that carry no origin. */
+  origin_chain_id?: number | null;
+  origin_tx?: string | null;
+  origin_log_index?: number | null;
+  fired?: boolean | null;
   indexed_at: string;
 };
 
@@ -245,6 +250,14 @@ export function createRepositories(store: Store) {
       async upsert(row: Omit<RuleEventRow, 'indexed_at'>): Promise<void> {
         await store.upsert('rule_events', [withIndexedAt(row)], 'chain_id,tx_hash,log_index');
       },
+      /** The evaluation rows for one reactive tx, used by the cached proof fallback. */
+      async listByTx(txHash: string): Promise<RuleEventRow[]> {
+        return (await store.select(
+          'rule_events',
+          { tx_hash: txHash },
+          { orderBy: { column: 'log_index', ascending: true } },
+        )) as RuleEventRow[];
+      },
     },
     executions: {
       async upsert(row: Omit<ExecutionRow, 'indexed_at'>): Promise<void> {
@@ -276,6 +289,12 @@ export function createRepositories(store: Store) {
           { reactive_tx_hash: reactiveTxHash },
           { orderBy: { column: 'callback_index', ascending: true } },
         )) as CallbackRow[];
+      },
+      /** Finds the reactive hash that produced a destination tx, for execution → proof links. */
+      async findByDestinationTx(destinationTxHash: string): Promise<CallbackRow | null> {
+        return (await store.selectOne('callbacks', {
+          destination_tx_hash: destinationTxHash,
+        })) as CallbackRow | null;
       },
     },
     mirrors: {
