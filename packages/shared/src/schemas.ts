@@ -37,6 +37,7 @@ export const ruleStatusSchema = z.enum(['active', 'paused', 'cancelled']);
 export const executionKindSchema = z.enum(['executed', 'mirrored']);
 export const executionStatusSchema = z.enum(['confirmed', 'refused', 'pending']);
 export const setupStateSchema = z.enum(['none', 'agent_only', 'partial', 'complete']);
+export type SetupState = z.infer<typeof setupStateSchema>;
 export const sponsorStateSchema = z.enum(['healthy', 'low', 'exhausted', 'debt']);
 export const proofRoleSchema = z.enum(['origin', 'automation', 'destination']);
 export const proofSourceSchema = z.enum(['chain', 'cache']);
@@ -147,6 +148,31 @@ export const accountSchema = z.object({
   setup_state: setupStateSchema,
 });
 export type Account = z.infer<typeof accountSchema>;
+
+export const onboardingStepSchema = z.object({
+  name: z.enum(['agent', 'vault', 'link', 'fund_credit']),
+  status: z.enum(['skipped', 'submitted', 'confirmed', 'failed']),
+  tx_hash: txHashSchema.optional(),
+  chain_id: chainIdSchema.optional(),
+  error: z.string().nullable().optional(),
+});
+export type OnboardingStep = z.infer<typeof onboardingStepSchema>;
+
+export const onboardingResponseSchema = z.object({
+  setup_state: setupStateSchema,
+  steps: z.array(onboardingStepSchema),
+  agent: addressSchema.optional(),
+  vault: addressSchema.optional(),
+});
+export type OnboardingResponse = z.infer<typeof onboardingResponseSchema>;
+
+export const starterFundsResponseSchema = z.object({
+  tx_hash: txHashSchema,
+  tx_hashes: z.array(txHashSchema).optional(),
+  amount_usdc: uint256Schema,
+  amount_weth: uint256Schema,
+});
+export type StarterFundsResponse = z.infer<typeof starterFundsResponseSchema>;
 
 export const sponsorChainSchema = z.object({
   chain_id: chainIdSchema,

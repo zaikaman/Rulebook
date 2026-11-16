@@ -177,6 +177,10 @@ contract Agent is Ownable {
             revert InvalidTemplateParams();
         }
         if (vault == address(0)) revert InvalidTemplateParams();
+        (bool ok, bytes memory data) = vault.staticcall(abi.encodeCall(IVaultAgent.agent, ()));
+        if (!ok || data.length < 32 || abi.decode(data, (address)) != address(this)) {
+            revert InvalidTemplateParams();
+        }
         address existing = _vaults[chainId];
         if (existing != address(0) && existing != vault) revert InvalidTemplateParams();
         _vaults[chainId] = vault;
@@ -290,4 +294,8 @@ contract Agent is Ownable {
     function _isCancelled(RuleLib.Rule storage rule) private view returns (bool) {
         return (rule.flags & RuleLib.FLAG_CANCELLED) != 0;
     }
+}
+
+interface IVaultAgent {
+    function agent() external view returns (address agent);
 }

@@ -20,6 +20,7 @@ export type VaultRow = {
   owner: string;
   agent: string;
   chain_id: number;
+  created_tx: string;
   mirror_mode: boolean;
   allowed_token_in: string | null;
   allowed_token_out: string | null;
@@ -129,6 +130,17 @@ export type SponsorLedgerRow = {
   amount: string;
   asset: string;
   block_time: string;
+  indexed_at: string;
+};
+
+export type StarterFundsRow = {
+  owner: string;
+  claimed_at: string;
+  usdc_tx: string | null;
+  weth_tx: string | null;
+  amount_usdc: string;
+  amount_weth: string;
+  chain_id: number;
   indexed_at: string;
 };
 
@@ -299,6 +311,39 @@ export function createRepositories(store: Store) {
     sponsorLedger: {
       async upsert(row: Omit<SponsorLedgerRow, 'indexed_at'>): Promise<void> {
         await store.upsert('sponsor_ledger', [withIndexedAt(row)], 'chain_id,tx_hash,log_index');
+      },
+    },
+    starterFunds: {
+      async get(owner: string): Promise<StarterFundsRow | null> {
+        return (await store.selectOne('starter_funds', { owner })) as StarterFundsRow | null;
+      },
+      /** Claims the once-per-address slot before any transfer is signed. */
+      async claim(owner: string, chainId: number): Promise<boolean> {
+        return store.insert(
+          'starter_funds',
+          withIndexedAt({
+            owner,
+            claimed_at: now(),
+            usdc_tx: null,
+            weth_tx: null,
+            amount_usdc: '0',
+            amount_weth: '0',
+            chain_id: chainId,
+          }),
+          'owner',
+        );
+      },
+      async complete(
+        owner: string,
+        row: Pick<StarterFundsRow, 'usdc_tx' | 'weth_tx' | 'amount_usdc' | 'amount_weth'>,
+      ): Promise<void> {
+        const existing = await this.get(owner);
+        if (!existing) return;
+        await store.upsert('starter_funds', [withIndexedAt({ ...existing, ...row })], 'owner');
+      },
+      /** Releases a claim after a failed transfer so the user can retry. */
+      async release(owner: string): Promise<void> {
+        await store.deleteWhere('starter_funds', { owner });
       },
     },
     deadLetter: {

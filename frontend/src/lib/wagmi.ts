@@ -1,7 +1,7 @@
 import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { createConfig, http } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
-import { defineChain } from 'viem';
+import { createPublicClient, defineChain } from 'viem';
 
 export const lasnaChain = defineChain({
   id: LASNA_CHAIN_ID,
@@ -29,14 +29,28 @@ export const unichainSepoliaChain = defineChain({
   testnet: true,
 });
 
+const lasnaRpcUrl = import.meta.env.VITE_LASNA_RPC_URL ?? 'https://lasna-rpc.rnk.dev/';
+const unichainRpcUrl = import.meta.env.VITE_UNICHAIN_RPC_URL ?? 'https://sepolia.unichain.org';
+
+/** Read-only clients used for setup-state and balance reads; they never sign. */
+export const lasnaPublicClient = createPublicClient({
+  chain: lasnaChain,
+  transport: http(lasnaRpcUrl),
+});
+
+export const unichainPublicClient = createPublicClient({
+  chain: unichainSepoliaChain,
+  transport: http(unichainRpcUrl),
+});
+
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
 
 export const wagmiConfig = createConfig({
   chains: [lasnaChain, unichainSepoliaChain],
   connectors: [injected(), ...(projectId ? [walletConnect({ projectId })] : [])],
   transports: {
-    5318007: http(import.meta.env.VITE_LASNA_RPC_URL ?? 'https://lasna-rpc.rnk.dev/'),
-    1301: http(import.meta.env.VITE_UNICHAIN_RPC_URL ?? 'https://sepolia.unichain.org'),
+    5318007: http(lasnaRpcUrl),
+    1301: http(unichainRpcUrl),
   },
   ssr: false,
 });

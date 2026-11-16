@@ -13,6 +13,14 @@ import type { ServerDeps } from './deps.js';
 import { CursorStore } from './indexer/cursors.js';
 import { IndexerPoller } from './indexer/poller.js';
 import { registerRoutes } from './api/routes/index.js';
+import { OnboardingRateLimiter } from './api/rateLimit.js';
+import { PublicAccountChain } from './sponsor/accountChain.js';
+import {
+  createRelayerTransport,
+  relayerAddresses,
+  relayerOptions,
+  SponsorRelayer,
+} from './sponsor/relayer.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -75,11 +83,26 @@ export async function startServer(): Promise<void> {
   const repositories = createRepositories(store);
   const cursors = new CursorStore(store);
   const clients = createChainClients(config);
+  const addresses = relayerAddresses(config);
+  const relayer =
+    config.SPONSOR_PRIVATE_KEY && addresses
+      ? new SponsorRelayer(
+          createRelayerTransport(config, clients),
+          addresses,
+          relayerOptions(config),
+        )
+      : undefined;
 
   const { app } = buildServer({
     config,
     repositories,
     cursors,
+    accountChain: new PublicAccountChain(clients),
+    onboardingLimiter: new OnboardingRateLimiter(
+      config.ONBOARDING_RATE_LIMIT_PER_MINUTE,
+      config.ONBOARDING_DAILY_CAP,
+    ),
+    ...(relayer ? { relayer } : {}),
     databaseReachable: () => probeDatabase(supabase),
     rpcHealth: async () => [
       { chain_id: lasnaChain.id, rpc_ok: await ping(clients.lasna) },

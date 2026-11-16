@@ -6,6 +6,8 @@ error NotOwner();
 error NotAgent();
 // Required by the factory ordering invariant (onchain-interfaces.md §4, FR-004).
 error AgentAlreadyLinked();
+// Raised by a vault whose Agent has not recorded it through `linkVault`.
+error AgentNotLinked();
 error UnknownTemplate(uint8 template);
 error UnsupportedChain(uint16 chainId);
 error InvalidAmount();

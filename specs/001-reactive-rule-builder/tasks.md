@@ -147,30 +147,30 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 1 ⚠️ (write first, confirm each fails)
 
-- [ ] T084 [P] [US1] Contract test `contracts/test/integration/Onboarding.t.sol`: agent is deployed before vault; `VaultFactory.deploy` reverts without an agent; `linkVault` is owner-only; `vault.agent() == agent`; an unlinked vault rejects `execute`.
-- [ ] T085 [P] [US1] Contract test: a second `VaultFactory.deploy` for the same `(owner, chainId)` reverts `AgentAlreadyLinked`, proving retry cannot duplicate (FR-004) (`contracts/test/unit/VaultFactory.t.sol`).
-- [ ] T086 [P] [US1] Contract test: owner withdraws the full principal; a non-owner reverts `NotOwner`; withdrawal still works while `paused`; `Withdrawn` + `Balances` emitted (`contracts/test/unit/Vault.t.sol`).
-- [ ] T087 [P] [US1] Contract test against `MockSystemContract`: `depositTo(target)` credits the target from any caller, and a plain transfer without a target does not (the stranding case in `IDEA.md` §12) (`contracts/test/unit/Sponsorship.t.sol`).
-- [ ] T088 [P] [US1] Frontend test `frontend/test/onboarding.test.tsx`: `setup_state: agent_only` renders a resume action, and resuming issues only the vault step.
+- [x] T084 [P] [US1] Contract test `contracts/test/integration/Onboarding.t.sol`: agent is deployed before vault; `VaultFactory.deploy` reverts without an agent; `linkVault` is owner-only; `vault.agent() == agent`; an unlinked vault rejects `execute`.
+- [x] T085 [P] [US1] Contract test: a second `VaultFactory.deploy` for the same `(owner, chainId)` reverts `AgentAlreadyLinked`, proving retry cannot duplicate (FR-004) (`contracts/test/unit/VaultFactory.t.sol`).
+- [x] T086 [P] [US1] Contract test: owner withdraws the full principal; a non-owner reverts `NotOwner`; withdrawal still works while `paused`; `Withdrawn` + `Balances` emitted (`contracts/test/unit/Vault.t.sol`).
+- [x] T087 [P] [US1] Contract test against `MockSystemContract`: `depositTo(target)` credits the target from any caller, and a plain transfer without a target does not (the stranding case in `IDEA.md` §12) (`contracts/test/unit/Sponsorship.t.sol`).
+- [x] T088 [P] [US1] Frontend test `frontend/test/onboarding.test.tsx`: `setup_state: agent_only` renders a resume action, and resuming issues only the vault step.
 
 ### Implementation for User Story 1
 
-- [ ] T089 [US1] Finalise `Agent.linkVault` (owner-only, one vault per chain ID, emits `VaultLinked`) and the guard in `Vault.execute` that refuses an unlinked agent (`contracts/src/agent/Agent.sol`).
-- [ ] T090 [US1] Finalise `Vault.withdraw` (full/partial, owner-only, allowed while paused, updates `principalOf`, emits `Withdrawn` then `Balances`) and `setPayoutAddress`.
-- [ ] T091 [US1] Write `backend/src/sponsor/relayer.ts`: a sponsor key restricted by a selector allowlist to `AgentFactory.deploy`, `VaultFactory.deploy`, `depositTo`, the Lasna gas top-up transfer, and the fixed demo-token transfer; any other call throws `SelectorNotAllowed` before signing.
-- [ ] T092 [US1] Write `docs/decisions/0003-sponsor-relayer-key.md`: what the key can do, what it provably cannot do (no owner role on any Vault, no withdraw), where it lives, caps, rotation, and revocation.
-- [ ] T093 [US1] Implement `POST /v1/onboarding` in `backend/src/api/routes/onboarding.ts`: idempotent, resumable, per-address rate limit, returns `setup_state` plus per-step status and tx hashes.
-- [ ] T094 [US1] Implement `POST /v1/starter-funds` in `backend/src/api/routes/starterFunds.ts`: capped amounts, refuses a `vault` not owned by `owner`, returns 409 on a repeat claim.
-- [ ] T095 [US1] Add `starter_funds` claim tracking (migration + repository) so starter funds are once per address, with the cap constants in one place (`backend/db/migrations/0003_starter_funds.sql`).
-- [ ] T096 [US1] Add indexer decoders for `AgentDeployed` and `VaultDeployed`, writing `agents` and `vaults` rows including `owner`, `agent`, `chain_id`, `created_tx` (`backend/src/indexer/decoders/index.ts`).
-- [ ] T097 [US1] Implement `GET /v1/accounts/:agent` deriving `setup_state` (`none`/`agent_only`/`partial`/`complete`) from `agents`, `vaults`, and the on-chain link.
-- [ ] T098 [US1] Build `frontend/src/pages/CreateAccount.tsx`: connect → create → starter funds → done, with each step showing its network badge and result link.
-- [ ] T099 [US1] Write `frontend/src/hooks/useAccountSetup.ts`: query `setup_state`, resume the missing step, poll until confirmed, and never restart a completed step.
-- [ ] T100 [US1] Build `frontend/src/pages/Account.tsx`: three-balance display from `BalanceTrio`, contract addresses with explorer links, per-network labels.
-- [ ] T101 [US1] Build the withdraw flow in `frontend/src/components/WithdrawForm.tsx`: amount, destination confirmation, Unichain signature, tx link, and a success state that requires the destination confirmation (never a Lasna receipt).
-- [ ] T102 [P] [US1] RTL tests: withdraw form validation, three balance labels never merged, withdraw disabled when principal is zero (`frontend/test/withdraw.test.tsx`).
-- [ ] T103 [US1] Playwright `frontend/e2e/onboarding.spec.ts` against anvil + fixture backend: create account, assert both addresses appear, withdraw, assert balance zero.
-- [ ] T104 [US1] Write `docs/decisions/0004-two-deployment-onboarding.md` covering why onboarding is two deployments, the ordering invariant, and the resume strategy.
+- [x] T089 [US1] Finalise `Agent.linkVault` (owner-only, one vault per chain ID, emits `VaultLinked`) and the guard in `Vault.execute` that refuses an unlinked agent (`contracts/src/agent/Agent.sol`).
+- [x] T090 [US1] Finalise `Vault.withdraw` (full/partial, owner-only, allowed while paused, updates `principalOf`, emits `Withdrawn` then `Balances`) and `setPayoutAddress`.
+- [x] T091 [US1] Write `backend/src/sponsor/relayer.ts`: a sponsor key restricted by a selector allowlist to `AgentFactory.deploy`, `VaultFactory.deploy`, `depositTo`, the Lasna gas top-up transfer, and the fixed demo-token transfer; any other call throws `SelectorNotAllowed` before signing.
+- [x] T092 [US1] Write `docs/decisions/0003-sponsor-relayer-key.md`: what the key can do, what it provably cannot do (no owner role on any Vault, no withdraw), where it lives, caps, rotation, and revocation.
+- [x] T093 [US1] Implement `POST /v1/onboarding` in `backend/src/api/routes/onboarding.ts`: idempotent, resumable, per-address rate limit, returns `setup_state` plus per-step status and tx hashes.
+- [x] T094 [US1] Implement `POST /v1/starter-funds` in `backend/src/api/routes/starterFunds.ts`: capped amounts, refuses a `vault` not owned by `owner`, returns 409 on a repeat claim.
+- [x] T095 [US1] Add `starter_funds` claim tracking (migration + repository) so starter funds are once per address, with the cap constants in one place (`backend/db/migrations/0003_starter_funds.sql`).
+- [x] T096 [US1] Add indexer decoders for `AgentDeployed` and `VaultDeployed`, writing `agents` and `vaults` rows including `owner`, `agent`, `chain_id`, `created_tx` (`backend/src/indexer/decoders/index.ts`).
+- [x] T097 [US1] Implement `GET /v1/accounts/:agent` deriving `setup_state` (`none`/`agent_only`/`partial`/`complete`) from `agents`, `vaults`, and the on-chain link.
+- [x] T098 [US1] Build `frontend/src/pages/CreateAccount.tsx`: connect → create → starter funds → done, with each step showing its network badge and result link.
+- [x] T099 [US1] Write `frontend/src/hooks/useAccountSetup.ts`: query `setup_state`, resume the missing step, poll until confirmed, and never restart a completed step.
+- [x] T100 [US1] Build `frontend/src/pages/Account.tsx`: three-balance display from `BalanceTrio`, contract addresses with explorer links, per-network labels.
+- [x] T101 [US1] Build the withdraw flow in `frontend/src/components/WithdrawForm.tsx`: amount, destination confirmation, Unichain signature, tx link, and a success state that requires the destination confirmation (never a Lasna receipt).
+- [x] T102 [P] [US1] RTL tests: withdraw form validation, three balance labels never merged, withdraw disabled when principal is zero (`frontend/test/withdraw.test.tsx`).
+- [x] T103 [US1] Playwright `frontend/e2e/onboarding.spec.ts` against anvil + fixture backend: create account, assert both addresses appear, withdraw, assert balance zero.
+- [x] T104 [US1] Write `docs/decisions/0004-two-deployment-onboarding.md` covering why onboarding is two deployments, the ordering invariant, and the resume strategy.
 
 ---
 

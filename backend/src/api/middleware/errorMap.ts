@@ -21,6 +21,11 @@ const DESCRIPTORS: ReadonlyArray<{
     human: 'This account already has an agent or vault; resume instead of redeploying.',
   },
   {
+    signature: 'AgentNotLinked()',
+    code: 'agent_not_linked',
+    human: 'This vault is not linked to its agent yet; finish onboarding before it can run.',
+  },
+  {
     signature: 'UnknownTemplate(uint8)',
     code: 'unknown_template',
     human: 'That rule template is not in the catalog.',

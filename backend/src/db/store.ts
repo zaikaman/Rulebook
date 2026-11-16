@@ -12,6 +12,8 @@ export interface SelectOptions {
 /** The narrow read-model surface the indexer and API need. */
 export interface Store {
   upsert(table: string, rows: readonly Row[], onConflict: string): Promise<void>;
+  /** Inserts only when the conflict key is free; returns false when the row already exists. */
+  insert(table: string, row: Row, onConflict: string): Promise<boolean>;
   select(
     table: string,
     filters?: Readonly<Record<string, StoreValue>>,
@@ -34,6 +36,13 @@ export class SupabaseStore implements Store {
       .upsert([...rows], { onConflict })
       .select();
     if (error) throw new Error(`upsert ${table} failed: ${error.message}`);
+  }
+
+  async insert(table: string, row: Row, _onConflict: string): Promise<boolean> {
+    const { error } = await this.client.from(table).insert([row]);
+    if (!error) return true;
+    if (error.code === '23505' || /duplicate key/i.test(error.message)) return false;
+    throw new Error(`insert ${table} failed: ${error.message}`);
   }
 
   async select(
@@ -109,6 +118,15 @@ export class InMemoryStore implements Store {
       if (index >= 0) target[index] = { ...target[index], ...row };
       else target.push({ ...row });
     }
+  }
+
+  async insert(table: string, row: Row, onConflict: string): Promise<boolean> {
+    const keys = onConflict.split(',').map((key) => key.trim());
+    const target = this.table(table);
+    const exists = target.some((candidate) => keys.every((key) => candidate[key] === row[key]));
+    if (exists) return false;
+    target.push({ ...row });
+    return true;
   }
 
   async select(

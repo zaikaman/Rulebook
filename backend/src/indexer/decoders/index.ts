@@ -279,6 +279,7 @@ export async function persistDecodedEvent(
         owner: asString(args.owner).toLowerCase(),
         agent: asString(args.agent).toLowerCase(),
         chain_id: asNumber(args.chainId),
+        created_tx: event.txHash,
         mirror_mode: false,
         allowed_token_in: null,
         allowed_token_out: null,

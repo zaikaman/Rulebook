@@ -19,6 +19,7 @@ import {
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
 import {MockSystemContract} from "../mocks/MockSystemContract.sol";
+import {MockVaultLink} from "../mocks/MockVaultLink.sol";
 
 contract AgentTest is Test {
     address internal constant USER = address(0xA11CE);
@@ -129,13 +130,16 @@ contract AgentTest is Test {
     }
 
     function test_linkVaultIsOwnerOnlyAndRecordsTheVault() public {
+        MockVaultLink vault = new MockVaultLink(address(agent));
+        MockVaultLink other = new MockVaultLink(address(agent));
+
         vm.prank(USER);
-        agent.linkVault(1301, address(0x1234));
-        assertEq(agent.getVault(1301), address(0x1234));
+        agent.linkVault(1301, address(vault));
+        assertEq(agent.getVault(1301), address(vault));
 
         vm.prank(STRANGER);
         vm.expectRevert(NotOwner.selector);
-        agent.linkVault(1301, address(0x5678));
+        agent.linkVault(1301, address(other));
     }
 
     function test_agentFactoryDeploysAndRefusesRedeploy() public {
@@ -243,16 +247,22 @@ contract AgentTest is Test {
     }
 
     function test_linkVaultValidatesArgumentsAndIsIdempotent() public {
+        MockVaultLink vault = new MockVaultLink(address(agent));
+        MockVaultLink other = new MockVaultLink(address(agent));
+        MockVaultLink foreign = new MockVaultLink(address(0xDEAD));
+
         vm.startPrank(USER);
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
-        agent.linkVault(999, address(0x1234));
+        agent.linkVault(999, address(vault));
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
         agent.linkVault(1301, address(0));
-
-        agent.linkVault(1301, address(0x1234));
-        agent.linkVault(1301, address(0x1234));
         vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
-        agent.linkVault(1301, address(0x5678));
+        agent.linkVault(1301, address(foreign));
+
+        agent.linkVault(1301, address(vault));
+        agent.linkVault(1301, address(vault));
+        vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
+        agent.linkVault(1301, address(other));
         vm.stopPrank();
     }
 

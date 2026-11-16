@@ -1,6 +1,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '../components/AppShell.js';
+import { Account } from '../pages/Account.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 
 function Placeholder({ title, note }: { readonly title: string; readonly note: string }) {
@@ -67,15 +68,7 @@ export function AppRouter() {
                 <Placeholder title="Leaderboard" note="Rules ranked by runs and success rate." />
               }
             />
-            <Route
-              path="account"
-              element={
-                <Placeholder
-                  title="Account"
-                  note="Your agent, your vault, and the three separate balances."
-                />
-              }
-            />
+            <Route path="account" element={<Account />} />
             <Route
               path="cost"
               element={

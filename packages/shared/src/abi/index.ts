@@ -1431,6 +1431,11 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "AgentNotLinked",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "CallbackSenderMismatch",
     "inputs": [
       {

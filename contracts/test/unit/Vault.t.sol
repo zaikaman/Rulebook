@@ -6,6 +6,7 @@ import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
 import {Vault} from "../../src/vault/Vault.sol";
 import {
+    AgentNotLinked,
     CallbackSenderMismatch,
     ConditionNotMet,
     InvalidAmount,
@@ -15,6 +16,7 @@ import {
     TokenMismatch,
     UnknownTemplate
 } from "../../src/shared/Errors.sol";
+import {MockAgentVaultRegistry} from "../mocks/MockAgentVaultRegistry.sol";
 import {MockCallbackProxy} from "../mocks/MockCallbackProxy.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 
@@ -25,22 +27,25 @@ contract VaultTest is Test {
     MockCallbackProxy internal proxy;
     MockERC20 internal usdc;
     MockERC20 internal weth;
+    MockAgentVaultRegistry internal agentRegistry;
     Vault internal vault;
 
     function setUp() public {
         proxy = new MockCallbackProxy();
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
+        agentRegistry = new MockAgentVaultRegistry();
         vault = new Vault(
             IPayable(payable(address(proxy))),
             USER,
-            AGENT,
+            address(agentRegistry),
             address(0x1234),
             address(usdc),
             address(weth),
             100e6,
             false
         );
+        agentRegistry.setLinkedVault(address(vault));
     }
 
     function _fund(uint256 amount) internal {
@@ -53,15 +58,27 @@ contract VaultTest is Test {
 
     function test_executeRejectsNonProxySender() public {
         vm.expectRevert(NotServiceProvider.selector);
-        vault.execute(AGENT, 1, "");
+        vault.execute(address(agentRegistry), 1, "");
     }
 
     function test_executeRejectsWrongFirstArgument() public {
         vm.prank(address(proxy));
         vm.expectRevert(
-            abi.encodeWithSelector(CallbackSenderMismatch.selector, AGENT, address(0xBAD))
+            abi.encodeWithSelector(
+                CallbackSenderMismatch.selector, address(agentRegistry), address(0xBAD)
+            )
         );
         vault.execute(address(0xBAD), 1, "");
+    }
+
+    function test_executeRejectsVaultTheAgentHasNotLinked() public {
+        agentRegistry.setLinkedVault(address(0));
+        bytes memory validPayload = abi.encode(
+            uint16(1), address(usdc), uint256(0), uint256(50), uint64(type(uint64).max), uint256(0)
+        );
+        vm.prank(address(proxy));
+        vm.expectRevert(AgentNotLinked.selector);
+        vault.execute(address(agentRegistry), 1, validPayload);
     }
 
     function test_withdrawRejectsNonOwner() public {
@@ -93,7 +110,7 @@ contract VaultTest is Test {
 
         vm.prank(address(proxy));
         vm.expectRevert(ConditionNotMet.selector);
-        vault.execute(AGENT, 1, "");
+        vault.execute(address(agentRegistry), 1, "");
 
         vm.prank(USER);
         vault.withdraw(address(usdc), 10e6, USER);
@@ -209,27 +226,36 @@ contract VaultTest is Test {
         assertEq(usdc.balanceOf(address(0xFEED)), 10e6);
     }
 
+    function test_withdrawPartialKeepsRemainingPrincipal() public {
+        _fund(10e6);
+        vm.prank(USER);
+        vault.withdraw(address(usdc), 4e6, USER);
+        assertEq(usdc.balanceOf(USER), 4e6);
+        assertEq(vault.principalOf(address(usdc)), 6e6);
+        assertEq(usdc.balanceOf(address(vault)), 6e6);
+    }
+
     function test_executeValidatesPayloadBeforeDoingAnything() public {
         vm.prank(address(proxy));
         vm.expectRevert(InvalidTemplateParams.selector);
-        vault.execute(AGENT, 1, "");
+        vault.execute(address(agentRegistry), 1, "");
 
         bytes memory unknownTemplate =
             abi.encode(uint16(14), address(usdc), uint256(0), uint256(0), uint64(0), uint256(0));
         vm.prank(address(proxy));
         vm.expectRevert(abi.encodeWithSelector(UnknownTemplate.selector, 14));
-        vault.execute(AGENT, 1, unknownTemplate);
+        vault.execute(address(agentRegistry), 1, unknownTemplate);
 
         bytes memory validPayload = abi.encode(
             uint16(1), address(usdc), uint256(0), uint256(50), uint64(type(uint64).max), uint256(0)
         );
         vm.prank(address(proxy));
         vm.expectRevert(ConditionNotMet.selector);
-        vault.execute(AGENT, 1, validPayload);
+        vault.execute(address(agentRegistry), 1, validPayload);
 
         vm.prank(address(proxy));
         vm.expectRevert(InvalidTemplateParams.selector);
-        vault.execute(AGENT, uint256(type(uint32).max) + 1, validPayload);
+        vault.execute(address(agentRegistry), uint256(type(uint32).max) + 1, validPayload);
     }
 
     function test_vaultAcceptsEthForCallbackGas() public {

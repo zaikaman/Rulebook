@@ -21,6 +21,32 @@ const envSchema = z.object({
     .string()
     .regex(/^0x[a-fA-F0-9]{64}$/)
     .optional(),
+  AGENT_FACTORY_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  VAULT_FACTORY_ADDRESS: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{40}$/)
+    .optional(),
+  SPONSOR_GAS_TOP_UP_WEI: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .default('50000000000000000'),
+  SPONSOR_RESERVE_TARGET_WEI: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .default('200000000000000000'),
+  STARTER_FUNDS_USDC: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .default('10000000'),
+  STARTER_FUNDS_WETH: z
+    .string()
+    .regex(/^[0-9]+$/)
+    .default('10000000000000000'),
+  ONBOARDING_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(3),
+  ONBOARDING_DAILY_CAP: z.coerce.number().int().positive().default(100),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
 });
 
@@ -35,6 +61,14 @@ export interface AppConfig {
   readonly INDEXER_START_BLOCK_LASNA: number;
   readonly INDEXER_START_BLOCK_UNICHAIN: number;
   readonly SPONSOR_PRIVATE_KEY?: string;
+  readonly AGENT_FACTORY_ADDRESS?: string;
+  readonly VAULT_FACTORY_ADDRESS?: string;
+  readonly SPONSOR_GAS_TOP_UP_WEI: string;
+  readonly SPONSOR_RESERVE_TARGET_WEI: string;
+  readonly STARTER_FUNDS_USDC: string;
+  readonly STARTER_FUNDS_WETH: string;
+  readonly ONBOARDING_RATE_LIMIT_PER_MINUTE: number;
+  readonly ONBOARDING_DAILY_CAP: number;
   readonly corsOrigins: readonly string[];
 }
 

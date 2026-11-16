@@ -25,6 +25,41 @@ function ruleCreatedLog(index: number): RawLog {
   };
 }
 
+function agentDeployedLog(): RawLog {
+  return {
+    chainId: 5_318_007,
+    address: '0x3333333333333333333333333333333333333333',
+    topics: [
+      toEventSelector('AgentDeployed(address,address,uint256)'),
+      `0x${AGENT.slice(2).padStart(64, '0')}`,
+      `0x${'4'.repeat(64)}`,
+    ],
+    data: encodeAbiParameters([{ type: 'uint256' }], [1n]),
+    blockNumber: 50n,
+    transactionHash: `0x${'c'.repeat(64)}`,
+    logIndex: 0,
+    blockTime: '2026-11-16T00:00:00.000Z',
+  };
+}
+
+function vaultDeployedLog(): RawLog {
+  return {
+    chainId: 1301,
+    address: '0x5555555555555555555555555555555555555555',
+    topics: [
+      toEventSelector('VaultDeployed(address,address,address,uint256)'),
+      `0x${'6'.repeat(64)}`,
+      `0x${VAULT.slice(2).padStart(64, '0')}`,
+      `0x${AGENT.slice(2).padStart(64, '0')}`,
+    ],
+    data: encodeAbiParameters([{ type: 'uint256' }], [1301n]),
+    blockNumber: 60n,
+    transactionHash: `0x${'d'.repeat(64)}`,
+    logIndex: 0,
+    blockTime: '2026-11-16T00:00:01.000Z',
+  };
+}
+
 function executedLog(): RawLog {
   return {
     chainId: 1301,
@@ -69,6 +104,34 @@ describe('indexer idempotency', () => {
 
     expect(await store.count('rules', { agent: AGENT })).toBe(1);
     expect(await store.count('rule_events', { agent: AGENT })).toBe(1);
+  });
+
+  it('records AgentDeployed and VaultDeployed with owner, agent, chain, and creation tx', async () => {
+    const store = new InMemoryStore();
+    const repositories = createRepositories(store);
+
+    for (const raw of [agentDeployedLog(), vaultDeployedLog()]) {
+      const outcome = decodeLog(raw);
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      await persistDecodedEvent(repositories, outcome.event);
+      await persistDecodedEvent(repositories, outcome.event);
+    }
+
+    const agent = await repositories.agents.get(`0x${'4'.repeat(40)}`);
+    expect(agent).toMatchObject({
+      owner: AGENT,
+      created_tx: `0x${'c'.repeat(64)}`,
+      chain_id: 5_318_007,
+    });
+
+    const vault = await repositories.vaults.get(VAULT);
+    expect(vault).toMatchObject({
+      owner: `0x${'6'.repeat(40)}`,
+      agent: AGENT,
+      chain_id: 1301,
+      created_tx: `0x${'d'.repeat(64)}`,
+    });
   });
 
   it('replaying the same Executed log twice writes one execution row', async () => {

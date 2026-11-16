@@ -52,6 +52,14 @@ contract MockSystemContract is IReactiveSystem {
         records = _callbacks;
     }
 
+    /// @notice Permissionless reserve top-up; settles debt first in production.
+    function depositTo(address target) external payable {
+        reserves[target] += msg.value;
+    }
+
+    /// @notice A plain transfer raises the system balance without crediting any target.
+    receive() external payable {}
+
     function setReserves(address account, uint256 amount) external {
         reserves[account] = amount;
     }

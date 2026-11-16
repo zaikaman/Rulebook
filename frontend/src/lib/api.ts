@@ -4,8 +4,13 @@ import {
   chainsResponseSchema,
   executionsResponseSchema,
   healthSchema,
+  onboardingResponseSchema,
+  starterFundsResponseSchema,
   type Account,
+  type Address,
   type Health,
+  type OnboardingResponse,
+  type StarterFundsResponse,
 } from '@rulebook/shared';
 import type { z } from 'zod';
 
@@ -33,7 +38,9 @@ export class ApiClient {
     schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     init?: RequestInit,
   ): Promise<T> {
-    const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
+    // Native `fetch` must be invoked with the global receiver in browsers; calling it as
+    // `this.fetchImpl(...)` throws "Illegal invocation".
+    const response = await this.fetchImpl.call(globalThis, `${this.baseUrl}${path}`, {
       ...init,
       headers: { accept: 'application/json', ...init?.headers },
     });
@@ -66,6 +73,22 @@ export class ApiClient {
 
   account(agent: string): Promise<Account> {
     return this.request(`/v1/accounts/${agent}`, accountSchema);
+  }
+
+  onboarding(owner: Address): Promise<OnboardingResponse> {
+    return this.request('/v1/onboarding', onboardingResponseSchema, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ owner }),
+    });
+  }
+
+  starterFunds(owner: Address, vault: Address): Promise<StarterFundsResponse> {
+    return this.request('/v1/starter-funds', starterFundsResponseSchema, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ owner, vault }),
+    });
   }
 
   executions() {
