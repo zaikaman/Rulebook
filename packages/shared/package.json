@@ -1,0 +1,36 @@
+{
+  "name": "@rulebook/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generated ABIs, per-chain config, the 13-template manifest, zod boundary schemas, and the rule encoder.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./manifest/templates.json": "./manifest/templates.json"
+  },
+  "files": [
+    "dist",
+    "manifest"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "generate": "tsx scripts/generate.ts"
+  },
+  "dependencies": {
+    "viem": "^2.21.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^3.0.0"
+  }
+}

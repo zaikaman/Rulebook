@@ -1,0 +1,38 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+out/
+cache/
+broadcast/
+.turbo/
+
+# test + coverage artifacts
+coverage/
+playwright-report/
+test-results/
+contracts/.coverage-summary.json
+
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# logs
+*.log
+npm-debug.log*
+
+# editors / OS
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+
+# local tooling
+.tools/

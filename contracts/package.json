@@ -1,0 +1,16 @@
+{
+  "name": "@rulebook/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Foundry project: Agent (Lasna), Vault (Unichain Sepolia), factories, and registry.",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check",
+    "snapshot": "forge snapshot",
+    "coverage": "forge coverage --report summary",
+    "deploy:lasna": "forge script script/Deploy.s.sol --rpc-url $LASNA_RPC_URL --broadcast",
+    "deploy:unichain": "forge script script/Deploy.s.sol --rpc-url $UNICHAIN_RPC_URL --broadcast"
+  }
+}

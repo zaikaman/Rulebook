@@ -1,0 +1,17 @@
+node_modules/
+dist/
+build/
+out/
+cache/
+broadcast/
+coverage/
+contracts/lib/
+packages/shared/src/generated/
+package-lock.json
+playwright-report/
+test-results/
+
+# Authored prose and vendored tooling: not ours to reformat.
+IDEA.md
+.agents/
+.specify/

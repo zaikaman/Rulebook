@@ -90,14 +90,14 @@ struct MirrorConfig {
 
 ### `react()` contract
 
-| Aspect | Contract |
-|---|---|
-| Caller | The Lasna system contract only (`onlySystem`). Any other caller reverts. |
-| Input | `LogRecord` — routes on `topic0`, then `topic1/topic2` as needed by the template |
-| Work per invocation | Iterate `order`; stop before `gasLeft()` would breach the safety margin; emit `EvaluationDeferred` for rules not reached |
-| Side effects | Update cache / high-water / `lastRun` / `runs` / latched; `requestCallbackV_1_0` for firing money rules; emit alert events for alert rules |
-| Must not do | Move funds, call `subscribe()`/`unsubscribe()`, assume anything about destination state, exceed 900k gas |
-| Revert policy | A rule that cannot fire must be skipped, not revert the whole `react()` — a revert is charged in full |
+| Aspect              | Contract                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Caller              | The Lasna system contract only (`onlySystem`). Any other caller reverts.                                                                   |
+| Input               | `LogRecord` — routes on `topic0`, then `topic1/topic2` as needed by the template                                                           |
+| Work per invocation | Iterate `order`; stop before `gasLeft()` would breach the safety margin; emit `EvaluationDeferred` for rules not reached                   |
+| Side effects        | Update cache / high-water / `lastRun` / `runs` / latched; `requestCallbackV_1_0` for firing money rules; emit alert events for alert rules |
+| Must not do         | Move funds, call `subscribe()`/`unsubscribe()`, assume anything about destination state, exceed 900k gas                                   |
+| Revert policy       | A rule that cannot fire must be skipped, not revert the whole `react()` — a revert is charged in full                                      |
 
 ### Provenance for the proof page
 
@@ -142,17 +142,17 @@ interface IVault is IERC20Receiver {
 
 ### `execute()` contract — the money path
 
-| Step | Requirement |
-|---|---|
-| 1. Authenticate | Inherited `AbstractCallback`: `onlyServiceProvider` + `onlyCallbackSender(agent)`. `agent` is the **first** argument and is compared, never trusted. |
-| 2. Pause check | `paused == false`, else `ConditionNotMet` |
-| 3. Decode | `data` → `(uint16 template, address pair, uint256 threshold, uint256 minOut, uint64 expiry, uint256 extra)`; a decode failure reverts — it means a mismatched caller, not user error |
-| 4. Re-check condition | Read reserves from `pair` **now**; recompute price via `PriceMath`; require the rule's condition still holds, else `ConditionNotMet` |
-| 5. Re-check limits | `amountIn <= maxSpendPerRun`; tokens match the allowlist; `block.timestamp <= expiry` |
-| 6. Quote | `amountOutMin = expectedOut(liveReserves, amountIn) * (10_000 - slippageBps) / 10_000` — **from live reserves, never from a cached price** (FR-028) |
-| 7. Execute | `router.swapExactTokensForTokens(...)` with `amountOutMin`; or `SafeERC20.transfer` for transfer templates |
-| 8. Record | `Executed(...)` (leader) or `Mirrored(...)` (mirror), then `Balances(...)` |
-| Gas | Callback `gasLimit` requested by the Agent ≥ 400k for swaps, ≥ 150k for transfers; protocol floor is 100k |
+| Step                  | Requirement                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. Authenticate       | Inherited `AbstractCallback`: `onlyServiceProvider` + `onlyCallbackSender(agent)`. `agent` is the **first** argument and is compared, never trusted.                                 |
+| 2. Pause check        | `paused == false`, else `ConditionNotMet`                                                                                                                                            |
+| 3. Decode             | `data` → `(uint16 template, address pair, uint256 threshold, uint256 minOut, uint64 expiry, uint256 extra)`; a decode failure reverts — it means a mismatched caller, not user error |
+| 4. Re-check condition | Read reserves from `pair` **now**; recompute price via `PriceMath`; require the rule's condition still holds, else `ConditionNotMet`                                                 |
+| 5. Re-check limits    | `amountIn <= maxSpendPerRun`; tokens match the allowlist; `block.timestamp <= expiry`                                                                                                |
+| 6. Quote              | `amountOutMin = expectedOut(liveReserves, amountIn) * (10_000 - slippageBps) / 10_000` — **from live reserves, never from a cached price** (FR-028)                                  |
+| 7. Execute            | `router.swapExactTokensForTokens(...)` with `amountOutMin`; or `SafeERC20.transfer` for transfer templates                                                                           |
+| 8. Record             | `Executed(...)` (leader) or `Mirrored(...)` (mirror), then `Balances(...)`                                                                                                           |
+| Gas                   | Callback `gasLimit` requested by the Agent ≥ 400k for swaps, ≥ 150k for transfers; protocol floor is 100k                                                                            |
 
 ---
 
@@ -208,30 +208,30 @@ payload = abi.encodeWithSelector(
 )
 ```
 
-| Template | `extra` contents |
-|---|---|
-| 1 DCA, 7 RecurringTransfer | `0` |
-| 2 DipBoostDCA | `secondary` (dip threshold bps) |
-| 3 LimitBuy, 4 TakeProfit, 5 StopLoss | `secondary` (expiry / trailing bps) |
-| 6 GridRebalance | `secondary` (band bps); Agent rewrites `highWater` after fire |
-| 8 IncomeSweep, 13 LargeTransferAlert | observed `amountIn` from the `Transfer` payload |
-| 9 BalanceFloor | source wallet address to `transferFrom` |
-| 10 DeadManSwitch | `lastActivity` timestamp observed |
-| 11 PriceAlert, 12 RangeAlert | alert metadata only; recipient is the alert sink, never a vault |
+| Template                             | `extra` contents                                                |
+| ------------------------------------ | --------------------------------------------------------------- |
+| 1 DCA, 7 RecurringTransfer           | `0`                                                             |
+| 2 DipBoostDCA                        | `secondary` (dip threshold bps)                                 |
+| 3 LimitBuy, 4 TakeProfit, 5 StopLoss | `secondary` (expiry / trailing bps)                             |
+| 6 GridRebalance                      | `secondary` (band bps); Agent rewrites `highWater` after fire   |
+| 8 IncomeSweep, 13 LargeTransferAlert | observed `amountIn` from the `Transfer` payload                 |
+| 9 BalanceFloor                       | source wallet address to `transferFrom`                         |
+| 10 DeadManSwitch                     | `lastActivity` timestamp observed                               |
+| 11 PriceAlert, 12 RangeAlert         | alert metadata only; recipient is the alert sink, never a vault |
 
 ---
 
 ## 7. Subscription topics
 
-| Topic key | Subscribed when | Released when |
-|---|---|---|
-| `keccak256("cron")` + cron interval id | any cron-gated template is active (1, 2, 7, 10) | last such rule paused/cancelled |
-| `(pair, Sync.topic0)` | price templates active (1–6, 11, 12) or dip-boost needs a fresh cache | last rule referencing the pair is gone |
-| `(token, Transfer.topic0, topic2 = vault)` | 8, 13 | last such rule gone |
-| `(vault, Balances.topic0)` | 9 | last such rule gone |
-| `(userWallet, Transfer.topic0)` | 10 (inactivity detection) | rule gone |
-| `(leaderVault, Executed.topic0)` | mirror link exists | mirror cancelled |
-| `Cron10000` preferred; `Cron1000` only when a window must be tight (~8× cost) | — | — |
+| Topic key                                                                     | Subscribed when                                                       | Released when                          |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------------- | -------------------------------------- |
+| `keccak256("cron")` + cron interval id                                        | any cron-gated template is active (1, 2, 7, 10)                       | last such rule paused/cancelled        |
+| `(pair, Sync.topic0)`                                                         | price templates active (1–6, 11, 12) or dip-boost needs a fresh cache | last rule referencing the pair is gone |
+| `(token, Transfer.topic0, topic2 = vault)`                                    | 8, 13                                                                 | last such rule gone                    |
+| `(vault, Balances.topic0)`                                                    | 9                                                                     | last such rule gone                    |
+| `(userWallet, Transfer.topic0)`                                               | 10 (inactivity detection)                                             | rule gone                              |
+| `(leaderVault, Executed.topic0)`                                              | mirror link exists                                                    | mirror cancelled                       |
+| `Cron10000` preferred; `Cron1000` only when a window must be tight (~8× cost) | —                                                                     | —                                      |
 
 Subscriptions are managed only from ordinary transactions (`addRule` / `pauseRule` / `cancelRule` / `addMirror`), never from `react()` (R5), and are reference-counted per topic key.
 
@@ -239,9 +239,9 @@ Subscriptions are managed only from ordinary transactions (`addRule` / `pauseRul
 
 ## 8. Events the backend must decode
 
-| Chain | Events |
-|---|---|
-| Lasna | `RuleCreated`, `RulePaused`, `RuleCancelled`, `VaultLinked`, `RuleEvaluated`, `EvaluationDeferred`, `BudgetLow`, plus system-contract callback records read via `getCallbacks` |
-| Unichain Sepolia | `Executed`, `Mirrored`, `Balances`, `Deposited`, `Withdrawn`, `RuleListed`, `RuleDelisted`, `Sync` (price observations, optional) |
+| Chain            | Events                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Lasna            | `RuleCreated`, `RulePaused`, `RuleCancelled`, `VaultLinked`, `RuleEvaluated`, `EvaluationDeferred`, `BudgetLow`, plus system-contract callback records read via `getCallbacks` |
+| Unichain Sepolia | `Executed`, `Mirrored`, `Balances`, `Deposited`, `Withdrawn`, `RuleListed`, `RuleDelisted`, `Sync` (price observations, optional)                                              |
 
 Decoding rule: every log is decoded by a generated viem decoder, validated by a zod schema, and only then written. An undecodable log is stored in a `dead_letter` table and surfaced in `/health`, never silently dropped (Constitution IV).

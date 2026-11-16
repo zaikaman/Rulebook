@@ -1,0 +1,8 @@
+{
+  "chainId": 5318007,
+  "name": "Reactive Lasna",
+  "explorer": "https://reactscan.net",
+  "note": "Chain ID and explorer route confirmed against Reactive docs; re-confirm on-chain in spike 0.5 before trusting either value in a demo.",
+  "contracts": [],
+  "updatedAt": null
+}

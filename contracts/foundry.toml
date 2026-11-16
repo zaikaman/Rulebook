@@ -1,0 +1,36 @@
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+solc = "0.8.29"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = false
+bytecode_hash = "none"
+cbor_metadata = false
+# TemplateCatalog.sol is generated from the shared manifest; the parity test reads it back.
+fs_permissions = [{ access = "read", path = "../packages/shared/manifest" }]
+
+[profile.default.fuzz]
+runs = 512
+
+[profile.default.invariant]
+runs = 256
+depth = 64
+
+[profile.ci]
+fuzz = { runs = 1024 }
+invariant = { runs = 512 }
+
+[fmt]
+line_length = 100
+tab_width = 4
+bracket_spacing = false
+int_types = "long"
+
+[profile.default.rpc_endpoints]
+lasna = "${LASNA_RPC_URL}"
+unichain_sepolia = "${UNICHAIN_RPC_URL}"

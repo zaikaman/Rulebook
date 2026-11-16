@@ -1,0 +1,20 @@
+:root {
+  /* Two networks, two colours. Every badge reads these. */
+  --rb-automation: #7c5cff;
+  --rb-automation-ink: #efeaff;
+  --rb-funds: #14b8a6;
+  --rb-funds-ink: #e6fffb;
+
+  --rb-surface: #0b0d12;
+  --rb-surface-raised: #141822;
+  --rb-border: #232a38;
+  --rb-ink: #eef1f7;
+  --rb-ink-muted: #9aa4b8;
+
+  /* Status colours: latched and silent must never look like active. */
+  --rb-status-active: #22c55e;
+  --rb-status-paused: #f59e0b;
+  --rb-status-cancelled: #6b7280;
+  --rb-status-latched: #38bdf8;
+  --rb-status-silent: #ef4444;
+}

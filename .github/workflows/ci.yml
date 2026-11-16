@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    # Phase 1 ships no Solidity yet. Remove this guard once contracts/src has sources (Phase 2).
+    if: ${{ hashFiles('contracts/src/**/*.sol') != '' }}
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Format
+        run: forge fmt --check
+      - name: Build
+        run: forge build
+      - name: Test
+        run: forge test
+      - name: Coverage
+        run: forge coverage --report summary
+
+  node:
+    name: node
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Build shared package
+        run: npm run build -w packages/shared
+      - name: Typecheck
+        run: |
+          npm run typecheck -w packages/shared
+          npm run typecheck -w backend
+          npm run typecheck -w frontend
+      - name: Test
+        run: |
+          npm run test -w backend
+          npm run test -w frontend
+      - name: Build frontend
+        run: npm run build -w frontend
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # The scanner lands in the polish phase; until then the job is a no-op rather than a failing gate.
+      - name: Scan
+        if: ${{ hashFiles('scripts/secret-scan.mjs') != '' }}
+        run: node scripts/secret-scan.mjs

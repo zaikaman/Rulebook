@@ -1,6 +1,5 @@
 ---
-
-description: "Task list for Rulebook implementation"
+description: 'Task list for Rulebook implementation'
 ---
 
 # Tasks: Rulebook — No-Code On-Chain Personal Automations
@@ -36,28 +35,28 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 **Purpose**: repository, tooling, hosts, and the gates every later task must keep green.
 
-- [ ] T001 Create the npm-workspaces root `package.json` with workspaces `contracts`, `packages/shared`, `backend`, `frontend`, `engines.node: ">=24"`, and scripts `build`, `typecheck`, `lint`, `test`, `format`, `generate`.
-- [ ] T002 [P] Add root `.gitignore`, `.editorconfig`, `.nvmrc` (`24`), `.node-version`; ignore `node_modules`, `dist`, `out`, `cache`, `broadcast`, `.env*`, `coverage`, `.turbo` (`./.gitignore`).
-- [ ] T003 [P] Add `.prettierrc.json` + `.prettierignore` at repo root (single quotes, trailing comma `all`, printWidth 100) covering TS, JSON, MD, YAML (`./.prettierrc.json`).
-- [ ] T004 [P] Add `eslint.config.js` flat config at repo root (typescript-eslint type-checked, react-hooks, import/order); the only accepted invocation is `--max-warnings 0`.
-- [ ] T005 [P] Add `contracts/.solhint.json` (compiler-version, custom-errors, explicit-types, no-unused-import) plus `contracts/.solhintignore`.
-- [ ] T006 Create `.github/workflows/ci.yml` with jobs `contracts` (fmt --check, build, test, coverage gate), `backend` (typecheck, lint, test), `frontend` (typecheck, lint, test, build), `secret-scan`; any warning or skipped test fails the run.
-- [ ] T007 Initialise Foundry in `contracts/` and set `contracts/foundry.toml`: `solc = "0.8.29"`, optimizer 200 runs, `fuzz.runs = 512`, `invariant.runs = 256`, `fs_permissions` for reading the shared manifest.
-- [ ] T008 Pin `forge-std`, `Reactive-Network/reactive-lib` (exact commit), and `openzeppelin-contracts` (exact tag) in `contracts/remappings.txt`; record both pins in `docs/decisions/0001-record-architecture-decisions.md`.
-- [ ] T009 Create `packages/shared/package.json` (ESM, `exports`, scripts `generate`/`build`/`test`/`typecheck`) and `packages/shared/tsconfig.json` (`strict`, `noUncheckedIndexedAccess`, `composite`).
-- [ ] T010 Create `backend/package.json` + `backend/tsconfig.json` with `fastify`, `@fastify/cors`, `zod`, `viem`, `@supabase/supabase-js`, `pino`, `tsx`, `vitest`; scripts `dev`, `build`, `start`, `test`, `migrate`, `reindex`, `verify:reconcile`.
-- [ ] T011 Scaffold `frontend/` with Vite + React + TypeScript; add `wagmi`, `viem`, `@tanstack/react-query`, `react-router`, `@dnd-kit/core`, `@dnd-kit/sortable`, `zod`; confirm the naked scaffold builds.
-- [ ] T012 [P] Add Tailwind to `frontend/` with `frontend/tailwind.config.ts` and `frontend/src/styles/tokens.css`; define semantic tokens for the automation network and the funds network used by every badge.
-- [ ] T013 [P] Write `contracts/.env.example`, `backend/.env.example`, `frontend/.env.example`; label every variable `PUBLIC` or `SECRET` and state that only `VITE_*` values may cross into the bundle.
-- [ ] T014 [P] Write `docs/decisions/0001-record-architecture-decisions.md` (context, decision, consequence) covering the monorepo split and the pinned library versions.
-- [ ] T015 [P] Create `deployments/README.md` and empty `deployments/lasna.json` + `deployments/unichain-sepolia.json` with the required record shape: chain ID, address, contract name, commit SHA, deployer, explorer link, timestamp.
-- [ ] T016 [P] Write the `README.md` skeleton with Constitution V's mandatory sections: architecture, cost model, custody model, "the indexer cannot move funds", local setup, deployment (`./README.md`).
-- [ ] T017 [P] Add `husky` + `lint-staged` at repo root running Prettier and ESLint on staged files only (`./package.json`).
-- [ ] T018 Provision the Supabase project; record URL, region, free-plan pause rule, and the 500 MB cap in `docs/decisions/0002-supabase-project.md` — never a key.
-- [ ] T019 Create the Heroku app on the **Basic** tier (`heroku ps:type web=basic`): Eco dynos sleep after 30 idle minutes and would silently stop the indexer; record the app name in `README.md` (`./README.md`).
-- [ ] T020 Create and link the Vercel project; add `frontend/vercel.json` with the SPA rewrite to `/index.html` and build command `npm run build -w frontend`.
-- [ ] T021 [P] Install Playwright at repo root (`@playwright/test`) and add `playwright.config.ts` targeting `frontend/e2e` with a local `webServer`.
-- [ ] T022 [P] Add root `scripts/check.mjs` running the full local gate in order (fmt, build, test, coverage, typecheck, lint, secret scan) and exiting non-zero on the first failure.
+- [x] T001 Create the npm-workspaces root `package.json` with workspaces `contracts`, `packages/shared`, `backend`, `frontend`, `engines.node: ">=24"`, and scripts `build`, `typecheck`, `lint`, `test`, `format`, `generate`.
+- [x] T002 [P] Add root `.gitignore`, `.editorconfig`, `.nvmrc` (`24`), `.node-version`; ignore `node_modules`, `dist`, `out`, `cache`, `broadcast`, `.env*`, `coverage`, `.turbo` (`./.gitignore`).
+- [x] T003 [P] Add `.prettierrc.json` + `.prettierignore` at repo root (single quotes, trailing comma `all`, printWidth 100) covering TS, JSON, MD, YAML (`./.prettierrc.json`).
+- [x] T004 [P] Add `eslint.config.js` flat config at repo root (typescript-eslint type-checked, react-hooks, import/order); the only accepted invocation is `--max-warnings 0`.
+- [x] T005 [P] Add `contracts/.solhint.json` (compiler-version, custom-errors, explicit-types, no-unused-import) plus `contracts/.solhintignore`.
+- [x] T006 Create `.github/workflows/ci.yml` with jobs `contracts` (fmt --check, build, test, coverage gate), `backend` (typecheck, lint, test), `frontend` (typecheck, lint, test, build), `secret-scan`; any warning or skipped test fails the run.
+- [x] T007 Initialise Foundry in `contracts/` and set `contracts/foundry.toml`: `solc = "0.8.29"`, optimizer 200 runs, `fuzz.runs = 512`, `invariant.runs = 256`, `fs_permissions` for reading the shared manifest.
+- [x] T008 Pin `forge-std`, `Reactive-Network/reactive-lib` (exact commit), and `openzeppelin-contracts` (exact tag) in `contracts/remappings.txt`; record both pins in `docs/decisions/0001-record-architecture-decisions.md`.
+- [x] T009 Create `packages/shared/package.json` (ESM, `exports`, scripts `generate`/`build`/`test`/`typecheck`) and `packages/shared/tsconfig.json` (`strict`, `noUncheckedIndexedAccess`, `composite`).
+- [x] T010 Create `backend/package.json` + `backend/tsconfig.json` with `fastify`, `@fastify/cors`, `zod`, `viem`, `@supabase/supabase-js`, `pino`, `tsx`, `vitest`; scripts `dev`, `build`, `start`, `test`, `migrate`, `reindex`, `verify:reconcile`.
+- [x] T011 Scaffold `frontend/` with Vite + React + TypeScript; add `wagmi`, `viem`, `@tanstack/react-query`, `react-router`, `@dnd-kit/core`, `@dnd-kit/sortable`, `zod`; confirm the naked scaffold builds.
+- [x] T012 [P] Add Tailwind to `frontend/` with `frontend/tailwind.config.ts` and `frontend/src/styles/tokens.css`; define semantic tokens for the automation network and the funds network used by every badge.
+- [x] T013 [P] Write `contracts/.env.example`, `backend/.env.example`, `frontend/.env.example`; label every variable `PUBLIC` or `SECRET` and state that only `VITE_*` values may cross into the bundle.
+- [x] T014 [P] Write `docs/decisions/0001-record-architecture-decisions.md` (context, decision, consequence) covering the monorepo split and the pinned library versions.
+- [x] T015 [P] Create `deployments/README.md` and empty `deployments/lasna.json` + `deployments/unichain-sepolia.json` with the required record shape: chain ID, address, contract name, commit SHA, deployer, explorer link, timestamp.
+- [x] T016 [P] Write the `README.md` skeleton with Constitution V's mandatory sections: architecture, cost model, custody model, "the indexer cannot move funds", local setup, deployment (`./README.md`).
+- [x] T017 [P] Add `husky` + `lint-staged` at repo root running Prettier and ESLint on staged files only (`./package.json`).
+- [x] T018 Provision the Supabase project; record URL, region, free-plan pause rule, and the 500 MB cap in `docs/decisions/0002-supabase-project.md` — never a key.
+- [x] T019 Create the Heroku app on the **Basic** tier (`heroku ps:type web=basic`): Eco dynos sleep after 30 idle minutes and would silently stop the indexer; record the app name in `README.md` (`./README.md`).
+- [x] T020 Create and link the Vercel project; add `frontend/vercel.json` with the SPA rewrite to `/index.html` and build command `npm run build -w frontend`.
+- [x] T021 [P] Install Playwright at repo root (`@playwright/test`) and add `playwright.config.ts` targeting `frontend/e2e` with a local `webServer`.
+- [x] T022 [P] Add root `scripts/check.mjs` running the full local gate in order (fmt, build, test, coverage, typecheck, lint, secret scan) and exiting non-zero on the first failure.
 
 ---
 
@@ -463,18 +462,18 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### User Story Dependencies
 
-| Story | Priority | Depends on | Why |
-|---|---|---|---|
-| US1 account + custody | P1 | Foundational | nothing else can be tested without an account |
-| US2 composer + create rule | P1 | Foundational, US1 for a real end-to-end run (a seeded agent suffices for tests) | creating a rule needs an Agent address |
-| US3 proof view | P1 | Foundational, US2 to generate a real execution | proof needs something that ran |
-| US4 control | P1 | Foundational, US2 | pause/cancel/reorder target existing rules |
-| US5 13-template catalog | P2 | Foundational; templates 3–6 use the price cache | shares the one engine |
-| US6 marketplace + clone | P2 | Foundational, US2 | cloning calls `addRule` |
-| US7 network legibility | P2 | Foundational; wires into US1/US2/US4/US8 flows | presentation of existing writes |
-| US8 mirror | P3 | Foundational, US2, US5 (a leader rule must fire) | two-hop loop needs a working leader |
+| Story                      | Priority | Depends on                                                                      | Why                                           |
+| -------------------------- | -------- | ------------------------------------------------------------------------------- | --------------------------------------------- |
+| US1 account + custody      | P1       | Foundational                                                                    | nothing else can be tested without an account |
+| US2 composer + create rule | P1       | Foundational, US1 for a real end-to-end run (a seeded agent suffices for tests) | creating a rule needs an Agent address        |
+| US3 proof view             | P1       | Foundational, US2 to generate a real execution                                  | proof needs something that ran                |
+| US4 control                | P1       | Foundational, US2                                                               | pause/cancel/reorder target existing rules    |
+| US5 13-template catalog    | P2       | Foundational; templates 3–6 use the price cache                                 | shares the one engine                         |
+| US6 marketplace + clone    | P2       | Foundational, US2                                                               | cloning calls `addRule`                       |
+| US7 network legibility     | P2       | Foundational; wires into US1/US2/US4/US8 flows                                  | presentation of existing writes               |
+| US8 mirror                 | P3       | Foundational, US2, US5 (a leader rule must fire)                                | two-hop loop needs a working leader           |
 
-**Independence caveat**: US2–US8 are independently *testable* (fixtures, seeded accounts, mocks) but not independently *demonstrable* without US1. That is a product fact, not a task-design flaw.
+**Independence caveat**: US2–US8 are independently _testable_ (fixtures, seeded accounts, mocks) but not independently _demonstrable_ without US1. That is a product fact, not a task-design flaw.
 
 ### Within Each Story
 
@@ -525,13 +524,13 @@ If you must ship even smaller, US1 alone is a complete, verifiable custody slice
 
 ### Incremental delivery after the MVP
 
-| Increment | Adds | Validate with |
-|---|---|---|
-| +US4 | pause/cancel/reorder/budget visibility | quickstart V5, V6 |
-| +US5 | the honest 13-template catalog | quickstart V7 |
-| +US6 | marketplace, clone, leaderboard | quickstart V8 |
-| +US7 | network legibility across every write | manual journey |
-| +US8 | the two-hop mirror | quickstart V9 |
+| Increment | Adds                                   | Validate with     |
+| --------- | -------------------------------------- | ----------------- |
+| +US4      | pause/cancel/reorder/budget visibility | quickstart V5, V6 |
+| +US5      | the honest 13-template catalog         | quickstart V7     |
+| +US6      | marketplace, clone, leaderboard        | quickstart V8     |
+| +US7      | network legibility across every write  | manual journey    |
+| +US8      | the two-hop mirror                     | quickstart V9     |
 
 ### Cut line (binding, from `IDEA.md` §15)
 

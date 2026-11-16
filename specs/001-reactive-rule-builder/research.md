@@ -86,7 +86,7 @@ The Vault inherits Reactive's `AbstractCallback` and authenticates with `onlySer
 
 **Alternatives considered**:
 
-- Hand-rolled `require(msg.sender == callbackProxy)` — rejected: reimplements a solved problem, and gets the *sender* wrong (the call comes via the proxy; the identity is the payload's first argument).
+- Hand-rolled `require(msg.sender == callbackProxy)` — rejected: reimplements a solved problem, and gets the _sender_ wrong (the call comes via the proxy; the identity is the payload's first argument).
 - Emitting the legacy `Callback` event instead of `requestCallbackV_1_0` — rejected: deprecated; docs explicitly direct new contracts to the system-contract methods.
 
 **Verification step (day 1)**: confirm `getCallbacks` selector and return shape against the live Lasna system contract `0x8888…8888` with a `cast call` before the proof page is written; pin the `reactive-lib` commit in `foundry.toml`. Also confirm Lasna's chain ID on-chain — Reactive's docs list **5318007**, which differs from numbers circulating in older examples.
@@ -185,18 +185,18 @@ The Vault inherits Reactive's `AbstractCallback` and authenticates with `onlySer
 
 **Decision**:
 
-| Layer | Tool | Runs in CI | Notes |
-|---|---|---|---|
-| Contract unit + revert/access-control | `forge test` | yes | every external function, passing and failing case |
-| `react()` routing, latch, cooldown, budget, reorder | `forge test` + `reactive-test-lib` | yes | simulated log records, no network |
-| 13-template matrix (happy / condition-no-longer-holds / must-not-fire-twice) | `forge test` (generated fixtures) | yes | generated from the manifest |
-| Factory → Agent → Vault → Registry wiring | `forge test` (integration) | yes | hermetic |
-| Fork tests against Unichain Sepolia reserves/router | `forge test --match-path test/fork` | no (labeled) | needs RPC; run before submissions |
-| Composer encoding and sentence rendering | Vitest + RTL | yes | asserts calldata equality against fixtures |
-| Indexer decoder, cursor replay, idempotency | Vitest + recorded logs | yes | no network |
-| API response shapes | Vitest + zod round-trip | yes | contract tests against `http-api.yaml` |
-| End-to-end compose → calldata → proof render | Playwright, 1 path | yes | mocked chain client, no funded keys |
-| Live testnet loop (origin → callback) | manual, `quickstart.md` | no | needs funded accounts |
+| Layer                                                                        | Tool                                | Runs in CI   | Notes                                             |
+| ---------------------------------------------------------------------------- | ----------------------------------- | ------------ | ------------------------------------------------- |
+| Contract unit + revert/access-control                                        | `forge test`                        | yes          | every external function, passing and failing case |
+| `react()` routing, latch, cooldown, budget, reorder                          | `forge test` + `reactive-test-lib`  | yes          | simulated log records, no network                 |
+| 13-template matrix (happy / condition-no-longer-holds / must-not-fire-twice) | `forge test` (generated fixtures)   | yes          | generated from the manifest                       |
+| Factory → Agent → Vault → Registry wiring                                    | `forge test` (integration)          | yes          | hermetic                                          |
+| Fork tests against Unichain Sepolia reserves/router                          | `forge test --match-path test/fork` | no (labeled) | needs RPC; run before submissions                 |
+| Composer encoding and sentence rendering                                     | Vitest + RTL                        | yes          | asserts calldata equality against fixtures        |
+| Indexer decoder, cursor replay, idempotency                                  | Vitest + recorded logs              | yes          | no network                                        |
+| API response shapes                                                          | Vitest + zod round-trip             | yes          | contract tests against `http-api.yaml`            |
+| End-to-end compose → calldata → proof render                                 | Playwright, 1 path                  | yes          | mocked chain client, no funded keys               |
+| Live testnet loop (origin → callback)                                        | manual, `quickstart.md`             | no           | needs funded accounts                             |
 
 **Rationale**: Constitution II demands hermetic CI with no live RPC or faucet except explicitly labeled fork/soak tests. The template matrix is generated so adding a 14th template cannot land without its three mandatory cases.
 
@@ -220,14 +220,14 @@ The Vault inherits Reactive's `AbstractCallback` and authenticates with `onlySer
 
 These come from `IDEA.md` §15 and are not optional; the plan assumes they pass and names the fallback.
 
-| Spike | Command-level check | If it fails |
-|---|---|---|
-| Router works | 1 USDC swap through Uniswap V2 Router02 `0x6e8C…CfbF` on Unichain Sepolia | Try the second live router (`0x920b…`), then deploy V2 from source |
-| Test funds reach the pair | balance deltas observed on the pair after the swap | Seed the thin demo pair and use it for templates 3–6 |
-| lREACT usable by an EOA | receive from faucet, then send a Lasna tx from that EOA | Switch rule-creation funding to signed intents relayed by the app (v2 in `IDEA.md` §11) |
-| Cost model | `_extraGas`, `_gasPriceCoeffPer1000`, `_maxChargeGas`, `reserves`, `debt` on both proxies | Re-budget; if per-wake-up cost exceeds ~0.03 REACT, lengthen cron intervals |
-| Proof path | a test callback exists and `getCallbacks` returns its destination hash | Proof page falls back to indexing destination txs by `ruleId`, and the README says so |
-| Callback auth | wrong-sender and wrong-first-argument calls revert | Fix in `AbstractCallback` usage before any testnet deploy |
+| Spike                     | Command-level check                                                                       | If it fails                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Router works              | 1 USDC swap through Uniswap V2 Router02 `0x6e8C…CfbF` on Unichain Sepolia                 | Try the second live router (`0x920b…`), then deploy V2 from source                      |
+| Test funds reach the pair | balance deltas observed on the pair after the swap                                        | Seed the thin demo pair and use it for templates 3–6                                    |
+| lREACT usable by an EOA   | receive from faucet, then send a Lasna tx from that EOA                                   | Switch rule-creation funding to signed intents relayed by the app (v2 in `IDEA.md` §11) |
+| Cost model                | `_extraGas`, `_gasPriceCoeffPer1000`, `_maxChargeGas`, `reserves`, `debt` on both proxies | Re-budget; if per-wake-up cost exceeds ~0.03 REACT, lengthen cron intervals             |
+| Proof path                | a test callback exists and `getCallbacks` returns its destination hash                    | Proof page falls back to indexing destination txs by `ruleId`, and the README says so   |
+| Callback auth             | wrong-sender and wrong-first-argument calls revert                                        | Fix in `AbstractCallback` usage before any testnet deploy                               |
 
 ---
 

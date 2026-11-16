@@ -8,7 +8,7 @@
 
 **Input**: User description: "@IDEA.md" — the locked Rulebook design document (a no-code builder where a personal money rule becomes a self-executing on-chain automation: the user keeps the money, the service pays the execution costs, and nobody has to keep a server awake).
 
-## User Scenarios & Testing *(mandatory)*
+## User Scenarios & Testing _(mandatory)_
 
 ### User Story 1 - Create a personal automation account I actually own (Priority: P1)
 
@@ -162,7 +162,7 @@ When a leader's rule executes, a follower who attached a mirror to it executes a
 - **A rule's counterpart account has been emptied.** The automation must remain listed but must not spend credit attempting impossible executions.
 - **The operator's database is lost.** Nothing user-facing that matters for proof must be lost; activity views must be rebuildable from public chain data.
 
-## Requirements *(mandatory)*
+## Requirements _(mandatory)_
 
 ### Functional Requirements
 
@@ -255,7 +255,7 @@ When a leader's rule executes, a follower who attached a mirror to it executes a
 - **Mirror Link**: A follower's attachment to a leader's rule, carrying the scale factor, the per-run ceiling, the hourly burst limit, and the deduplication key.
 - **Execution Credit**: The prepaid capacity to wake the automation and to pay for funds-side callbacks; separate from principal and refundable or top-up-able by anyone.
 
-## Success Criteria *(mandatory)*
+## Success Criteria _(mandatory)_
 
 ### Measurable Outcomes
 

@@ -152,7 +152,8 @@ components:
             required: [key, kind, label, required]
             properties:
               key: { type: string }
-              kind: { type: string, enum: [schedule, amount, token, price, percent, duration, address] }
+              kind:
+                { type: string, enum: [schedule, amount, token, price, percent, duration, address] }
               label: { type: string }
               required: { type: boolean }
               min: { type: string, nullable: true }
