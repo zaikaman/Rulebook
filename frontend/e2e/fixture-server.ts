@@ -20,6 +20,7 @@ import type { AppConfig } from '../../backend/src/config.js';
 import { createRepositories } from '../../backend/src/db/repositories/index.js';
 import { InMemoryStore } from '../../backend/src/db/store.js';
 import { CursorStore } from '../../backend/src/indexer/cursors.js';
+import { IndexerPoller } from '../../backend/src/indexer/poller.js';
 import { buildServer } from '../../backend/src/server.js';
 import { PublicAccountChain } from '../../backend/src/sponsor/accountChain.js';
 import {
@@ -184,6 +185,7 @@ async function main(): Promise<void> {
   const clients = createChainClients(config);
   const store = new InMemoryStore();
   const repositories = createRepositories(store);
+  const cursors = new CursorStore(store);
   const addresses = relayerAddresses(config);
   if (!addresses) throw new Error('fixture relayer addresses missing');
   const relayer = new SponsorRelayer(
@@ -196,7 +198,7 @@ async function main(): Promise<void> {
     {
       config,
       repositories,
-      cursors: new CursorStore(store),
+      cursors,
       databaseReachable: async () => true,
       rpcHealth: async () => [
         { chain_id: LASNA_CHAIN_ID, rpc_ok: true },
@@ -210,6 +212,22 @@ async function main(): Promise<void> {
   );
   serverRef.current = built.app;
   await built.app.listen({ port: 8787, host: '127.0.0.1' });
+
+  // The control story needs the read model the indexer normally supplies. Both configured
+  // chains share this anvil, so one poller over its logs is enough; zero confirmations keeps
+  // the state visible while the spec is still running.
+  const indexer = new IndexerPoller({
+    repositories,
+    store,
+    cursors,
+    clients,
+    startBlocks: { [UNICHAIN_SEPOLIA_CHAIN_ID]: 0 },
+    confirmationDepth: { [UNICHAIN_SEPOLIA_CHAIN_ID]: 0 },
+    rangeSize: 1_000,
+    pollIntervalMs: 500,
+  });
+  void indexer.run([UNICHAIN_SEPOLIA_CHAIN_ID]);
+
   process.stdout.write(`Fixture ready at ${FIXTURE_API_URL}\n`);
 }
 

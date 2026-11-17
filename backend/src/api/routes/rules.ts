@@ -1,5 +1,6 @@
 import type { RuleRow } from '../../db/repositories/index.js';
 import type { ServerDeps } from '../../deps.js';
+import { loadAccountCredit } from '../../sponsor/status.js';
 import type { FastifyInstance } from 'fastify';
 
 import { sendError } from './errors.js';
@@ -41,10 +42,10 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       const agent = request.params.agent.toLowerCase();
       const rule = await deps.repositories.rules.get(agent, request.params.ruleId);
       if (!rule) return sendError(reply, 404, 'not_found', 'Unknown rule');
-      const executions = await deps.repositories.executions.list(
-        { agent, rule_id: rule.rule_id },
-        10,
-      );
+      const [executions, credit] = await Promise.all([
+        deps.repositories.executions.list({ agent, rule_id: rule.rule_id }, 10),
+        loadAccountCredit(deps, agent).catch(() => null),
+      ]);
       const recentExecutions = await Promise.all(
         executions.map(async (execution) => {
           const callback = await deps.repositories.callbacks.findByDestinationTx(execution.tx_hash);
@@ -70,6 +71,8 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       return {
         rule: toApiRule(rule),
         recent_executions: recentExecutions,
+        // T158: the detail view gets its budget and sponsor state in the same response.
+        ...(credit ? { budget: credit.budget, sponsor: credit.status } : {}),
       };
     },
   );

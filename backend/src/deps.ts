@@ -1,4 +1,5 @@
 import type { ProofSource } from './chain/proofSource.js';
+import type { SponsorSource } from './chain/sponsorSource.js';
 import type { AppConfig } from './config.js';
 import type { Repositories } from './db/repositories/index.js';
 import type { CursorStore } from './indexer/cursors.js';
@@ -18,6 +19,8 @@ export interface ServerDeps {
   readonly accountChain: AccountChain;
   /** Chain-first proof reader; absent in tests that exercise the cache-only fallback. */
   readonly proofSource?: ProofSource;
+  /** Reads execution-credit reserves/debt; absent when no chain client is configured. */
+  readonly sponsorSource?: SponsorSource;
   /** Per-address and global onboarding limiter; one instance per server process. */
   readonly onboardingLimiter: { allow(key: string): boolean };
 }

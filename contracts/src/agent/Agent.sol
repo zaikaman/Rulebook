@@ -12,6 +12,7 @@ import {
     ExceedsPerRunCap,
     InvalidSecondary,
     InvalidTemplateParams,
+    MonthlyCapExceeded,
     NotOwner,
     NotServiceProvider,
     RuleLimitReached,
@@ -63,6 +64,19 @@ contract Agent is Ownable {
     /// `maxSpendPerRun` is the funds-side ceiling; the Agent cannot read it across chains, so
     /// this is the pre-approval bound enforced at `addRule`.
     uint256 public constant MAX_SPEND_PER_RUN = 100_000_000;
+    /// @notice Monthly pre-approval across all active rules (IDEA.md §11). The sum of every
+    /// active rule's per-run amount may never exceed this; pausing releases its reservation.
+    uint256 public constant MONTHLY_SPEND_CAP = 300_000_000;
+    /// @notice Remaining cap at or below which `BudgetLow` is emitted, warning before silence.
+    uint256 public constant BUDGET_LOW_THRESHOLD = MONTHLY_SPEND_CAP / 10;
+    /// @notice Reactive's per-transaction ceiling; the guard stops before reaching it.
+    uint256 public constant MAX_REACT_GAS = 900_000;
+    /// @notice Gas kept in hand so the deferred events and the return path always fit.
+    uint256 public constant REACT_GAS_RESERVE = 45_000;
+    /// @notice Conservative cost of evaluating one rule, including its event.
+    uint256 public constant EVALUATION_GAS_ESTIMATE = 45_000;
+    /// @notice Rolling accounting window for the per-user monthly execution cap.
+    uint64 public constant MONTHLY_WINDOW = 30 days;
 
     /// @notice The Reactive system contract allowed to call `react()`.
     IReactiveSystem public immutable systemContract;
@@ -75,6 +89,12 @@ contract Agent is Ownable {
     uint256 public activeRules;
     /// @notice Last time this account observed activity, used by the dead-man switch.
     uint64 public lastActivity;
+    /// @notice Per-run amounts currently reserved by active rules for this month.
+    uint256 public monthlyReserved;
+    /// @notice Amount actually spent by fired rules inside the current rolling window.
+    uint256 public monthlySpent;
+    /// @notice Start of the current accounting window.
+    uint64 public monthlyWindowStart;
 
     mapping(uint256 => RuleLib.Rule) private _rules;
     uint256[] private _order;
@@ -112,6 +132,7 @@ contract Agent is Ownable {
         if (rule.amountIn > MAX_SPEND_PER_RUN) {
             revert ExceedsPerRunCap(rule.amountIn, MAX_SPEND_PER_RUN);
         }
+        _reserveMonthlyBudget(rule.amountIn);
 
         RuleLib.Rule memory stored = rule;
         stored.flags = RuleLib.FLAG_ACTIVE;
@@ -125,6 +146,7 @@ contract Agent is Ownable {
 
         _acquireSubscription(ruleId, stored);
         emit RuleCreated(address(this), ruleId, rule.template, makePublic);
+        _emitBudgetLowIfLow();
     }
 
     /// @notice Pauses an active rule. Pausing the last rule on a topic releases it.
@@ -133,6 +155,7 @@ contract Agent is Ownable {
         if (!_isActive(rule)) revert RuleNotActive(ruleId);
         rule.flags &= ~RuleLib.FLAG_ACTIVE;
         activeRules -= 1;
+        _releaseMonthlyBudget(rule.amountIn);
         _releaseSubscription(ruleId);
         emit RulePaused(address(this), ruleId, true);
     }
@@ -141,10 +164,12 @@ contract Agent is Ownable {
     function resumeRule(uint256 ruleId) external onlyAgentOwner {
         RuleLib.Rule storage rule = _rules[ruleId];
         if (_isCancelled(rule) || _isActive(rule)) revert RuleNotActive(ruleId);
+        _reserveMonthlyBudget(rule.amountIn);
         rule.flags |= RuleLib.FLAG_ACTIVE;
         activeRules += 1;
         _acquireSubscription(ruleId, rule);
         emit RulePaused(address(this), ruleId, false);
+        _emitBudgetLowIfLow();
     }
 
     /// @notice Cancels a rule permanently and releases its subscription references.
@@ -153,6 +178,7 @@ contract Agent is Ownable {
         if (_isCancelled(rule)) revert RuleNotActive(ruleId);
         if (_isActive(rule)) {
             activeRules -= 1;
+            _releaseMonthlyBudget(rule.amountIn);
         }
         _releaseSubscription(ruleId);
         rule.flags = RuleLib.FLAG_CANCELLED;
@@ -206,15 +232,27 @@ contract Agent is Ownable {
     }
 
     /// @notice Reactive entry point. Only the system contract may call it.
-    /// @dev Evaluates rules in order and publishes the origin log for the proof page.
+    /// @dev Evaluates rules in order, records fired runs, and publishes the origin log for the
+    /// proof page. Rules that do not fit the remaining gas are deferred, never allowed to revert
+    /// the whole wake-up (a revert is charged in full).
     function react(IReactive.LogRecord calldata log) external {
         if (msg.sender != address(systemContract)) revert NotServiceProvider();
 
         _observe(log);
+        _rollMonthlyWindow();
+        uint256 startGas = gasleft();
         uint256 length = _order.length;
+        bool deferring;
         for (uint256 i = 0; i < length; ++i) {
             uint256 ruleId = _order[i];
-            bool fired = _evaluatesTrue(_rules[ruleId], log);
+            if (deferring || _mustDefer(startGas)) {
+                deferring = true;
+                emit EvaluationDeferred(ruleId, gasleft());
+                continue;
+            }
+            RuleLib.Rule storage rule = _rules[ruleId];
+            bool fired = _evaluatesTrue(rule, log);
+            if (fired) _recordExecution(rule);
             emit RuleEvaluated(
                 ruleId, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), fired
             );
@@ -247,6 +285,16 @@ contract Agent is Ownable {
         count = activeRules;
     }
 
+    /// @notice Monthly pre-approved spend still available to active rules.
+    function remainingMonthlyBudget() external view returns (uint256 remaining) {
+        remaining = monthlyReserved >= MONTHLY_SPEND_CAP ? 0 : MONTHLY_SPEND_CAP - monthlyReserved;
+    }
+
+    /// @notice True when the account is close enough to silence to warn its owner.
+    function budgetIsLow() external view returns (bool low) {
+        low = MONTHLY_SPEND_CAP - monthlyReserved <= BUDGET_LOW_THRESHOLD;
+    }
+
     /// @notice Returns the mirror configuration attached to `ruleId`.
     function getMirror(uint256 ruleId) external view returns (MirrorConfig memory mirror) {
         mirror = _mirrors[ruleId];
@@ -265,10 +313,63 @@ contract Agent is Ownable {
         view
         returns (bool)
     {
-        if (!_isActive(rule) || rule.template != 11) return false;
+        if (!_isActive(rule) || (rule.flags & RuleLib.FLAG_LATCHED) != 0) return false;
+        if (rule.template != 11) return false;
         if (bytes32(log.topic_0) != SYNC_TOPIC || log._contract != rule.pair) return false;
         uint256 price = _cachedPrice[rule.pair];
         return price != 0 && price >= rule.threshold;
+    }
+
+    /// @dev True when this wake-up must stop evaluating and defer the rest (T151).
+    function _mustDefer(uint256 startGas) private view returns (bool) {
+        uint256 floor = EVALUATION_GAS_ESTIMATE + REACT_GAS_RESERVE;
+        if (gasleft() < floor) return true;
+        return startGas - gasleft() + floor > MAX_REACT_GAS;
+    }
+
+    /// @dev Per-rule execution counter and the origin-side budget ledger (T156).
+    function _recordExecution(RuleLib.Rule storage rule) private {
+        rule.runs += 1;
+        rule.lastRun = uint64(block.timestamp);
+        if (!RuleLib.isCronTemplate(rule.template)) rule.flags |= RuleLib.FLAG_LATCHED;
+        monthlySpent += rule.amountIn;
+    }
+
+    /// @dev Reserves a rule's per-run amount against the monthly cap, or reverts with its own
+    /// error so the UI can name the limit rather than blaming the per-run ceiling.
+    function _reserveMonthlyBudget(uint256 amountIn) private {
+        _rollMonthlyWindow();
+        uint256 approved = monthlyReserved + amountIn;
+        if (approved > MONTHLY_SPEND_CAP) {
+            revert MonthlyCapExceeded(approved, MONTHLY_SPEND_CAP);
+        }
+        monthlyReserved = approved;
+    }
+
+    /// @dev Releases a paused or cancelled rule's reservation; never underflows.
+    function _releaseMonthlyBudget(uint256 amountIn) private {
+        uint256 reserved = monthlyReserved;
+        monthlyReserved = amountIn >= reserved ? 0 : reserved - amountIn;
+    }
+
+    /// @dev Emits the warning before the account has no headroom left to run a rule.
+    function _emitBudgetLowIfLow() private {
+        uint256 remaining =
+            monthlyReserved >= MONTHLY_SPEND_CAP ? 0 : MONTHLY_SPEND_CAP - monthlyReserved;
+        if (remaining <= BUDGET_LOW_THRESHOLD) emit BudgetLow(remaining, BUDGET_LOW_THRESHOLD);
+    }
+
+    /// @dev Starts a fresh accounting window after 30 days without losing reservations.
+    function _rollMonthlyWindow() private {
+        uint64 start = monthlyWindowStart;
+        if (start == 0) {
+            monthlyWindowStart = uint64(block.timestamp);
+            return;
+        }
+        if (block.timestamp >= uint256(start) + MONTHLY_WINDOW) {
+            monthlyWindowStart = uint64(block.timestamp);
+            monthlySpent = 0;
+        }
     }
 
     /// @dev Refreshes the per-pair price cache from a `Sync` observation.

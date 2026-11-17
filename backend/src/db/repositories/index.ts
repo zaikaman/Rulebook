@@ -220,13 +220,19 @@ export function createRepositories(store: Store) {
         agent: string,
         ruleId: string,
         status: RuleRow['status'],
-        latched: boolean,
+        latched?: boolean,
       ): Promise<void> {
         const existing = await this.get(agent, ruleId);
         if (!existing) return;
         await store.upsert(
           'rules',
-          [withIndexedAt({ ...existing, status, latched })],
+          [
+            withIndexedAt({
+              ...existing,
+              status,
+              latched: latched === undefined ? existing.latched : latched,
+            }),
+          ],
           'agent,rule_id',
         );
       },

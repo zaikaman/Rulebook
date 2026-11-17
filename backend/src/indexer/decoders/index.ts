@@ -323,11 +323,11 @@ export async function persistDecodedEvent(
     case 'RulePaused': {
       const agent = asString(args.agent).toLowerCase();
       const paused = Boolean(args.paused);
+      // Pausing does not erase a latch; resuming does not fake an unfired state.
       await repositories.rules.updateStatus(
         agent,
         asString(args.ruleId),
         paused ? 'paused' : 'active',
-        false,
       );
       await repositories.ruleEvents.upsert({
         chain_id: event.chainId,

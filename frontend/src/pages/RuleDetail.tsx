@@ -1,14 +1,27 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
+import {
+  agentAbi,
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+} from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
+import { useReadContract } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
+import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
+import { BudgetMeter } from '../components/BudgetMeter.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ExecutionTable } from '../components/ExecutionTable.js';
+import { RuleActions } from '../components/RuleActions.js';
+import { RuleOrderList } from '../components/RuleOrderList.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
+import { useRuleControl } from '../hooks/useRuleControl.js';
 import { api } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 import { lastRunLabel, ruleSentence } from '../lib/rules.js';
+
+const ZERO = '0x0000000000000000000000000000000000000000';
 
 function statusOf(status: 'active' | 'paused' | 'cancelled', latched: boolean): RuleStatus {
   if (latched && status === 'active') return 'latched';
@@ -24,6 +37,22 @@ export function RuleDetail() {
     enabled: Boolean(agent && ruleId),
     retry: false,
   });
+
+  const rulesQuery = useQuery({
+    queryKey: ['rules', agent],
+    queryFn: () => api.rules(agent as string, 'all'),
+    enabled: Boolean(agent),
+  });
+
+  const orderQuery = useReadContract({
+    address: (agent as Address | undefined) ?? ZERO,
+    abi: agentAbi,
+    functionName: 'getRuleIds',
+    chainId: LASNA_CHAIN_ID,
+    query: { enabled: Boolean(agent) },
+  });
+
+  const control = useRuleControl((agent as Address | undefined) ?? null);
 
   const backLink = (
     <Link to={appRoutes.rules} className="text-xs text-ink-muted hover:text-ink">
@@ -58,8 +87,14 @@ export function RuleDetail() {
     );
   }
 
-  const { rule, recent_executions: executions } = detailQuery.data;
+  const { rule, recent_executions: executions, budget, sponsor } = detailQuery.data;
   const agentAddress = agent as Address;
+  const rules = rulesQuery.data ?? [];
+  const order = orderQuery.data ?? rules.map((candidate) => candidate.rule_id);
+  const labels = Object.fromEntries(
+    rules.map((candidate) => [candidate.rule_id.toString(), ruleSentence(candidate)]),
+  );
+  const currentRuleId = rule.rule_id;
 
   return (
     <section className="space-y-6">
@@ -102,12 +137,31 @@ export function RuleDetail() {
         <ExecutionTable executions={executions} />
       </section>
 
-      <section
-        aria-label="Rule actions"
-        className="rounded-lg border border-dashed border-border p-4 text-xs text-ink-muted"
-      >
-        Pause, resume, cancel, and reorder land with the control phase. Until then, the rule keeps
-        the values above.
+      <BudgetAtRiskBanner state={worstSponsorState(sponsor)} agent={agentAddress} />
+
+      {budget ? (
+        <section aria-label="Execution budget">
+          <BudgetMeter budget={budget} />
+        </section>
+      ) : null}
+
+      <section aria-label="Rule actions" className="space-y-3">
+        <h2 className="text-base font-semibold text-ink">Control</h2>
+        <RuleActions
+          ruleId={currentRuleId}
+          status={statusOf(rule.status, rule.latched)}
+          onPause={() => control.pause(currentRuleId)}
+          onResume={() => control.resume(currentRuleId)}
+          onCancel={() => control.cancel(currentRuleId)}
+        />
+      </section>
+
+      <section aria-label="Evaluation order" className="space-y-3">
+        <h2 className="text-base font-semibold text-ink">Evaluation order</h2>
+        <p className="text-xs text-ink-muted">
+          Rules run top to bottom on every wake-up. Move one to change which gets the gas first.
+        </p>
+        <RuleOrderList ids={order} labels={labels} onReorder={control.reorder} />
       </section>
     </section>
   );

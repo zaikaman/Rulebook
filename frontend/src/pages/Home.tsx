@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
+import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
 import { api } from '../lib/api.js';
@@ -92,6 +93,13 @@ export function Home() {
     enabled: Boolean(agent),
   });
 
+  const sponsorQuery = useQuery({
+    queryKey: ['sponsor', agent],
+    queryFn: () => api.sponsor(agent as string),
+    enabled: Boolean(agent),
+    retry: false,
+  });
+
   if (!address) {
     return (
       <section className="space-y-3">
@@ -165,6 +173,8 @@ export function Home() {
           Assemble new rule
         </Link>
       </header>
+
+      <BudgetAtRiskBanner state={worstSponsorState(sponsorQuery.data)} agent={agent ?? undefined} />
 
       {rules.length === 0 ? (
         <div className="space-y-2 rounded-lg border border-dashed border-border p-8 text-center">

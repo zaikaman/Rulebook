@@ -199,6 +199,16 @@ export const sponsorStatusSchema = z.object({
 });
 export type SponsorStatus = z.infer<typeof sponsorStatusSchema>;
 
+/** The one budget readout a rule detail needs; `sponsor` carries the per-chain breakdown. */
+export const ruleBudgetSchema = z.object({
+  state: sponsorStateSchema,
+  remaining: uint256Schema,
+  threshold: uint256Schema,
+  low: z.boolean(),
+  exhausted: z.boolean(),
+});
+export type RuleBudget = z.infer<typeof ruleBudgetSchema>;
+
 export const healthSchema = z.object({
   status: z.enum(['ok', 'degraded', 'down']),
   indexer: z.object({
@@ -269,6 +279,9 @@ export const rulesResponseSchema = z.object({ rules: z.array(ruleSchema) });
 export const ruleDetailResponseSchema = z.object({
   rule: ruleSchema,
   recent_executions: z.array(executionSchema),
+  /** Present when the sponsor source could read the account's execution credit. */
+  budget: ruleBudgetSchema.optional(),
+  sponsor: sponsorStatusSchema.optional(),
 });
 
 export const executionsResponseSchema = z.object({

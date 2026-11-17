@@ -254,27 +254,27 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 4 ⚠️ (write first, confirm each fails)
 
-- [ ] T149 [P] [US4] Contract test `contracts/test/unit/AgentControl.t.sol`: pause/resume/cancel transitions emit `RulePaused`/`RuleCancelled`; pausing the last rule needing a topic calls `unsubscribe` exactly once; resuming re-subscribes; cancelling releases references (FR-029).
-- [ ] T150 [P] [US4] Contract test: `reorderRules` is owner-only, rejects a duplicate or unknown id, persists `getRuleIds()`, and evaluation honours the new order (`contracts/test/unit/AgentControl.t.sol`).
-- [ ] T151 [P] [US4] Contract test: with many eligible rules, `react()` stops before breaching the 900k ceiling, emits `EvaluationDeferred` for those not reached, and still does not revert (`contracts/test/unit/AgentControl.t.sol`).
-- [ ] T152 [P] [US4] Contract test: the per-run ceiling and the per-user monthly cap each revert with their own error, and a rule cannot exceed `maxSpendPerRun` even when the vault holds more (`contracts/test/unit/AgentControl.t.sol`).
-- [ ] T153 [P] [US4] RTL test: pressing pause updates the status pill within one render cycle; a failed reorder rolls back the visual order and shows the error (`frontend/test/control.test.tsx`).
+- [x] T149 [P] [US4] Contract test `contracts/test/unit/AgentControl.t.sol`: pause/resume/cancel transitions emit `RulePaused`/`RuleCancelled`; pausing the last rule needing a topic calls `unsubscribe` exactly once; resuming re-subscribes; cancelling releases references (FR-029).
+- [x] T150 [P] [US4] Contract test: `reorderRules` is owner-only, rejects a duplicate or unknown id, persists `getRuleIds()`, and evaluation honours the new order (`contracts/test/unit/AgentControl.t.sol`).
+- [x] T151 [P] [US4] Contract test: with many eligible rules, `react()` stops before breaching the 900k ceiling, emits `EvaluationDeferred` for those not reached, and still does not revert (`contracts/test/unit/AgentControl.t.sol`).
+- [x] T152 [P] [US4] Contract test: the per-run ceiling and the per-user monthly cap each revert with their own error, and a rule cannot exceed `maxSpendPerRun` even when the vault holds more (`contracts/test/unit/AgentControl.t.sol`).
+- [x] T153 [P] [US4] RTL test: pressing pause updates the status pill within one render cycle; a failed reorder rolls back the visual order and shows the error (`frontend/test/control.test.tsx`).
 
 ### Implementation for User Story 4
 
-- [ ] T154 [US4] Implement `pauseRule`/`resumeRule`/`cancelRule` in `Agent.sol` with the per-topic reference counter and `subscribe`/`unsubscribe` calls on the system contract (never from `react()`).
-- [ ] T155 [US4] Implement `reorderRules` with a full-permutation check and keep `getRuleIds()` as the single source of evaluation order (`contracts/src/agent/Agent.sol`).
-- [ ] T156 [US4] Implement budget accounting in `Agent.sol`: per-rule execution counter, per-user monthly cap, `BudgetLow` emission at the documented threshold (`contracts/src/agent/Agent.sol`).
-- [ ] T157 [US4] Add the gas guard in `react()`: estimate per-rule cost, stop before the ceiling, defer the remainder, and never let one rule's revert abort the loop (`contracts/src/agent/Agent.sol`).
-- [ ] T158 [US4] Extend the rule detail API response with budget fields and the sponsor state so the UI needs no second call (`backend/src/api/routes/rules.ts`).
-- [ ] T159 [US4] Implement `GET /v1/sponsor/:agent` in `backend/src/api/routes/sponsor.ts` reading `reserves`/`debt` on both proxies and deriving `healthy`/`low`/`exhausted`/`debt`.
-- [ ] T160 [US4] Build `frontend/src/components/RuleOrderList.tsx`: dnd-kit sortable list whose drop submits `reorderRules`, with keyboard reordering and an explicit “runs first” affordance.
-- [ ] T161 [US4] Build `frontend/src/components/RuleActions.tsx`: pause/resume/cancel with a confirmation for cancel, optimistic status, and rollback on revert.
-- [ ] T162 [US4] Build `frontend/src/components/BudgetMeter.tsx`: remaining credit, threshold marker, and `low`/`exhausted`/`debt` states that never render as `active`.
-- [ ] T163 [US4] Add the at-risk banner to `/` and rule detail with top-up instructions (permissionless `depositTo`, including the target-address caveat).
-- [ ] T164 [US4] Add indexer handling for `RulePaused`/`RuleCancelled` updating `rules.status`, `latched`, and writing `rule_events` rows.
-- [ ] T165 [US4] Playwright `frontend/e2e/control.spec.ts`: pause suppresses the next simulated window, and a reorder survives a page reload.
-- [ ] T166 [US4] Write `docs/runbooks/pause-cancel-a-rule.md` executable by a teammate who did not write it.
+- [x] T154 [US4] Implement `pauseRule`/`resumeRule`/`cancelRule` in `Agent.sol` with the per-topic reference counter and `subscribe`/`unsubscribe` calls on the system contract (never from `react()`).
+- [x] T155 [US4] Implement `reorderRules` with a full-permutation check and keep `getRuleIds()` as the single source of evaluation order (`contracts/src/agent/Agent.sol`).
+- [x] T156 [US4] Implement budget accounting in `Agent.sol`: per-rule execution counter, per-user monthly cap, `BudgetLow` emission at the documented threshold (`contracts/src/agent/Agent.sol`).
+- [x] T157 [US4] Add the gas guard in `react()`: estimate per-rule cost, stop before the ceiling, defer the remainder, and never let one rule's revert abort the loop (`contracts/src/agent/Agent.sol`).
+- [x] T158 [US4] Extend the rule detail API response with budget fields and the sponsor state so the UI needs no second call (`backend/src/api/routes/rules.ts`).
+- [x] T159 [US4] Implement `GET /v1/sponsor/:agent` in `backend/src/api/routes/sponsor.ts` reading `reserves`/`debt` on both proxies and deriving `healthy`/`low`/`exhausted`/`debt`.
+- [x] T160 [US4] Build `frontend/src/components/RuleOrderList.tsx`: dnd-kit sortable list whose drop submits `reorderRules`, with keyboard reordering and an explicit “runs first” affordance.
+- [x] T161 [US4] Build `frontend/src/components/RuleActions.tsx`: pause/resume/cancel with a confirmation for cancel, optimistic status, and rollback on revert.
+- [x] T162 [US4] Build `frontend/src/components/BudgetMeter.tsx`: remaining credit, threshold marker, and `low`/`exhausted`/`debt` states that never render as `active`.
+- [x] T163 [US4] Add the at-risk banner to `/` and rule detail with top-up instructions (permissionless `depositTo`, including the target-address caveat).
+- [x] T164 [US4] Add indexer handling for `RulePaused`/`RuleCancelled` updating `rules.status`, `latched`, and writing `rule_events` rows.
+- [x] T165 [US4] Playwright `frontend/e2e/control.spec.ts`: pause suppresses the next simulated window, and a reorder survives a page reload.
+- [x] T166 [US4] Write `docs/runbooks/pause-cancel-a-rule.md` executable by a teammate who did not write it.
 
 ---
 

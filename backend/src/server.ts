@@ -6,6 +6,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 
 import { createChainClients, lasnaChain, ping, unichainSepoliaChain } from './chain/clients.js';
 import { createProofSource } from './chain/proofSource.js';
+import { PublicSponsorSource } from './chain/sponsorSource.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
 import { createRepositories } from './db/repositories/index.js';
@@ -100,6 +101,7 @@ export async function startServer(): Promise<void> {
     cursors,
     accountChain: new PublicAccountChain(clients),
     proofSource: createProofSource(clients),
+    sponsorSource: new PublicSponsorSource(clients),
     onboardingLimiter: new OnboardingRateLimiter(
       config.ONBOARDING_RATE_LIMIT_PER_MINUTE,
       config.ONBOARDING_DAILY_CAP,
@@ -126,6 +128,8 @@ export async function startServer(): Promise<void> {
       clients,
       startBlocks,
       confirmationDepth: { [lasnaChain.id]: 20, [unichainSepoliaChain.id]: 12 },
+      // Unichain Sepolia rejects eth_getLogs ranges wider than 1000 blocks.
+      rangeSize: 1_000,
     });
     void poller.run(Object.keys(startBlocks).map(Number));
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -20,6 +20,8 @@ error RuleNotActive(uint256 ruleId);
 error RuleLatched(uint256 ruleId);
 error ConditionNotMet();
 error ExceedsPerRunCap(uint256 requested, uint256 cap);
+// Abuse control from IDEA.md §11: the monthly pre-approved spend across active rules.
+error MonthlyCapExceeded(uint256 approved, uint256 cap);
 error SlippageExceeded(uint256 minOut, uint256 actual);
 error Expired(uint256 ruleId, uint64 expiry);
 error CooldownActive(uint256 ruleId, uint64 readyAt);

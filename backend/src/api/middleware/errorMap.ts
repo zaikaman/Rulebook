@@ -83,6 +83,12 @@ const DESCRIPTORS: ReadonlyArray<{
     human: 'The amount is above this vault’s per-run spend ceiling.',
   },
   {
+    signature: 'MonthlyCapExceeded(uint256,uint256)',
+    code: 'monthly_cap_exceeded',
+    human:
+      'Your active rules already reserve this month’s execution cap. Pause or cancel one, or lower an amount.',
+  },
+  {
     signature: 'SlippageExceeded(uint256,uint256)',
     code: 'slippage_exceeded',
     human: 'The live quote moved past your minimum acceptable output.',

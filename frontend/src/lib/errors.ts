@@ -54,6 +54,11 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     message: 'This amount is above the per-run ceiling. Lower the amount or raise the ceiling.',
   },
   {
+    signature: 'MonthlyCapExceeded(uint256,uint256)',
+    message:
+      'Your active rules already reserve this month’s execution cap. Pause or cancel one, or lower an amount.',
+  },
+  {
     signature: 'SlippageExceeded(uint256,uint256)',
     message: 'The price moved too far between the decision and the swap, so it was refused.',
   },

@@ -8,6 +8,7 @@ import {
   proofSchema,
   ruleDetailResponseSchema,
   rulesResponseSchema,
+  sponsorStatusSchema,
   starterFundsResponseSchema,
   type Account,
   type Address,
@@ -15,6 +16,7 @@ import {
   type OnboardingResponse,
   type Proof,
   type Rule,
+  type SponsorStatus,
   type StarterFundsResponse,
 } from '@rulebook/shared';
 import type { z } from 'zod';
@@ -114,6 +116,10 @@ export class ApiClient {
 
   ruleDetail(agent: string, ruleId: string) {
     return this.request(`/v1/accounts/${agent}/rules/${ruleId}`, ruleDetailResponseSchema);
+  }
+
+  sponsor(agent: string): Promise<SponsorStatus> {
+    return this.request(`/v1/sponsor/${agent}`, sponsorStatusSchema);
   }
 
   proof(reactiveTxHash: string): Promise<Proof> {
