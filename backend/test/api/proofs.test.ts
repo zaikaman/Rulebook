@@ -139,11 +139,7 @@ describe('GET /v1/proofs/:reactiveTxHash', () => {
     expect(proof.source).toBe('chain');
     expect(proof.cache_age_seconds).toBeNull();
     expect(proof.latency_ms).toBe(5_000);
-    expect(proof.rows.map((row) => row.role)).toEqual([
-      'origin',
-      'automation',
-      'destination',
-    ]);
+    expect(proof.rows.map((row) => row.role)).toEqual(['origin', 'automation', 'destination']);
     expect(proof.rows[0]?.explorer_url).toContain('sepolia.uniscan.xyz');
     expect(proof.rows[1]?.explorer_url).toContain('reactscan.net');
     expect(proof.rows[2]?.tx_hash).toBe(DESTINATION_HASH);
@@ -169,11 +165,7 @@ describe('GET /v1/proofs/:reactiveTxHash', () => {
     expect(proof.source).toBe('cache');
     expect(proof.cache_age_seconds).toBeTypeOf('number');
     expect(proof.latency_ms).toBeNull();
-    expect(proof.rows.map((row) => row.role)).toEqual([
-      'origin',
-      'automation',
-      'destination',
-    ]);
+    expect(proof.rows.map((row) => row.role)).toEqual(['origin', 'automation', 'destination']);
     await app.close();
   });
 

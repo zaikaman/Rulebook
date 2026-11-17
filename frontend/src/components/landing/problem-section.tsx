@@ -24,7 +24,8 @@ export function ProblemSection() {
           <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] text-balance text-2xl font-medium leading-snug tracking-tight text-white md:text-3xl">
             Personal automations shouldn&rsquo;t require running a bot or surrendering custody.{' '}
             <span className="text-neutral-400">
-              Users build fragile scripts or trust centralized platforms, and it falls apart the moment the market moves.
+              Users build fragile scripts or trust centralized platforms, and it falls apart the
+              moment the market moves.
             </span>
           </p>
         </div>

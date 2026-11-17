@@ -54,7 +54,9 @@ export function AppMobileNav() {
               aria-current={active ? 'page' : undefined}
               className={cx(
                 'flex min-h-8 shrink-0 items-center rounded-full px-3 text-xs font-medium transition-colors',
-                active ? 'bg-white text-black' : 'bg-white/[0.04] text-neutral-400 hover:text-white',
+                active
+                  ? 'bg-white text-black'
+                  : 'bg-white/[0.04] text-neutral-400 hover:text-white',
               )}
             >
               {item.label}

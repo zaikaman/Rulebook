@@ -43,13 +43,13 @@ html {
 }
 
 button:not(:disabled),
-[role="button"]:not(:disabled) {
+[role='button']:not(:disabled) {
   cursor: pointer;
 }
 
 a:focus-visible,
 button:focus-visible,
-[role="button"]:focus-visible {
+[role='button']:focus-visible {
   outline: 2px solid #60a5fa;
   outline-offset: 3px;
   border-radius: 9999px;
@@ -67,8 +67,8 @@ textarea:focus-visible {
   background-size: 16.66% 100%;
 }
 
-[style*="--border-gradient"]::before {
-  content: "";
+[style*='--border-gradient']::before {
+  content: '';
   position: absolute;
   inset: 0;
   padding: 1px;

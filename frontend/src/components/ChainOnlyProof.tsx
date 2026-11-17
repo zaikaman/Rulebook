@@ -1,9 +1,4 @@
-import {
-  getChain,
-  LASNA_CHAIN_ID,
-  systemContractAbi,
-  type CallbackRecord,
-} from '@rulebook/shared';
+import { getChain, LASNA_CHAIN_ID, systemContractAbi, type CallbackRecord } from '@rulebook/shared';
 import { useState } from 'react';
 import { createPublicClient, http, toHex } from 'viem';
 
@@ -67,8 +62,8 @@ export function ChainOnlyProof({ reactiveTxHash }: ChainOnlyProofProps) {
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-ink">Read the proof directly from Lasna</h2>
         <p className="text-xs text-ink-muted">
-          This path bypasses Rulebook entirely. It proves the automation and destination legs
-          from <code className="font-mono">getCallbacks</code>; the origin leg still needs the
+          This path bypasses Rulebook entirely. It proves the automation and destination legs from{' '}
+          <code className="font-mono">getCallbacks</code>; the origin leg still needs the
           Agent&apos;s <code className="font-mono">RuleEvaluated</code> log.
         </p>
       </div>

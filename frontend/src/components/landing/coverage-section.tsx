@@ -54,7 +54,8 @@ export function CoverageSection() {
       </div>
 
       <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.3s_both] mt-8 max-w-2xl text-xs font-light leading-relaxed text-neutral-400">
-        Figures reflect live on-chain contract state across Lasna and destination networks. Nothing on this page is a simulated estimate.
+        Figures reflect live on-chain contract state across Lasna and destination networks. Nothing
+        on this page is a simulated estimate.
       </p>
     </section>
   );

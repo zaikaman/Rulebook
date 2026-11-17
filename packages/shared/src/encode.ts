@@ -145,8 +145,10 @@ export function encodeAddRule(agentAddress: Address, draft: RuleDraft): `0x${str
   // uses `secondary` (a dip band or inactivity period), in which case it uses `threshold`.
   const hasSlot = (key: string): boolean => template.slots.some((slot) => slot.key === key);
   const schedule = numericSlot(draft, 'schedule');
-  const threshold = hasSlot('schedule') && hasSlot('secondary') ? schedule : numericSlot(draft, 'threshold');
-  const secondary = hasSlot('schedule') && !hasSlot('secondary') ? schedule : numericSlot(draft, 'secondary');
+  const threshold =
+    hasSlot('schedule') && hasSlot('secondary') ? schedule : numericSlot(draft, 'threshold');
+  const secondary =
+    hasSlot('schedule') && !hasSlot('secondary') ? schedule : numericSlot(draft, 'secondary');
 
   // Personal templates use `pair`, which is otherwise a price-pair field, for their recipient.
   // Templates that move money without exposing a pair still need one on chain (the Agent caches
@@ -211,7 +213,8 @@ export function draftFromRule(rule: StoredRuleFields): RuleDraft {
   }
   if (rule.token_in) slots.token_in = rule.token_in;
   if (rule.token_out) slots.token_out = rule.token_out;
-  if (rule.amount_in !== undefined && rule.amount_in > 0n) slots.amount_in = rule.amount_in.toString();
+  if (rule.amount_in !== undefined && rule.amount_in > 0n)
+    slots.amount_in = rule.amount_in.toString();
 
   const threshold = rule.threshold?.toString();
   const secondary = rule.secondary?.toString();

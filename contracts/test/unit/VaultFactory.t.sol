@@ -41,9 +41,8 @@ contract VaultFactoryTest is Test {
     }
 
     function test_deployRequiresOwnerAuthorizationForThisAgent() public {
-        (uint256 deadline, bytes memory signature) = _authorization(
-            USER_KEY, USER, address(0xDEAD), address(usdc), address(weth)
-        );
+        (uint256 deadline, bytes memory signature) =
+            _authorization(USER_KEY, USER, address(0xDEAD), address(usdc), address(weth));
         vm.expectRevert(InvalidVaultAuthorization.selector);
         vaultFactory.deploy(STRANGER, agent, address(usdc), address(weth), deadline, signature);
     }
@@ -98,7 +97,10 @@ contract VaultFactoryTest is Test {
         vaultFactory.deploy(USER, agent, address(usdc), address(weth), deadline, signature);
     }
 
-    function _deployVault(address owner, uint256 ownerKey, address agent_) private returns (address) {
+    function _deployVault(address owner, uint256 ownerKey, address agent_)
+        private
+        returns (address)
+    {
         (uint256 deadline, bytes memory signature) =
             _authorization(ownerKey, owner, agent_, address(usdc), address(weth));
         return vaultFactory.deploy(owner, agent_, address(usdc), address(weth), deadline, signature);
@@ -125,7 +127,9 @@ contract VaultFactoryTest is Test {
         );
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256("Rulebook Vault Factory"),
                 keccak256("1"),
                 block.chainid,

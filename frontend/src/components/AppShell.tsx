@@ -13,9 +13,7 @@ export function AppShell({ children }: { readonly children?: ReactNode }) {
         <main className="flex-1 flex flex-col min-w-0 lg:h-full bg-[#070707]">
           <AppMobileNav />
           <AppScrollArea>
-            <div className="py-6 lg:py-8">
-              {children ?? <Outlet />}
-            </div>
+            <div className="py-6 lg:py-8">{children ?? <Outlet />}</div>
           </AppScrollArea>
         </main>
       </div>

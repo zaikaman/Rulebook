@@ -82,9 +82,7 @@ export function Proof() {
       <section className="space-y-4">
         <PageHeading title="Execution proof" description="No proof is being invented." />
         <ErrorState message={copy.title} detail={copy.detail} />
-        {CHAIN_ONLY_PROOF_ENABLED ? (
-          <ChainOnlyProof reactiveTxHash={reactiveTxHash} />
-        ) : null}
+        {CHAIN_ONLY_PROOF_ENABLED ? <ChainOnlyProof reactiveTxHash={reactiveTxHash} /> : null}
       </section>
     );
   }
@@ -143,9 +141,7 @@ export function Proof() {
         public RPCs. Our database is a cache, never the authority.
       </p>
 
-      {CHAIN_ONLY_PROOF_ENABLED ? (
-        <ChainOnlyProof reactiveTxHash={proof.reactive_tx} />
-      ) : null}
+      {CHAIN_ONLY_PROOF_ENABLED ? <ChainOnlyProof reactiveTxHash={proof.reactive_tx} /> : null}
     </section>
   );
 }

@@ -28,13 +28,15 @@ export function BriefSection() {
             <div>
               <dt className="text-sm font-medium text-white">Public block explorer verification</dt>
               <dd className="mt-1.5 text-sm leading-relaxed text-neutral-400">
-                Every transaction links to blockscout and etherscan with measured end-to-end latency.
+                Every transaction links to blockscout and etherscan with measured end-to-end
+                latency.
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-white">Works even if our servers are down</dt>
               <dd className="mt-1.5 text-sm leading-relaxed text-neutral-400">
-                The proof view reconstructs completely from public on-chain event logs without requiring any backend.
+                The proof view reconstructs completely from public on-chain event logs without
+                requiring any backend.
               </dd>
             </div>
           </dl>

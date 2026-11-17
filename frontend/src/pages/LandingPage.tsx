@@ -32,14 +32,13 @@ export function LandingPage() {
           <h1 className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.2s_both] mb-6 text-balance text-4xl font-medium leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-[3.5rem]">
             Assemble a money rule in one sentence.
             <br />
-            <span className="text-neutral-400">
-              You keep the money. The operator pays the gas.
-            </span>
+            <span className="text-neutral-400">You keep the money. The operator pays the gas.</span>
           </h1>
 
           <p className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.3s_both] mx-auto mb-9 max-w-xl text-base font-light md:text-lg leading-relaxed text-neutral-300 tracking-tight">
-            Rulebook turns personal financial intent into self-executing smart contracts on Reactive Network.
-            Zero code, 100% self-custody in your personal Vault, and nobody has to keep a server awake.
+            Rulebook turns personal financial intent into self-executing smart contracts on Reactive
+            Network. Zero code, 100% self-custody in your personal Vault, and nobody has to keep a
+            server awake.
           </p>
 
           <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex flex-wrap items-center justify-center gap-4">

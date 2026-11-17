@@ -47,9 +47,7 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       );
       const recentExecutions = await Promise.all(
         executions.map(async (execution) => {
-          const callback = await deps.repositories.callbacks.findByDestinationTx(
-            execution.tx_hash,
-          );
+          const callback = await deps.repositories.callbacks.findByDestinationTx(execution.tx_hash);
           return {
             chain_id: execution.chain_id,
             tx_hash: execution.tx_hash,

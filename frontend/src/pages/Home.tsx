@@ -107,7 +107,10 @@ export function Home() {
         <h1 className="text-2xl font-semibold text-ink">Your rules</h1>
         <div className="space-y-2">
           {[0, 1, 2].map((index) => (
-            <div key={index} className="h-24 animate-pulse rounded-lg border border-border bg-surface-raised" />
+            <div
+              key={index}
+              className="h-24 animate-pulse rounded-lg border border-border bg-surface-raised"
+            />
           ))}
         </div>
       </section>
@@ -140,8 +143,10 @@ export function Home() {
   const rules = (rulesQuery.data ?? []).slice().sort((left, right) => {
     const leftIndex = order.findIndex((id) => id === left.rule_id);
     const rightIndex = order.findIndex((id) => id === right.rule_id);
-    return (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
-      (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex);
+    return (
+      (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+      (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+    );
   });
 
   return (

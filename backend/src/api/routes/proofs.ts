@@ -80,9 +80,7 @@ function destinationRow(destination: ProofDestination): ProofRowShape {
     role: 'destination',
     chain_id: destination.chain_id,
     tx_hash: destination.tx_hash,
-    ...(destination.block_number !== undefined
-      ? { block_number: destination.block_number }
-      : {}),
+    ...(destination.block_number !== undefined ? { block_number: destination.block_number } : {}),
     ...(destination.timestamp ? { timestamp: destination.timestamp } : {}),
     explorer_url: explorerTxUrl(destination.chain_id, destination.tx_hash),
     error: refusalOf(destination.callback),
@@ -138,8 +136,7 @@ function cacheRows(
               selector: callback.error_data.slice(0, 10),
               message: callback.error_data,
               human:
-                mapContractError(callback.error_data)?.human ??
-                'The destination call was refused.',
+                mapContractError(callback.error_data)?.human ?? 'The destination call was refused.',
             }
           : null,
     });
@@ -182,9 +179,7 @@ export function registerProofRoutes(app: FastifyInstance, deps: ServerDeps): voi
               reactive_contract: callback.reacting_contract,
               destination_chain_id: String(callback.destination_chain_id),
               destination_tx_hash:
-                callback.destination_tx_hash === ZERO_TX_HASH
-                  ? null
-                  : callback.destination_tx_hash,
+                callback.destination_tx_hash === ZERO_TX_HASH ? null : callback.destination_tx_hash,
               error_data: callback.error_data || null,
               block_number: callback.block_number,
               recorded_at: new Date().toISOString(),
@@ -234,7 +229,10 @@ export function registerProofRoutes(app: FastifyInstance, deps: ServerDeps): voi
       const originEvents = await deps.repositories.ruleEvents.listByTx(hash);
       const originEvent = originEvents.find((event) => event.origin_tx);
       const origin = originEvent
-        ? { chain_id: originEvent.origin_chain_id ?? null, origin_tx: originEvent.origin_tx ?? null }
+        ? {
+            chain_id: originEvent.origin_chain_id ?? null,
+            origin_tx: originEvent.origin_tx ?? null,
+          }
         : undefined;
 
       const rows = cacheRows(origin, callbacks);

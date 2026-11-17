@@ -51,10 +51,7 @@ contract VaultFactory is EIP712 {
         address tokenOut_,
         uint256 deadline_,
         bytes calldata authorization_
-    )
-        external
-        returns (address vault)
-    {
+    ) external returns (address vault) {
         if (
             owner_ == address(0) || agent_ == address(0) || deadline_ < block.timestamp
                 || deadline_ > block.timestamp + MAX_AUTHORIZATION_LIFETIME
@@ -96,16 +93,12 @@ contract VaultFactory is EIP712 {
         uint256 nonce = nonces[owner_];
         bytes32 structHash = keccak256(
             abi.encode(
-                VAULT_DEPLOYMENT_TYPEHASH,
-                owner_,
-                agent_,
-                tokenIn_,
-                tokenOut_,
-                nonce,
-                deadline_
+                VAULT_DEPLOYMENT_TYPEHASH, owner_, agent_, tokenIn_, tokenOut_, nonce, deadline_
             )
         );
-        if (!SignatureChecker.isValidSignatureNow(owner_, _hashTypedDataV4(structHash), authorization_)) {
+        if (!SignatureChecker.isValidSignatureNow(
+                owner_, _hashTypedDataV4(structHash), authorization_
+            )) {
             revert InvalidVaultAuthorization();
         }
         nonces[owner_] = nonce + 1;

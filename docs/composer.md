@@ -36,16 +36,16 @@ The UI can only produce values from the manifest's chip sets, and the server rou
 `Rule` has eight packed words. Several slot keys share a field because a template never needs both
 meanings at once:
 
-| Slot key                        | `Rule` field | Notes                                                                 |
-| ------------------------------- | ------------ | --------------------------------------------------------------------- |
-| `amount_in`                     | `amountIn`   | Money templates only; alert templates must encode `0`.                |
-| `threshold`                     | `threshold`  | Price or amount threshold, depending on template.                     |
-| `secondary`                     | `secondary`  | Dip band (bps), trailing band (bps), expiry (unix seconds), or days.  |
-| `schedule`                      | `secondary`  | Cron interval in seconds, unless the template already uses `secondary`. |
-| `schedule` (with `secondary`)   | `threshold`  | Templates 2 and 10 need both a cron interval and a second value.      |
-| `pair`                          | `pair`       | Price pair for price templates.                                       |
-| `destination` / `source_wallet` | `pair`       | Personal templates store their recipient in `pair`.                   |
-| `token_in` / `token_out`        | `tokenIn` / `tokenOut` | Both must be non-zero for a swap.                          |
+| Slot key                        | `Rule` field           | Notes                                                                   |
+| ------------------------------- | ---------------------- | ----------------------------------------------------------------------- |
+| `amount_in`                     | `amountIn`             | Money templates only; alert templates must encode `0`.                  |
+| `threshold`                     | `threshold`            | Price or amount threshold, depending on template.                       |
+| `secondary`                     | `secondary`            | Dip band (bps), trailing band (bps), expiry (unix seconds), or days.    |
+| `schedule`                      | `secondary`            | Cron interval in seconds, unless the template already uses `secondary`. |
+| `schedule` (with `secondary`)   | `threshold`            | Templates 2 and 10 need both a cron interval and a second value.        |
+| `pair`                          | `pair`                 | Price pair for price templates.                                         |
+| `destination` / `source_wallet` | `pair`                 | Personal templates store their recipient in `pair`.                     |
+| `token_in` / `token_out`        | `tokenIn` / `tokenOut` | Both must be non-zero for a swap.                                       |
 
 `draftFromRule` inverts this mapping, which is how a stored rule is rendered back as the exact
 sentence its owner signed.

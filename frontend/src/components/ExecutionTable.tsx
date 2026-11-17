@@ -35,9 +35,7 @@ export function ExecutionTable({ executions }: ExecutionTableProps) {
       <tbody>
         {executions.map((execution) => (
           <tr key={`${execution.chain_id}-${execution.tx_hash}`} className="border-t border-border">
-            <td className="py-2 text-ink">
-              {execution.block_time.slice(0, 16).replace('T', ' ')}
-            </td>
+            <td className="py-2 text-ink">{execution.block_time.slice(0, 16).replace('T', ' ')}</td>
             <td className="py-2 text-ink-muted">{execution.chain_id}</td>
             <td className="py-2 text-ink">{execution.status}</td>
             <td className="py-2">

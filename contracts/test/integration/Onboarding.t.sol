@@ -112,8 +112,7 @@ contract OnboardingTest is Test {
     function test_linkVaultStoresOwnerAuthorizedCrossChainMetadata() public {
         address agent = agentFactory.deploy(USER);
         address strangerAgent = agentFactory.deploy(address(0xB0B));
-        address strangerVault =
-            _deployVault(STRANGER, STRANGER_KEY, strangerAgent);
+        address strangerVault = _deployVault(STRANGER, STRANGER_KEY, strangerAgent);
 
         vm.prank(USER);
         Agent(agent).linkVault(1301, strangerVault);
@@ -199,12 +198,13 @@ contract OnboardingTest is Test {
         assertEq(Vault(payable(vault)).agent(), agent);
     }
 
-    function _deployVault(address owner, uint256 ownerKey, address agent) private returns (address) {
+    function _deployVault(address owner, uint256 ownerKey, address agent)
+        private
+        returns (address)
+    {
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory signature = _authorization(owner, ownerKey, agent, deadline);
-        return vaultFactory.deploy(
-            owner, agent, address(usdc), address(weth), deadline, signature
-        );
+        return vaultFactory.deploy(owner, agent, address(usdc), address(weth), deadline, signature);
     }
 
     function _authorization(address owner, uint256 ownerKey, address agent, uint256 deadline)
@@ -225,7 +225,9 @@ contract OnboardingTest is Test {
         );
         bytes32 domainSeparator = keccak256(
             abi.encode(
-                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(
+                    "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
+                ),
                 keccak256("Rulebook Vault Factory"),
                 keccak256("1"),
                 block.chainid,

@@ -1,4 +1,9 @@
-import { Book02Icon, Coins01Icon, SecurityCheckIcon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import {
+  Book02Icon,
+  Coins01Icon,
+  SecurityCheckIcon,
+  Wallet01Icon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { landingImages } from './landing-images.js';
 import { SectionHeading } from './section-heading.js';

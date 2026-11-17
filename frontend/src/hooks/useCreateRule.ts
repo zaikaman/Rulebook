@@ -16,12 +16,7 @@ export interface CreateRuleError {
 }
 
 export type CreateRuleStatus =
-  | 'idle'
-  | 'simulating'
-  | 'signing'
-  | 'confirming'
-  | 'confirmed'
-  | 'failed';
+  'idle' | 'simulating' | 'signing' | 'confirming' | 'confirmed' | 'failed';
 
 export interface CreateRuleResult {
   readonly txHash: `0x${string}`;
@@ -137,11 +132,17 @@ export function useCreateRule() {
         setState({
           status: 'failed',
           error: isWalletRejection(error)
-            ? { kind: 'wallet', message: 'You rejected the signature, so the rule was not created.', selector: null }
+            ? {
+                kind: 'wallet',
+                message: 'You rejected the signature, so the rule was not created.',
+                selector: null,
+              }
             : {
                 kind: 'wallet',
                 message:
-                  error instanceof Error ? error.message : 'The wallet could not send the transaction.',
+                  error instanceof Error
+                    ? error.message
+                    : 'The wallet could not send the transaction.',
                 selector: null,
               },
           result: null,

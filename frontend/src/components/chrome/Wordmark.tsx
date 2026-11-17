@@ -30,11 +30,25 @@ export function Wordmark() {
           strokeLinejoin="round"
         />
         <defs>
-          <linearGradient id="rulebook-gradient-left" x1="4" y1="3" x2="12" y2="19.5" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id="rulebook-gradient-left"
+            x1="4"
+            y1="3"
+            x2="12"
+            y2="19.5"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop stopColor="#7C5CFF" stopOpacity="0.4" />
             <stop stopColor="#7C5CFF" stopOpacity="0.05" />
           </linearGradient>
-          <linearGradient id="rulebook-gradient-right" x1="12" y1="3" x2="20" y2="19.5" gradientUnits="userSpaceOnUse">
+          <linearGradient
+            id="rulebook-gradient-right"
+            x1="12"
+            y1="3"
+            x2="20"
+            y2="19.5"
+            gradientUnits="userSpaceOnUse"
+          >
             <stop stopColor="#3B82F6" stopOpacity="0.4" />
             <stop stopColor="#3B82F6" stopOpacity="0.05" />
           </linearGradient>

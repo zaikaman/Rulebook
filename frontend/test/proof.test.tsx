@@ -73,11 +73,7 @@ describe('proof page', () => {
     renderProof();
 
     const rows = await screen.findAllByTestId('proof-row');
-    expect(rows.map((row) => row.dataset.role)).toEqual([
-      'origin',
-      'automation',
-      'destination',
-    ]);
+    expect(rows.map((row) => row.dataset.role)).toEqual(['origin', 'automation', 'destination']);
     expect(screen.getByText('Origin event')).toBeInTheDocument();
     expect(screen.getByText('Block 100')).toBeInTheDocument();
     expect(screen.getByText('2026-11-16 10:00:00 UTC')).toBeInTheDocument();

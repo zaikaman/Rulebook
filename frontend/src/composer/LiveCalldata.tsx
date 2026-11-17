@@ -1,9 +1,4 @@
-import {
-  encodeAddRule,
-  LASNA_CHAIN_ID,
-  type Address,
-  type DraftError,
-} from '@rulebook/shared';
+import { encodeAddRule, LASNA_CHAIN_ID, type Address, type DraftError } from '@rulebook/shared';
 import { useEffect, useMemo, useState } from 'react';
 
 import { NetworkBadge } from '../components/NetworkBadge.js';
@@ -59,7 +54,10 @@ export function LiveCalldata({
 
   if (!draft) {
     return (
-      <section aria-label="Transaction preview" className="space-y-2 rounded-lg border border-border p-4">
+      <section
+        aria-label="Transaction preview"
+        className="space-y-2 rounded-lg border border-border p-4"
+      >
         <h2 className="text-sm font-medium text-ink">Transaction preview</h2>
         <p className="text-xs text-ink-muted">
           Fill every blank to see the exact transaction this sentence creates.
@@ -69,7 +67,10 @@ export function LiveCalldata({
   }
 
   return (
-    <section aria-label="Transaction preview" className="space-y-2 rounded-lg border border-border p-4">
+    <section
+      aria-label="Transaction preview"
+      className="space-y-2 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-medium text-ink">Transaction preview</h2>
         <NetworkBadge chainId={LASNA_CHAIN_ID} />

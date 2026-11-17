@@ -1,4 +1,9 @@
-import { Activity01Icon, CheckmarkCircle02Icon, SentIcon, Shield01Icon } from '@hugeicons/core-free-icons';
+import {
+  Activity01Icon,
+  CheckmarkCircle02Icon,
+  SentIcon,
+  Shield01Icon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { PhoneShowcase } from './phone-showcase.js';
 import { SectionHeading } from './section-heading.js';
@@ -71,8 +76,8 @@ export function EmailLoopSection() {
       </div>
 
       <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.4s_both] mt-10 max-w-2xl border-l border-blue-500/30 pl-5 text-sm font-light leading-relaxed text-neutral-400">
-        The operator never holds custody of your principal. Sponsored execution credit covers gas only,
-        and no off-chain runner has authorization to withdraw your funds.
+        The operator never holds custody of your principal. Sponsored execution credit covers gas
+        only, and no off-chain runner has authorization to withdraw your funds.
       </p>
     </section>
   );

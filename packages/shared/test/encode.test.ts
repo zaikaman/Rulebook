@@ -40,12 +40,14 @@ describe('encodeAddRule', () => {
       expect(String(rule.amountIn)).toBe(BigInt(draft.slots.amount_in ?? '0').toString());
       const hasSchedule = template?.slots.some((slot) => slot.key === 'schedule') ?? false;
       const hasSecondary = template?.slots.some((slot) => slot.key === 'secondary') ?? false;
-      const expectedThreshold = hasSchedule && hasSecondary
-        ? (draft.slots.schedule ?? '0')
-        : (draft.slots.threshold ?? '0');
-      const expectedSecondary = hasSchedule && !hasSecondary
-        ? (draft.slots.schedule ?? '0')
-        : (draft.slots.secondary ?? '0');
+      const expectedThreshold =
+        hasSchedule && hasSecondary
+          ? (draft.slots.schedule ?? '0')
+          : (draft.slots.threshold ?? '0');
+      const expectedSecondary =
+        hasSchedule && !hasSecondary
+          ? (draft.slots.schedule ?? '0')
+          : (draft.slots.secondary ?? '0');
       expect(String(rule.threshold)).toBe(BigInt(expectedThreshold).toString());
       expect(String(rule.secondary)).toBe(BigInt(expectedSecondary).toString());
       if (draft.slots.token_in) expect(rule.tokenIn).toBe(draft.slots.token_in);

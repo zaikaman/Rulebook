@@ -61,7 +61,9 @@ export function SidebarSection({
                     index === 0 ? 'h-[50%] top-0' : 'h-[100%] top-[-50%]',
                   )}
                 />
-                {active && <span className="absolute left-0 h-1 w-1 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]" />}
+                {active && (
+                  <span className="absolute left-0 h-1 w-1 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]" />
+                )}
                 <span className="text-xs font-medium">{item.label}</span>
               </Link>
             );

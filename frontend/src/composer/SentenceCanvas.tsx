@@ -49,10 +49,7 @@ export function SentenceCanvas({
     useSensor(KeyboardSensor),
   );
 
-  const parts = useMemo(
-    () => (definition ? splitSentence(definition.sentence) : []),
-    [definition],
-  );
+  const parts = useMemo(() => (definition ? splitSentence(definition.sentence) : []), [definition]);
 
   function handleDragEnd(event: DragEndEvent): void {
     const overId = event.over?.id;

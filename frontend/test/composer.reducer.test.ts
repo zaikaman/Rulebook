@@ -16,13 +16,18 @@ describe('composer reducer', () => {
     for (const template of TEMPLATES) {
       for (const slot of template.slots) {
         const before = stateFor(template.id);
-        const value = slot.kind === 'token' || slot.kind === 'address' ? '0x1111111111111111111111111111111111111111' : '5';
+        const value =
+          slot.kind === 'token' || slot.kind === 'address'
+            ? '0x1111111111111111111111111111111111111111'
+            : '5';
         const after = composerReducer(before, { type: 'setSlot', key: slot.key, value });
 
         expect(after.template).toBe(before.template);
         expect(after.chainId).toBe(before.chainId);
         const changed = Object.keys({ ...before.slots, ...after.slots }).filter(
-          (key) => before.slots[key as keyof typeof before.slots] !== after.slots[key as keyof typeof after.slots],
+          (key) =>
+            before.slots[key as keyof typeof before.slots] !==
+            after.slots[key as keyof typeof after.slots],
         );
         expect(changed).toEqual([slot.key]);
         expect(after.slots[slot.key]).toBe(value);
@@ -37,7 +42,10 @@ describe('composer reducer', () => {
       const filled = composerReducer(stateFor(template.id), {
         type: 'setSlot',
         key: required.key,
-        value: required.kind === 'token' || required.kind === 'address' ? '0x1111111111111111111111111111111111111111' : '5',
+        value:
+          required.kind === 'token' || required.kind === 'address'
+            ? '0x1111111111111111111111111111111111111111'
+            : '5',
       });
       const cleared = composerReducer(filled, { type: 'clearSlot', key: required.key });
       expect(cleared.slots[required.key]).toBeUndefined();
@@ -88,7 +96,12 @@ describe('composer reducer', () => {
     if (!template) throw new Error('template 5 missing');
     let state = empty;
     for (const slot of template.slots) {
-      const value = slot.key === 'secondary' ? '10001' : slot.kind === 'token' || slot.kind === 'address' ? '0x1111111111111111111111111111111111111111' : '5';
+      const value =
+        slot.key === 'secondary'
+          ? '10001'
+          : slot.kind === 'token' || slot.kind === 'address'
+            ? '0x1111111111111111111111111111111111111111'
+            : '5';
       state = composerReducer(state, { type: 'setSlot', key: slot.key, value });
     }
     expect(canSign(state)).toBe(false);

@@ -10,7 +10,10 @@ import {
 } from './types.js';
 
 /** Starts a composer with no values; the picker chooses the first template. */
-export function initialComposerState(chainId: number, template: ComposerState['template'] = 1): ComposerState {
+export function initialComposerState(
+  chainId: number,
+  template: ComposerState['template'] = 1,
+): ComposerState {
   return { template, chainId, slots: {} };
 }
 
@@ -20,9 +23,7 @@ function knownKeys(template: number): readonly string[] {
 
 function pruneSlots(template: number, slots: SlotValues): SlotValues {
   const known = new Set(knownKeys(template));
-  return Object.fromEntries(
-    Object.entries(slots).filter(([key]) => known.has(key)),
-  ) as SlotValues;
+  return Object.fromEntries(Object.entries(slots).filter(([key]) => known.has(key))) as SlotValues;
 }
 
 /**
@@ -60,9 +61,7 @@ export function composerReducer(state: ComposerState, action: ComposerAction): C
 export function canSign(state: ComposerState): boolean {
   const template = getTemplate(state.template);
   if (!template) return false;
-  const missing = template.slots.filter(
-    (slot) => slot.required && !state.slots[slot.key],
-  );
+  const missing = template.slots.filter((slot) => slot.required && !state.slots[slot.key]);
   if (missing.length > 0) return false;
   return Object.keys(slotIssues(state)).length === 0;
 }

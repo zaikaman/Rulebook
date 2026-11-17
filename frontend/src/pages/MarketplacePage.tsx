@@ -36,7 +36,8 @@ const TEMPLATES: TemplateItem[] = [
     condition: 'price_below_previous_by_percent',
     action: 'swap',
     slots: 6,
-    description: 'Dynamic DCA: boosts purchase volume when current price is below cached reference.',
+    description:
+      'Dynamic DCA: boosts purchase volume when current price is below cached reference.',
     caveat: 'Compares against latest Sync price cached on Reactive Agent.',
   },
   {
@@ -118,7 +119,8 @@ const TEMPLATES: TemplateItem[] = [
     condition: 'inactivity_above_days',
     action: 'transfer',
     slots: 5,
-    description: 'Transfers Vault principal to emergency recovery address after specified inactivity.',
+    description:
+      'Transfers Vault principal to emergency recovery address after specified inactivity.',
   },
   {
     id: 11,
@@ -210,7 +212,9 @@ export function MarketplacePage() {
               <div className="rounded-xl border border-white/5 bg-[#04060a] p-3 text-[11px] font-mono text-neutral-400 space-y-1">
                 <div>Trigger: {item.trigger}</div>
                 <div>Condition: {item.condition}</div>
-                <div>Action: {item.action} ({item.slots} slots)</div>
+                <div>
+                  Action: {item.action} ({item.slots} slots)
+                </div>
               </div>
             </div>
 

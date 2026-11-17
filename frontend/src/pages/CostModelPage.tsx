@@ -24,8 +24,8 @@ export function CostModelPage() {
           </div>
 
           <p className="text-sm text-neutral-300 leading-relaxed">
-            You only deposit the trading principal you want your rules to use (e.g. USDC).
-            You never need to acquire or manage fee tokens on Lasna or destination chains.
+            You only deposit the trading principal you want your rules to use (e.g. USDC). You never
+            need to acquire or manage fee tokens on Lasna or destination chains.
           </p>
 
           <ul className="space-y-2 text-xs font-mono text-neutral-400 border-t border-white/5 pt-4">
@@ -55,7 +55,9 @@ export function CostModelPage() {
               <HugeiconsIcon icon={Coins01Icon} size={20} />
             </div>
             <div>
-              <h3 className="font-heading font-semibold text-white text-lg">What The Operator Funds</h3>
+              <h3 className="font-heading font-semibold text-white text-lg">
+                What The Operator Funds
+              </h3>
               <span className="font-mono text-xs text-blue-400">Operational Sponsorship</span>
             </div>
           </div>
@@ -96,11 +98,12 @@ export function CostModelPage() {
         </div>
 
         <p className="text-sm text-neutral-300 leading-relaxed">
-          Your personal Vault contract on Unichain Sepolia is deployed with your wallet as its immutable owner.
-          The operator contracts can only request valid actions (such as a Uniswap swap) if authorized by
-          a cryptographically signed rule matching your exact parameters. Under no circumstances can the
-          operator, the relayer, or the indexer initiate a transfer of principal to any other address.
-          You can call <code>withdraw()</code> directly on your Vault at any time.
+          Your personal Vault contract on Unichain Sepolia is deployed with your wallet as its
+          immutable owner. The operator contracts can only request valid actions (such as a Uniswap
+          swap) if authorized by a cryptographically signed rule matching your exact parameters.
+          Under no circumstances can the operator, the relayer, or the indexer initiate a transfer
+          of principal to any other address. You can call <code>withdraw()</code> directly on your
+          Vault at any time.
         </p>
       </div>
     </div>

@@ -50,9 +50,7 @@ export function CreateRuleForm({
   const draft = useMemo(() => toReadyDraft(state), [state]);
   const sentence = useMemo(() => safeSentence(state.template, state.slots), [state]);
   const chain = getChain(LASNA_CHAIN_ID);
-  const supported = TEMPLATES.filter((template) =>
-    chain.supportedTemplates.includes(template.id),
-  );
+  const supported = TEMPLATES.filter((template) => chain.supportedTemplates.includes(template.id));
 
   useEffect(() => {
     if (submitted) setIssues(slotIssues(state));
@@ -106,7 +104,10 @@ export function CreateRuleForm({
           id="template"
           value={state.template}
           onChange={(event) => {
-            dispatch({ type: 'selectTemplate', template: Number(event.target.value) as TemplateId });
+            dispatch({
+              type: 'selectTemplate',
+              template: Number(event.target.value) as TemplateId,
+            });
             setIssues({});
             setSubmitted(false);
           }}

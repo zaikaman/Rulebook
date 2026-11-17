@@ -57,7 +57,11 @@ describe('POST /v1/encode/preview', () => {
     const app = makeApp();
     try {
       for (const fixture of TEMPLATE_FIXTURES) {
-        const draft = { template: fixture.template, chainId: CHAIN_ID, slots: { ...fixture.slots } };
+        const draft = {
+          template: fixture.template,
+          chainId: CHAIN_ID,
+          slots: { ...fixture.slots },
+        };
         const expected = encodeAddRule(AGENT, draft);
 
         const response = await app.inject({

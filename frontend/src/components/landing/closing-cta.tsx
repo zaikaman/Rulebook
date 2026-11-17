@@ -22,7 +22,8 @@ export function ClosingCta() {
           <span className="text-neutral-400">The operator pays the gas.</span>
         </h2>
         <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] mx-auto mb-10 max-w-xl text-base font-light leading-relaxed text-neutral-400">
-          Assemble a personal money rule by snapping pieces together. Sign once, keep custody, and let Reactive Network execute the rest.
+          Assemble a personal money rule by snapping pieces together. Sign once, keep custody, and
+          let Reactive Network execute the rest.
         </p>
         <Link
           to={appRoutes.rules}

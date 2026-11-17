@@ -102,7 +102,10 @@ export function RuleDetail() {
         <ExecutionTable executions={executions} />
       </section>
 
-      <section aria-label="Rule actions" className="rounded-lg border border-dashed border-border p-4 text-xs text-ink-muted">
+      <section
+        aria-label="Rule actions"
+        className="rounded-lg border border-dashed border-border p-4 text-xs text-ink-muted"
+      >
         Pause, resume, cancel, and reorder land with the control phase. Until then, the rule keeps
         the values above.
       </section>

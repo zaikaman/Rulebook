@@ -61,12 +61,7 @@ export function AppSidebar() {
           icon={Wallet01Icon}
           items={[]}
         />
-        <SidebarSection
-          label="Cost Model"
-          href={appRoutes.cost}
-          icon={Coins01Icon}
-          items={[]}
-        />
+        <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} items={[]} />
       </nav>
 
       <div className="mt-auto pt-6 border-t border-white/5 space-y-4">
