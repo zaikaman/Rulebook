@@ -1,4 +1,4 @@
-import type { RuleRow } from '../../db/repositories/index.js';
+import type { RuleEventRow, RuleRow } from '../../db/repositories/index.js';
 import type { ServerDeps } from '../../deps.js';
 import { loadAccountCredit } from '../../sponsor/status.js';
 import type { FastifyInstance } from 'fastify';
@@ -25,6 +25,14 @@ function toApiRule(row: RuleRow) {
   };
 }
 
+function toApiAlert(row: RuleEventRow) {
+  return {
+    rule_id: row.rule_id,
+    tx_hash: row.tx_hash,
+    block_time: row.block_time,
+  };
+}
+
 /** Registers the account rule list and detail routes. */
 export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void {
   app.get<{
@@ -32,8 +40,12 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
     Querystring: { status?: 'active' | 'paused' | 'cancelled' | 'all' };
   }>('/v1/accounts/:agent/rules', async (request) => {
     const status = request.query.status ?? 'active';
-    const rows = await deps.repositories.rules.list(request.params.agent.toLowerCase(), status);
-    return { rules: rows.map(toApiRule) };
+    const agent = request.params.agent.toLowerCase();
+    const [rows, alerts] = await Promise.all([
+      deps.repositories.rules.list(agent, status),
+      deps.repositories.ruleEvents.listAlerts(agent).catch(() => []),
+    ]);
+    return { rules: rows.map(toApiRule), alerts: alerts.map(toApiAlert) };
   });
 
   app.get<{ Params: { agent: string; ruleId: string } }>(
@@ -46,6 +58,9 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
         deps.repositories.executions.list({ agent, rule_id: rule.rule_id }, 10),
         loadAccountCredit(deps, agent).catch(() => null),
       ]);
+      const alerts = await deps.repositories.ruleEvents
+        .listAlerts(agent, rule.rule_id, 5)
+        .catch(() => []);
       const recentExecutions = await Promise.all(
         executions.map(async (execution) => {
           const callback = await deps.repositories.callbacks.findByDestinationTx(execution.tx_hash);
@@ -71,6 +86,7 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       return {
         rule: toApiRule(rule),
         recent_executions: recentExecutions,
+        alerts: alerts.map(toApiAlert),
         // T158: the detail view gets its budget and sponsor state in the same response.
         ...(credit ? { budget: credit.budget, sponsor: credit.status } : {}),
       };

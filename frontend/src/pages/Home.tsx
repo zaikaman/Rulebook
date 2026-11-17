@@ -89,7 +89,7 @@ export function Home() {
 
   const rulesQuery = useQuery({
     queryKey: ['rules', agent],
-    queryFn: () => api.rules(agent as string, 'all'),
+    queryFn: () => api.rulesFeed(agent as string, 'all'),
     enabled: Boolean(agent),
   });
 
@@ -148,7 +148,8 @@ export function Home() {
   }
 
   const order = orderQuery.data ?? [];
-  const rules = (rulesQuery.data ?? []).slice().sort((left, right) => {
+  const alerts = rulesQuery.data?.alerts ?? [];
+  const rules = (rulesQuery.data?.rules ?? []).slice().sort((left, right) => {
     const leftIndex = order.findIndex((id) => id === left.rule_id);
     const rightIndex = order.findIndex((id) => id === right.rule_id);
     return (
@@ -193,6 +194,29 @@ export function Home() {
           ))}
         </ol>
       )}
+
+      {alerts.length > 0 ? (
+        <section aria-label="Alerts" className="space-y-2">
+          <h2 className="text-base font-semibold text-ink">Alerts</h2>
+          <p className="text-xs text-ink-muted">
+            Alerts are activity records from your rules. They never move funds.
+          </p>
+          <ul className="space-y-1 text-xs text-ink-muted">
+            {alerts.map((alert) => (
+              <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-ink">#{alert.rule_id}</span>
+                <span>alerted</span>
+                <span>
+                  {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)} UTC
+                </span>
+                <span className="font-mono text-[11px] text-ink-muted">
+                  {alert.tx_hash.slice(0, 10)}…
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </section>
   );
 }

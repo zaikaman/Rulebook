@@ -72,6 +72,12 @@ const LASNA_EVENTS: EventDescriptor[] = [
     schema: z.object({ ruleId: uint, gasRemaining: uint }),
   },
   {
+    name: 'AlertRaised',
+    signature: 'AlertRaised(uint256,uint8,uint256)',
+    abi: agentAbi,
+    schema: z.object({ ruleId: uint, template: z.number(), observed: uint }),
+  },
+  {
     name: 'BudgetLow',
     signature: 'BudgetLow(uint256,uint256)',
     abi: agentAbi,
@@ -354,8 +360,7 @@ export async function persistDecodedEvent(
       });
       return;
     }
-    case 'RuleEvaluated': {
-      const fired = Boolean(args.fired);
+    case 'RuleEvaluated': {      const fired = Boolean(args.fired);
       await repositories.ruleEvents.upsert({
         chain_id: event.chainId,
         tx_hash: event.txHash,
@@ -368,6 +373,19 @@ export async function persistDecodedEvent(
         origin_tx: asString(args.originTxHash).toLowerCase(),
         origin_log_index: asNumber(args.originLogIndex),
         fired,
+      });
+      return;
+    }
+    case 'AlertRaised': {
+      // An alert is an activity row, never an execution: nothing moved, so no `Executed`.
+      await repositories.ruleEvents.upsert({
+        chain_id: event.chainId,
+        tx_hash: event.txHash,
+        log_index: event.logIndex,
+        agent: event.address,
+        rule_id: asString(args.ruleId),
+        kind: 'alert',
+        block_time: event.blockTime,
       });
       return;
     }

@@ -264,6 +264,15 @@ export function createRepositories(store: Store) {
           { orderBy: { column: 'log_index', ascending: true } },
         )) as RuleEventRow[];
       },
+      /** Alert activity rows: what fired, never an execution (US5). */
+      async listAlerts(agent: string, ruleId?: string, limit = 10): Promise<RuleEventRow[]> {
+        const filters: Record<string, StoreValue> = { agent, kind: 'alert' };
+        if (ruleId) filters.rule_id = ruleId;
+        return (await store.select('rule_events', filters, {
+          limit,
+          orderBy: { column: 'block_time', ascending: false },
+        })) as RuleEventRow[];
+      },
     },
     executions: {
       async upsert(row: Omit<ExecutionRow, 'indexed_at'>): Promise<void> {

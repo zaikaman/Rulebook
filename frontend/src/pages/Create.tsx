@@ -1,11 +1,8 @@
 import {
   agentFactoryAbi,
-  getChain,
   LASNA_CHAIN_ID,
   readableSentence,
   UNICHAIN_SEPOLIA_CHAIN_ID,
-  TEMPLATES,
-  TEMPLATE_CATEGORIES,
   type Address,
   type SlotKey,
   type TemplateId,
@@ -16,6 +13,7 @@ import { useAccount, useReadContract } from 'wagmi';
 import { ChipPalette } from '../composer/ChipPalette.js';
 import { LiveCalldata } from '../composer/LiveCalldata.js';
 import { SentenceCanvas } from '../composer/SentenceCanvas.js';
+import { TemplatePicker } from '../composer/TemplatePicker.js';
 import {
   canSign,
   composerReducer,
@@ -25,6 +23,7 @@ import {
 import type { SlotIssues } from '../composer/types.js';
 import { slotIssues } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
+import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
 import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
 
@@ -49,8 +48,6 @@ export function CreateRuleForm({
 
   const draft = useMemo(() => toReadyDraft(state), [state]);
   const sentence = useMemo(() => safeSentence(state.template, state.slots), [state]);
-  const chain = getChain(LASNA_CHAIN_ID);
-  const supported = TEMPLATES.filter((template) => chain.supportedTemplates.includes(template.id));
 
   useEffect(() => {
     if (submitted) setIssues(slotIssues(state));
@@ -96,36 +93,15 @@ export function CreateRuleForm({
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-      <div className="space-y-1">
-        <label htmlFor="template" className="text-xs uppercase tracking-wide text-ink-muted">
-          Rule type
-        </label>
-        <select
-          id="template"
-          value={state.template}
-          onChange={(event) => {
-            dispatch({
-              type: 'selectTemplate',
-              template: Number(event.target.value) as TemplateId,
-            });
-            setIssues({});
-            setSubmitted(false);
-          }}
-          className="w-full rounded border border-border bg-surface-raised px-3 py-2 text-sm text-ink"
-        >
-          {TEMPLATE_CATEGORIES.map((category) => (
-            <optgroup key={category} label={category}>
-              {supported
-                .filter((template) => template.category === category)
-                .map((template) => (
-                  <option key={template.id} value={template.id}>
-                    {template.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
-      </div>
+      <TemplatePicker
+        chainId={LASNA_CHAIN_ID}
+        selected={state.template}
+        onSelect={(template) => {
+          dispatch({ type: 'selectTemplate', template });
+          setIssues({});
+          setSubmitted(false);
+        }}
+      />
 
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
@@ -136,6 +112,7 @@ export function CreateRuleForm({
             setSlot={setSlot}
           />
           <ChipPalette template={state.template} />
+          {state.slots.schedule ? <ScheduleLabel seconds={state.slots.schedule} /> : null}
         </div>
 
         <div className="space-y-4">

@@ -102,6 +102,14 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     signature: 'TokenMismatch(address,address)',
     message: 'This token is not the pair this vault allows.',
   },
+  {
+    signature: 'AlertOnlyTemplate(uint8)',
+    message: 'This rule type only alerts you. It never moves funds, so there is nothing to execute.',
+  },
+  {
+    signature: 'InvalidCallbackPayload()',
+    message: 'The execution callback did not match this rule, so the vault refused it.',
+  },
 ];
 
 export interface ContractErrorMessage {

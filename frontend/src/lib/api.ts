@@ -109,9 +109,12 @@ export class ApiClient {
   }
 
   rules(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all'): Promise<Rule[]> {
-    return this.request(`/v1/accounts/${agent}/rules?status=${status}`, rulesResponseSchema).then(
-      (response) => response.rules,
-    );
+    return this.rulesFeed(agent, status).then((response) => response.rules);
+  }
+
+  /** Rules plus their alert activity rows, for the lists that show both. */
+  rulesFeed(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all') {
+    return this.request(`/v1/accounts/${agent}/rules?status=${status}`, rulesResponseSchema);
   }
 
   ruleDetail(agent: string, ruleId: string) {

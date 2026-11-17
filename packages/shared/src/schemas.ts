@@ -274,11 +274,24 @@ export const chainsResponseSchema = z.object({
   templates: z.array(templateSchema),
 });
 
-export const rulesResponseSchema = z.object({ rules: z.array(ruleSchema) });
+export const alertSchema = z.object({
+  rule_id: uint256Schema,
+  tx_hash: txHashSchema,
+  block_time: blockTimeSchema,
+});
+export type Alert = z.infer<typeof alertSchema>;
+
+export const rulesResponseSchema = z.object({
+  rules: z.array(ruleSchema),
+  /** Alert templates produce an activity row and no execution (US5). */
+  alerts: z.array(alertSchema).optional(),
+});
 
 export const ruleDetailResponseSchema = z.object({
   rule: ruleSchema,
   recent_executions: z.array(executionSchema),
+  /** Alert activity for this rule; an alert never produces an `Executed` row. */
+  alerts: z.array(alertSchema).optional(),
   /** Present when the sponsor source could read the account's execution credit. */
   budget: ruleBudgetSchema.optional(),
   sponsor: sponsorStatusSchema.optional(),

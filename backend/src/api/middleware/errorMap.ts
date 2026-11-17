@@ -139,6 +139,16 @@ const DESCRIPTORS: ReadonlyArray<{
     code: 'token_mismatch',
     human: 'The token does not match the allowlisted pair.',
   },
+  {
+    signature: 'AlertOnlyTemplate(uint8)',
+    code: 'alert_only_template',
+    human: 'This template only raises an alert, so it never moves funds.',
+  },
+  {
+    signature: 'InvalidCallbackPayload()',
+    code: 'invalid_callback_payload',
+    human: 'The execution callback did not carry the expected rule payload.',
+  },
 ];
 
 const BY_SELECTOR = new Map<string, MappedContractError>(

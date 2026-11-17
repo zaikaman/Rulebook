@@ -115,11 +115,12 @@ contract AgentTest is Test {
     }
 
     function test_pauseReleasesTheLastSubscriptionOnce() public {
+        // A DCA rule needs two topics: the Cron10000 tick and the pair's `Sync` (T167).
         uint256 ruleId = _addRule();
-        assertEq(system.subscribeCount(), 1);
+        assertEq(system.subscribeCount(), 2);
         vm.prank(USER);
         agent.pauseRule(ruleId);
-        assertEq(system.unsubscribeCount(), 1);
+        assertEq(system.unsubscribeCount(), 2);
     }
 
     function test_reorderRejectsUnknownId() public {
@@ -188,6 +189,7 @@ contract AgentTest is Test {
         uint256 first = _addRule();
         uint256 second = _addRule();
         uint256 third = _addRule();
+        assertEq(system.subscribeCount(), 2, "three rules, two shared topics");
         vm.startPrank(USER);
         agent.pauseRule(third);
         agent.cancelRule(third);
@@ -195,7 +197,7 @@ contract AgentTest is Test {
         agent.cancelRule(first);
         vm.stopPrank();
 
-        assertEq(system.unsubscribeCount(), 1);
+        assertEq(system.unsubscribeCount(), 2);
         assertEq(agent.activeRuleCount(), 0);
 
         vm.prank(USER);
@@ -428,13 +430,13 @@ contract AgentTest is Test {
     function test_addRuleSubscribesOnceForIdenticalTopics() public {
         uint256 first = _addRule();
         uint256 second = _addRule();
-        assertEq(system.subscribeCount(), 1);
+        assertEq(system.subscribeCount(), 2, "one cron subscription and one Sync subscription");
 
         vm.startPrank(USER);
         agent.pauseRule(first);
         assertEq(system.unsubscribeCount(), 0);
         agent.pauseRule(second);
-        assertEq(system.unsubscribeCount(), 1);
+        assertEq(system.unsubscribeCount(), 2);
         vm.stopPrank();
     }
 
@@ -467,6 +469,59 @@ contract AgentTest is Test {
         vm.prank(USER);
         uint256 ruleId = agent.addRule(rule, false);
         assertEq(agent.getRule(ruleId).amountIn, 0);
+    }
+
+    // --- T168: the price cache only ever moves forward -------------------------------------
+
+    function _reactAsSystem(IReactive.LogRecord memory log) internal {
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function _syncLogAt(uint256 blockNumber, uint112 reserve0, uint112 reserve1)
+        internal
+        view
+        returns (IReactive.LogRecord memory log)
+    {
+        log.chain_id = 1301;
+        log._contract = address(pair);
+        log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
+        log.data = abi.encode(reserve0, reserve1);
+        log.block_number = blockNumber;
+        log.tx_hash = uint256(keccak256(abi.encode(blockNumber)));
+        log.log_index = blockNumber;
+    }
+
+    function test_newerSyncReplacesTheCachedPrice() public {
+        _reactAsSystem(_syncLogAt(10, 1_000, 2_000));
+        _reactAsSystem(_syncLogAt(11, 1_000, 3_000));
+        (uint256 price,) = agent.getCachedPrice(address(pair));
+        assertEq(price, 3e18);
+    }
+
+    function test_olderSyncIsIgnored() public {
+        _reactAsSystem(_syncLogAt(20, 1_000, 2_000));
+        _reactAsSystem(_syncLogAt(19, 1_000, 5_000));
+        (uint256 price,) = agent.getCachedPrice(address(pair));
+        assertEq(price, 2e18, "an older observation must not overwrite a newer one");
+    }
+
+    function test_quietPairKeepsItsStaleValueAndObservationTime() public {
+        vm.warp(1_700_000_000);
+        _reactAsSystem(_syncLogAt(30, 1_000, 2_000));
+        (uint256 price, uint64 observedAt) = agent.getCachedPrice(address(pair));
+        assertEq(price, 2e18);
+        assertEq(observedAt, uint64(block.timestamp));
+
+        vm.warp(1_700_000_600);
+        IReactive.LogRecord memory unrelated;
+        unrelated.chain_id = 1301;
+        unrelated.tx_hash = 1;
+        _reactAsSystem(unrelated);
+
+        (price, observedAt) = agent.getCachedPrice(address(pair));
+        assertEq(price, 2e18, "a quiet pair keeps its last traded price");
+        assertEq(observedAt, uint64(1_700_000_000), "the observation time does not move");
     }
 }
 

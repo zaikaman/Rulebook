@@ -13,6 +13,8 @@ import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRis
 import { BudgetMeter } from '../components/BudgetMeter.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ExecutionTable } from '../components/ExecutionTable.js';
+import { PriceLabel } from '../components/PriceLabel.js';
+import { TxLink } from '../components/TxLink.js';
 import { RuleActions } from '../components/RuleActions.js';
 import { RuleOrderList } from '../components/RuleOrderList.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
@@ -22,6 +24,24 @@ import { appRoutes } from '../lib/routes.js';
 import { lastRunLabel, ruleSentence } from '../lib/rules.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
+/** Templates whose condition reads a cached pair price. */
+const PRICE_TEMPLATES = new Set([1, 2, 3, 4, 5, 6, 11, 12]);
+
+/** The Agent's cached last traded price, labelled with the observation time (FR-020). */
+function CachedPrice({ agent, pair }: { readonly agent: Address; readonly pair: Address }) {
+  const { data } = useReadContract({
+    address: agent,
+    abi: agentAbi,
+    functionName: 'getCachedPrice',
+    args: [pair],
+    chainId: LASNA_CHAIN_ID,
+  });
+  if (!data) return null;
+  const [price, observedAt] = data;
+  return (
+    <PriceLabel price={price} observedAt={Number(observedAt)} chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+  );
+}
 
 function statusOf(status: 'active' | 'paused' | 'cancelled', latched: boolean): RuleStatus {
   if (latched && status === 'active') return 'latched';
@@ -88,6 +108,7 @@ export function RuleDetail() {
   }
 
   const { rule, recent_executions: executions, budget, sponsor } = detailQuery.data;
+  const alerts = detailQuery.data.alerts ?? [];
   const agentAddress = agent as Address;
   const rules = rulesQuery.data ?? [];
   const order = orderQuery.data ?? rules.map((candidate) => candidate.rule_id);
@@ -108,6 +129,9 @@ export function RuleDetail() {
           <span className="text-xs text-ink-muted">Last run: {lastRunLabel(rule)}</span>
         </div>
         <p className="text-xl text-ink">“{ruleSentence(rule)}”</p>
+        {rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
+          <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
+        ) : null}
         <dl className="grid gap-3 text-xs sm:grid-cols-2">
           <div>
             <dt className="text-ink-muted">Automation account (Lasna)</dt>
@@ -135,6 +159,27 @@ export function RuleDetail() {
       <section aria-label="Execution history" className="space-y-3">
         <h2 className="text-base font-semibold text-ink">Executions</h2>
         <ExecutionTable executions={executions} />
+      </section>
+
+      <section aria-label="Alerts" className="space-y-3">
+        <h2 className="text-base font-semibold text-ink">Alerts</h2>
+        {alerts.length === 0 ? (
+          <p className="text-xs text-ink-muted">
+            No alerts yet. An alert records activity and never moves funds.
+          </p>
+        ) : (
+          <ul className="space-y-1 text-xs text-ink-muted">
+            {alerts.map((alert) => (
+              <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
+                <span>alerted</span>
+                <span>
+                  {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)} UTC
+                </span>
+                <TxLink chainId={LASNA_CHAIN_ID} txHash={alert.tx_hash} />
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <BudgetAtRiskBanner state={worstSponsorState(sponsor)} agent={agentAddress} />

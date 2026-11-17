@@ -39,6 +39,10 @@ error MirrorDepthNotAllowed();
 error MirrorBurstExceeded();
 error DuplicateLeaderExecution(bytes32 key);
 error TokenMismatch(address expected, address actual);
+// Additive (US5): alert templates are refused on the money path, and a callback whose data is
+// not the six-word execution payload reverts rather than being guessed at.
+error AlertOnlyTemplate(uint8 template);
+error InvalidCallbackPayload();
 ```
 
 ---

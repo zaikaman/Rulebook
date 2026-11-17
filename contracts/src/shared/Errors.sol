@@ -33,3 +33,7 @@ error MirrorDepthNotAllowed();
 error MirrorBurstExceeded();
 error DuplicateLeaderExecution(bytes32 key);
 error TokenMismatch(address expected, address actual);
+// Alert templates move no funds; the Vault refuses them before any transfer (FR-023).
+error AlertOnlyTemplate(uint8 template);
+// The callback data did not match the six-word execution payload layout.
+error InvalidCallbackPayload();

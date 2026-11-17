@@ -7,17 +7,28 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {AbstractCallback} from "@reactive/abstract-base/AbstractCallback.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
+import {PriceMath} from "../libraries/PriceMath.sol";
+import {RuleLib} from "../libraries/RuleLib.sol";
+import {CallbackPayload, ExecutionPayload} from "../shared/CallbackPayload.sol";
 import {
+    AlertOnlyTemplate,
     CallbackSenderMismatch,
     ConditionNotMet,
+    ExceedsPerRunCap,
+    Expired,
     InsufficientPrincipal,
     InvalidAmount,
+    InvalidSecondary,
     InvalidTemplateParams,
+    InvalidThreshold,
     NotOwner,
     NotServiceProvider,
+    SlippageExceeded,
     TokenMismatch,
+    TransferFailed,
     UnknownTemplate
 } from "../shared/Errors.sol";
+import {IUniswapV2Pair, IUniswapV2Router02} from "../shared/UniswapV2.sol";
 
 /// @title Vault
 /// @notice One user's funds-side account on Unichain Sepolia. Holds principal, enforces limits,
@@ -47,6 +58,13 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     event PayoutAddressChanged(address indexed previous, address indexed next);
     /// @notice Spend limits and the allowlisted pair changed by the owner.
     event LimitsChanged(uint256 maxSpendPerRun, address tokenIn, address tokenOut);
+    /// @notice Execution slippage tolerance changed by the owner.
+    event SlippageChanged(uint16 slippageBps);
+
+    /// @notice Default execution-time slippage tolerance: 0.50%.
+    uint16 public constant DEFAULT_SLIPPAGE_BPS = 50;
+    /// @notice Largest tolerance the owner may set: 10%. A wider floor is not a floor.
+    uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
 
     /// @notice The user who owns this vault and its principal.
     address public immutable owner;
@@ -67,6 +85,8 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     address public allowedTokenOut;
     /// @notice Default destination for withdrawals that pass the zero address.
     address public payoutAddress;
+    /// @notice Execution-time slippage tolerance applied to the live quote, in basis points.
+    uint16 public slippageBps;
 
     mapping(address => uint256) private _principal;
 
@@ -93,20 +113,11 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         allowedTokenOut = tokenOut_;
         mirrorMode = mirrorMode_;
         payoutAddress = owner_;
+        slippageBps = DEFAULT_SLIPPAGE_BPS;
     }
 
     modifier onlyVaultOwner() {
         if (msg.sender != owner) revert NotOwner();
-        _;
-    }
-
-    modifier onlyServiceProvider() {
-        if (!senders[msg.sender]) revert NotServiceProvider();
-        _;
-    }
-
-    modifier onlyCallbackSender(address expected) {
-        if (expected != agent) revert CallbackSenderMismatch(agent, expected);
         _;
     }
 
@@ -158,27 +169,166 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         emit LimitsChanged(maxSpendPerRun_, tokenIn_, tokenOut_);
     }
 
+    /// @notice Sets the execution-time slippage tolerance, capped at `MAX_SLIPPAGE_BPS`.
+    function setSlippageBps(uint16 bps) external onlyVaultOwner {
+        if (bps > MAX_SLIPPAGE_BPS) revert InvalidSecondary();
+        slippageBps = bps;
+        emit SlippageChanged(bps);
+    }
+
     /// @notice Owner's emergency stop for execution.
     function setPaused(bool paused_) external onlyVaultOwner {
         paused = paused_;
     }
 
     /// @notice Reactive callback entry point. The `agent` argument is compared, never trusted.
-    /// @dev Phase 2 ships authentication, the pause check, and payload decoding. The transfer
-    /// path lands in T171 and the swap path in T174; until then no funds can move from here.
-    /// @dev The factory deploys this Vault only against an owner signature that binds its Agent.
-    function execute(address agent_, uint256 ruleId, bytes calldata data) external view {
+    /// @dev Money path. Alert templates are refused before any token call, transfers use
+    /// `transfer`, the balance-floor template uses `transferFrom`, and swaps quote from live
+    /// reserves — never from the Agent's cached price (FR-028).
+    function execute(address agent_, uint256 ruleId, bytes calldata data) external nonReentrant {
         _authenticate(agent_);
         if (paused) revert ConditionNotMet();
         if (ruleId > type(uint32).max) revert InvalidTemplateParams();
-        uint16 template = _decodeTemplate(data);
-        if (template < 1 || template > 13) revert UnknownTemplate(uint8(template));
-        revert ConditionNotMet();
+
+        ExecutionPayload memory payload = CallbackPayload.decode(data);
+        uint8 template = uint8(payload.template);
+        if (template < 1 || template > RuleLib.TEMPLATE_COUNT) revert UnknownTemplate(template);
+        if (RuleLib.isAlertTemplate(template)) revert AlertOnlyTemplate(template);
+        if (payload.amountIn == 0) revert InvalidAmount();
+        if (payload.amountIn > maxSpendPerRun) {
+            revert ExceedsPerRunCap(payload.amountIn, maxSpendPerRun);
+        }
+
+        if (RuleLib.isSwapTemplate(template)) {
+            _swap(ruleId, payload);
+        } else if (template == 9) {
+            _pullFromSource(ruleId, payload);
+        } else {
+            _sendToRecipient(ruleId, payload);
+        }
     }
 
     /// @notice Principal recorded for `token`.
     function principalOf(address token) external view returns (uint256 amount) {
         amount = _principal[token];
+    }
+
+    /// @dev Swap path: re-check the price condition against live reserves, quote from those same
+    /// reserves, take the floor the Agent decided on, then swap.
+    function _swap(uint256 ruleId, ExecutionPayload memory payload) private {
+        if (payload.pair == address(0)) revert InvalidTemplateParams();
+        if (payload.template == 3 || payload.template == 4) {
+            if (payload.expiry != 0 && block.timestamp > payload.expiry) {
+                revert Expired(ruleId, payload.expiry);
+            }
+            if (payload.threshold == 0) revert InvalidThreshold();
+        }
+
+        (uint256 reserveIn, uint256 reserveOut) = _liveReserves(payload.pair);
+        uint256 price = PriceMath.priceFromReserves(reserveIn, reserveOut);
+        if (!_conditionStillHolds(payload.template, price, payload.threshold)) {
+            revert ConditionNotMet();
+        }
+
+        uint256 expected = PriceMath.expectedOut(payload.amountIn, reserveIn, reserveOut);
+        if (payload.extra != 0 && expected < payload.extra) {
+            revert SlippageExceeded(payload.extra, expected);
+        }
+        // The minimum comes from live reserves, never from the Agent's cached price.
+        uint256 minOut = PriceMath.applySlippage(expected, slippageBps);
+
+        address[] memory path = new address[](2);
+        path[0] = allowedTokenIn;
+        path[1] = allowedTokenOut;
+
+        uint256 balanceBefore = IERC20(allowedTokenOut).balanceOf(address(this));
+        IERC20(allowedTokenIn).forceApprove(router, payload.amountIn);
+        try IUniswapV2Router02(router)
+            .swapExactTokensForTokens(
+                payload.amountIn, minOut, path, address(this), block.timestamp
+            ) {
+        // The router moved the tokens; the balance delta is the authoritative output.
+        }
+        catch {
+            revert SlippageExceeded(minOut, 0);
+        }
+        uint256 received = IERC20(allowedTokenOut).balanceOf(address(this)) - balanceBefore;
+
+        _spendPrincipal(allowedTokenIn, payload.amountIn);
+        _principal[allowedTokenOut] += received;
+        emit Executed(
+            ruleId, allowedTokenIn, allowedTokenOut, payload.amountIn, received, block.timestamp
+        );
+        _emitBalances(allowedTokenIn, allowedTokenOut);
+    }
+
+    /// @dev Personal transfer path: send `amountIn` of the allowlisted token to the recipient.
+    function _sendToRecipient(uint256 ruleId, ExecutionPayload memory payload) private {
+        address recipient = address(uint160(payload.extra));
+        if (recipient == address(0)) revert InvalidTemplateParams();
+        address token = allowedTokenIn;
+        uint256 available = IERC20(token).balanceOf(address(this));
+        if (payload.amountIn > available) {
+            revert InsufficientPrincipal(payload.amountIn, available);
+        }
+        _safeTransfer(token, recipient, payload.amountIn);
+        _spendPrincipal(token, payload.amountIn);
+        emit Executed(ruleId, token, address(0), payload.amountIn, 0, block.timestamp);
+        _emitBalances(token, allowedTokenOut);
+    }
+
+    /// @dev Balance-floor path: pull `amountIn` from the wallet that approved this vault once.
+    function _pullFromSource(uint256 ruleId, ExecutionPayload memory payload) private {
+        address source = address(uint160(payload.extra));
+        if (source == address(0)) revert InvalidTemplateParams();
+        address token = allowedTokenIn;
+        try IERC20(token).transferFrom(source, address(this), payload.amountIn) returns (bool ok) {
+            if (!ok) revert TransferFailed();
+        } catch {
+            revert TransferFailed();
+        }
+        _principal[token] += payload.amountIn;
+        emit Deposited(token, payload.amountIn, source);
+        emit Executed(ruleId, token, address(0), 0, payload.amountIn, block.timestamp);
+        _emitBalances(token, allowedTokenOut);
+    }
+
+    /// @dev Reads the pair's live reserves in the vault's allowlist order and verifies the pair
+    /// really is the canonical pool for the allowlisted tokens.
+    function _liveReserves(address pair)
+        private
+        view
+        returns (uint256 reserveIn, uint256 reserveOut)
+    {
+        address token0 = IUniswapV2Pair(pair).token0();
+        address token1 = IUniswapV2Pair(pair).token1();
+        bool forward = token0 == allowedTokenIn && token1 == allowedTokenOut;
+        bool reverse = token0 == allowedTokenOut && token1 == allowedTokenIn;
+        if (!forward && !reverse) revert TokenMismatch(allowedTokenIn, token0);
+
+        (uint112 raw0, uint112 raw1,) = IUniswapV2Pair(pair).getReserves();
+        if (raw0 == 0 || raw1 == 0) revert InvalidAmount();
+        reserveIn = forward ? raw0 : raw1;
+        reserveOut = forward ? raw1 : raw0;
+    }
+
+    /// @dev The price condition the funds-side re-checks. Templates 1, 2 and 6 are decided by
+    /// time or by a reference the Agent owns, so the quote floor protects those instead.
+    function _conditionStillHolds(uint16 template, uint256 price, uint256 threshold)
+        private
+        pure
+        returns (bool)
+    {
+        if (template == 3 || template == 5) return price <= threshold;
+        if (template == 4) return price >= threshold;
+        return true;
+    }
+
+    /// @dev Reduces recorded principal by `amount`, saturating at zero: tokens sent to the vault
+    /// directly must not make a withdrawal revert.
+    function _spendPrincipal(address token, uint256 amount) private {
+        uint256 recorded = _principal[token];
+        _principal[token] = amount >= recorded ? 0 : recorded - amount;
     }
 
     /// @dev Proxy-sender check followed by the payload's first-argument check.
@@ -187,10 +337,12 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (agent_ != agent) revert CallbackSenderMismatch(agent, agent_);
     }
 
-    /// @dev The callback payload always starts with the template id.
-    function _decodeTemplate(bytes calldata data) private pure returns (uint16 template) {
-        if (data.length < 32) revert InvalidTemplateParams();
-        (template,,,,,) = abi.decode(data, (uint16, address, uint256, uint256, uint64, uint256));
+    function _safeTransfer(address token, address to, uint256 amount) private {
+        try IERC20(token).transfer(to, amount) returns (bool ok) {
+            if (!ok) revert TransferFailed();
+        } catch {
+            revert TransferFailed();
+        }
     }
 
     function _validateAllowlist(address tokenIn_, address tokenOut_) private pure {

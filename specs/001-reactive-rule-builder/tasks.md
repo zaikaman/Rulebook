@@ -286,46 +286,46 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests and engine work for User Story 5
 
-- [ ] T167 [US5] Implement the price cache and topic reference counting in `Agent.sol`: `cachedPrice`/`cachedPriceAt` updated only from the latest `Sync`, plus a single `topicKey` counter driving subscribe/unsubscribe.
-- [ ] T168 [P] [US5] Test the cache: a newer `Sync` replaces the value, an older one is ignored, `cachedPriceAt` matches the observation block time, and a quiet pair keeps its stale value rather than zeroing (`contracts/test/unit/Agent.t.sol`).
-- [ ] T169 [US5] Implement cron gating against `Cron10000` (timestamp window) with tests proving a tick inside the window fires once and a tick outside does not (`contracts/src/agent/Agent.sol`).
-- [ ] T170 [P] [US5] Write failing tests for the Vault's transfer path: `SafeERC20.transfer` for personal templates, `transferFrom` for the balance-floor template, allowance failure surfaces as `TransferFailed`, and `Balances` is emitted after each (`contracts/test/unit/Vault.t.sol`).
-- [ ] T171 [US5] Implement the transfer path in `Vault.sol` until T170 is green (`contracts/src/vault/Vault.sol`).
-- [ ] T172 [P] [US5] Write failing tests that the Vault refuses alert-only templates with `AlertOnlyTemplate` and never reaches a token transfer (`contracts/test/unit/Vault.t.sol`).
-- [ ] T173 [US5] Implement the alert-only guard in `Vault.execute` until T172 is green (`contracts/src/vault/Vault.sol`).
-- [ ] T174 [P] [US5] Write failing tests for quote-at-execution: `amountOutMin` derives from live reserves, a reserve move between decision and execution reverts `SlippageExceeded`, and the cached price is never used for `minOut` (`contracts/test/unit/Vault.t.sol`).
-- [ ] T175 [P] [US5] Write the latch/cooldown invariant test: 100 identical trigger events produce exactly one funds movement for a non-cron rule (SC-008).
-- [ ] T176 [P] [US5] Template 1 DCA — three mandated tests in `contracts/test/templates/T01_DCA.t.sol` (happy, condition no longer holds, must not fire twice).
-- [ ] T177 [US5] Template 1 DCA — implement the branch in `Agent.react()` plus Vault payload handling until T176 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T178 [P] [US5] Template 2 dip-boost DCA — three tests (cron fire, dip condition false, no double fire), including the `Sync`-keeps-cache-fresh subscription pair (`contracts/test/templates/T02_DipBoostDCA.t.sol`).
-- [ ] T179 [US5] Template 2 — implement the branch until T178 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T180 [P] [US5] Template 3 limit buy — three tests including expiry (`Expired`) and price-above-threshold skip (`contracts/test/templates/T03_LimitBuy.t.sol`).
-- [ ] T181 [US5] Template 3 — implement until T180 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T182 [P] [US5] Template 4 take profit — three tests (`contracts/test/templates/T04_TakeProfit.t.sol`).
-- [ ] T183 [US5] Template 4 — implement until T182 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T184 [P] [US5] Template 5 stop loss — three tests including the trailing variant using `highWater` (`contracts/test/templates/T05_StopLoss.t.sol`).
-- [ ] T185 [US5] Template 5 — implement until T184 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T186 [P] [US5] Template 6 grid rebalance — three tests including reference reset after a fill (`contracts/test/templates/T06_GridRebalance.t.sol`).
-- [ ] T187 [US5] Template 6 — implement until T186 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T188 [P] [US5] Template 7 recurring transfer — three tests (`contracts/test/templates/T07_RecurringTransfer.t.sol`).
-- [ ] T189 [US5] Template 7 — implement until T188 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T190 [P] [US5] Template 8 income sweep — three tests including the `topic2 = vault` filter (`contracts/test/templates/T08_IncomeSweep.t.sol`).
-- [ ] T191 [US5] Template 8 — implement until T190 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T192 [P] [US5] Template 9 balance floor — three tests driven by the Vault's `Balances` event, including the missing-allowance case (`contracts/test/templates/T09_BalanceFloor.t.sol`).
-- [ ] T193 [US5] Template 9 — implement until T192 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T194 [P] [US5] Template 10 dead-man switch — three tests using inactivity plus the user's own `Transfer` activity to reset the clock (`contracts/test/templates/T10_DeadManSwitch.t.sol`).
-- [ ] T195 [US5] Template 10 — implement until T194 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T196 [P] [US5] Template 11 price alert — three tests, asserting zero token movement and one alert record (`contracts/test/templates/T11_PriceAlert.t.sol`).
-- [ ] T197 [US5] Template 11 — implement until T196 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T198 [P] [US5] Template 12 LP range alert — three tests including both band edges (`contracts/test/templates/T12_RangeAlert.t.sol`).
-- [ ] T199 [US5] Template 12 — implement until T198 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T200 [P] [US5] Template 13 large transfer alert — three tests including the amount threshold boundary (`contracts/test/templates/T13_LargeTransferAlert.t.sol`).
-- [ ] T201 [US5] Template 13 — implement until T200 is green (`contracts/src/agent/Agent.sol`).
-- [ ] T202 [US5] Generate `contracts/test/templates/Matrix.generated.t.sol` from the manifest fixtures and fail the build if any template lacks its three cases (prevents a half-added template).
-- [ ] T203 [US5] Build `frontend/src/composer/TemplatePicker.tsx`: category grouping, supported-template filtering per selected chain, and the caveat copy for #2, #6, #9, #12.
-- [ ] T204 [US5] Render the price basis everywhere as “last traded price” with `observed_at`, never “current price” (FR-020) (`frontend/src/components/PriceLabel.tsx`).
-- [ ] T205 [US5] Render schedules as approximate windows (“sometime on Friday”) from the manifest, with the cost note for tight windows (FR-021) (`frontend/src/components/ScheduleLabel.tsx`).
-- [ ] T206 [US5] Add alert ingestion to the indexer and an alerts section on rule detail and `/` — an alert produces an activity row and no `Executed` row; then regenerate `docs/catalog.md` from the manifest and verify the three-case matrix is complete.
+- [x]  [US5] Implement the price cache and topic reference counting in `Agent.sol`: `cachedPrice`/`cachedPriceAt` updated only from the latest `Sync`, plus a single `topicKey` counter driving subscribe/unsubscribe.
+- [x]  [P] [US5] Test the cache: a newer `Sync` replaces the value, an older one is ignored, `cachedPriceAt` matches the observation block time, and a quiet pair keeps its stale value rather than zeroing (`contracts/test/unit/Agent.t.sol`).
+- [x]  [US5] Implement cron gating against `Cron10000` (timestamp window) with tests proving a tick inside the window fires once and a tick outside does not (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Write failing tests for the Vault's transfer path: `SafeERC20.transfer` for personal templates, `transferFrom` for the balance-floor template, allowance failure surfaces as `TransferFailed`, and `Balances` is emitted after each (`contracts/test/unit/Vault.t.sol`).
+- [x]  [US5] Implement the transfer path in `Vault.sol` until T170 is green (`contracts/src/vault/Vault.sol`).
+- [x]  [P] [US5] Write failing tests that the Vault refuses alert-only templates with `AlertOnlyTemplate` and never reaches a token transfer (`contracts/test/unit/Vault.t.sol`).
+- [x]  [US5] Implement the alert-only guard in `Vault.execute` until T172 is green (`contracts/src/vault/Vault.sol`).
+- [x]  [P] [US5] Write failing tests for quote-at-execution: `amountOutMin` derives from live reserves, a reserve move between decision and execution reverts `SlippageExceeded`, and the cached price is never used for `minOut` (`contracts/test/unit/Vault.t.sol`).
+- [x]  [P] [US5] Write the latch/cooldown invariant test: 100 identical trigger events produce exactly one funds movement for a non-cron rule (SC-008).
+- [x]  [P] [US5] Template 1 DCA — three mandated tests in `contracts/test/templates/T01_DCA.t.sol` (happy, condition no longer holds, must not fire twice).
+- [x]  [US5] Template 1 DCA — implement the branch in `Agent.react()` plus Vault payload handling until T176 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 2 dip-boost DCA — three tests (cron fire, dip condition false, no double fire), including the `Sync`-keeps-cache-fresh subscription pair (`contracts/test/templates/T02_DipBoostDCA.t.sol`).
+- [x]  [US5] Template 2 — implement the branch until T178 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 3 limit buy — three tests including expiry (`Expired`) and price-above-threshold skip (`contracts/test/templates/T03_LimitBuy.t.sol`).
+- [x]  [US5] Template 3 — implement until T180 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 4 take profit — three tests (`contracts/test/templates/T04_TakeProfit.t.sol`).
+- [x]  [US5] Template 4 — implement until T182 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 5 stop loss — three tests including the trailing variant using `highWater` (`contracts/test/templates/T05_StopLoss.t.sol`).
+- [x]  [US5] Template 5 — implement until T184 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 6 grid rebalance — three tests including reference reset after a fill (`contracts/test/templates/T06_GridRebalance.t.sol`).
+- [x]  [US5] Template 6 — implement until T186 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 7 recurring transfer — three tests (`contracts/test/templates/T07_RecurringTransfer.t.sol`).
+- [x]  [US5] Template 7 — implement until T188 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 8 income sweep — three tests including the `topic2 = vault` filter (`contracts/test/templates/T08_IncomeSweep.t.sol`).
+- [x]  [US5] Template 8 — implement until T190 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 9 balance floor — three tests driven by the Vault's `Balances` event, including the missing-allowance case (`contracts/test/templates/T09_BalanceFloor.t.sol`).
+- [x]  [US5] Template 9 — implement until T192 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 10 dead-man switch — three tests using inactivity plus the user's own `Transfer` activity to reset the clock (`contracts/test/templates/T10_DeadManSwitch.t.sol`).
+- [x]  [US5] Template 10 — implement until T194 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 11 price alert — three tests, asserting zero token movement and one alert record (`contracts/test/templates/T11_PriceAlert.t.sol`).
+- [x]  [US5] Template 11 — implement until T196 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 12 LP range alert — three tests including both band edges (`contracts/test/templates/T12_RangeAlert.t.sol`).
+- [x]  [US5] Template 12 — implement until T198 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [P] [US5] Template 13 large transfer alert — three tests including the amount threshold boundary (`contracts/test/templates/T13_LargeTransferAlert.t.sol`).
+- [x]  [US5] Template 13 — implement until T200 is green (`contracts/src/agent/Agent.sol`).
+- [x]  [US5] Generate `contracts/test/templates/Matrix.generated.t.sol` from the manifest fixtures and fail the build if any template lacks its three cases (prevents a half-added template).
+- [x]  [US5] Build `frontend/src/composer/TemplatePicker.tsx`: category grouping, supported-template filtering per selected chain, and the caveat copy for #2, #6, #9, #12.
+- [x]  [US5] Render the price basis everywhere as “last traded price” with `observed_at`, never “current price” (FR-020) (`frontend/src/components/PriceLabel.tsx`).
+- [x]  [US5] Render schedules as approximate windows (“sometime on Friday”) from the manifest, with the cost note for tight windows (FR-021) (`frontend/src/components/ScheduleLabel.tsx`).
+- [x]  [US5] Add alert ingestion to the indexer and an alerts section on rule detail and `/` — an alert produces an activity row and no `Executed` row; then regenerate `docs/catalog.md` from the manifest and verify the three-case matrix is complete.
 
 ---
 
