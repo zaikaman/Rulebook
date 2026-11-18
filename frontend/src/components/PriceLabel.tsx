@@ -33,8 +33,7 @@ export function PriceLabel({ price, observedAt, chainId }: PriceLabelProps) {
   const chain = getChain(chainId);
   return (
     <p data-price-basis="last-traded" className="text-xs text-ink-muted">
-      Last traded price{' '}
-      <span className="font-mono text-ink">{formatPrice(price)}</span>{' '}
+      Last traded price <span className="font-mono text-ink">{formatPrice(price)}</span>{' '}
       <span data-observed-at className="text-ink-muted">
         ({observedLabel(observedAt)})
       </span>{' '}

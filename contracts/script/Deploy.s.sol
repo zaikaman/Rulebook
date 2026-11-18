@@ -11,8 +11,8 @@ import {IReactiveSystem} from "../src/shared/ReactiveTypes.sol";
 import {VaultFactory} from "../src/vault/VaultFactory.sol";
 
 /// @title Deploy
-/// @notice Deploys both factories and the registry on the configured chain and records every
-/// address in `deployments/<chain>.json` with chain id, commit SHA, deployer, and explorer link.
+/// @notice Deploys both factories and the registry on the configured chain and writes a draft
+/// address record for comparison with the confirmed Foundry broadcast receipts.
 contract Deploy is Script {
     struct Record {
         string contractName;
@@ -41,7 +41,8 @@ contract Deploy is Script {
         string memory explorer =
             chainId == 5318007 ? "https://reactscan.net" : "https://sepolia.uniscan.xyz";
         string memory path = string.concat(
-            "../deployments/", chainId == 5318007 ? "lasna.json" : "unichain-sepolia.json"
+            "../deployments/",
+            chainId == 5318007 ? "lasna.pending.json" : "unichain-sepolia.pending.json"
         );
         vm.writeFile(path, _render(chainId, explorer, commitSha, deployer, records));
 

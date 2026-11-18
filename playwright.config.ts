@@ -14,7 +14,8 @@ import {
  * anvil + fixture backend; it never touches a public network or a funded wallet.
  */
 export default defineConfig({
-  testDir: './frontend/e2e',
+  testDir: './frontend',
+  testMatch: ['e2e/*.spec.ts', 'test/a11y.test.tsx'],
   fullyParallel: false,
   // Every spec shares one anvil and one sponsor nonce sequence, so they must not overlap.
   workers: 1,

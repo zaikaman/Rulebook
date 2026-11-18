@@ -24,7 +24,7 @@ export function CloneButton({ listing }: CloneButtonProps) {
     return (
       <button
         type="button"
-        aria-label={`Clone ${title}`}
+        aria-label={`Clone into my vault: ${title}`}
         onClick={() => setOpen(true)}
         className="app-button"
       >

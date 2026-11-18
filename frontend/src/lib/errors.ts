@@ -128,7 +128,8 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   },
   {
     signature: 'AlertOnlyTemplate(uint8)',
-    message: 'This rule type only alerts you. It never moves funds, so there is nothing to execute.',
+    message:
+      'This rule type only alerts you. It never moves funds, so there is nothing to execute.',
   },
   {
     signature: 'InvalidCallbackPayload()',

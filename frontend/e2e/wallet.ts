@@ -5,10 +5,14 @@ import type { Address } from 'viem';
 import { ANVIL_RPC_URL, USER_ADDRESS } from './fixtureConfig.js';
 
 type WalletRequest = { readonly method: string; readonly chainId: number };
-type WalletWindow = Window & { rulebookWalletRequests: WalletRequest[] };
+type WalletWindow = Window & { rulebookWalletRequests?: WalletRequest[] };
 
 export function walletRequests(page: Page): Promise<WalletRequest[]> {
-  return page.evaluate(() => (window as WalletWindow).rulebookWalletRequests);
+  return page.evaluate(() => {
+    const requests = (window as WalletWindow).rulebookWalletRequests;
+    if (!requests) throw new Error('The fixture wallet was not installed.');
+    return requests;
+  });
 }
 
 /**

@@ -30,7 +30,7 @@ async function main(): Promise<void> {
   console.log('Keep-alive SELECT succeeded.');
 }
 
-if (process.argv[1]?.endsWith('keepalive.ts')) {
+if (process.argv[1] && /(?:^|[\\/])keepalive\.[jt]s$/.test(process.argv[1])) {
   main().catch((error: unknown) => {
     console.error(error);
     process.exit(1);

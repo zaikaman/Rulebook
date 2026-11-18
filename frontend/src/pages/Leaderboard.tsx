@@ -111,6 +111,7 @@ export function Leaderboard() {
         <ErrorState
           message="The leaderboard could not be loaded."
           detail={query.error instanceof Error ? query.error.message : null}
+          onRetry={() => void query.refetch()}
         />
       ) : team.length === 0 && community.length === 0 ? (
         <EmptyState

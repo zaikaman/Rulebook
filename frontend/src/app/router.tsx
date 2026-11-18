@@ -2,7 +2,8 @@ import { BrowserRouter, Route, Routes } from 'react-router';
 
 import { AppShell } from '../components/AppShell.js';
 import { Account } from '../pages/Account.js';
-import { CostModelPage } from '../pages/CostModelPage.js';
+import { OfflineState } from '../components/OfflineState.js';
+import { Cost } from '../pages/Cost.js';
 import { Create } from '../pages/Create.js';
 import { Home } from '../pages/Home.js';
 import { LandingPage } from '../pages/LandingPage.js';
@@ -17,7 +18,15 @@ export function AppRouter() {
     <BrowserRouter>
       <ErrorBoundary>
         <Routes>
-          <Route path="/" element={<LandingPage />} />
+          <Route
+            path="/"
+            element={
+              <>
+                <OfflineState />
+                <LandingPage />
+              </>
+            }
+          />
 
           <Route element={<AppShell />}>
             <Route path="rules" element={<Home />} />
@@ -28,7 +37,7 @@ export function AppRouter() {
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="leaderboard" element={<Leaderboard />} />
             <Route path="account" element={<Account />} />
-            <Route path="cost" element={<CostModelPage />} />
+            <Route path="cost" element={<Cost />} />
             {/* Fallback inside app */}
             <Route path="*" element={<Home />} />
           </Route>

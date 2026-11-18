@@ -106,6 +106,7 @@ export function Marketplace() {
         <ErrorState
           message="The marketplace could not be loaded."
           detail={query.error instanceof Error ? query.error.message : null}
+          onRetry={() => void query.refetch()}
         />
       ) : listings.length === 0 ? (
         <EmptyState

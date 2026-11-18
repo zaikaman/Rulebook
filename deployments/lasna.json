@@ -1,26 +1,107 @@
 {
   "chainId": 5318007,
-  "explorer": "https://reactscan.net",
-  "commit": "local-uncommitted",
-  "deployer": "0xC2500C19C77de23443AF5B559a3dADB283DAD41C",
+  "name": "Reactive Lasna",
+  "explorer": "https://lasna.reactscan.net",
   "contracts": [
     {
       "name": "RuleRegistry",
-      "address": "0x743Bd5c1DE57Fb4E4F88CF020dcfFAeE670b959e",
+      "address": "0x743bd5c1de57fb4e4f88cf020dcffaee670b959e",
       "chainId": 5318007,
-      "explorer": "https://reactscan.net"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x743bd5c1de57fb4e4f88cf020dcffaee670b959e",
+      "transactionHash": "0x3629a3300a36f738dccc722aad9623d3b6e4a49f05bfb27c66975aba3500f13a",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x3629a3300a36f738dccc722aad9623d3b6e4a49f05bfb27c66975aba3500f13a",
+      "blockNumber": 8511617,
+      "broadcastRecordedAt": "2026-11-16T19:05:49Z"
     },
     {
       "name": "AgentFactory",
-      "address": "0xAcA7168a4f0aD5C5CAc670bc8F744B4b37790AC6",
+      "address": "0xaca7168a4f0ad5c5cac670bc8f744b4b37790ac6",
       "chainId": 5318007,
-      "explorer": "https://reactscan.net"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0xaca7168a4f0ad5c5cac670bc8f744b4b37790ac6",
+      "transactionHash": "0x19c31b44bb398a36198db84db7c1b993883e947ca4e6ed30a1da2cf14e14689b",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x19c31b44bb398a36198db84db7c1b993883e947ca4e6ed30a1da2cf14e14689b",
+      "blockNumber": 8511617,
+      "broadcastRecordedAt": "2026-11-16T19:05:49Z"
     },
     {
       "name": "VaultFactory",
-      "address": "0xb9Fc7944114539d01f177366dDE86f05A9197F4a",
+      "address": "0xb9fc7944114539d01f177366dde86f05a9197f4a",
       "chainId": 5318007,
-      "explorer": "https://reactscan.net"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0xb9fc7944114539d01f177366dde86f05a9197f4a",
+      "transactionHash": "0x89112b96cc300804c833d393d75b0f0ca2692aa7c0a17bc3f0e411a67f46c2ca",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x89112b96cc300804c833d393d75b0f0ca2692aa7c0a17bc3f0e411a67f46c2ca",
+      "blockNumber": 8511617,
+      "broadcastRecordedAt": "2026-11-16T19:05:49Z"
+    },
+    {
+      "name": "RuleRegistry",
+      "address": "0x72b5a917cc14a6fa55db768c52dfaf019915fcf0",
+      "chainId": 5318007,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x72b5a917cc14a6fa55db768c52dfaf019915fcf0",
+      "transactionHash": "0x262ac0ab552b3903a35d697bac129b370a0b97a0cc021ed5c9c9860e3eba3455",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x262ac0ab552b3903a35d697bac129b370a0b97a0cc021ed5c9c9860e3eba3455",
+      "blockNumber": 8509433,
+      "broadcastRecordedAt": "2026-11-16T18:27:07Z"
+    },
+    {
+      "name": "AgentFactory",
+      "address": "0xe60614121e352af7ff3eefdce1bab9ba180229ba",
+      "chainId": 5318007,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0xe60614121e352af7ff3eefdce1bab9ba180229ba",
+      "transactionHash": "0xfd49d158b4e2a9eb6ffd94a408d493b7f423c20dd5cd62afb59d99295c9ef430",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0xfd49d158b4e2a9eb6ffd94a408d493b7f423c20dd5cd62afb59d99295c9ef430",
+      "blockNumber": 8509433,
+      "broadcastRecordedAt": "2026-11-16T18:27:07Z"
+    },
+    {
+      "name": "VaultFactory",
+      "address": "0x60cfb0022c8dd822bfd0566a3f24d51161b28cb5",
+      "chainId": 5318007,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x60cfb0022c8dd822bfd0566a3f24d51161b28cb5",
+      "transactionHash": "0xe53012b08fac23159bb01edf463b233def09a1aa17a1310c1209c3e3cade92e2",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0xe53012b08fac23159bb01edf463b233def09a1aa17a1310c1209c3e3cade92e2",
+      "blockNumber": 8509433,
+      "broadcastRecordedAt": "2026-11-16T18:27:07Z"
+    },
+    {
+      "name": "AgentFactory",
+      "address": "0x16eab90a886df9b7e362e799269c8543a1d99dc7",
+      "chainId": 5318007,
+      "status": "validation",
+      "commit": "b22172e59b6966746fbd1902ffe3b68c90ccc40c",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x16eab90a886df9b7e362e799269c8543a1d99dc7",
+      "transactionHash": "0x40679f220bb3d5258ccc64c1de06d30152cd1682a7df5cd54ebe01cb1fc868eb",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x40679f220bb3d5258ccc64c1de06d30152cd1682a7df5cd54ebe01cb1fc868eb",
+      "blockNumber": "8662645",
+      "confirmedAt": "2026-11-18T15:39:23Z"
+    }
+  ],
+  "reactiveServices": [
+    {
+      "name": "SystemContract",
+      "address": "0x8888888888888888888888888888888888888888",
+      "chainId": 5318007,
+      "provenance": "Reactive Network infrastructure",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x8888888888888888888888888888888888888888"
     }
   ]
 }

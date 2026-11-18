@@ -52,6 +52,7 @@ export class ApiClient {
     // `this.fetchImpl(...)` throws "Illegal invocation".
     const response = await this.fetchImpl.call(globalThis, `${this.baseUrl}${path}`, {
       ...init,
+      signal: init?.signal ?? AbortSignal.timeout(10_000),
       headers: { accept: 'application/json', ...init?.headers },
     });
     const body: unknown = await response.json().catch(() => null);

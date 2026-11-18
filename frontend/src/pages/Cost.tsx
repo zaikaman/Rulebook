@@ -3,6 +3,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { costModel } from '../lib/costModel.js';
 import { appRoutes } from '../lib/routes.js';
 
 const COSTS = [
@@ -33,7 +34,39 @@ const COSTS = [
   },
 ] as const;
 
-export function CostModelPage() {
+function CostTable({
+  caption,
+  valueLabel,
+  rows,
+}: {
+  caption: string;
+  valueLabel: string;
+  rows: readonly (readonly [string, string])[];
+}) {
+  return (
+    <table className="app-divider mt-4 w-full text-left text-sm">
+      <caption className="mb-2 text-left font-semibold text-ink">{caption}</caption>
+      <thead className="sr-only">
+        <tr>
+          <th scope="col">Item</th>
+          <th scope="col">{valueLabel}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([label, value]) => (
+          <tr key={label} className="border-b border-white/10">
+            <th scope="row" className="py-2 pr-3 font-medium text-ink">
+              {label}
+            </th>
+            <td className="py-2 text-right tabular-nums text-ink-muted">{value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Cost() {
   return (
     <section className="app-page">
       <PageHeading
@@ -61,6 +94,23 @@ export function CostModelPage() {
             </div>
           ))}
         </dl>
+      </section>
+
+      <section className="app-panel app-panel-pad" aria-labelledby="measured-costs">
+        <h2 id="measured-costs" className="app-panel-heading">
+          Estimated execution costs
+        </h2>
+        <p className="app-copy">
+          Base fees measured on <time dateTime={costModel.measuredOn}>{costModel.measuredOn}</time>.
+          Estimates vary with gas prices and event volume.
+        </p>
+        <CostTable caption="Observed base fees" valueLabel="Base fee" rows={costModel.baseFees} />
+        <CostTable caption="Per call" valueLabel="Estimated cost" rows={costModel.calls} />
+        <CostTable caption="Annual estimate" valueLabel="REACT per year" rows={costModel.annual} />
+        <p className="app-copy mt-4">
+          Weekly and daily rules on the same cron schedule wake up for the same ticks. Price rules
+          cost more when their pools emit more events.
+        </p>
       </section>
 
       <section className="app-panel app-panel-pad app-custody" aria-labelledby="cost-custody">

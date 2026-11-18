@@ -59,7 +59,13 @@ contract T07_RecurringTransferTest is TemplateTestBase {
             args[i] = full[i + 4];
         }
         (,, bytes memory inner) = abi.decode(args, (address, uint256, bytes));
-        (payload.template, payload.pair, payload.threshold, payload.amountIn, payload.expiry, payload
-            .extra) = abi.decode(inner, (uint16, address, uint256, uint256, uint64, uint256));
+        (
+            payload.template,
+            payload.pair,
+            payload.threshold,
+            payload.amountIn,
+            payload.expiry,
+            payload.extra
+        ) = abi.decode(inner, (uint16, address, uint256, uint256, uint64, uint256));
     }
 }

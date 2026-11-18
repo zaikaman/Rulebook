@@ -1,63 +1,75 @@
 #!/usr/bin/env node
-/**
- * Asserts ≥90% branch coverage on every core contract, as required by Constitution II.
- * Runs `forge coverage --report summary` and reads its table rather than trusting a badge.
- */
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import path from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const CORE_CONTRACTS = ['Agent', 'Vault', 'AgentFactory', 'VaultFactory', 'RuleRegistry'];
-const MIN_BRANCH_PERCENT = 90;
-
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const localForge = path.join(
-  REPO_ROOT,
-  '.tools',
-  'foundry',
-  process.platform === 'win32' ? 'forge.exe' : 'forge',
-);
-const forge = existsSync(localForge) ? localForge : 'forge';
-
-const probe = spawnSync(forge, ['--version'], { stdio: 'ignore', shell: false });
-if (probe.status !== 0) {
-  console.log('SKIP  coverage-gate (forge not installed)');
-  process.exit(0);
-}
-
-const result = spawnSync(forge, ['coverage', '--report', 'summary'], {
-  cwd: path.join(REPO_ROOT, 'contracts'),
+const minimumBranchPercent = 90;
+const coreContracts = [
+  'src/agent/Agent.sol',
+  'src/agent/AgentFactory.sol',
+  'src/registry/RuleRegistry.sol',
+  'src/vault/Vault.sol',
+  'src/vault/VaultFactory.sol',
+];
+const artifact = new URL('../contracts/.coverage-summary.json', import.meta.url);
+const result = spawnSync(process.env.FORGE_PATH ?? 'forge', ['coverage', '--report', 'summary'], {
+  cwd: fileURLToPath(new URL('../contracts/', import.meta.url)),
   encoding: 'utf8',
-  shell: false,
+  maxBuffer: 16 * 1024 * 1024,
+  env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? 'error' },
 });
-process.stdout.write(result.stdout ?? '');
-if (result.status !== 0) {
-  process.stderr.write(result.stderr ?? '');
-  process.exit(result.status ?? 1);
+
+if (result.error || result.status !== 0) {
+  console.error(result.error?.message ?? result.stderr);
+  process.stdout.write(result.stdout ?? '');
+  process.exit(result.status || 1);
 }
 
-const measured = new Map();
-for (const line of (result.stdout ?? '').split(/\r?\n/)) {
-  const cells = line.split('|').map((cell) => cell.trim());
-  if (cells.length < 6) continue;
-  const name = path.basename(cells[1]).replace(/\.sol$/i, '');
-  const branch = Number.parseFloat(cells[4].replace('%', ''));
-  if (Number.isFinite(branch)) measured.set(name, branch);
+const totals = result.stdout.match(/(\d+) tests passed, (\d+) failed, (\d+) skipped/);
+const tests = {
+  passed: Number(totals?.[1]),
+  failed: Number(totals?.[2]),
+  skipped: Number(totals?.[3]),
+};
+if (!tests.passed || tests.failed !== 0 || tests.skipped !== 0) {
+  console.error('Coverage run must pass with zero skipped tests.', tests);
+  process.exit(1);
 }
 
+const rows = new Map(
+  result.stdout.split(/\r?\n/).map((line) => {
+    const [, path, , , branch] = line.split('|').map((value) => value.trim());
+    return [path?.replaceAll('\\', '/'), branch];
+  }),
+);
+const contracts = {};
 let failed = false;
-for (const contract of CORE_CONTRACTS) {
-  const branch = measured.get(contract);
-  if (branch === undefined) {
-    console.error(`FAIL  ${contract}: no coverage row reported`);
+for (const path of coreContracts) {
+  const coverage = rows.get(path)?.match(/^(\d+(?:\.\d+)?)% \((\d+)\/(\d+)\)$/);
+  if (!coverage || Number(coverage[3]) === 0) {
+    console.error(`Missing branch coverage for ${path}`);
     failed = true;
-  } else if (branch < MIN_BRANCH_PERCENT) {
-    console.error(`FAIL  ${contract}: ${branch}% branch < ${MIN_BRANCH_PERCENT}%`);
-    failed = true;
-  } else {
-    console.log(`PASS  ${contract}: ${branch}% branch`);
+    continue;
+  }
+  const [, percent, covered, total] = coverage.map(Number);
+  contracts[path] = { branchPercent: percent, covered, total };
+  console.log(`${path}: ${percent}% branch coverage (${covered}/${total})`);
+  if (covered * 100 < minimumBranchPercent * total) failed = true;
+}
+
+if (failed) {
+  console.error(`Each core contract requires at least ${minimumBranchPercent}% branch coverage.`);
+  process.exit(1);
+}
+
+const summary = `${JSON.stringify({ minimumBranchPercent, tests, contracts }, null, 2)}\n`;
+if (process.argv.includes('--write')) {
+  writeFileSync(artifact, summary);
+} else {
+  const committed = JSON.parse(readFileSync(artifact, 'utf8'));
+  if (JSON.stringify(committed) !== JSON.stringify(JSON.parse(summary))) {
+    console.error('Coverage summary is stale. Run node scripts/coverage-gate.mjs --write.');
+    process.exit(1);
   }
 }
-
-process.exit(failed ? 1 : 0);
+console.log(`${tests.passed} contract tests passed with zero skipped.`);

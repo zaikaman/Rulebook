@@ -114,7 +114,11 @@ const DESCRIPTORS: ReadonlyArray<{
     code: 'transfer_failed',
     human: 'The token transfer failed.',
   },
-  { signature: 'NotServiceProvider()', code: 'not_service_provider', human: 'Only the Reactive callback proxy may call this function.' },
+  {
+    signature: 'NotServiceProvider()',
+    code: 'not_service_provider',
+    human: 'Only the Reactive callback proxy may call this function.',
+  },
   {
     signature: 'CallbackSenderMismatch(address,address)',
     code: 'callback_sender_mismatch',

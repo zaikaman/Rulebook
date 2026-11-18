@@ -16,5 +16,6 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./test/setup.ts'],
     include: ['test/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['test/a11y.test.tsx'],
   },
 });

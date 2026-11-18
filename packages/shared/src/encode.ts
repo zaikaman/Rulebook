@@ -2,12 +2,7 @@
  * The one rule encoder. The composer, the `/v1/encode/preview` route, and the contract test
  * fixtures all call this function, so client and server calldata cannot disagree.
  */
-import {
-  encodeAbiParameters,
-  encodeFunctionData,
-  keccak256,
-  type Address,
-} from 'viem';
+import { encodeAbiParameters, encodeFunctionData, keccak256, type Address } from 'viem';
 
 import { agentAbi } from './abi/index.js';
 import { getChain } from './chains.js';

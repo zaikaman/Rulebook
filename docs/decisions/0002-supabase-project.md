@@ -52,10 +52,10 @@ Free-plan constraints that shape the design:
 
 ## Keep-alive job
 
-Heroku Scheduler runs one daily command from the backend dyno's working directory:
+Schedule one daily command from the repository root on the Heroku dyno:
 
 ```
-node dist/jobs/keepalive.js
+node backend/dist/jobs/keepalive.js
 ```
 
 It performs a real `SELECT` against `indexer_cursors` (not a health ping), which counts as

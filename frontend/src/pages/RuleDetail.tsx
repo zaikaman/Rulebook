@@ -119,6 +119,7 @@ export function RuleDetail() {
               : 'The indexer has no record of it yet.'
           }
           chainId={LASNA_CHAIN_ID}
+          onRetry={() => void detailQuery.refetch()}
         />
       </section>
     );

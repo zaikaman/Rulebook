@@ -1,5 +1,34 @@
 # Measurements
 
+## Phase 11 frontend and API timing
+
+Measured on **2026-11-18** on the local Windows workstation with Node.js 24.11.1
+and Playwright Chromium 159.0.8154.6. The browser loaded the production Vite build
+via `vite preview`. Each of 20 navigations to `/proof/:hash` used a fresh Chromium
+context at 1440×900. The browser received a fixed three-row proof payload. We recorded
+first contentful paint from the Paint Timing API and separately timed when the third
+proof row became visible.
+
+| Browser measurement          |      p50 |      p95 |
+| ---------------------------- | -------: | -------: |
+| First contentful paint       |   144 ms |   148 ms |
+| All three proof rows visible | 187.5 ms | 193.8 ms |
+
+For the API, each route received five warm-up requests followed by 30 sequential
+loopback requests against the real Fastify fixture server and its in-memory store.
+The timer covered the request and response-body read. Percentiles use nearest rank.
+
+| API route         |    p50 |    p95 |
+| ----------------- | -----: | -----: |
+| `/health`         | 0.6 ms | 1.3 ms |
+| `/v1/chains`      | 0.6 ms | 1.0 ms |
+| `/v1/marketplace` | 0.5 ms | 0.7 ms |
+| `/v1/leaderboard` | 0.4 ms | 0.5 ms |
+| `/v1/executions`  | 0.4 ms | 0.6 ms |
+
+The local run meets the 2 s paint and 300 ms API targets. Hosted latency through
+Heroku, Supabase and both public RPCs still needs measurement.
+
 ## Phase 10 mirror verification
 
 On 18 November 2026, the Lasna and Unichain Sepolia validation run confirmed one
@@ -36,8 +65,8 @@ proof is still pending.
 
 ### Validation contracts
 
-These deployments were isolated from the app's configured factories. They used the
-Phase 10 working tree based on `f7b7393` and deployer
+These deployments were isolated from the app's configured factories. Both factory
+creation transactions reproduce the bytecode at `b22172e`. The deployer was
 `0xC2500C19C77de23443AF5B559a3dADB283DAD41C`.
 
 | Contract       | Chain ID | Address                                      | Deployment                                                                                                            |

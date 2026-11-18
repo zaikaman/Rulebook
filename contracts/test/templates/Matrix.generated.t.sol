@@ -33,7 +33,7 @@ library TemplateMatrix {
 
 /// @notice Fails the build when any template lost a mandated case.
 contract MatrixGeneratedTest is Test {
-    function test_everyTemplateHasThreeCases() public view {
+    function test_everyTemplateHasThreeCases() public pure {
         for (uint8 template = 1; template <= TemplateMatrix.TEMPLATE_COUNT; ++template) {
             assertGe(TemplateMatrix.caseCount(template), 3, "a template is missing a case");
         }

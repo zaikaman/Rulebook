@@ -7,13 +7,14 @@ build/
 out/
 cache/
 broadcast/
+deployments/*.pending.json
 .turbo/
+*.tsbuildinfo
 
 # test + coverage artifacts
 coverage/
 playwright-report/
 test-results/
-contracts/.coverage-summary.json
 
 # secrets
 .env

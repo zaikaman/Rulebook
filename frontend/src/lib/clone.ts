@@ -1,9 +1,4 @@
-import {
-  ruleParamsHash,
-  type Listing,
-  type Rule,
-  type RuleParams,
-} from '@rulebook/shared';
+import { ruleParamsHash, type Listing, type Rule, type RuleParams } from '@rulebook/shared';
 
 /** Mirrors `RuleLib.MAX_ACTIVE_RULES`; a wallet is never shown a clone the Agent would reject. */
 export const MAX_ACTIVE_RULES = 5;

@@ -155,6 +155,7 @@ export function Home() {
           }
           detail={error instanceof Error ? error.message : null}
           chainId={LASNA_CHAIN_ID}
+          onRetry={() => void (agentQuery.error ? agentQuery.refetch() : rulesQuery.refetch())}
         />
       </section>
     );

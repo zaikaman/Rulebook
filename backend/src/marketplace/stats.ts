@@ -20,10 +20,7 @@ function ruleKey(agent: string, ruleId: string): string {
 export function deriveRuleStats(
   executions: readonly ExecutionRow[],
 ): ReadonlyMap<string, RuleStats> {
-  const totals = new Map<
-    string,
-    { total: number; confirmed: number; amounts: number[] }
-  >();
+  const totals = new Map<string, { total: number; confirmed: number; amounts: number[] }>();
 
   for (const execution of executions) {
     const key = ruleKey(execution.agent, execution.rule_id);

@@ -66,9 +66,7 @@ contract RuleRegistry is IRuleRegistry {
         if (!replacing) {
             listingCount += 1;
         }
-        emit RuleListed(
-            author, agent, ruleId, rule.template, RuleLib.paramsHash(rule), metadataURI
-        );
+        emit RuleListed(author, agent, ruleId, rule.template, RuleLib.paramsHash(rule), metadataURI);
     }
 
     /// @notice Removes the caller's listing for `ruleId`.

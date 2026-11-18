@@ -24,6 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
         <ErrorState
           message="Something went wrong while rendering this view."
           detail={this.state.error.message}
+          onRetry={() => this.setState({ error: null })}
         />
       );
     }

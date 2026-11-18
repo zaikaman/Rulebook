@@ -1,26 +1,107 @@
 {
   "chainId": 1301,
+  "name": "Unichain Sepolia",
   "explorer": "https://sepolia.uniscan.xyz",
-  "commit": "local-uncommitted",
-  "deployer": "0xC2500C19C77de23443AF5B559a3dADB283DAD41C",
   "contracts": [
     {
       "name": "RuleRegistry",
-      "address": "0x5bC7900786B78a7e7d7c73F9eA62159783E3De18",
+      "address": "0x5bc7900786b78a7e7d7c73f9ea62159783e3de18",
       "chainId": 1301,
-      "explorer": "https://sepolia.uniscan.xyz"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x5bc7900786b78a7e7d7c73f9ea62159783e3de18",
+      "transactionHash": "0xda91d5de295b0ad3cd4df89fc808de85fd8c53ee9f01d3131ca480da6825487a",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0xda91d5de295b0ad3cd4df89fc808de85fd8c53ee9f01d3131ca480da6825487a",
+      "blockNumber": 68003542,
+      "broadcastRecordedAt": "2026-11-16T19:06:08Z"
     },
     {
       "name": "AgentFactory",
-      "address": "0x83bDcff4041e2B8b3490D4498c784CD2734F39fc",
+      "address": "0x83bdcff4041e2b8b3490d4498c784cd2734f39fc",
       "chainId": 1301,
-      "explorer": "https://sepolia.uniscan.xyz"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x83bdcff4041e2b8b3490d4498c784cd2734f39fc",
+      "transactionHash": "0xc0cbc40aced850893ef4075511333f19de80d093238dc65c66f4cd9502a3eefa",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0xc0cbc40aced850893ef4075511333f19de80d093238dc65c66f4cd9502a3eefa",
+      "blockNumber": 68003542,
+      "broadcastRecordedAt": "2026-11-16T19:06:08Z"
     },
     {
       "name": "VaultFactory",
-      "address": "0x50a816A84e532D9bAf7e5f463e3470473af52e64",
+      "address": "0x50a816a84e532d9baf7e5f463e3470473af52e64",
       "chainId": 1301,
-      "explorer": "https://sepolia.uniscan.xyz"
+      "status": "configured",
+      "commit": "84ddf615b235d8174b8dc7f9947394f4bf2cc483",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x50a816a84e532d9baf7e5f463e3470473af52e64",
+      "transactionHash": "0x2e7bc325f34e62dc5382c08c5039bd1bef1b5019dbbaf23320156543f3073447",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0x2e7bc325f34e62dc5382c08c5039bd1bef1b5019dbbaf23320156543f3073447",
+      "blockNumber": 68003542,
+      "broadcastRecordedAt": "2026-11-16T19:06:08Z"
+    },
+    {
+      "name": "RuleRegistry",
+      "address": "0x56ec8ee8c1693508dec7a08876831f1ccd2e0286",
+      "chainId": 1301,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x56ec8ee8c1693508dec7a08876831f1ccd2e0286",
+      "transactionHash": "0x9ef51d0f6644ca9ff18d2f9acea10af3c174e64046bc6898a8dc11325b03fdb4",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0x9ef51d0f6644ca9ff18d2f9acea10af3c174e64046bc6898a8dc11325b03fdb4",
+      "blockNumber": 68001220,
+      "broadcastRecordedAt": "2026-11-16T18:27:27Z"
+    },
+    {
+      "name": "AgentFactory",
+      "address": "0xc7d37ebab81dd80a02a768f86c70466ed20a1ffe",
+      "chainId": 1301,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0xc7d37ebab81dd80a02a768f86c70466ed20a1ffe",
+      "transactionHash": "0xb3d0b7807c9bda063e8edab8db2b62f9c9a18725ffb0fa41fd97b23cff30ca4d",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0xb3d0b7807c9bda063e8edab8db2b62f9c9a18725ffb0fa41fd97b23cff30ca4d",
+      "blockNumber": 68001220,
+      "broadcastRecordedAt": "2026-11-16T18:27:27Z"
+    },
+    {
+      "name": "VaultFactory",
+      "address": "0x84ca9c2acce91cf7122415784e1e7b062f7f6621",
+      "chainId": 1301,
+      "status": "superseded",
+      "commit": "1e4cbef0def62f242d34e2f239ed44b7a27c3bc5",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x84ca9c2acce91cf7122415784e1e7b062f7f6621",
+      "transactionHash": "0x1f1fa9e1819de2ba5c40f045e467618639916c691c2f50fc58257ee5649ea431",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0x1f1fa9e1819de2ba5c40f045e467618639916c691c2f50fc58257ee5649ea431",
+      "blockNumber": 68001220,
+      "broadcastRecordedAt": "2026-11-16T18:27:27Z"
+    },
+    {
+      "name": "VaultFactory",
+      "address": "0x24a445e555cc4762357bfba071ff35ad464fa89e",
+      "chainId": 1301,
+      "status": "validation",
+      "commit": "b22172e59b6966746fbd1902ffe3b68c90ccc40c",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x24a445e555cc4762357bfba071ff35ad464fa89e",
+      "transactionHash": "0x1c9e468a84f7a7608aa606146ec7b3d33f4ad017a5fdd22f21c8306e18f674f8",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0x1c9e468a84f7a7608aa606146ec7b3d33f4ad017a5fdd22f21c8306e18f674f8",
+      "blockNumber": "68163940",
+      "confirmedAt": "2026-11-18T15:39:28Z"
+    }
+  ],
+  "reactiveServices": [
+    {
+      "name": "CallbackProxy",
+      "address": "0x775c9B990ADe401060B78D0e98684eEf8d2466C1",
+      "chainId": 1301,
+      "provenance": "Reactive Network infrastructure",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x775c9B990ADe401060B78D0e98684eEf8d2466C1"
     }
   ]
 }

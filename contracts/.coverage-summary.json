@@ -1,0 +1,35 @@
+{
+  "minimumBranchPercent": 90,
+  "tests": {
+    "passed": 219,
+    "failed": 0,
+    "skipped": 0
+  },
+  "contracts": {
+    "src/agent/Agent.sol": {
+      "branchPercent": 92.16,
+      "covered": 94,
+      "total": 102
+    },
+    "src/agent/AgentFactory.sol": {
+      "branchPercent": 100,
+      "covered": 2,
+      "total": 2
+    },
+    "src/registry/RuleRegistry.sol": {
+      "branchPercent": 100,
+      "covered": 4,
+      "total": 4
+    },
+    "src/vault/Vault.sol": {
+      "branchPercent": 96.43,
+      "covered": 54,
+      "total": 56
+    },
+    "src/vault/VaultFactory.sol": {
+      "branchPercent": 100,
+      "covered": 7,
+      "total": 7
+    }
+  }
+}

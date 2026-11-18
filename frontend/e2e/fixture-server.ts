@@ -92,8 +92,7 @@ async function waitForAnvil(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const anvilPath =
-    process.env.ANVIL_PATH ?? (process.platform === 'win32' ? '.tools/foundry/anvil.exe' : 'anvil');
+  const anvilPath = process.env.ANVIL_PATH ?? 'anvil';
   const anvil: ChildProcess = spawn(
     anvilPath,
     ['--chain-id', '1301', '--port', String(ANVIL_RPC_PORT), '--silent'],

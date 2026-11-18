@@ -121,7 +121,13 @@ export function Proof() {
     return (
       <section className="app-page">
         <PageHeading title="Execution proof" breadcrumb={breadcrumb} />
-        <ErrorState message={copy.title} detail={copy.detail} />
+        <ErrorState
+          message={copy.title}
+          detail={copy.detail}
+          onRetry={
+            /^0x[0-9a-f]{64}$/i.test(reactiveTxHash) ? () => void proofQuery.refetch() : undefined
+          }
+        />
         {CHAIN_ONLY_PROOF_ENABLED ? <ChainOnlyProof reactiveTxHash={reactiveTxHash} /> : null}
       </section>
     );

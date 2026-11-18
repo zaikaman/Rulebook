@@ -22,7 +22,7 @@ export interface Store {
   selectOne(table: string, filters: Readonly<Record<string, StoreValue>>): Promise<Row | null>;
   count(table: string, filters?: Readonly<Record<string, StoreValue>>): Promise<number>;
   deleteWhere(table: string, filters: Readonly<Record<string, StoreValue>>): Promise<void>;
-  truncate(tables: readonly string[]): Promise<void>;
+  truncate(tables: Readonly<Record<string, string>>): Promise<void>;
 }
 
 /** Supabase-backed store. Service-role key only; never constructed in the browser. */
@@ -86,12 +86,10 @@ export class SupabaseStore implements Store {
     if (error) throw new Error(`delete ${table} failed: ${error.message}`);
   }
 
-  async truncate(tables: readonly string[]): Promise<void> {
-    for (const table of tables) {
-      const { error } = await this.client.from(table).delete().not('row_identity', 'is', null);
-      if (error && !/row_identity/.test(error.message)) {
-        throw new Error(`truncate ${table} failed: ${error.message}`);
-      }
+  async truncate(tables: Readonly<Record<string, string>>): Promise<void> {
+    for (const [table, keyColumn] of Object.entries(tables)) {
+      const { error } = await this.client.from(table).delete().not(keyColumn, 'is', null);
+      if (error) throw new Error(`truncate ${table} failed: ${error.message}`);
     }
   }
 }
@@ -170,7 +168,7 @@ export class InMemoryStore implements Store {
     this.tables.set(table, remaining);
   }
 
-  async truncate(tables: readonly string[]): Promise<void> {
-    for (const table of tables) this.tables.set(table, []);
+  async truncate(tables: Readonly<Record<string, string>>): Promise<void> {
+    for (const table of Object.keys(tables)) this.tables.set(table, []);
   }
 }

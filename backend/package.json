@@ -15,10 +15,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
-    "reindex": "tsx src/indexer/backfill.ts --reindex",
+    "reindex": "node --env-file-if-exists=.env --import tsx src/indexer/backfill.ts",
     "seed:marketplace": "tsx scripts/seed-marketplace.ts",
     "seed:mirror": "node --env-file-if-exists=.env --import tsx scripts/seed-mirror.ts",
-    "verify:reconcile": "tsx scripts/reconcile.ts"
+    "verify:reconcile": "node --env-file-if-exists=.env --import tsx scripts/reconcile.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

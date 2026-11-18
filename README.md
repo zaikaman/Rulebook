@@ -1,137 +1,127 @@
 # Rulebook
 
-A no-code builder for personal on-chain automations. Pick a trigger, a condition, and an
-action — _every Friday → buy 10 USDC of ETH_ — and a reactive contract executes it forever.
-No server to keep alive, no bot to run, and no key of yours held by us.
-
-> **Working title.** Design source of truth: [`IDEA.md`](./IDEA.md). Implementation
-> artifacts: [`specs/001-reactive-rule-builder/`](./specs/001-reactive-rule-builder/).
+Build personal on-chain automations from a sentence such as “Every Friday, buy 10 USDC
+worth of WETH.” Your wallet owns the Agent that evaluates the rule and the Vault that
+holds your funds. Rulebook sponsors setup and execution credit on testnet.
 
 ## Architecture
 
 ```text
-Unichain Sepolia (origin)          Lasna (automation)             Unichain Sepolia (funds)
-─────────────────────────          ──────────────────             ───────────────────────
-Uniswap pool ──Sync──┐
-User wallet ──Transfer──┤
-Cron (legacy system) ──┼──────▶     Agent (per user)   ──callback──▶   Vault (per user)
-Leader Vault ──Executed┘            react(), cache                    swap / transfer
-                                         │                           limits, receipts
-                                         └──▶ Registry ──▶ indexer ──▶ UI / proof page
+Unichain Sepolia            Reactive Lasna                  Unichain Sepolia
+origin events ────────────▶ per-user Agent ── callback ──▶ per-user Vault
+pool, transfers,             rules, price cache,            principal, live checks,
+leader executions            and subscriptions              settlement receipt
+                                     ▲
+                              Lasna cron ticks
+
+Lasna Registry ──┐
+Lasna and Unichain logs ────▶ Fastify indexer ────▶ Supabase read cache ──▶ React UI
+Lasna getCallbacks ─────────▶ proof API and direct Lasna reader
 ```
 
-- **Agent** (Lasna): holds the user's rules, subscribes to the events they need, decides in
-  `react()`, requests a callback.
-- **Vault** (Unichain Sepolia): holds principal, executes swaps and transfers, re-checks the
-  condition against live reserves before moving a single token.
-- **Registry + indexer**: public listings and a readable event log. The indexer is read-only.
+1. A matching chain event or Lasna cron tick wakes the Agent. Reactive charges the
+   Agent’s watching credit for the evaluation.
+2. The Agent checks the rule against its cached observations. If the rule fires, it
+   requests an authenticated callback to the user’s Vault.
+3. The Vault checks live reserves and spending limits before swapping or transferring.
+   The callback draws on the Vault’s execution credit. The destination receipt determines
+   the outcome shown in the proof view.
 
-## The loop, in three steps
+The cached check avoids unnecessary callbacks. The live check protects against price
+movement between evaluation and settlement. Alerts record activity without moving funds.
 
-1. An event is emitted on Unichain Sepolia (or a cron tick fires on Lasna).
-2. The system contract calls `react(log)` on the Agent, which pays a fee in REACT.
-3. If a rule fires, the Agent requests a callback; the Vault executes and pays gas in ETH.
+## Custody and funding
 
-The check happens **twice**. The Agent decides cheaply from cached event data; the Vault
-decides for real from live reserves and refuses if the condition no longer holds. Execution
-status always comes from the destination chain, never from the automation side.
+| Action                             | Wallet owner                             | Operator |
+| ---------------------------------- | ---------------------------------------- | -------- |
+| Own the Agent and Vault            | Yes                                      | No       |
+| Create, pause or cancel rules      | Yes                                      | No       |
+| Withdraw principal                 | Yes, including when automation is paused | No       |
+| Fund execution and watching credit | Yes                                      | Yes      |
+| Set the Vault’s spending limits    | Yes                                      | No       |
 
-## Custody
+The Vault can spend principal under an authorized rule, within the owner’s limits.
+The sponsor pays for setup, provides starter test funds and tops up execution credit.
+Direct wallet transactions can still incur network fees. The UI displays principal,
+Lasna watching credit and Unichain execution credit separately.
 
-| Action                      | User                         | Operator |
-| --------------------------- | ---------------------------- | -------- |
-| Own the Agent and the Vault | yes                          | no       |
-| Add / pause / cancel a rule | yes                          | no       |
-| Withdraw principal          | yes                          | no       |
-| Top up execution credit     | yes                          | yes      |
-| Move principal              | only via a pre-approved rule | **no**   |
+**This is not a bot. The indexer cannot move funds.** Reactive and the contracts run the
+automation. The indexer reads chain events and provides a rebuildable view. Two sponsor
+routes can deploy user-owned contracts and fund accounts with sponsor assets.
 
-We pay the gas so anyone can use it. You keep the money, in your own contract, withdrawable
-at any time. We never hold a key to it.
-
-**The indexer cannot move funds. This is not a bot.**
-
-## Cost model
-
-Waking a rule costs roughly `0.02 REACT`; a callback swap on Unichain Sepolia costs on the
-order of `0.0000006 ETH`. Weekly DCA costs almost the same as daily DCA — you pay for ticks,
-not trades. Full table and the commands to re-measure it: `docs/cost-model.md` (Phase 11).
-
-## Repository layout
-
-```text
-contracts/          Foundry: Agent, Vault, factories, Registry
-packages/shared/    generated ABIs, chain config, template manifest, zod schemas, encoder
-backend/            Node + Fastify: read-only indexer and API
-frontend/           React + Vite: composer, rule management, proof page
-specs/              spec-kit artifacts (spec, plan, tasks, contracts)
-deployments/        one record per deployed contract, per network
-docs/               ADRs, runbooks, measurements
-```
+A wake-up costs about 0.02 REACT at the measured Lasna gas price. A destination swap
+adds an estimated 0.0000006 ETH at the sampled Unichain rate. Weekly and daily rules on the
+same cron subscription wake for the same ticks. [Measured fees and annual estimates](./docs/cost-model.md)
 
 ## Local setup
 
-```bash
-# prerequisites: Node 24, npm 10+, Foundry (forge), git
+Install Node.js 24, npm and Foundry 1.7.1. Use a Supabase project or local Supabase
+stack with the Rulebook migrations applied.
+
+```powershell
+git submodule update --init --recursive
 npm ci
-npm run generate -w packages/shared   # manifest + ABI codegen (Phase 2 onward)
+npm run build -w contracts
+npm run generate
 npm run build -w packages/shared
-npm run dev -w backend                # http://localhost:8787
-npm run dev -w frontend               # http://localhost:5173
+Copy-Item backend/.env.example backend/.env
+Copy-Item frontend/.env.example frontend/.env.local
 ```
 
-Gates (all must pass before merge):
+Fill in the Supabase API URL and service-role key in `backend/.env`. Add the public RPC
+URLs and the configured Lasna AgentFactory and Unichain VaultFactory addresses to both
+environments. For local read-only work, set `INDEXER_ENABLED=false` and leave the sponsor
+variable unset. For local database migrations, set `DATABASE_URL` in the backend
+environment and run `npm run migrate -w backend`. [Deployment addresses](./deployments/README.md)
 
-```bash
-npm run check        # fmt → build → test → coverage → typecheck → lint → secret scan
+```powershell
+npm run dev
+npm run check
+npx playwright install chromium
+npx playwright test
 ```
 
-## Deployment
+The API listens on port 8787 and the web app on 5173. Playwright starts its own Anvil
+and fixture API. It exercises onboarding, rule creation, controls, cloning, proof rendering
+and accessibility without spending testnet funds.
 
-| Piece     | Host                     | Notes                                                                       |
-| --------- | ------------------------ | --------------------------------------------------------------------------- |
-| Frontend  | Vercel                   | static SPA, `vercel.json` rewrite for deep links                            |
-| Backend   | Heroku                   | **Basic** dyno: Eco sleeps after 30 idle minutes and would stop the indexer |
-| Database  | Supabase                 | free plan; derived cache only, rebuildable from chain events                |
-| Contracts | Lasna + Unichain Sepolia | addresses in `deployments/`                                                 |
+## Deployment and operations
 
-Only `VITE_*` values are public. The Supabase service-role key and the sponsor relayer key
-live in Heroku config vars and never reach the bundle.
+| Component       | Host                       | Setup                                                                                                                                                     |
+| --------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Frontend        | Vercel                     | Use the `frontend` root, enable workspace sources outside the root and use the SPA rewrites in `frontend/vercel.json`.                                    |
+| API and indexer | Heroku                     | Deploy from the workspace root. The root `Procfile` starts the built Fastify service. Run the web process on Basic so it can continue polling while idle. |
+| Read database   | Supabase                   | Apply the Rulebook migrations and configure the service-role key on the backend.                                                                          |
+| Contracts       | Lasna and Unichain Sepolia | Use the chain-specific factory addresses and start cursors just before the earliest blocks you need to replay.                                            |
 
-### Provisioned resources
+The existing Heroku app is `rulebook-backend`. Set the backend’s CORS allowlist to the
+Vercel site origin. Set `VITE_API_BASE_URL` to the backend URL, and set the RPC and factory
+addresses in the frontend’s build environment. All `VITE_*` values are public. The
+Supabase service-role key and sponsor key belong in backend config vars.
 
-| Resource         | Identifier                                                               | Region / tier                                            |
-| ---------------- | ------------------------------------------------------------------------ | -------------------------------------------------------- |
-| Supabase project | `onvbgrphxiobacsviire` — https://onvbgrphxiobacsviire.supabase.co        | `ap-northeast-1` (Tokyo), free plan, Postgres 17         |
-| Heroku app       | `rulebook-backend` — https://rulebook-backend-99de5f3991c5.herokuapp.com | `eu`, stack `heroku-24`, **Basic** dyno — see note below |
-| Vercel project   | not created yet                                                          | pending                                                  |
+The workspace polls `/health` every 30 seconds. It warns when a reported cursor is more
+than 60 seconds behind and identifies unavailable RPCs. The deployment smoke target is
+under 15 seconds of reported lag with the database reachable. Proofs show their source.
+When Lasna has no callback record, use the independently verified transaction links in
+the evidence to inspect the origin, evaluation and destination receipts. [Submission evidence](./docs/submission-evidence.md)
 
-Region choice and plan limits are recorded in
-[`docs/decisions/0002-supabase-project.md`](./docs/decisions/0002-supabase-project.md).
+- [Top up execution reserves](./docs/runbooks/top-up-reserves.md)
+- [Pause or cancel an automation](./docs/runbooks/pause-cancel-a-rule.md)
+- [Rebuild the read model](./docs/runbooks/reindex-from-chain.md)
+- [Rotate the sponsor key](./docs/runbooks/rotate-sponsor-key.md)
 
-**Dyno tier note.** Heroku has no process types until the app's first release, so
-`heroku ps:scale` cannot set the tier on a fresh app. The first deploy must run
-`heroku ps:scale web=1:basic` — Eco would sleep after 30 idle minutes and silently stop the
-indexer, which is the one failure mode this product cannot afford.
+## Known limitations and what comes next
 
-## Known limitations
+- The release targets testnets and one destination chain, Unichain Sepolia.
+- Rules can go quiet if sponsored credit runs out. Anyone can top up a target with
+  `depositTo`, and the wallet owner can still withdraw principal.
+- Cron windows are approximate. A Friday rule runs sometime on Friday.
+- Thin pools make it easy to demonstrate a price trigger. Their fills and price impact
+  differ from deeper pools, and quoted prices reflect the last trade or reserve update.
+- Each Agent pays for its own wake-ups. A future shared engine could amortize each tick
+  across a bounded batch of rules, while retaining per-user Vault ownership and limits.
+- Mirroring is disabled by default. Keep the release clone-only if the grouped proof
+  fails at the release cutoff. The two-hop settlement receipts and duplicate replay result
+  are recorded. [Testnet measurements](./docs/measurements.md)
 
-- Test networks only. A testnet origin cannot call a mainnet destination.
-- One destination chain in this release (the schema carries `chainId` for more).
-- Cron windows are approximate: "every Friday" means "sometime on Friday".
-- Prices are the **last traded price**, which on a quiet pair can be hours old.
-- Sponsorship is load-bearing: if the operator stops topping up, automation pauses. Funds
-  are never at risk, and `depositTo()` is permissionless, so anyone can revive an account.
-
-## Mirroring release fallback
-
-The current release configuration is clone-only. Users can copy a public rule's settings
-and run their own copy. Keep `VITE_ENABLE_MIRROR=false` if the two-hop testnet loop fails
-at the release cutoff. Announce the clone-only scope in the demo and submission.
-
-Both destination transactions and the replay check are recorded. Enable
-`VITE_ENABLE_MIRROR=true` once the chain-first proof endpoint returns both live
-destination rows. Use Phase 10 factories and the mirror links migration. Vault mode
-is permanent and mirror-only vaults are selected during account setup. See
-[the mirror design decision](./docs/decisions/0006-mirror-depth-cap.md) and
-[testnet verification status](./docs/measurements.md).
+[Watch the 75-second walkthrough](./docs/demo.mp4) · [Demo script](./docs/demo-script.md) · [Technical specification](./specs/001-reactive-rule-builder/spec.md) · [MIT license](./LICENSE)

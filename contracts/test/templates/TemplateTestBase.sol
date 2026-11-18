@@ -24,7 +24,8 @@ abstract contract TemplateTestBase is Test {
     bytes32 internal constant SYNC_TOPIC = keccak256("Sync(uint112,uint112)");
     bytes32 internal constant CRON_TOPIC = keccak256("Cron10000()");
     bytes32 internal constant TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
-    bytes32 internal constant BALANCES_TOPIC = keccak256("Balances(address,uint256,address,uint256)");
+    bytes32 internal constant BALANCES_TOPIC =
+        keccak256("Balances(address,uint256,address,uint256)");
     bytes32 internal constant ALERT_TOPIC = keccak256("AlertRaised(uint256,uint8,uint256)");
 
     MockSystemContract internal system;
@@ -62,7 +63,10 @@ abstract contract TemplateTestBase is Test {
     }
 
     /// @notice Reacts and returns how many alert events the wake-up produced.
-    function _reactAndCountAlerts(IReactive.LogRecord memory log) internal returns (uint256 alerts) {
+    function _reactAndCountAlerts(IReactive.LogRecord memory log)
+        internal
+        returns (uint256 alerts)
+    {
         vm.recordLogs();
         _react(log);
         Vm.Log[] memory logs = vm.getRecordedLogs();

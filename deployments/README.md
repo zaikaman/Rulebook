@@ -1,33 +1,23 @@
-# Deployments
+# Testnet deployment records
 
-Every deployment is recorded here. A deploy that exists only in a terminal history did not
-happen (constitution, Principle V).
+The Lasna and Unichain Sepolia JSON files record deployment transactions, contract addresses,
+deployers, source commits, and explorer links. Each configured address has an earlier,
+superseded deployment recorded for reference.
 
-Each network file is a JSON object:
+For the two deployment-script runs, the commit identifies the source that reproduces
+the creation bytecode with the pinned compiler and libraries. The first run matches
+`1e4cbef`. The configured factories match `84ddf61`. The registry bytecode was unchanged
+across those versions. Records come from successful Foundry broadcast receipts.
 
-```json
-{
-  "chainId": 1301,
-  "name": "Unichain Sepolia",
-  "explorer": "https://sepolia.uniscan.xyz",
-  "contracts": [
-    {
-      "name": "VaultFactory",
-      "address": "0x...",
-      "commit": "6ae8330",
-      "deployer": "0x...",
-      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x...",
-      "deployedAt": "2026-11-17T00:00:00Z"
-    }
-  ]
-}
-```
+Reactive's Lasna system contract and Unichain Sepolia callback proxy are network services.
+Their entries identify the network and explorer, and the provider maintains their source and
+deployment history. The matching commit for the Phase 10 validation factories is
+`b22172e`. [Phase 10 receipts](../docs/measurements.md#validation-contracts)
 
-Rules:
+When deploying again, compare the ignored `*.pending.json` address draft with the successful
+receipts in Foundry’s `contracts/broadcast/` directory. Keep the existing records and add
+the confirmed transaction hash, block, timestamp and exact source commit for each new address.
+Keep private keys and credential-bearing RPC URLs outside these files.
 
-- One entry per deployed contract, appended by the deploy script (`contracts/script/Deploy.s.sol`).
-- `commit` is the SHA the bytecode was built from. If you cannot name the SHA, you cannot
-  name the contract.
-- Never record a private key, seed phrase, or RPC URL containing an API key here.
-- Verified addresses from `IDEA.md` §22 are reference constants, not deployments of ours;
-  they live in `packages/shared/src/chains.ts` instead.
+- [Reactive Lasna](./lasna.json)
+- [Unichain Sepolia](./unichain-sepolia.json)

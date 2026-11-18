@@ -139,9 +139,7 @@ export function registerMarketplaceRoutes(app: FastifyInstance, deps: ServerDeps
     const stats = deriveRuleStats(executions);
 
     const filtered = listings.filter(
-      (listing) =>
-        listing.is_public &&
-        (template === null || listing.template === template),
+      (listing) => listing.is_public && (template === null || listing.template === template),
     );
     const sorted = [...filtered].sort((left, right) => compareRows(left, right, stats, sort));
     const page = afterCursor(sorted, decodeListingCursor(request.query.cursor)).slice(0, limit);
@@ -165,10 +163,7 @@ export function registerMarketplaceRoutes(app: FastifyInstance, deps: ServerDeps
     ]);
     const stats = deriveRuleStats(executions);
     const badges = new Map(
-      listings.map((listing) => [
-        ruleKey(listing.agent, listing.rule_id),
-        listing.author_badge,
-      ]),
+      listings.map((listing) => [ruleKey(listing.agent, listing.rule_id), listing.author_badge]),
     );
 
     const ranked = [...rules]

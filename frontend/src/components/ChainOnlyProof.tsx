@@ -83,7 +83,14 @@ export function ChainOnlyProof({ reactiveTxHash }: ChainOnlyProofProps) {
         </p>
       ) : null}
 
-      {records ? (
+      {records?.length === 0 ? (
+        <p role="status" className="app-copy">
+          Lasna returned no callback records for this transaction. Check the hash or try again
+          later.
+        </p>
+      ) : null}
+
+      {records?.length ? (
         <ul className="app-divider app-rules-list text-xs">
           {records.map((record) => (
             <li key={record.callback_index} className="space-y-1 py-3">

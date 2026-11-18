@@ -4,6 +4,8 @@ import { Outlet } from 'react-router';
 import { AppMobileNav } from './chrome/AppMobileNav.js';
 import { AppScrollArea } from './chrome/AppScrollArea.js';
 import { AppSidebar } from './chrome/AppSidebar.js';
+import { IndexerStatus } from './IndexerStatus.js';
+import { OfflineState } from './OfflineState.js';
 import '../styles/workspace.css';
 
 export function AppShell({ children }: { readonly children?: ReactNode }) {
@@ -14,7 +16,11 @@ export function AppShell({ children }: { readonly children?: ReactNode }) {
         <main className="flex-1 flex flex-col min-w-0 lg:h-full bg-[#070707]">
           <AppMobileNav />
           <AppScrollArea>
-            <div className="app-workspace py-6 lg:py-8">{children ?? <Outlet />}</div>
+            <div className="app-workspace py-6 lg:py-8">
+              <OfflineState />
+              <IndexerStatus />
+              {children ?? <Outlet />}
+            </div>
           </AppScrollArea>
         </main>
       </div>

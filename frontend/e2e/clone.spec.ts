@@ -36,7 +36,7 @@ test('clones a team listing into the cloner’s own account with its own limits'
   await expect(card.getByText('Team')).toBeVisible();
   await expect(card.getByText(/\d+ runs/)).toBeVisible();
 
-  await card.getByRole('button', { name: `Clone ${TEAM_RULE}` }).click();
+  await card.getByRole('button', { name: `Clone into my vault: ${TEAM_RULE}` }).click();
   const preview = page.getByRole('region', { name: 'Clone preview' });
   // The panel shows the author's exact sentence, rebuilt from the published parameters.
   await expect(preview).toContainText('buy');

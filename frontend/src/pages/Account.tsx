@@ -145,7 +145,11 @@ function AccountContent() {
     return (
       <section className="app-page">
         <PageHeading title="Your account" />
-        <ErrorState message="Your accounts could not be loaded." detail={lookupError.message} />
+        <ErrorState
+          message="Your accounts could not be loaded."
+          detail={lookupError.message}
+          onRetry={() => void Promise.all([agentQuery.refetch(), vaultQuery.refetch()])}
+        />
       </section>
     );
   }
@@ -192,6 +196,20 @@ function AccountContent() {
           message="The link between your accounts could not be verified."
           detail={linkedVault.error.message}
           chainId={LASNA_CHAIN_ID}
+          onRetry={() => void linkedVault.refetch()}
+        />
+      ) : null}
+
+      {principalQuery.isError || fundsBalance.isError || agentBalance.isError ? (
+        <ErrorState
+          message="Some balances could not be loaded."
+          onRetry={() =>
+            void Promise.all([
+              principalQuery.refetch(),
+              fundsBalance.refetch(),
+              agentBalance.refetch(),
+            ])
+          }
         />
       ) : null}
 

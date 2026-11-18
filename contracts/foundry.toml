@@ -34,6 +34,6 @@ tab_width = 4
 bracket_spacing = false
 int_types = "long"
 
-[profile.default.rpc_endpoints]
+[rpc_endpoints]
 lasna = "${LASNA_RPC_URL}"
 unichain_sepolia = "${UNICHAIN_RPC_URL}"

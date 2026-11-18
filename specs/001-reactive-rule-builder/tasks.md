@@ -286,46 +286,46 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests and engine work for User Story 5
 
-- [x]  [US5] Implement the price cache and topic reference counting in `Agent.sol`: `cachedPrice`/`cachedPriceAt` updated only from the latest `Sync`, plus a single `topicKey` counter driving subscribe/unsubscribe.
-- [x]  [P] [US5] Test the cache: a newer `Sync` replaces the value, an older one is ignored, `cachedPriceAt` matches the observation block time, and a quiet pair keeps its stale value rather than zeroing (`contracts/test/unit/Agent.t.sol`).
-- [x]  [US5] Implement cron gating against `Cron10000` (timestamp window) with tests proving a tick inside the window fires once and a tick outside does not (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Write failing tests for the Vault's transfer path: `SafeERC20.transfer` for personal templates, `transferFrom` for the balance-floor template, allowance failure surfaces as `TransferFailed`, and `Balances` is emitted after each (`contracts/test/unit/Vault.t.sol`).
-- [x]  [US5] Implement the transfer path in `Vault.sol` until T170 is green (`contracts/src/vault/Vault.sol`).
-- [x]  [P] [US5] Write failing tests that the Vault refuses alert-only templates with `AlertOnlyTemplate` and never reaches a token transfer (`contracts/test/unit/Vault.t.sol`).
-- [x]  [US5] Implement the alert-only guard in `Vault.execute` until T172 is green (`contracts/src/vault/Vault.sol`).
-- [x]  [P] [US5] Write failing tests for quote-at-execution: `amountOutMin` derives from live reserves, a reserve move between decision and execution reverts `SlippageExceeded`, and the cached price is never used for `minOut` (`contracts/test/unit/Vault.t.sol`).
-- [x]  [P] [US5] Write the latch/cooldown invariant test: 100 identical trigger events produce exactly one funds movement for a non-cron rule (SC-008).
-- [x]  [P] [US5] Template 1 DCA — three mandated tests in `contracts/test/templates/T01_DCA.t.sol` (happy, condition no longer holds, must not fire twice).
-- [x]  [US5] Template 1 DCA — implement the branch in `Agent.react()` plus Vault payload handling until T176 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 2 dip-boost DCA — three tests (cron fire, dip condition false, no double fire), including the `Sync`-keeps-cache-fresh subscription pair (`contracts/test/templates/T02_DipBoostDCA.t.sol`).
-- [x]  [US5] Template 2 — implement the branch until T178 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 3 limit buy — three tests including expiry (`Expired`) and price-above-threshold skip (`contracts/test/templates/T03_LimitBuy.t.sol`).
-- [x]  [US5] Template 3 — implement until T180 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 4 take profit — three tests (`contracts/test/templates/T04_TakeProfit.t.sol`).
-- [x]  [US5] Template 4 — implement until T182 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 5 stop loss — three tests including the trailing variant using `highWater` (`contracts/test/templates/T05_StopLoss.t.sol`).
-- [x]  [US5] Template 5 — implement until T184 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 6 grid rebalance — three tests including reference reset after a fill (`contracts/test/templates/T06_GridRebalance.t.sol`).
-- [x]  [US5] Template 6 — implement until T186 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 7 recurring transfer — three tests (`contracts/test/templates/T07_RecurringTransfer.t.sol`).
-- [x]  [US5] Template 7 — implement until T188 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 8 income sweep — three tests including the `topic2 = vault` filter (`contracts/test/templates/T08_IncomeSweep.t.sol`).
-- [x]  [US5] Template 8 — implement until T190 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 9 balance floor — three tests driven by the Vault's `Balances` event, including the missing-allowance case (`contracts/test/templates/T09_BalanceFloor.t.sol`).
-- [x]  [US5] Template 9 — implement until T192 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 10 dead-man switch — three tests using inactivity plus the user's own `Transfer` activity to reset the clock (`contracts/test/templates/T10_DeadManSwitch.t.sol`).
-- [x]  [US5] Template 10 — implement until T194 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 11 price alert — three tests, asserting zero token movement and one alert record (`contracts/test/templates/T11_PriceAlert.t.sol`).
-- [x]  [US5] Template 11 — implement until T196 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 12 LP range alert — three tests including both band edges (`contracts/test/templates/T12_RangeAlert.t.sol`).
-- [x]  [US5] Template 12 — implement until T198 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [P] [US5] Template 13 large transfer alert — three tests including the amount threshold boundary (`contracts/test/templates/T13_LargeTransferAlert.t.sol`).
-- [x]  [US5] Template 13 — implement until T200 is green (`contracts/src/agent/Agent.sol`).
-- [x]  [US5] Generate `contracts/test/templates/Matrix.generated.t.sol` from the manifest fixtures and fail the build if any template lacks its three cases (prevents a half-added template).
-- [x]  [US5] Build `frontend/src/composer/TemplatePicker.tsx`: category grouping, supported-template filtering per selected chain, and the caveat copy for #2, #6, #9, #12.
-- [x]  [US5] Render the price basis everywhere as “last traded price” with `observed_at`, never “current price” (FR-020) (`frontend/src/components/PriceLabel.tsx`).
-- [x]  [US5] Render schedules as approximate windows (“sometime on Friday”) from the manifest, with the cost note for tight windows (FR-021) (`frontend/src/components/ScheduleLabel.tsx`).
-- [x]  [US5] Add alert ingestion to the indexer and an alerts section on rule detail and `/` — an alert produces an activity row and no `Executed` row; then regenerate `docs/catalog.md` from the manifest and verify the three-case matrix is complete.
+- [x] [US5] Implement the price cache and topic reference counting in `Agent.sol`: `cachedPrice`/`cachedPriceAt` updated only from the latest `Sync`, plus a single `topicKey` counter driving subscribe/unsubscribe.
+- [x] [P] [US5] Test the cache: a newer `Sync` replaces the value, an older one is ignored, `cachedPriceAt` matches the observation block time, and a quiet pair keeps its stale value rather than zeroing (`contracts/test/unit/Agent.t.sol`).
+- [x] [US5] Implement cron gating against `Cron10000` (timestamp window) with tests proving a tick inside the window fires once and a tick outside does not (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Write failing tests for the Vault's transfer path: `SafeERC20.transfer` for personal templates, `transferFrom` for the balance-floor template, allowance failure surfaces as `TransferFailed`, and `Balances` is emitted after each (`contracts/test/unit/Vault.t.sol`).
+- [x] [US5] Implement the transfer path in `Vault.sol` until T170 is green (`contracts/src/vault/Vault.sol`).
+- [x] [P] [US5] Write failing tests that the Vault refuses alert-only templates with `AlertOnlyTemplate` and never reaches a token transfer (`contracts/test/unit/Vault.t.sol`).
+- [x] [US5] Implement the alert-only guard in `Vault.execute` until T172 is green (`contracts/src/vault/Vault.sol`).
+- [x] [P] [US5] Write failing tests for quote-at-execution: `amountOutMin` derives from live reserves, a reserve move between decision and execution reverts `SlippageExceeded`, and the cached price is never used for `minOut` (`contracts/test/unit/Vault.t.sol`).
+- [x] [P] [US5] Write the latch/cooldown invariant test: 100 identical trigger events produce exactly one funds movement for a non-cron rule (SC-008).
+- [x] [P] [US5] Template 1 DCA — three mandated tests in `contracts/test/templates/T01_DCA.t.sol` (happy, condition no longer holds, must not fire twice).
+- [x] [US5] Template 1 DCA — implement the branch in `Agent.react()` plus Vault payload handling until T176 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 2 dip-boost DCA — three tests (cron fire, dip condition false, no double fire), including the `Sync`-keeps-cache-fresh subscription pair (`contracts/test/templates/T02_DipBoostDCA.t.sol`).
+- [x] [US5] Template 2 — implement the branch until T178 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 3 limit buy — three tests including expiry (`Expired`) and price-above-threshold skip (`contracts/test/templates/T03_LimitBuy.t.sol`).
+- [x] [US5] Template 3 — implement until T180 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 4 take profit — three tests (`contracts/test/templates/T04_TakeProfit.t.sol`).
+- [x] [US5] Template 4 — implement until T182 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 5 stop loss — three tests including the trailing variant using `highWater` (`contracts/test/templates/T05_StopLoss.t.sol`).
+- [x] [US5] Template 5 — implement until T184 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 6 grid rebalance — three tests including reference reset after a fill (`contracts/test/templates/T06_GridRebalance.t.sol`).
+- [x] [US5] Template 6 — implement until T186 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 7 recurring transfer — three tests (`contracts/test/templates/T07_RecurringTransfer.t.sol`).
+- [x] [US5] Template 7 — implement until T188 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 8 income sweep — three tests including the `topic2 = vault` filter (`contracts/test/templates/T08_IncomeSweep.t.sol`).
+- [x] [US5] Template 8 — implement until T190 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 9 balance floor — three tests driven by the Vault's `Balances` event, including the missing-allowance case (`contracts/test/templates/T09_BalanceFloor.t.sol`).
+- [x] [US5] Template 9 — implement until T192 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 10 dead-man switch — three tests using inactivity plus the user's own `Transfer` activity to reset the clock (`contracts/test/templates/T10_DeadManSwitch.t.sol`).
+- [x] [US5] Template 10 — implement until T194 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 11 price alert — three tests, asserting zero token movement and one alert record (`contracts/test/templates/T11_PriceAlert.t.sol`).
+- [x] [US5] Template 11 — implement until T196 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 12 LP range alert — three tests including both band edges (`contracts/test/templates/T12_RangeAlert.t.sol`).
+- [x] [US5] Template 12 — implement until T198 is green (`contracts/src/agent/Agent.sol`).
+- [x] [P] [US5] Template 13 large transfer alert — three tests including the amount threshold boundary (`contracts/test/templates/T13_LargeTransferAlert.t.sol`).
+- [x] [US5] Template 13 — implement until T200 is green (`contracts/src/agent/Agent.sol`).
+- [x] [US5] Generate `contracts/test/templates/Matrix.generated.t.sol` from the manifest fixtures and fail the build if any template lacks its three cases (prevents a half-added template).
+- [x] [US5] Build `frontend/src/composer/TemplatePicker.tsx`: category grouping, supported-template filtering per selected chain, and the caveat copy for #2, #6, #9, #12.
+- [x] [US5] Render the price basis everywhere as “last traded price” with `observed_at`, never “current price” (FR-020) (`frontend/src/components/PriceLabel.tsx`).
+- [x] [US5] Render schedules as approximate windows (“sometime on Friday”) from the manifest, with the cost note for tight windows (FR-021) (`frontend/src/components/ScheduleLabel.tsx`).
+- [x] [US5] Add alert ingestion to the indexer and an alerts section on rule detail and `/` — an alert produces an activity row and no `Executed` row; then regenerate `docs/catalog.md` from the manifest and verify the three-case matrix is complete.
 
 ---
 
@@ -369,19 +369,19 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 7 ⚠️ (write first, confirm each fails)
 
-- [X] T225 [P] [US7] RTL test `frontend/test/signatureSummary.test.tsx`: the prompt names the network, the target account, and the effect in plain language for all six write flows.
-- [X] T226 [P] [US7] RTL test: a write attempted on the wrong chain shows an explicit switch prompt and does not call the wallet until the user confirms (`frontend/test/chainGuard.test.tsx`).
-- [X] T227 [P] [US7] RTL test: `BalanceTrio` renders three distinct labelled figures and has no prop that combines them (FR-008) (`frontend/test/balanceTrio.test.tsx`).
+- [x] T225 [P] [US7] RTL test `frontend/test/signatureSummary.test.tsx`: the prompt names the network, the target account, and the effect in plain language for all six write flows.
+- [x] T226 [P] [US7] RTL test: a write attempted on the wrong chain shows an explicit switch prompt and does not call the wallet until the user confirms (`frontend/test/chainGuard.test.tsx`).
+- [x] T227 [P] [US7] RTL test: `BalanceTrio` renders three distinct labelled figures and has no prop that combines them (FR-008) (`frontend/test/balanceTrio.test.tsx`).
 
 ### Implementation for User Story 7
 
-- [X] T228 [US7] Build `frontend/src/components/SignatureSummary.tsx`: network badge, target contract, plain-language effect, and the amount at stake.
-- [X] T229 [US7] Write `frontend/src/hooks/useChainGuard.ts` + `frontend/src/components/ChainSwitchPrompt.tsx`: detect the wrong chain before a write, explain why the other network is needed, and switch only after confirmation.
-- [X] T230 [US7] Wire `SignatureSummary` and the chain guard into every write flow: onboarding, `addRule`, pause/resume/cancel, reorder, withdraw, clone, mirror.
-- [X] T231 [US7] Finalise `BalanceTrio` with ownership labels (“yours” vs “sponsored”) and per-network grouping (`frontend/src/components/BalanceTrio.tsx`).
-- [X] T232 [US7] Add the two-network explainer to `/account` with both explorer links and a sentence on why the rule and the money live apart.
-- [X] T233 [US7] Playwright `frontend/e2e/network-legibility.spec.ts`: complete the full journey and assert a network badge is visible at every signature step.
-- [X] T234 [US7] Accessibility check on both prompts: focus trap, escape to cancel, and screen-reader labels naming the network (`frontend/test/signatureSummary.test.tsx`).
+- [x] T228 [US7] Build `frontend/src/components/SignatureSummary.tsx`: network badge, target contract, plain-language effect, and the amount at stake.
+- [x] T229 [US7] Write `frontend/src/hooks/useChainGuard.ts` + `frontend/src/components/ChainSwitchPrompt.tsx`: detect the wrong chain before a write, explain why the other network is needed, and switch only after confirmation.
+- [x] T230 [US7] Wire `SignatureSummary` and the chain guard into every write flow: onboarding, `addRule`, pause/resume/cancel, reorder, withdraw, clone, mirror.
+- [x] T231 [US7] Finalise `BalanceTrio` with ownership labels (“yours” vs “sponsored”) and per-network grouping (`frontend/src/components/BalanceTrio.tsx`).
+- [x] T232 [US7] Add the two-network explainer to `/account` with both explorer links and a sentence on why the rule and the money live apart.
+- [x] T233 [US7] Playwright `frontend/e2e/network-legibility.spec.ts`: complete the full journey and assert a network badge is visible at every signature step.
+- [x] T234 [US7] Accessibility check on both prompts: focus trap, escape to cancel, and screen-reader labels naming the network (`frontend/test/signatureSummary.test.tsx`).
 
 ---
 
@@ -393,29 +393,29 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 8 ⚠️ (write first, confirm each fails)
 
-- [X] T235 [P] [US8] Contract test `contracts/test/unit/MirrorVault.t.sol`: a mirror vault emits `Mirrored` and never `Executed`, and its own executions are not offered as a copyable source (FR-046).
-- [X] T236 [P] [US8] Contract test `contracts/test/unit/AgentMirror.t.sol`: `addMirror` rejects the same agent on both sides, rejects a mismatched `tokenIn`, rejects `scaleBps > 10_000`, and rejects `hourlyCap` outside 1..10.
-- [X] T237 [P] [US8] Contract test: mirroring a `Mirrored` event is impossible because the copyable topic set contains only `Executed` — assert with a wrong-topic log that nothing fires (`contracts/test/unit/AgentMirror.t.sol`).
-- [X] T238 [P] [US8] Contract test: the same leader `(vault, ruleId, txHash)` delivered twice produces one execution; an unacceptable live `minOut` skips rather than filling; the hourly cap blocks the N+1th burst (FR-045, FR-047, FR-048) (`contracts/test/unit/AgentMirror.t.sol`).
+- [x] T235 [P] [US8] Contract test `contracts/test/unit/MirrorVault.t.sol`: a mirror vault emits `Mirrored` and never `Executed`, and its own executions are not offered as a copyable source (FR-046).
+- [x] T236 [P] [US8] Contract test `contracts/test/unit/AgentMirror.t.sol`: `addMirror` rejects the same agent on both sides, rejects a mismatched `tokenIn`, rejects `scaleBps > 10_000`, and rejects `hourlyCap` outside 1..10.
+- [x] T237 [P] [US8] Contract test: mirroring a `Mirrored` event is impossible because the copyable topic set contains only `Executed` — assert with a wrong-topic log that nothing fires (`contracts/test/unit/AgentMirror.t.sol`).
+- [x] T238 [P] [US8] Contract test: the same leader `(vault, ruleId, txHash)` delivered twice produces one execution; an unacceptable live `minOut` skips rather than filling; the hourly cap blocks the N+1th burst (FR-045, FR-047, FR-048) (`contracts/test/unit/AgentMirror.t.sol`).
 
 ### Implementation for User Story 8
 
-- [X] T239 [US8] Implement `contracts/src/vault/MirrorVault.sol`: `mirrorMode = true`, emits `Mirrored(ruleId, leader, leaderTx)`, inherits the same callback authentication as `Vault`.
-- [X] T240 [US8] Implement `Agent.addMirror` validation and storage matching `data-model.md` §1.4 (`contracts/src/agent/Agent.sol`).
-- [X] T241 [US8] Implement the mirror execution branch in `Agent.react()` for leader `Executed` logs: dedupe on `keccak256(leaderVault, ruleId, leaderTxHash)`, spend = `min(perRunCap, leaderAmountIn × scaleBps / 10_000)`, hourly counter, callback payload for the follower's vault.
-- [X] T242 [US8] Enforce the mirror constraints in `Vault`: a mirror-mode vault accepts only mirror payloads and still applies its own live `minOut` check (`contracts/src/vault/Vault.sol`).
-- [X] T243 [US8] Add `VaultFactory.deployMirror` with a test proving a leader vault cannot be converted into a mirror vault and vice versa (`contracts/test/unit/VaultFactory.t.sol`).
-- [X] T244 [US8] Persist mirror links in the `mirrors` table and expose them on the rule detail API response (`backend/src/api/routes/rules.ts`).
-- [X] T245 [US8] Add indexer handling for `Mirrored` → `executions` row with `kind: mirrored` and `leader_tx` populated (`backend/src/indexer/decoders/index.ts`).
-- [X] T246 [US8] Build `frontend/src/components/MirrorForm.tsx`: leader selection, scale (bps), per-run cap, hourly cap, explicit warning about thin-pool fills, and detach.
-- [X] T247 [US8] Show the mirror relationship on follower rule detail: “copies <leader rule>”, scale, caps, and its own mirrored execution history (`frontend/src/pages/RuleDetail.tsx`).
-- [X] T248 [US8] Extend `GET /v1/proofs/:hash?include=mirrors` to return the follower's destination transaction alongside the leader's.
-- [X] T249 [US8] Build the grouped proof view: leader and follower rows on one page with distinct badges and two explorer links (`frontend/src/pages/Proof.tsx`).
-- [X] T250 [US8] Write `backend/scripts/seed-mirror.ts` creating a leader rule, a follower mirror, and a deterministic trigger for the demo.
-- [X] T251 [US8] Playwright `frontend/e2e/mirror.spec.ts`: one leader event renders two destination rows from a fixture.
-- [X] T252 [US8] Run the two-hop loop on testnet and record both destination hashes plus the dedupe replay result in `docs/measurements.md` and `docs/submission-evidence.md`.
-- [X] T253 [US8] Write `docs/decisions/0006-mirror-depth-cap.md`: why the cap is structural (event type), not a counter.
-- [X] T254 [US8] Add the documented fallback to `README.md`: if the two-hop loop is broken at the cut line, ship clone-only and state it plainly (`./README.md`).
+- [x] T239 [US8] Implement `contracts/src/vault/MirrorVault.sol`: `mirrorMode = true`, emits `Mirrored(ruleId, leader, leaderTx)`, inherits the same callback authentication as `Vault`.
+- [x] T240 [US8] Implement `Agent.addMirror` validation and storage matching `data-model.md` §1.4 (`contracts/src/agent/Agent.sol`).
+- [x] T241 [US8] Implement the mirror execution branch in `Agent.react()` for leader `Executed` logs: dedupe on `keccak256(leaderVault, ruleId, leaderTxHash)`, spend = `min(perRunCap, leaderAmountIn × scaleBps / 10_000)`, hourly counter, callback payload for the follower's vault.
+- [x] T242 [US8] Enforce the mirror constraints in `Vault`: a mirror-mode vault accepts only mirror payloads and still applies its own live `minOut` check (`contracts/src/vault/Vault.sol`).
+- [x] T243 [US8] Add `VaultFactory.deployMirror` with a test proving a leader vault cannot be converted into a mirror vault and vice versa (`contracts/test/unit/VaultFactory.t.sol`).
+- [x] T244 [US8] Persist mirror links in the `mirrors` table and expose them on the rule detail API response (`backend/src/api/routes/rules.ts`).
+- [x] T245 [US8] Add indexer handling for `Mirrored` → `executions` row with `kind: mirrored` and `leader_tx` populated (`backend/src/indexer/decoders/index.ts`).
+- [x] T246 [US8] Build `frontend/src/components/MirrorForm.tsx`: leader selection, scale (bps), per-run cap, hourly cap, explicit warning about thin-pool fills, and detach.
+- [x] T247 [US8] Show the mirror relationship on follower rule detail: “copies <leader rule>”, scale, caps, and its own mirrored execution history (`frontend/src/pages/RuleDetail.tsx`).
+- [x] T248 [US8] Extend `GET /v1/proofs/:hash?include=mirrors` to return the follower's destination transaction alongside the leader's.
+- [x] T249 [US8] Build the grouped proof view: leader and follower rows on one page with distinct badges and two explorer links (`frontend/src/pages/Proof.tsx`).
+- [x] T250 [US8] Write `backend/scripts/seed-mirror.ts` creating a leader rule, a follower mirror, and a deterministic trigger for the demo.
+- [x] T251 [US8] Playwright `frontend/e2e/mirror.spec.ts`: one leader event renders two destination rows from a fixture.
+- [x] T252 [US8] Run the two-hop loop on testnet and record both destination hashes plus the dedupe replay result in `docs/measurements.md` and `docs/submission-evidence.md`.
+- [x] T253 [US8] Write `docs/decisions/0006-mirror-depth-cap.md`: why the cap is structural (event type), not a counter.
+- [x] T254 [US8] Add the documented fallback to `README.md`: if the two-hop loop is broken at the cut line, ship clone-only and state it plainly (`./README.md`).
 
 ---
 
@@ -423,31 +423,35 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 **Purpose**: everything the constitution gates on and the buildathon submission requires. Completing this phase is what turns a working demo into a submittable project.
 
-- [ ] T255 Complete `README.md` with the architecture diagram, the three-step loop, the check-twice explanation, the custody table, the funding model, the “this is not a bot” statement, and local + deployed setup (`./README.md`).
-- [ ] T256 [P] Write `docs/cost-model.md`: measured base fees, per-wake-up costs, per-year table, the `_extraGas`/`_gasPriceCoeffPer1000` verification commands, and the two lessons (weekly ≈ daily; cost scales with events, not time).
-- [ ] T257 [P] Build `frontend/src/pages/Cost.tsx` rendering the cost model from a typed data module, cited as “measured on <date>”.
-- [ ] T258 [P] Write `docs/runbooks/top-up-reserves.md`: `depositTo(target)` on both proxies, permissionless top-up, and the warning that a plain transfer strands funds.
-- [ ] T259 [P] Write `docs/runbooks/reindex-from-chain.md`: truncate, reset cursors, replay, reconcile, and the expected runtime at demo volume.
-- [ ] T260 [P] Write `docs/runbooks/rotate-sponsor-key.md`: revoke, reissue, redeploy config vars, verify onboarding still works, and what happens to in-flight work.
-- [ ] T261 Record every deployment in `deployments/lasna.json` and `deployments/unichain-sepolia.json` (agent factory, vault factory, registry, callback proxy) with commit SHA and explorer links.
-- [ ] T262 [P] Write `scripts/secret-scan.mjs` scanning the tree for private keys, seed phrases, and `VITE_*SERVICE_ROLE*` misuse; wire it into the CI job from T006.
-- [ ] T263 Run an accessibility pass with axe over all eight routes plus the two prompts and the composer; fix every violation to zero (`frontend/test/a11y.test.tsx`).
-- [ ] T264 [P] Measure and record proof-view first paint (<2s) and API p95 (<300 ms) in `docs/measurements.md` with the method used.
-- [ ] T265 Add the indexer-lag banner (threshold 60s) driven by `/health`, and document the thresholds in `README.md`.
-- [ ] T266 [P] Add offline and RPC-failure states to every page: no blank screens, no infinite spinners, always a retry affordance (`frontend/src/components/OfflineState.tsx`).
-- [ ] T267 Audit the error taxonomy: every selector in `Errors.sol` has a human message in `frontend/src/lib/errors.ts`, and a test fails if one is missing.
-- [ ] T268 Commit the coverage summary artifact and enforce the gate in CI; confirm 0 skipped tests (Constitution II) (`contracts/.coverage-summary.json`).
-- [ ] T269 Add `forge snapshot --check` as a CI gate comparing against `contracts/.gas-snapshot`.
+<!-- prettier-ignore-start -->
+
+- [X] T255 Complete `README.md` with the architecture diagram, the three-step loop, the check-twice explanation, the custody table, the funding model, the “this is not a bot” statement, and local + deployed setup (`./README.md`).
+- [X] T256 [P] Write `docs/cost-model.md`: measured base fees, per-wake-up costs, per-year table, the `_extraGas`/`_gasPriceCoeffPer1000` verification commands, and the two lessons (weekly ≈ daily; cost scales with events, not time).
+- [X] T257 [P] Build `frontend/src/pages/Cost.tsx` rendering the cost model from a typed data module, cited as “measured on <date>”.
+- [X] T258 [P] Write `docs/runbooks/top-up-reserves.md`: `depositTo(target)` on both proxies, permissionless top-up, and the warning that a plain transfer strands funds.
+- [X] T259 [P] Write `docs/runbooks/reindex-from-chain.md`: truncate, reset cursors, replay, reconcile, and the expected runtime at demo volume.
+- [X] T260 [P] Write `docs/runbooks/rotate-sponsor-key.md`: revoke, reissue, redeploy config vars, verify onboarding still works, and what happens to in-flight work.
+- [X] T261 Record every deployment in `deployments/lasna.json` and `deployments/unichain-sepolia.json` (agent factory, vault factory, registry, callback proxy) with commit SHA and explorer links.
+- [X] T262 [P] Write `scripts/secret-scan.mjs` scanning the tree for private keys, seed phrases, and `VITE_*SERVICE_ROLE*` misuse; wire it into the CI job from T006.
+- [X] T263 Run an accessibility pass with axe over all eight routes plus the two prompts and the composer; fix every violation to zero (`frontend/test/a11y.test.tsx`).
+- [X] T264 [P] Measure and record proof-view first paint (<2s) and API p95 (<300 ms) in `docs/measurements.md` with the method used.
+- [X] T265 Add the indexer-lag banner (threshold 60s) driven by `/health`, and document the thresholds in `README.md`.
+- [X] T266 [P] Add offline and RPC-failure states to every page: no blank screens, no infinite spinners, always a retry affordance (`frontend/src/components/OfflineState.tsx`).
+- [X] T267 Audit the error taxonomy: every selector in `Errors.sol` has a human message in `frontend/src/lib/errors.ts`, and a test fails if one is missing.
+- [X] T268 Commit the coverage summary artifact and enforce the gate in CI; confirm 0 skipped tests (Constitution II) (`contracts/.coverage-summary.json`).
+- [X] T269 Add `forge snapshot --check` as a CI gate comparing against `contracts/.gas-snapshot`.
 - [ ] T270 Run quickstart V1–V10 end to end and record every result, hash, and latency in `docs/submission-evidence.md`.
 - [ ] T271 Verify the submission checklist: public repo, agent address, vault address, registry address, 3+ hashes for origin → reactive → callback, one clone hash, one mirror hash, and a `getCallbacks` proof independent of the indexer (`docs/submission-evidence.md`).
-- [ ] T272 [P] Write `scripts/seed-thin-pair.ts` and `scripts/move-price.ts` for the demo price beat, with the honest on-screen caveat text in `docs/demo-script.md`.
-- [ ] T273 [P] Write `docs/demo-script.md` with the seven beats from `IDEA.md` §16 and the exact words for the two honesty moments (thin pair, sponsored credit).
+- [X] T272 [P] Write `scripts/seed-thin-pair.ts` and `scripts/move-price.ts` for the demo price beat, with the honest on-screen caveat text in `docs/demo-script.md`.
+- [X] T273 [P] Write `docs/demo-script.md` with the seven beats from `IDEA.md` §16 and the exact words for the two honesty moments (thin pair, sponsored credit).
 - [ ] T274 Record the demo video under 3 minutes and link it from `README.md` (`./README.md`).
 - [ ] T275 Run the full gate (`scripts/check.mjs`), confirm every quality gate in `constitution.md` passes, and tag `v0.1.0`.
 - [ ] T276 Production smoke on all three hosts: Vercel deep link, Heroku `/health` with indexer lag, and a 24-hour confirmation that the Supabase project did not pause.
-- [ ] T277 Prune dead code, commented-out blocks, debug logging, and unowned `TODO`s; every surviving `TODO` names an owner and a tracking reference (`./eslint.config.js`).
-- [ ] T278 Add `LICENSE` (MIT) — the repository must be public and open source for submission (`./LICENSE`).
-- [ ] T279 Add the “known limitations and what comes next” section to `README.md`: single destination chain, sponsor dependency, approximate cron, thin-pool demos, and the shared-engine scaling lever (`./README.md`).
+- [X] T277 Prune dead code, commented-out blocks, debug logging, and unowned `TODO`s; every surviving `TODO` names an owner and a tracking reference (`./eslint.config.js`).
+- [X] T278 Add `LICENSE` (MIT) — the repository must be public and open source for submission (`./LICENSE`).
+- [X] T279 Add the “known limitations and what comes next” section to `README.md`: single destination chain, sponsor dependency, approximate cron, thin-pool demos, and the shared-engine scaling lever (`./README.md`).
+
+<!-- prettier-ignore-end -->
 
 ---
 

@@ -8,42 +8,46 @@ import { loadConfig } from '../config.js';
 import { createChainClients } from '../chain/clients.js';
 import { createServiceClient } from '../db/client.js';
 import { createRepositories } from '../db/repositories/index.js';
-import { SupabaseStore } from '../db/store.js';
+import { SupabaseStore, type Store } from '../db/store.js';
 import { CursorStore } from './cursors.js';
 import { IndexerPoller } from './poller.js';
 
-export const DERIVED_TABLES = [
-  'executions',
-  'rule_events',
-  'rules',
-  'vaults',
-  'agents',
-  'callbacks',
-  'mirrors',
-  'price_observations',
-  'sponsor_ledger',
-  'dead_letter',
-] as const;
+// Delete dependents before deleting agents. Each filter uses a non-null primary key column.
+const DERIVED_TABLES = {
+  executions: 'tx_hash',
+  rule_events: 'tx_hash',
+  rules: 'agent',
+  vaults: 'address',
+  agents: 'address',
+  callbacks: 'reactive_tx_hash',
+  mirrors: 'follower_agent',
+  price_observations: 'pair',
+  sponsor_ledger: 'tx_hash',
+  dead_letter: 'tx_hash',
+};
 
 export interface ReindexDeps {
-  store: SupabaseStore;
+  store: Store;
   cursors: CursorStore;
-  poller: IndexerPoller;
+  poller: Pick<IndexerPoller, 'pollOnce'>;
   startBlocks: Readonly<Record<number, number>>;
 }
 
 /** Truncates derived state, resets cursors, and replays every configured chain. */
 export async function reindex(deps: ReindexDeps): Promise<void> {
   await deps.store.truncate(DERIVED_TABLES);
+  await deps.store.deleteWhere('listings', { author_badge: 'community' });
   for (const [chainId, startBlock] of Object.entries(deps.startBlocks)) {
     await deps.cursors.reset(Number(chainId), startBlock);
   }
   for (const chainId of Object.keys(deps.startBlocks).map(Number)) {
-    let idlePolls = 0;
-    while (idlePolls < 2) {
-      const processed = await deps.poller.pollOnce(chainId);
-      idlePolls = processed === 0 ? idlePolls + 1 : 0;
-    }
+    let previousBlock: number | undefined;
+    let currentBlock = (await deps.cursors.get(chainId))?.last_block;
+    do {
+      previousBlock = currentBlock;
+      await deps.poller.pollOnce(chainId);
+      currentBlock = (await deps.cursors.get(chainId))?.last_block;
+    } while (currentBlock !== previousBlock);
   }
 }
 
@@ -63,6 +67,7 @@ async function main(): Promise<void> {
     clients: createChainClients(config),
     startBlocks,
     confirmationDepth: { 5_318_007: 20, 1301: 12 },
+    rangeSize: 1_000,
   });
   await reindex({ store, cursors, poller, startBlocks });
   console.log('Reindex complete.');

@@ -1,9 +1,5 @@
 import seedManifest from '@rulebook/shared/manifest/seed-rules.json' with { type: 'json' };
-import {
-  ruleParamsFromDraft,
-  ruleParamsHash,
-  type RuleDraft,
-} from '@rulebook/shared';
+import { ruleParamsFromDraft, ruleParamsHash, type RuleDraft } from '@rulebook/shared';
 
 import type { Repositories } from '../db/repositories/index.js';
 

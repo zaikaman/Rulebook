@@ -229,6 +229,7 @@ export function Create() {
           message="Your automation account could not be loaded."
           detail={agentQuery.error.message}
           chainId={LASNA_CHAIN_ID}
+          onRetry={() => void agentQuery.refetch()}
         />
       ) : (
         <EmptyState

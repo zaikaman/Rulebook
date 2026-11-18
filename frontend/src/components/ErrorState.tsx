@@ -9,10 +9,11 @@ export interface ErrorStateProps {
   readonly detail?: string | null;
   /** Chain the failure happened on, so the user knows which network to look at. */
   readonly chainId?: number;
+  readonly onRetry?: () => void;
 }
 
 /** Renders a failure with its network and its underlying chain reason (FR-051). */
-export function ErrorState({ message, detail, chainId }: ErrorStateProps) {
+export function ErrorState({ message, detail, chainId, onRetry }: ErrorStateProps) {
   return (
     <div role="alert" className="app-alert" data-tone="error">
       <div className="flex flex-wrap items-center gap-2">
@@ -32,6 +33,11 @@ export function ErrorState({ message, detail, chainId }: ErrorStateProps) {
         >
           {detail}
         </code>
+      ) : null}
+      {onRetry ? (
+        <button type="button" onClick={onRetry} className="app-button mt-3">
+          Try again
+        </button>
       ) : null}
     </div>
   );
