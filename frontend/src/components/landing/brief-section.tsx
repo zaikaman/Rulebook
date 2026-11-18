@@ -42,10 +42,10 @@ export function BriefSection() {
           </dl>
         </div>
         <img
-          src={landingImages.sharedBrief.src}
-          width={landingImages.sharedBrief.width}
-          height={landingImages.sharedBrief.height}
-          alt="Cryptographic three-chain verification proof"
+          src={landingImages.proof.src}
+          width={landingImages.proof.width}
+          height={landingImages.proof.height}
+          alt="Three metal ledger plates linked by a blue line"
           loading="lazy"
           decoding="async"
           className="mx-auto aspect-square w-full max-w-[520px] object-contain [mask-image:radial-gradient(closest-side,black_62%,transparent_100%)]"

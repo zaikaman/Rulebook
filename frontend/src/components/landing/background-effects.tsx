@@ -1,3 +1,5 @@
+import { UnicornScene } from './unicorn-scene.js';
+
 const fadeMask = 'linear-gradient(to bottom, transparent, black 0%, black 80%, transparent)';
 
 export function BackgroundEffects() {
@@ -11,6 +13,13 @@ export function BackgroundEffects() {
         {/* Ambient top radial glows */}
         <div className="absolute top-0 left-1/2 h-[550px] w-[80vw] -translate-x-1/2 bg-[radial-gradient(ellipse_at_center,_rgba(59,130,246,0.18),_transparent_70%)] opacity-60 blur-3xl" />
         <div className="absolute top-[200px] left-1/3 h-[400px] w-[50vw] -translate-x-1/2 bg-[radial-gradient(ellipse_at_center,_rgba(124,92,255,0.15),_transparent_65%)] opacity-50 blur-3xl" />
+      </div>
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[44rem] overflow-hidden mix-blend-screen motion-reduce:hidden sm:h-[900px]"
+        style={{ maskImage: fadeMask, WebkitMaskImage: fadeMask }}
+      >
+        <UnicornScene projectId="bKN5upvoulAmWvInmHza" />
       </div>
     </>
   );

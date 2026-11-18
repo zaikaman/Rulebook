@@ -1,4 +1,5 @@
 import { expect, type Page } from '@playwright/test';
+import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import type { Address } from 'viem';
 
 import { ANVIL_RPC_URL, USER_ADDRESS } from './fixtureConfig.js';
@@ -14,10 +15,14 @@ export function walletRequests(page: Page): Promise<WalletRequest[]> {
  * Injects a minimal EIP-1193 provider backed by anvil's unlocked second account. No real
  * wallet, seed phrase, or public network is involved.
  */
-export async function installWallet(page: Page, user: Address = USER_ADDRESS): Promise<void> {
+export async function installWallet(
+  page: Page,
+  user: Address = USER_ADDRESS,
+  initialChainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+): Promise<void> {
   await page.addInitScript(
-    ({ user, rpc }) => {
-      let chainId = '0x515'; // Unichain Sepolia (1301)
+    ({ user, rpc, initialChainId }) => {
+      let chainId = `0x${initialChainId.toString(16)}`;
       const walletRequests: WalletRequest[] = [];
       (window as WalletWindow).rulebookWalletRequests = walletRequests;
       const listeners = new Map<string, Array<(value: unknown) => void>>();
@@ -95,7 +100,7 @@ export async function installWallet(page: Page, user: Address = USER_ADDRESS): P
 
       Object.defineProperty(window, 'ethereum', { value: ethereum, configurable: true });
     },
-    { user, rpc: ANVIL_RPC_URL },
+    { user, rpc: ANVIL_RPC_URL, initialChainId },
   );
 }
 

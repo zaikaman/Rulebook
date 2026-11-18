@@ -8,7 +8,9 @@ export function ClosingCta() {
   return (
     <section className="relative z-10 overflow-hidden px-6 py-28 text-center">
       <img
-        src={landingImages.closingHall.src}
+        src={landingImages.vaultInterior.src}
+        width={landingImages.vaultInterior.width}
+        height={landingImages.vaultInterior.height}
         alt=""
         loading="lazy"
         decoding="async"

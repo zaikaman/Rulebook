@@ -1,4 +1,28 @@
-import { toFunctionSelector } from 'viem';
+import { BaseError, toFunctionSelector, UnauthorizedProviderError } from 'viem';
+
+export class WalletAuthorizationError extends Error {
+  constructor(
+    readonly chainId: number,
+    cause: unknown,
+  ) {
+    super(
+      'Your wallet blocked this request. Disconnect this site in your wallet’s permissions, then reconnect with the same account and allow the requested network.',
+      { cause },
+    );
+    this.name = 'WalletAuthorizationError';
+  }
+}
+
+export function isWalletUnauthorized(error: unknown): boolean {
+  const matches = (candidate: unknown) =>
+    candidate instanceof UnauthorizedProviderError ||
+    (typeof candidate === 'object' &&
+      candidate !== null &&
+      'code' in candidate &&
+      candidate.code === UnauthorizedProviderError.code);
+
+  return error instanceof BaseError ? Boolean(error.walk(matches)) : matches(error);
+}
 
 /**
  * Every custom error declared in `contracts/src/shared/Errors.sol`, with the sentence a user

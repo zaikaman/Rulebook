@@ -4,20 +4,30 @@ import { getChain, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/s
 import { approveSignature, installWallet, walletRequests } from './wallet.js';
 
 const OWNER = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
+const UNSUPPORTED_CHAIN = 50312;
 const lasna = getChain(LASNA_CHAIN_ID);
 const unichain = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
 
-test('names the network at every signature from setup to withdrawal', async ({ page }) => {
+test('opens rules on an unsupported network and names the network at every signature', async ({
+  page,
+}) => {
   test.setTimeout(240_000);
-  await installWallet(page, OWNER);
-  await page.goto('/account');
+  await installWallet(page, OWNER, UNSUPPORTED_CHAIN);
+  await page.goto('/rules');
   await page.getByRole('button', { name: 'Connect wallet' }).click();
+  await expect(page.getByText(`Unsupported network (${UNSUPPORTED_CHAIN})`)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your rules' })).toBeVisible();
+  expect(await walletRequests(page)).toEqual([]);
+  await page.getByRole('link', { name: /^Account( & Vault)?$/ }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await approveSignature(page, unichain.name);
+  await expect(page.getByRole('dialog', { name: `Switch to ${unichain.name}` })).toBeVisible();
+  expect(await walletRequests(page)).toEqual([]);
+  await approveSignature(page, unichain.name, { switchNetwork: true });
 
   const switching = page.getByRole('dialog', { name: `Switch to ${lasna.name}` });
   await expect(switching).toBeVisible({ timeout: 60_000 });
   expect(await walletRequests(page)).toEqual([
+    { method: 'wallet_switchEthereumChain', chainId: UNSUPPORTED_CHAIN },
     { method: 'eth_signTypedData_v4', chainId: UNICHAIN_SEPOLIA_CHAIN_ID },
   ]);
   await expect(switching.getByRole('button', { name: 'Cancel' })).toBeFocused();
@@ -27,6 +37,7 @@ test('names the network at every signature from setup to withdrawal', async ({ p
   await expect(switching.getByRole('button', { name: 'Cancel' })).toBeFocused();
   await approveSignature(page, lasna.name, { switchNetwork: true });
   expect(await walletRequests(page)).toEqual([
+    { method: 'wallet_switchEthereumChain', chainId: UNSUPPORTED_CHAIN },
     { method: 'eth_signTypedData_v4', chainId: UNICHAIN_SEPOLIA_CHAIN_ID },
     { method: 'wallet_switchEthereumChain', chainId: UNICHAIN_SEPOLIA_CHAIN_ID },
     { method: 'eth_sendTransaction', chainId: LASNA_CHAIN_ID },
@@ -36,7 +47,7 @@ test('names the network at every signature from setup to withdrawal', async ({ p
   await expect(funding.locator('[data-chain-id]')).toHaveText(unichain.name, { timeout: 60_000 });
   await page.getByRole('button', { name: 'Send starter funds' }).click();
   await expect(page.getByText(/Sent 10 USDC and 0\.01 WETH/)).toBeVisible({ timeout: 60_000 });
-  expect(await walletRequests(page)).toHaveLength(3);
+  expect(await walletRequests(page)).toHaveLength(4);
 
   await page.goto('/create');
   await page.getByLabel('pay with').selectOption({ label: 'USDC' });
@@ -49,7 +60,7 @@ test('names the network at every signature from setup to withdrawal', async ({ p
     timeout: 90_000,
   });
   expect(await walletRequests(page)).toEqual([
-    { method: 'wallet_switchEthereumChain', chainId: UNICHAIN_SEPOLIA_CHAIN_ID },
+    { method: 'wallet_switchEthereumChain', chainId: UNSUPPORTED_CHAIN },
     { method: 'eth_sendTransaction', chainId: LASNA_CHAIN_ID },
   ]);
 

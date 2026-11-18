@@ -11,28 +11,28 @@ import { SectionHeading } from './section-heading.js';
 const steps = [
   {
     icon: Book02Icon,
-    image: landingImages.tileImport,
+    image: landingImages.assemble,
     label: 'Assemble',
     title: 'Pick a template & choose slots',
     body: 'Select from 13 verified templates (DCA, DipBoost, LimitBuy, BalanceFloor). Fill slots by assembling a sentence. No code, no scripts.',
   },
   {
     icon: Coins01Icon,
-    image: landingImages.tileIntent,
+    image: landingImages.condition,
     label: 'Condition',
     title: 'Define thresholds & triggers',
     body: 'Price conditions compare against live decentralized oracle and pair syncs. Schedules run on verifiable on-chain cron windows.',
   },
   {
     icon: SecurityCheckIcon,
-    image: landingImages.tileOptimize,
+    image: landingImages.execute,
     label: 'Execute',
     title: 'Reactive Network dispatches',
     body: 'The Reactive Agent observes the blockchain continuously. When criteria match, it fires a callback to your Vault. The operator covers 100% of the gas.',
   },
   {
     icon: Wallet01Icon,
-    image: landingImages.tileRepair,
+    image: landingImages.custody,
     label: 'Custody',
     title: 'User retains complete control',
     body: 'Your deposit sits inside your personal Vault contract on the destination chain. Withdraw your full balance anytime with zero operator approval.',

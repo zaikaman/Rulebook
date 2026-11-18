@@ -17,10 +17,8 @@ export function AppRouter() {
     <BrowserRouter>
       <ErrorBoundary>
         <Routes>
-          {/* Public Landing Page cloned from Parallel's design system */}
           <Route path="/" element={<LandingPage />} />
 
-          {/* App Workspace inside Parallel's sleek dark AppShell */}
           <Route element={<AppShell />}>
             <Route path="rules" element={<Home />} />
             <Route path="create" element={<Create />} />

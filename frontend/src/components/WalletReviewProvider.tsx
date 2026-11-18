@@ -4,6 +4,7 @@ import { useConfig, useSwitchChain } from 'wagmi';
 import { getAccount } from 'wagmi/actions';
 
 import { WalletReviewContext } from '../hooks/useChainGuard.js';
+import { isWalletUnauthorized, WalletAuthorizationError } from '../lib/errors.js';
 import type { SignatureDetails } from '../lib/signatures.js';
 import { ChainSwitchPrompt } from './ChainSwitchPrompt.js';
 import { SignatureSummary } from './SignatureSummary.js';
@@ -84,6 +85,11 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
           throw new Error('Your wallet is on a different network. Review the action again.');
         }
         return await sign();
+      } catch (error) {
+        if (isWalletUnauthorized(error)) {
+          throw new WalletAuthorizationError(details.chainId, error);
+        }
+        throw error;
       } finally {
         setReview(undefined);
         pending.current = false;

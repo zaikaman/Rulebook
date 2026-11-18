@@ -1,23 +1,26 @@
-import { getChain } from '@rulebook/shared';
+import { CHAIN_CONFIGS } from '@rulebook/shared';
 
 export interface NetworkBadgeProps {
   readonly chainId: number;
 }
 
-/** Names the network a signature belongs to. Labels come only from the shared chain config. */
+/** Labels a configured network or shows the chain ID reported by an unsupported wallet. */
 export function NetworkBadge({ chainId }: NetworkBadgeProps) {
-  const chain = getChain(chainId);
+  const chain = CHAIN_CONFIGS.get(chainId);
+  const tone =
+    chain?.role === 'automation'
+      ? 'border-automation text-automation'
+      : chain?.role === 'funds'
+        ? 'border-funds text-funds'
+        : 'border-border text-ink-muted';
+
   return (
     <span
-      data-chain-role={chain.role}
-      data-chain-id={chain.chainId}
-      className={
-        chain.role === 'automation'
-          ? 'inline-flex items-center rounded-full border border-automation px-2 py-0.5 text-xs font-medium text-automation'
-          : 'inline-flex items-center rounded-full border border-funds px-2 py-0.5 text-xs font-medium text-funds'
-      }
+      data-chain-role={chain?.role}
+      data-chain-id={chainId}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${tone}`}
     >
-      {chain.name}
+      {chain?.name ?? `Unsupported network (${chainId})`}
     </span>
   );
 }

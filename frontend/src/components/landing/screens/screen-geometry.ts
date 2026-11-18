@@ -19,6 +19,6 @@ export function screenStyle(geometry: ScreenGeometry) {
 }
 
 export const screens = {
-  heroLaptop: { left: 11.21, top: 9.27, width: 55.21, height: 51.93, radius: 0.58 },
-  emailPhone: { left: 36.6, top: 8.8, width: 26.8, height: 78.27, radius: 3.6 },
+  heroLaptop: { left: 11.21, top: 9.6, width: 62, height: 61.14, radius: 0.35 },
+  executionPhone: { left: 35.57, top: 6.63, width: 28.87, height: 83.52, radius: 3.1 },
 } as const satisfies Record<string, ScreenGeometry>;

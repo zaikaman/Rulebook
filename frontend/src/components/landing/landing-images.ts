@@ -10,12 +10,12 @@ import sharedBrief from '@/assets/landing/shared-brief.webp';
 import type { LandingImage } from './screens/cover-photo.js';
 
 export const landingImages = {
-  heroLaptop: { src: heroLaptop, width: 2400, height: 1500 },
-  emailPhone: { src: emailPhone, width: 2000, height: 1500 },
-  tileImport: { src: tileImport, width: 1254, height: 1254 },
-  tileIntent: { src: tileIntent, width: 1254, height: 1254 },
-  tileOptimize: { src: tileOptimize, width: 1254, height: 1254 },
-  tileRepair: { src: tileRepair, width: 1254, height: 1254 },
-  closingHall: { src: closingHall, width: 2520, height: 1080 },
-  sharedBrief: { src: sharedBrief, width: 1254, height: 1254 },
+  heroLaptop: { src: heroLaptop, width: 1400, height: 875 },
+  executionPhone: { src: emailPhone, width: 1448, height: 1086 },
+  assemble: { src: tileImport, width: 960, height: 960 },
+  condition: { src: tileIntent, width: 960, height: 960 },
+  execute: { src: tileOptimize, width: 960, height: 960 },
+  custody: { src: tileRepair, width: 960, height: 960 },
+  vaultInterior: { src: closingHall, width: 1817, height: 866 },
+  proof: { src: sharedBrief, width: 960, height: 960 },
 } as const satisfies Record<string, LandingImage>;

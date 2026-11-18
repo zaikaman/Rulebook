@@ -4,7 +4,7 @@ import {
   type Address,
   type OnboardingStep,
 } from '@rulebook/shared';
-import { formatUnits } from 'viem';
+import { BaseError, formatUnits } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
@@ -14,6 +14,7 @@ import { TxLink } from '../components/TxLink.js';
 import { useAccountSetup } from '../hooks/useAccountSetup.js';
 import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { api } from '../lib/api.js';
+import { WalletAuthorizationError } from '../lib/errors.js';
 
 const STEP_LABEL: Record<OnboardingStep['name'], string> = {
   agent: 'Automation account',
@@ -97,7 +98,16 @@ export function CreateAccount() {
         ) : null}
       </div>
 
-      {setup.error ? <ErrorState message={setup.error.message} /> : null}
+      {setup.error instanceof WalletAuthorizationError ? (
+        <ErrorState
+          message={`${setup.error.message} Then select “${resumeLabel}” to continue.`}
+          chainId={setup.error.chainId}
+        />
+      ) : setup.error instanceof BaseError ? (
+        <ErrorState message={setup.error.shortMessage} detail={setup.error.message} />
+      ) : setup.error ? (
+        <ErrorState message={setup.error.message} />
+      ) : null}
 
       {setup.result ? (
         <ol className="space-y-2" aria-label="Setup steps">

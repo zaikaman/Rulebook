@@ -5,7 +5,7 @@
   --rb-funds: #14b8a6;
   --rb-funds-ink: #e6fffb;
 
-  /* Cloned from Parallel's design tokens */
+  /* Surfaces, borders, and text. */
   --rb-surface: #020202;
   --rb-surface-raised: #0a0a0a;
   --rb-border: rgba(255, 255, 255, 0.08);
