@@ -1,9 +1,15 @@
-import { leaderboardResponseSchema, listingsResponseSchema, type Listing } from '@rulebook/shared';
+import {
+  leaderboardResponseSchema,
+  listingsResponseSchema,
+  ruleDetailResponseSchema,
+  type Listing,
+} from '@rulebook/shared';
+import { createClient } from '@supabase/supabase-js';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { AppConfig } from '../../src/config.js';
 import { createRepositories, type Repositories } from '../../src/db/repositories/index.js';
-import { InMemoryStore } from '../../src/db/store.js';
+import { InMemoryStore, SupabaseStore } from '../../src/db/store.js';
 import { CursorStore } from '../../src/indexer/cursors.js';
 import { seedMarketplace } from '../../src/marketplace/seed.js';
 import { buildServer } from '../../src/server.js';
@@ -228,12 +234,19 @@ describe('GET /v1/marketplace', () => {
 });
 
 describe('marketplace seed', () => {
-  it('is never empty on first load and every seeded row is badged team', async () => {
+  it('serves team listings and their clone details when sponsor credit is enabled', async () => {
     const repositories = createRepositories(new InMemoryStore());
     await seedMarketplace(repositories);
     // Seeding twice must not duplicate the catalog.
     await seedMarketplace(repositories);
-    const { app } = buildServer(makeDeps(repositories), { logger: false });
+    const reserves = '90071992547409930';
+    const { app } = buildServer(
+      {
+        ...makeDeps(repositories),
+        sponsorSource: { read: async () => [{ chain_id: 1301, reserves, debt: '0' }] },
+      },
+      { logger: false },
+    );
 
     const parsed = listingsResponseSchema.parse(
       (await app.inject({ method: 'GET', url: '/v1/marketplace?limit=50' })).json(),
@@ -241,11 +254,46 @@ describe('marketplace seed', () => {
     expect(parsed.listings.length).toBeGreaterThanOrEqual(3);
     expect(parsed.listings.every((listing: Listing) => listing.author_badge === 'team')).toBe(true);
     expect(parsed.listings.every((listing) => Boolean(listing.name))).toBe(true);
+    for (const listing of parsed.listings) {
+      const response = await app.inject(`/v1/accounts/${listing.agent}/rules/${listing.rule_id}`);
+      expect(response.statusCode).toBe(200);
+      const detail = ruleDetailResponseSchema.parse(response.json());
+      expect(detail.rule.rule_id).toBe(listing.rule_id);
+      expect(detail.budget?.remaining).toBe(BigInt(reserves));
+      expect(detail.sponsor?.chains[0]?.reserves).toBe(BigInt(reserves));
+    }
     await app.close();
   });
 });
 
 describe('GET /v1/leaderboard', () => {
+  it('preserves a Supabase rule ID larger than a safe JSON integer', async () => {
+    const ruleId = '9007199254740993';
+    const client = createClient(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+      global: {
+        fetch: async (input) => {
+          const url = new URL(String(input));
+          if (!url.pathname.endsWith('/rules')) return Response.json([]);
+
+          expect(url.searchParams.get('select')).toContain('rule_id_text:rule_id::text');
+          // PostgREST emits the uncast numeric and the exact text projection side by side.
+          return new Response(
+            `[{"agent":"${AUTHOR}","rule_id":${ruleId},"rule_id_text":"${ruleId}","template":1,"status":"active"}]`,
+          );
+        },
+      },
+    });
+    const repositories = createRepositories(new SupabaseStore(client));
+    const { app } = buildServer(makeDeps(repositories), { logger: false });
+
+    const response = await app.inject({ method: 'GET', url: '/v1/leaderboard' });
+    expect(response.statusCode).toBe(200);
+    const parsed = leaderboardResponseSchema.parse(response.json());
+    expect(parsed.rows[0]?.rule_id).toBe(BigInt(ruleId));
+    await app.close();
+  });
+
   it('ranks by runs then success rate and keeps the badge visible', async () => {
     const repositories = createRepositories(new InMemoryStore());
     const busy = await addRule(repositories, 0, { badge: 'team' });

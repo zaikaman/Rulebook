@@ -1,17 +1,17 @@
-import type { Address, SponsorStatus } from '@rulebook/shared';
+import type { SponsorStatus } from '@rulebook/shared';
 
 export type AtRiskState = 'healthy' | 'low' | 'exhausted' | 'debt';
 
 const HEADLINE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
-  low: 'Execution credit is running low',
-  exhausted: 'This account is silent — no execution credit',
-  debt: 'Callbacks are blocked by outstanding reaction fees',
+  low: 'Low balance for network fees',
+  exhausted: 'Your rules can’t run right now',
+  debt: 'Unpaid network fees',
 };
 
 const CONSEQUENCE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
-  low: 'Rules stop running when credit reaches zero. Top up before the next window.',
-  exhausted: 'None of your rules will run until the account is topped up. They are not active.',
-  debt: 'Reaction fees are unpaid, so callbacks are refused until the debt is cleared.',
+  low: 'Your rules can keep running until this balance runs out.',
+  exhausted: 'The balance that Rulebook uses to pay network fees for your rules has run out.',
+  debt: 'Your rules can run again once the outstanding fees are paid.',
 };
 
 /** Reduces the per-chain sponsor readings to the single worst state a banner should show. */
@@ -24,17 +24,8 @@ export function worstSponsorState(status: SponsorStatus | undefined): AtRiskStat
   );
 }
 
-/**
- * A banner shown before the account goes silent, with the permissionless top-up path and the
- * target-address caveat: a plain transfer to the system contract does not credit an account.
- */
-export function BudgetAtRiskBanner({
-  state,
-  agent,
-}: {
-  readonly state: AtRiskState;
-  readonly agent?: Address;
-}) {
+/** Explains how the fee balance affects rules and links to the manual top-up guide. */
+export function BudgetAtRiskBanner({ state }: { readonly state: AtRiskState }) {
   if (state === 'healthy') return null;
 
   return (
@@ -46,12 +37,14 @@ export function BudgetAtRiskBanner({
     >
       <p className="text-sm font-semibold text-ink">{HEADLINE[state]}</p>
       <p className="text-xs text-ink">{CONSEQUENCE[state]}</p>
-      <p className="text-xs text-ink-muted">
-        Topping up is permissionless and never gives the operator custody. Call{' '}
-        <code className="font-mono">depositTo({agent ?? 'your agent'})</code> on the Lasna system
-        contract with the amount you want to add. A plain transfer without the target address does
-        not credit your account and can leave funds stranded.
-      </p>
+      <a
+        href="https://github.com/zaikaman/Rulebook/blob/main/docs/runbooks/top-up-reserves.md"
+        target="_blank"
+        rel="noreferrer"
+        className="app-link inline-block text-xs"
+      >
+        Manual top-up guide
+      </a>
     </aside>
   );
 }

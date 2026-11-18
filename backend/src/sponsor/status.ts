@@ -2,17 +2,18 @@ import {
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
-  type RuleBudget,
-  type SponsorStatus,
+  type ruleBudgetSchema,
+  type sponsorStatusSchema,
 } from '@rulebook/shared';
 import { isAddress } from 'viem';
+import type { z } from 'zod';
 
 import type { CreditReading } from '../chain/sponsorSource.js';
 import type { ServerDeps } from '../deps.js';
 
-export interface AccountCredit {
-  readonly status: SponsorStatus;
-  readonly budget: RuleBudget;
+interface AccountCredit {
+  readonly status: z.input<typeof sponsorStatusSchema>;
+  readonly budget: z.input<typeof ruleBudgetSchema>;
 }
 
 type SponsorState = 'healthy' | 'low' | 'exhausted' | 'debt';
@@ -79,16 +80,14 @@ export async function loadAccountCredit(
     status: {
       agent,
       chains: readings.map((reading, index) => ({
-        chain_id: reading.chain_id,
-        reserves: BigInt(reading.reserves),
-        debt: BigInt(reading.debt),
+        ...reading,
         state: states[index] ?? 'exhausted',
       })),
     },
     budget: {
       state,
-      remaining: BigInt(destination?.reserves ?? '0'),
-      threshold,
+      remaining: destination?.reserves ?? '0',
+      threshold: threshold.toString(),
       low: state === 'low',
       exhausted: state === 'exhausted' || state === 'debt',
     },

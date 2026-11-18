@@ -213,7 +213,7 @@ export function RuleDetail() {
         </dl>
       </section>
 
-      <BudgetAtRiskBanner state={worstSponsorState(sponsor)} agent={agentAddress} />
+      <BudgetAtRiskBanner state={worstSponsorState(sponsor)} />
       <div className="app-detail-layout">
         <div className="app-page">
           <section aria-label="Execution history" className="app-panel">

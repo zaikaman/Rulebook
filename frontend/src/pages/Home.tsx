@@ -212,7 +212,7 @@ export function Home() {
         }
       />
 
-      <BudgetAtRiskBanner state={worstSponsorState(sponsorQuery.data)} agent={agent ?? undefined} />
+      <BudgetAtRiskBanner state={worstSponsorState(sponsorQuery.data)} />
 
       {rules.length === 0 ? (
         <div className="app-panel app-rule-start">

@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '../lib/api.js';
 
-const LAG_WARNING_SECONDS = 60;
 const HEALTH_KEY = ['health'] as const;
 
 export function IndexerStatus() {
@@ -20,8 +19,7 @@ export function IndexerStatus() {
   const data = health.data;
   const unavailable = health.isError || data?.database.reachable === false;
   const rpcFailures = data?.chains.filter((chain) => !chain.rpc_ok) ?? [];
-  const lag = data?.indexer.lag_seconds ?? 0;
-  if (!unavailable && !rpcFailures.length && lag <= LAG_WARNING_SECONDS) return null;
+  if (!unavailable && !rpcFailures.length) return null;
 
   return (
     <div
@@ -30,9 +28,6 @@ export function IndexerStatus() {
     >
       <div role="status">
         {unavailable ? <p>The indexer is unavailable. Recent activity may be missing.</p> : null}
-        {lag > LAG_WARNING_SECONDS ? (
-          <p>Indexer updates are {lag}s behind. Recent transactions may take longer to appear.</p>
-        ) : null}
         {rpcFailures.length ? (
           <p>
             Chain reads are unavailable on{' '}

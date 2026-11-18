@@ -25,6 +25,20 @@ export interface Store {
   truncate(tables: Readonly<Record<string, string>>): Promise<void>;
 }
 
+// PostgREST serializes numeric(78, 0) as JSON numbers unless PostgreSQL casts them to text.
+const DECIMAL_COLUMNS: Partial<Record<string, readonly string[]>> = {
+  vaults: ['max_spend_per_run'],
+  rules: ['rule_id', 'amount_in', 'threshold', 'secondary'],
+  executions: ['rule_id', 'amount_in', 'amount_out'],
+  callbacks: ['destination_chain_id'],
+  rule_events: ['rule_id'],
+  mirrors: ['rule_id', 'leader_rule_id', 'per_run_cap'],
+  listings: ['listing_id', 'rule_id'],
+  sponsor_ledger: ['amount'],
+  price_observations: ['price'],
+  starter_funds: ['amount_usdc', 'amount_weth'],
+};
+
 /** Supabase-backed store. Service-role key only; never constructed in the browser. */
 export class SupabaseStore implements Store {
   constructor(private readonly client: SupabaseClient) {}
@@ -50,7 +64,15 @@ export class SupabaseStore implements Store {
     filters: Readonly<Record<string, StoreValue>> = {},
     options: SelectOptions = {},
   ): Promise<Row[]> {
-    let query = this.client.from(table).select('*');
+    const decimalColumns = (DECIMAL_COLUMNS[table] ?? []).map((column) => ({
+      column,
+      alias: `${column}_text`,
+    }));
+    const projection = [
+      '*',
+      ...decimalColumns.map(({ column, alias }) => `${alias}:${column}::text`),
+    ];
+    let query = this.client.from(table).select(projection.join(','));
     for (const [column, value] of Object.entries(filters)) query = query.eq(column, value);
     if (options.orderBy) {
       query = query.order(options.orderBy.column, {
@@ -58,9 +80,16 @@ export class SupabaseStore implements Store {
       });
     }
     if (options.limit !== undefined) query = query.limit(options.limit);
-    const { data, error } = await query;
+    const { data, error } = await query.overrideTypes<Row[], { merge: false }>();
     if (error) throw new Error(`select ${table} failed: ${error.message}`);
-    return (data ?? []) as Row[];
+    const rows = data ?? [];
+    for (const row of rows) {
+      for (const { column, alias } of decimalColumns) {
+        row[column] = row[alias] ?? null;
+        delete row[alias];
+      }
+    }
+    return rows;
   }
 
   async selectOne(
