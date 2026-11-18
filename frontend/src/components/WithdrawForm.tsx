@@ -1,7 +1,10 @@
 import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address, vaultAbi } from '@rulebook/shared';
 import { useEffect, useState } from 'react';
 import { formatUnits, isAddress, parseUnits, type Hex } from 'viem';
-import { useAccount, useSwitchChain, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+
+import { useChainGuard } from '../hooks/useChainGuard.js';
+import { signatureDetails } from '../lib/signatures.js';
 
 import { ErrorState } from './ErrorState.js';
 import { NetworkBadge } from './NetworkBadge.js';
@@ -30,8 +33,8 @@ export function WithdrawForm({
   principal,
   onConfirmed,
 }: WithdrawFormProps) {
-  const { address, chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { address } = useAccount();
+  const requestSignature = useChainGuard();
   const { writeContractAsync } = useWriteContract();
   const [amount, setAmount] = useState('');
   const [destination, setDestination] = useState(address ?? '');
@@ -81,16 +84,24 @@ export function WithdrawForm({
     setError(undefined);
     setSubmitting(true);
     try {
-      if (chainId !== UNICHAIN_SEPOLIA_CHAIN_ID) {
-        await switchChainAsync({ chainId: UNICHAIN_SEPOLIA_CHAIN_ID });
-      }
-      const txHash = await writeContractAsync({
-        address: vault,
-        abi: vaultAbi,
-        functionName: 'withdraw',
-        args: [token, amountWei, destination as Address],
-        chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-      });
+      const recipient = destination as Address;
+      const txHash = await requestSignature(
+        signatureDetails.withdraw(
+          vault,
+          recipient,
+          `${formatUnits(amountWei, tokenDecimals)} ${tokenSymbol}`,
+        ),
+        address,
+        () =>
+          writeContractAsync({
+            address: vault,
+            account: address,
+            abi: vaultAbi,
+            functionName: 'withdraw',
+            args: [token, amountWei, recipient],
+            chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+          }),
+      );
       setHash(txHash);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'The withdrawal was not signed.');

@@ -82,14 +82,12 @@ function makeApi(account: Account) {
 function makeWallet() {
   return {
     address: OWNER,
-    chainId: 1301,
     getAgent: vi.fn(async () => AGENT),
     getVault: vi.fn(async () => null),
     authorizeVault: vi.fn(async () => ({
       deadline: '2000000000',
       signature: `0x${'1'.repeat(130)}` as const,
     })),
-    switchToLasna: vi.fn(async () => undefined),
     linkVault: vi.fn(async () => HASH),
   } satisfies SetupWallet;
 }
@@ -110,7 +108,6 @@ describe('useAccountSetup', () => {
 
     expect(api.onboarding).toHaveBeenCalledTimes(1);
     expect(api.onboarding).toHaveBeenCalledWith(OWNER);
-    expect(wallet.switchToLasna).toHaveBeenCalledTimes(1);
     expect(wallet.linkVault).toHaveBeenCalledTimes(1);
     expect(wallet.linkVault).toHaveBeenCalledWith(AGENT, VAULT, 1301);
     expect(api.starterFunds).not.toHaveBeenCalled();

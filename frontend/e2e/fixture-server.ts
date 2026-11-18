@@ -33,7 +33,9 @@ import {
 import {
   AGENT_FACTORY_ADDRESS,
   ANVIL_RPC_URL,
+  FIXTURE_API_PORT,
   FIXTURE_API_URL,
+  FIXTURE_FRONTEND_URL,
   SPONSOR_ADDRESS,
   SPONSOR_PRIVATE_KEY,
   VAULT_FACTORY_ADDRESS,
@@ -174,7 +176,7 @@ async function main(): Promise<void> {
   }
 
   const config: AppConfig = {
-    PORT: 8787,
+    PORT: FIXTURE_API_PORT,
     NODE_ENV: 'test',
     SUPABASE_URL: 'https://example.supabase.co',
     SUPABASE_SERVICE_ROLE_KEY: 'fixture',
@@ -192,7 +194,7 @@ async function main(): Promise<void> {
     STARTER_FUNDS_WETH: '10000000000000000',
     ONBOARDING_RATE_LIMIT_PER_MINUTE: 50,
     ONBOARDING_DAILY_CAP: 1000,
-    corsOrigins: ['http://localhost:5173'],
+    corsOrigins: [FIXTURE_FRONTEND_URL],
   };
 
   const clients = createChainClients(config);
@@ -227,7 +229,7 @@ async function main(): Promise<void> {
     { logger: false },
   );
   serverRef.current = built.app;
-  await built.app.listen({ port: 8787, host: '127.0.0.1' });
+  await built.app.listen({ port: FIXTURE_API_PORT, host: '127.0.0.1' });
 
   // The control and clone stories need the read model the indexer normally supplies. Both
   // configured chains share this anvil, but every contract the fixture exercises (Agent,

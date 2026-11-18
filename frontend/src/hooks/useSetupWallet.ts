@@ -6,7 +6,7 @@ import {
   vaultFactoryAbi,
   type Address,
 } from '@rulebook/shared';
-import { useAccount, useSignTypedData, useSwitchChain, useWriteContract } from 'wagmi';
+import { useAccount, useSignTypedData, useWriteContract } from 'wagmi';
 
 import {
   AGENT_FACTORY_ADDRESS,
@@ -14,21 +14,22 @@ import {
   DEMO_WETH,
   VAULT_FACTORY_ADDRESS,
 } from '../lib/contracts.js';
+import { signatureDetails } from '../lib/signatures.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import type { SetupWallet } from './useAccountSetup.js';
+import { useChainGuard } from './useChainGuard.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
 /** Adapter from wagmi to the framework-free setup hook. Never switches without asking. */
 export function useSetupWallet(): SetupWallet {
-  const { address, chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { address } = useAccount();
+  const requestSignature = useChainGuard();
   const { writeContractAsync } = useWriteContract();
   const { signTypedDataAsync } = useSignTypedData();
 
   return {
     ...(address ? { address: address.toLowerCase() as Address } : {}),
-    ...(chainId !== undefined ? { chainId } : {}),
     getAgent: async (owner) => {
       if (!AGENT_FACTORY_ADDRESS) return null;
       const agent = await lasnaPublicClient.readContract({
@@ -54,57 +55,66 @@ export function useSetupWallet(): SetupWallet {
       if (address.toLowerCase() !== owner.toLowerCase()) {
         throw new Error('The connected wallet must match the account owner.');
       }
-      if (!VAULT_FACTORY_ADDRESS) throw new Error('Vault factory is not configured.');
-      await switchChainAsync({ chainId: UNICHAIN_SEPOLIA_CHAIN_ID });
+      const factory = VAULT_FACTORY_ADDRESS;
+      if (!factory) throw new Error('Vault factory is not configured.');
       const nonce = await unichainPublicClient.readContract({
-        address: VAULT_FACTORY_ADDRESS,
+        address: factory,
         abi: vaultFactoryAbi,
         functionName: 'nonces',
         args: [address],
       });
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
-      const signature = await signTypedDataAsync({
-        domain: {
-          name: 'Rulebook Vault Factory',
-          version: '1',
-          chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-          verifyingContract: VAULT_FACTORY_ADDRESS,
+      return requestSignature(
+        signatureDetails.authorizeVault(factory, agent),
+        address,
+        async () => {
+          const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+          const signature = await signTypedDataAsync({
+            account: address,
+            domain: {
+              name: 'Rulebook Vault Factory',
+              version: '1',
+              chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+              verifyingContract: factory,
+            },
+            types: {
+              VaultDeployment: [
+                { name: 'owner', type: 'address' },
+                { name: 'agent', type: 'address' },
+                { name: 'tokenIn', type: 'address' },
+                { name: 'tokenOut', type: 'address' },
+                { name: 'nonce', type: 'uint256' },
+                { name: 'deadline', type: 'uint256' },
+              ],
+            },
+            primaryType: 'VaultDeployment',
+            message: {
+              owner,
+              agent,
+              tokenIn: DEMO_USDC,
+              tokenOut: DEMO_WETH,
+              nonce,
+              deadline,
+            },
+          });
+          return { deadline: deadline.toString(), signature };
         },
-        types: {
-          VaultDeployment: [
-            { name: 'owner', type: 'address' },
-            { name: 'agent', type: 'address' },
-            { name: 'tokenIn', type: 'address' },
-            { name: 'tokenOut', type: 'address' },
-            { name: 'nonce', type: 'uint256' },
-            { name: 'deadline', type: 'uint256' },
-          ],
-        },
-        primaryType: 'VaultDeployment',
-        message: {
-          owner,
-          agent,
-          tokenIn: DEMO_USDC,
-          tokenOut: DEMO_WETH,
-          nonce,
-          deadline,
-        },
-      });
-      return { deadline: deadline.toString(), signature };
-    },
-    switchToLasna: async () => {
-      await switchChainAsync({ chainId: LASNA_CHAIN_ID });
+      );
     },
     linkVault: async (agent, vault, destinationChainId) => {
-      const hash = await writeContractAsync({
-        address: agent,
-        abi: agentAbi,
-        functionName: 'linkVault',
-        args: [BigInt(destinationChainId), vault],
-        chainId: LASNA_CHAIN_ID,
-        maxPriorityFeePerGas: 1n,
-      });
-      await lasnaPublicClient.waitForTransactionReceipt({ hash });
+      const hash = await requestSignature(signatureDetails.linkVault(agent, vault), address, () =>
+        writeContractAsync({
+          address: agent,
+          account: address,
+          abi: agentAbi,
+          functionName: 'linkVault',
+          args: [BigInt(destinationChainId), vault],
+          chainId: LASNA_CHAIN_ID,
+          maxPriorityFeePerGas: 1n,
+        }),
+      );
+      const receipt = await lasnaPublicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success')
+        throw new Error('The account link reverted on Reactive Lasna.');
       return hash;
     },
   };

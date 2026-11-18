@@ -34,7 +34,7 @@ describe('CreateRuleForm validation', () => {
     await user.selectOptions(screen.getByLabelText('buy'), 'WETH');
     await user.selectOptions(screen.getByLabelText('schedule'), 'every day');
 
-    await user.click(screen.getByRole('button', { name: /sign once and create rule/i }));
+    await user.click(screen.getByRole('button', { name: 'Review and create rule' }));
 
     expect(mocks.sendTransactionAsync).not.toHaveBeenCalled();
     expect(screen.getByRole('alert')).toHaveTextContent(/amount/i);

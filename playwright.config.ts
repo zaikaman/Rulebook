@@ -4,6 +4,8 @@ import {
   AGENT_FACTORY_ADDRESS,
   ANVIL_RPC_URL,
   FIXTURE_API_URL,
+  FIXTURE_FRONTEND_PORT,
+  FIXTURE_FRONTEND_URL,
   VAULT_FACTORY_ADDRESS,
 } from './frontend/e2e/fixtureConfig';
 
@@ -20,7 +22,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://localhost:5173',
+    baseURL: FIXTURE_FRONTEND_URL,
     trace: 'on-first-retry',
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
@@ -32,9 +34,9 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: 'npm run dev -w frontend',
-      url: 'http://localhost:5173',
-      reuseExistingServer: !process.env.CI,
+      command: `npm run dev -w frontend -- --port ${FIXTURE_FRONTEND_PORT} --strictPort`,
+      url: FIXTURE_FRONTEND_URL,
+      reuseExistingServer: false,
       timeout: 120_000,
       env: {
         VITE_API_BASE_URL: FIXTURE_API_URL,

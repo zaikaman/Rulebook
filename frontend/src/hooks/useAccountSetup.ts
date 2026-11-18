@@ -26,14 +26,12 @@ export interface AccountSetupApi {
  */
 export interface SetupWallet {
   readonly address?: Address;
-  readonly chainId?: number;
   getAgent(owner: Address): Promise<Address | null>;
   getVault(owner: Address): Promise<Address | null>;
   authorizeVault(
     owner: Address,
     agent: Address,
   ): Promise<{ deadline: string; signature: `0x${string}` }>;
-  switchToLasna(): Promise<void>;
   linkVault(agent: Address, vault: Address, chainId: number): Promise<`0x${string}`>;
 }
 
@@ -101,7 +99,6 @@ export function useAccountSetup({ owner, api, wallet }: AccountSetupOptions): Ac
         result = { ...authorized, steps: [...steps.values()] };
       }
       if (result.setup_state === 'partial' && result.agent && result.vault) {
-        await wallet.switchToLasna();
         const linkTx = await wallet.linkVault(
           result.agent,
           result.vault,
@@ -118,7 +115,7 @@ export function useAccountSetup({ owner, api, wallet }: AccountSetupOptions): Ac
       }
       return result;
     },
-    onSuccess: async () => {
+    onSettled: async () => {
       await queryClient.invalidateQueries({ queryKey: ['agentOf'] });
       await queryClient.invalidateQueries({ queryKey: ['account'] });
     },

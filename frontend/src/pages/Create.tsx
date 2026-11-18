@@ -129,8 +129,8 @@ export function CreateRuleForm({
             <span>
               <span className="block font-medium text-ink">Publish to the marketplace</span>
               <span className="block text-ink-muted">
-                Anyone can clone these exact parameters into their own vault. Your vault, funds,
-                and signing key are never shared.
+                Anyone can clone these exact parameters into their own vault. Your vault, funds, and
+                signing key are never shared.
               </span>
             </span>
           </label>
@@ -160,7 +160,7 @@ export function CreateRuleForm({
                 ? 'Waiting for your signature…'
                 : status === 'confirming'
                   ? 'Waiting for the Lasna receipt…'
-                  : 'Sign once and create rule'}
+                  : 'Review and create rule'}
           </button>
           <p className="text-xs text-ink-muted">
             One Lasna signature creates the rule. The operator pays the execution cost; your

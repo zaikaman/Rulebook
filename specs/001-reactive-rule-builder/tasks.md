@@ -369,19 +369,19 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 7 ⚠️ (write first, confirm each fails)
 
-- [ ] T225 [P] [US7] RTL test `frontend/test/signatureSummary.test.tsx`: the prompt names the network, the target account, and the effect in plain language for all six write flows.
-- [ ] T226 [P] [US7] RTL test: a write attempted on the wrong chain shows an explicit switch prompt and does not call the wallet until the user confirms (`frontend/test/chainGuard.test.tsx`).
-- [ ] T227 [P] [US7] RTL test: `BalanceTrio` renders three distinct labelled figures and has no prop that combines them (FR-008) (`frontend/test/balanceTrio.test.tsx`).
+- [X] T225 [P] [US7] RTL test `frontend/test/signatureSummary.test.tsx`: the prompt names the network, the target account, and the effect in plain language for all six write flows.
+- [X] T226 [P] [US7] RTL test: a write attempted on the wrong chain shows an explicit switch prompt and does not call the wallet until the user confirms (`frontend/test/chainGuard.test.tsx`).
+- [X] T227 [P] [US7] RTL test: `BalanceTrio` renders three distinct labelled figures and has no prop that combines them (FR-008) (`frontend/test/balanceTrio.test.tsx`).
 
 ### Implementation for User Story 7
 
-- [ ] T228 [US7] Build `frontend/src/components/SignatureSummary.tsx`: network badge, target contract, plain-language effect, and the amount at stake.
-- [ ] T229 [US7] Write `frontend/src/hooks/useChainGuard.ts` + `frontend/src/components/ChainSwitchPrompt.tsx`: detect the wrong chain before a write, explain why the other network is needed, and switch only after confirmation.
-- [ ] T230 [US7] Wire `SignatureSummary` and the chain guard into every write flow: onboarding, `addRule`, pause/resume/cancel, reorder, withdraw, clone, mirror.
-- [ ] T231 [US7] Finalise `BalanceTrio` with ownership labels (“yours” vs “sponsored”) and per-network grouping (`frontend/src/components/BalanceTrio.tsx`).
-- [ ] T232 [US7] Add the two-network explainer to `/account` with both explorer links and a sentence on why the rule and the money live apart.
-- [ ] T233 [US7] Playwright `frontend/e2e/network-legibility.spec.ts`: complete the full journey and assert a network badge is visible at every signature step.
-- [ ] T234 [US7] Accessibility check on both prompts: focus trap, escape to cancel, and screen-reader labels naming the network (`frontend/test/signatureSummary.test.tsx`).
+- [X] T228 [US7] Build `frontend/src/components/SignatureSummary.tsx`: network badge, target contract, plain-language effect, and the amount at stake.
+- [X] T229 [US7] Write `frontend/src/hooks/useChainGuard.ts` + `frontend/src/components/ChainSwitchPrompt.tsx`: detect the wrong chain before a write, explain why the other network is needed, and switch only after confirmation.
+- [X] T230 [US7] Wire `SignatureSummary` and the chain guard into every write flow: onboarding, `addRule`, pause/resume/cancel, reorder, withdraw, clone, mirror.
+- [X] T231 [US7] Finalise `BalanceTrio` with ownership labels (“yours” vs “sponsored”) and per-network grouping (`frontend/src/components/BalanceTrio.tsx`).
+- [X] T232 [US7] Add the two-network explainer to `/account` with both explorer links and a sentence on why the rule and the money live apart.
+- [X] T233 [US7] Playwright `frontend/e2e/network-legibility.spec.ts`: complete the full journey and assert a network badge is visible at every signature step.
+- [X] T234 [US7] Accessibility check on both prompts: focus trap, escape to cancel, and screen-reader labels naming the network (`frontend/test/signatureSummary.test.tsx`).
 
 ---
 

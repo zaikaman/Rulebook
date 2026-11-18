@@ -1,7 +1,7 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
 import { createConfig, http } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
-import { createPublicClient, defineChain } from 'viem';
+import { createPublicClient, defineChain, type Hex } from 'viem';
 
 export const lasnaChain = defineChain({
   id: LASNA_CHAIN_ID,
@@ -42,6 +42,12 @@ export const unichainPublicClient = createPublicClient({
   chain: unichainSepoliaChain,
   transport: http(unichainRpcUrl),
 });
+
+/** Lasna estimates for addRule need headroom for the rule storage and subscription writes. */
+export async function estimateAddRuleGas(to: Address, data: Hex, account?: Address) {
+  const estimate = await lasnaPublicClient.estimateGas({ to, data, account });
+  return (estimate * 120n) / 100n;
+}
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
 

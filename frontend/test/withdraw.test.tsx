@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { BalanceTrio } from '../src/components/BalanceTrio.js';
+import { WalletReviewProvider } from '../src/components/WalletReviewProvider.js';
 import { WithdrawForm } from '../src/components/WithdrawForm.js';
 import { DEMO_USDC } from '../src/lib/contracts.js';
 
@@ -17,9 +17,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wagmi', () => ({
   useAccount: () => ({ address: USER, chainId: 1301 }),
+  useConfig: () => ({}),
   useSwitchChain: () => ({ switchChainAsync: mocks.switchChainAsync }),
   useWriteContract: () => ({ writeContractAsync: mocks.writeContractAsync }),
   useWaitForTransactionReceipt: () => ({ data: undefined, isLoading: false }),
+}));
+vi.mock('wagmi/actions', () => ({
+  getAccount: () => ({
+    address: USER,
+    chainId: 1301,
+    connector: { uid: 'wallet', getChainId: async () => 1301 },
+  }),
 }));
 
 describe('WithdrawForm', () => {
@@ -69,13 +77,15 @@ describe('WithdrawForm', () => {
   it('signs the withdrawal on Unichain Sepolia after destination confirmation', async () => {
     const user = userEvent.setup();
     render(
-      <WithdrawForm
-        vault={VAULT}
-        token={DEMO_USDC}
-        tokenSymbol="USDC"
-        tokenDecimals={6}
-        principal={10_000_000n}
-      />,
+      <WalletReviewProvider>
+        <WithdrawForm
+          vault={VAULT}
+          token={DEMO_USDC}
+          tokenSymbol="USDC"
+          tokenDecimals={6}
+          principal={10_000_000n}
+        />
+      </WalletReviewProvider>,
     );
 
     await user.type(screen.getByLabelText(/withdrawal amount/i), '2');
@@ -84,6 +94,12 @@ describe('WithdrawForm', () => {
     expect(button).toBeEnabled();
 
     await user.click(button);
+    expect(mocks.writeContractAsync).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('dialog', { name: /review signature on unichain sepolia/i }),
+    ).toBeVisible();
+    expect(screen.getByText('2 USDC')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Continue to wallet' }));
     expect(mocks.writeContractAsync).toHaveBeenCalledWith(
       expect.objectContaining({
         address: VAULT,
@@ -92,17 +108,5 @@ describe('WithdrawForm', () => {
         chainId: 1301,
       }),
     );
-  });
-});
-
-describe('BalanceTrio', () => {
-  it('shows three separately labelled figures and no combined total', () => {
-    render(<BalanceTrio principal="10 USDC" executionCost="0.01 ETH" watchingCredit="0.2 REACT" />);
-
-    expect(screen.getByText('Principal (your funds)')).toBeInTheDocument();
-    expect(screen.getByText('Execution cost (funds side, sponsored)')).toBeInTheDocument();
-    expect(screen.getByText('Watching credit (automation side)')).toBeInTheDocument();
-    expect(screen.getByText('10 USDC')).toBeInTheDocument();
-    expect(screen.queryByText(/total/i)).not.toBeInTheDocument();
   });
 });

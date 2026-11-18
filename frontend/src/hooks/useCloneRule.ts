@@ -13,25 +13,22 @@ import {
 } from '@rulebook/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
-import { useAccount, useReadContract, useSendTransaction, useSwitchChain } from 'wagmi';
+import { useAccount, useReadContract, useSendTransaction } from 'wagmi';
 
 import { api } from '../lib/api.js';
-import {
-  cloneGuard,
-  ruleParamsFromStoredRule,
-  type CloneGuardResult,
-} from '../lib/clone.js';
+import { cloneGuard, ruleParamsFromStoredRule, type CloneGuardResult } from '../lib/clone.js';
 import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
 import { ruleSentence } from '../lib/rules.js';
-import { lasnaPublicClient } from '../lib/wagmi.js';
+import { signatureDetails } from '../lib/signatures.js';
+import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
+import { useChainGuard } from './useChainGuard.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 const SUPPORTED_TEMPLATES = supportedTemplatesFor(UNICHAIN_SEPOLIA_CHAIN_ID);
 
-export type CloneStatus =
-  'idle' | 'simulating' | 'signing' | 'confirming' | 'confirmed' | 'failed';
+export type CloneStatus = 'idle' | 'simulating' | 'signing' | 'confirming' | 'confirmed' | 'failed';
 
 export type CloneFailureKind = 'guard' | 'simulation' | 'wallet' | 'chain';
 
@@ -76,8 +73,8 @@ const IDLE: CloneRuleState = { status: 'idle', error: null, result: null };
  * never published, so a copy can never become a listing of its own.
  */
 export function useCloneRule(listing: Listing, enabled = true): CloneParams {
-  const { address, chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { address } = useAccount();
+  const requestSignature = useChainGuard();
   const { sendTransactionAsync } = useSendTransaction();
   const queryClient = useQueryClient();
   const [state, setState] = useState<CloneRuleState>(IDLE);
@@ -240,10 +237,13 @@ export function useCloneRule(listing: Listing, enabled = true): CloneParams {
 
     let hash: `0x${string}`;
     try {
-      if (chainId !== LASNA_CHAIN_ID) {
-        await switchChainAsync({ chainId: LASNA_CHAIN_ID });
-      }
-      hash = await sendTransactionAsync({ to: agent, data, chainId: LASNA_CHAIN_ID });
+      const gas = await estimateAddRuleGas(agent, data, address);
+      hash = await requestSignature(
+        signatureDetails.clone(agent, params, sentence ?? ''),
+        address,
+        () =>
+          sendTransactionAsync({ to: agent, data, account: address, chainId: LASNA_CHAIN_ID, gas }),
+      );
     } catch (error) {
       setState({
         status: 'failed',
@@ -304,18 +304,16 @@ export function useCloneRule(listing: Listing, enabled = true): CloneParams {
   }, [
     address,
     agent,
-    chainId,
     guard,
     params,
     queryClient,
+    requestSignature,
     sendTransactionAsync,
-    switchChainAsync,
+    sentence,
   ]);
 
   const busy =
-    state.status === 'simulating' ||
-    state.status === 'signing' ||
-    state.status === 'confirming';
+    state.status === 'simulating' || state.status === 'signing' || state.status === 'confirming';
 
   return {
     agent,

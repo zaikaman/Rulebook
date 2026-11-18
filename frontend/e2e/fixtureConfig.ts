@@ -3,7 +3,10 @@ import { getContractAddress, type Address } from 'viem';
 /** Local anvil for the onboarding smoke test. Never a public network or a real key. */
 export const ANVIL_RPC_URL = 'http://127.0.0.1:8545';
 export const ANVIL_CHAIN_ID = 1301;
-export const FIXTURE_API_URL = 'http://127.0.0.1:8787';
+export const FIXTURE_API_PORT = Number(process.env.RULEBOOK_E2E_API_PORT ?? 18787);
+export const FIXTURE_FRONTEND_PORT = Number(process.env.RULEBOOK_E2E_FRONTEND_PORT ?? 15173);
+export const FIXTURE_API_URL = `http://127.0.0.1:${FIXTURE_API_PORT}`;
+export const FIXTURE_FRONTEND_URL = `http://localhost:${FIXTURE_FRONTEND_PORT}`;
 
 export const SPONSOR_PRIVATE_KEY =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;

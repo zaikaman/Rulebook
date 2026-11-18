@@ -1,11 +1,20 @@
-import { encodeAddRule, LASNA_CHAIN_ID, type Address } from '@rulebook/shared';
+import {
+  encodeAddRuleParams,
+  LASNA_CHAIN_ID,
+  readableSentence,
+  ruleParamsFromDraft,
+  type Address,
+  type RuleParams,
+} from '@rulebook/shared';
 import { useCallback, useState } from 'react';
-import { useAccount, useSendTransaction, useSwitchChain } from 'wagmi';
+import { useAccount, useSendTransaction } from 'wagmi';
 
 import type { ReadyDraft } from '../composer/types.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
-import { lasnaPublicClient } from '../lib/wagmi.js';
+import { signatureDetails } from '../lib/signatures.js';
+import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
+import { useChainGuard } from './useChainGuard.js';
 
 export type CreateFailureKind = 'simulation' | 'wallet' | 'chain';
 
@@ -35,8 +44,8 @@ export interface CreateRuleState {
  * A simulated failure and a wallet rejection are reported as different states.
  */
 export function useCreateRule() {
-  const { address, chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
+  const { address } = useAccount();
+  const requestSignature = useChainGuard();
   const { sendTransactionAsync } = useSendTransaction();
   const [state, setState] = useState<CreateRuleState>({
     status: 'idle',
@@ -57,8 +66,10 @@ export function useCreateRule() {
       setState({ status: 'simulating', error: null, result: null });
 
       let data: `0x${string}`;
+      let params: RuleParams;
       try {
-        data = encodeAddRule(agent, draft, { makePublic });
+        params = ruleParamsFromDraft(draft);
+        data = encodeAddRuleParams(agent, params, { makePublic });
       } catch (error) {
         setState({
           status: 'failed',
@@ -98,22 +109,19 @@ export function useCreateRule() {
 
       let hash: `0x${string}`;
       try {
-        if (chainId !== LASNA_CHAIN_ID) {
-          await switchChainAsync({ chainId: LASNA_CHAIN_ID });
-        }
-        // The node's estimate can land a few thousand gas under what the call needs once a rule
-        // already exists, so send with a small margin instead of the bare estimate.
-        const estimate = await lasnaPublicClient.estimateGas({
-          to: agent,
-          data,
-          ...(address ? { account: address } : {}),
-        });
-        hash = await sendTransactionAsync({
-          to: agent,
-          data,
-          chainId: LASNA_CHAIN_ID,
-          gas: (estimate * 120n) / 100n,
-        });
+        const gas = await estimateAddRuleGas(agent, data, address);
+        hash = await requestSignature(
+          signatureDetails.create(agent, params, readableSentence(draft), makePublic),
+          address,
+          () =>
+            sendTransactionAsync({
+              to: agent,
+              data,
+              account: address,
+              chainId: LASNA_CHAIN_ID,
+              gas,
+            }),
+        );
       } catch (error) {
         setState({
           status: 'failed',
@@ -166,7 +174,7 @@ export function useCreateRule() {
         return null;
       }
     },
-    [address, chainId, sendTransactionAsync, switchChainAsync],
+    [address, requestSignature, sendTransactionAsync],
   );
 
   return { ...state, create, reset };

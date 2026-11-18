@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { installWallet } from './wallet.js';
+import { approveSetup, approveSignature, installWallet } from './wallet.js';
 
 // A fourth anvil account, so this story owns its own Agent even when every spec shares the
 // fixture backend. The rule it clones belongs to the seeded team catalog, never to this wallet.
@@ -21,7 +21,7 @@ test('clones a team listing into the cloner’s own account with its own limits'
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByText('Automation account').first()).toBeVisible({ timeout: 60_000 });
+  await approveSetup(page);
 
   const agentHref = await page.locator('a[href*="/address/"]').first().getAttribute('href');
   const clonerAgent = /0x[0-9a-fA-F]{40}/.exec(agentHref ?? '')?.[0]?.toLowerCase();
@@ -45,8 +45,11 @@ test('clones a team listing into the cloner’s own account with its own limits'
   const confirm = preview.getByRole('button', { name: 'Confirm clone' });
   await expect(confirm).toBeEnabled({ timeout: 30_000 });
   await confirm.click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
 
-  await expect(page.getByText(/Cloned as rule #\d+/)).toBeVisible({ timeout: 90_000 });
+  const cloned = preview.getByText(/Cloned as rule #\d+/);
+  await expect(cloned.or(preview.getByRole('alert'))).toBeVisible({ timeout: 90_000 });
+  await expect(cloned).toBeVisible();
 
   // The receipt confirms on Lasna before the indexer has written the copy; wait for the read
   // model so the rule list assertion is about the clone, not a polling race.

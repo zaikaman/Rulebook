@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { encodeAddRule } from '@rulebook/shared';
 
 import { TEMPLATE_FIXTURES } from '../../contracts/test/templates/fixtures.generated.js';
-import { installWallet } from './wallet.js';
+import { approveSetup, approveSignature, installWallet } from './wallet.js';
 
 const AGENT_PLACEHOLDER = '0x1111111111111111111111111111111111111111' as const;
 // A different anvil account than the onboarding spec uses, so each story owns its own account
@@ -32,7 +32,7 @@ test('composes a weekly USDC→WETH DCA sentence, matches the fixture, and signs
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByText('Automation account').first()).toBeVisible({ timeout: 60_000 });
+  await approveSetup(page);
 
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'Compose a rule' })).toBeVisible();
@@ -45,7 +45,8 @@ test('composes a weekly USDC→WETH DCA sentence, matches the fixture, and signs
 
   await expect(page.getByTestId('live-calldata')).toHaveText(expectedCalldata);
 
-  await page.getByRole('button', { name: /sign once and create rule/i }).click();
+  await page.getByRole('button', { name: 'Review and create rule' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
 
   // Success is the Lasna receipt with the rule id, not a pending hash.
   await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible({

@@ -85,7 +85,7 @@ export function CreateAccount() {
         <button
           type="button"
           disabled={setup.resuming || setup.setupState === 'complete'}
-          onClick={() => void setup.resume()}
+          onClick={() => void setup.resume().catch(() => undefined)}
           className="rounded bg-ink px-4 py-2 font-medium text-surface disabled:opacity-50"
         >
           {setup.resuming ? 'Working…' : resumeLabel}
@@ -125,15 +125,17 @@ export function CreateAccount() {
 
       {setup.vault ? (
         <div className="space-y-2 rounded-lg border border-border p-4">
-          <h2 className="font-medium">Get test funds</h2>
+          <h2 className="flex flex-wrap items-center gap-2 font-medium">
+            Get test funds <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+          </h2>
           <p className="text-sm text-ink-muted">
             The sponsor sends a small, capped amount of demo USDC and WETH into your funds account.
-            It is once per address and can never be withdrawn by the operator.
+            You can claim once per address. The sponsor signs the funding transaction.
           </p>
           <button
             type="button"
             disabled={setup.claiming}
-            onClick={() => void setup.claimStarterFunds()}
+            onClick={() => void setup.claimStarterFunds().catch(() => undefined)}
             className="rounded border border-border px-3 py-1.5 text-sm disabled:opacity-50"
           >
             {setup.claiming ? 'Sending…' : 'Send starter funds'}

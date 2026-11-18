@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { installWallet } from './wallet.js';
+import { approveSetup, approveSignature, installWallet } from './wallet.js';
 
 // A third anvil account, so the control story never shares state with onboarding or compose.
 const CONTROLLER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906' as const;
@@ -13,7 +13,8 @@ async function createRule(page: Page, amountLabel: string): Promise<void> {
   await page.getByLabel('buy').selectOption({ label: 'WETH' });
   await page.getByLabel('amount').selectOption({ label: amountLabel });
   await page.getByLabel('schedule').selectOption({ label: 'every day' });
-  await page.getByRole('button', { name: /sign once and create rule/i }).click();
+  await page.getByRole('button', { name: 'Review and create rule' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible({
     timeout: 90_000,
   });
@@ -29,7 +30,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByText('Automation account').first()).toBeVisible({ timeout: 60_000 });
+  await approveSetup(page);
   const agentHref = await page.locator('a[href*="/address/"]').first().getAttribute('href');
   const agent = /0x[0-9a-fA-F]{40}/.exec(agentHref ?? '')?.[0]?.toLowerCase();
 
@@ -60,6 +61,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   await rows.first().getByRole('link', { name: 'Detail' }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: 'Pause' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByText('Paused').first()).toBeVisible();
 
   // The reload reads the indexed status, so wait for the indexer to record the pause first.
@@ -93,6 +95,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     .nth(1)
     .getByRole('button', { name: /Move rule .* up/ })
     .click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
 
   await expect(order.nth(0)).toHaveAttribute('data-testid', secondId ?? '');
 

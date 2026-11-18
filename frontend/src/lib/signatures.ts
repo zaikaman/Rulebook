@@ -1,0 +1,97 @@
+import {
+  getChain,
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+  type RuleParams,
+} from '@rulebook/shared';
+import { formatUnits } from 'viem';
+
+export interface SignatureDetails {
+  readonly chainId: typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID;
+  readonly target: Address;
+  readonly targetLabel: string;
+  readonly effect: string;
+  readonly amount: string;
+}
+
+export type ControlFunction = 'pauseRule' | 'resumeRule' | 'cancelRule';
+type RuleSpend = Pick<RuleParams, 'chainId' | 'tokenIn' | 'amountIn'>;
+type MirrorTerms = {
+  readonly leaderVault: Address;
+  readonly leaderRuleId: bigint;
+  readonly scaleBps: number;
+  readonly hourlyCap: number;
+};
+
+const noSpend = 'No principal moves.';
+
+export function signatureTokenAmount(chainId: number, token: Address, amount: bigint): string {
+  const chain = getChain(chainId);
+  const address = token.toLowerCase();
+  if (address === chain.usdc.toLowerCase()) return `${formatUnits(amount, 6)} USDC`;
+  if (address === chain.weth.toLowerCase()) return `${formatUnits(amount, 18)} WETH`;
+  return `${amount} base units of token ${token}`;
+}
+
+function ruleSpend(rule: RuleSpend): string {
+  if (rule.amountIn === 0n) return noSpend;
+  return `${signatureTokenAmount(rule.chainId, rule.tokenIn, rule.amountIn)} per run. No principal moves when you sign.`;
+}
+
+function automation(target: Address, effect: string, amount = noSpend): SignatureDetails {
+  return { chainId: LASNA_CHAIN_ID, target, targetLabel: 'Automation account', effect, amount };
+}
+
+const controlEffect: Record<ControlFunction, (id: bigint) => string> = {
+  pauseRule: (id) => `Pause rule #${id} until you resume it.`,
+  resumeRule: (id) => `Resume rule #${id} so it can run again.`,
+  cancelRule: (id) => `Permanently cancel rule #${id} to stop future runs.`,
+};
+
+export const signatureDetails = {
+  authorizeVault(factory: Address, agent: Address): SignatureDetails {
+    return {
+      chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+      target: factory,
+      targetLabel: 'Funds account factory',
+      effect: `Authorize the sponsor to create a funds account that you own for automation account ${agent}.`,
+      amount: noSpend,
+    };
+  },
+  linkVault(agent: Address, vault: Address): SignatureDetails {
+    return automation(agent, `Link your funds account ${vault} so your rules can use it.`);
+  },
+  create(agent: Address, rule: RuleSpend, sentence: string, publish: boolean): SignatureDetails {
+    const change = publish ? 'Create a rule and publish it to the marketplace.' : 'Create a rule.';
+    return automation(agent, `${change} ${sentence}`, ruleSpend(rule));
+  },
+  control(agent: Address, action: ControlFunction, ruleId: bigint): SignatureDetails {
+    return automation(agent, controlEffect[action](ruleId));
+  },
+  reorder(agent: Address, rules: readonly bigint[]): SignatureDetails {
+    return automation(
+      agent,
+      `Evaluate rules in this order: ${rules.map((id) => `#${id}`).join(', ')}.`,
+    );
+  },
+  withdraw(vault: Address, destination: Address, amount: string): SignatureDetails {
+    return {
+      chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+      target: vault,
+      targetLabel: 'Funds account',
+      effect: `Send principal to ${destination}. This withdrawal is final.`,
+      amount,
+    };
+  },
+  clone(agent: Address, rule: RuleSpend, sentence: string): SignatureDetails {
+    return automation(agent, `Create a private copy of this rule. ${sentence}`, ruleSpend(rule));
+  },
+  mirror(agent: Address, ruleId: bigint, terms: MirrorTerms, cap: string): SignatureDetails {
+    return automation(
+      agent,
+      `Set rule #${ruleId} to mirror leader rule #${terms.leaderRuleId} from ${terms.leaderVault} at ${formatUnits(BigInt(terms.scaleBps), 2)}% of its trade size, up to ${terms.hourlyCap} times per hour.`,
+      `Up to ${cap} per run. No principal moves when you sign.`,
+    );
+  },
+};
