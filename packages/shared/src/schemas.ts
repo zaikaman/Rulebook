@@ -123,6 +123,13 @@ export const proofSchema = z.object({
 });
 export type Proof = z.infer<typeof proofSchema>;
 
+/** 32-byte params hash published by the registry; the clone flow verifies it. */
+export const paramsHashSchema = z
+  .string()
+  .regex(/^0x[a-fA-F0-9]{64}$/, 'not a params hash')
+  .transform((value) => value.toLowerCase() as `0x${string}`);
+export type ParamsHash = z.infer<typeof paramsHashSchema>;
+
 export const listingSchema = z.object({
   listing_id: uint256Schema,
   agent: addressSchema,
@@ -132,11 +139,30 @@ export const listingSchema = z.object({
   author_badge: authorBadgeSchema.default('community'),
   name: z.string().optional(),
   description: z.string().optional(),
+  metadata_uri: z.string().optional(),
+  /** Absent only for legacy rows indexed before the registry derived the hash. */
+  params_hash: paramsHashSchema.optional(),
   runs: z.number().int().nonnegative(),
   success_rate: z.number().min(0).max(1),
   cloned_count: z.number().int().nonnegative().default(0),
 });
 export type Listing = z.infer<typeof listingSchema>;
+
+export const leaderboardRowSchema = z.object({
+  rank: z.number().int().positive(),
+  agent: addressSchema,
+  rule_id: uint256Schema,
+  template: templateIdSchema.optional(),
+  runs: z.number().int().nonnegative(),
+  success_rate: z.number().min(0).max(1),
+  author_badge: authorBadgeSchema.default('community'),
+});
+export type LeaderboardRow = z.infer<typeof leaderboardRowSchema>;
+
+export const leaderboardResponseSchema = z.object({
+  rows: z.array(leaderboardRowSchema),
+});
+export type LeaderboardResponse = z.infer<typeof leaderboardResponseSchema>;
 
 export const accountAgentSchema = z.object({
   address: addressSchema,

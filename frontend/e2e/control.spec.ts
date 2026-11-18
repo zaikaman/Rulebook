@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import { FIXTURE_API_URL } from './fixtureConfig.js';
 import { installWallet } from './wallet.js';
 
 // A third anvil account, so the control story never shares state with onboarding or compose.
@@ -29,11 +30,28 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
   await expect(page.getByText('Automation account').first()).toBeVisible({ timeout: 60_000 });
+  const agentHref = await page.locator('a[href*="/address/"]').first().getAttribute('href');
+  const agent = /0x[0-9a-fA-F]{40}/.exec(agentHref ?? '')?.[0]?.toLowerCase();
 
   await createRule(page, '10');
-  await createRule(page, '5');
+  // 10 USDC keeps both rules inside the fixture's starter USDC balance as well as the vault's
+  // 100 USDC per-run ceiling.
+  await createRule(page, '10');
 
-  // The indexer in the fixture writes the rule rows the control screens read.
+  // The indexer in the fixture writes the rule rows the control screens read; wait for both so
+  // the first `/rules` load does not cache an empty list.
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${FIXTURE_API_URL}/v1/accounts/${agent ?? ''}/rules?status=all`,
+        );
+        const body = (await response.json()) as { rules?: readonly unknown[] };
+        return body.rules?.length ?? 0;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe(2);
   await page.goto('/rules');
   const rows = page.getByRole('listitem');
   await expect(rows).toHaveCount(2, { timeout: 30_000 });
@@ -42,11 +60,28 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   await rows.first().getByRole('link', { name: 'Detail' }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible({ timeout: 30_000 });
   await page.getByRole('button', { name: 'Pause' }).click();
-  await expect(page.getByText('Paused')).toBeVisible();
+  await expect(page.getByText('Paused').first()).toBeVisible();
+
+  // The reload reads the indexed status, so wait for the indexer to record the pause first.
+  const pausedRuleId = /\/rules\/0x[0-9a-fA-F]{40}\/(\d+)/.exec(page.url())?.[1];
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${FIXTURE_API_URL}/v1/accounts/${agent ?? ''}/rules?status=all`,
+        );
+        const body = (await response.json()) as {
+          rules?: ReadonlyArray<{ rule_id: string; status: string }>;
+        };
+        return body.rules?.find((rule) => rule.rule_id === pausedRuleId)?.status;
+      },
+      { timeout: 30_000 },
+    )
+    .toBe('paused');
 
   // Reload proves the change reached the Agent and the read model, not just local state.
   await page.reload();
-  await expect(page.getByText('Paused')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Paused').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Resume' })).toBeVisible();
 
   // Move the second rule to the top, then prove the permutation survives a reload.

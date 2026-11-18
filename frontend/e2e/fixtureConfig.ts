@@ -12,12 +12,19 @@ export const USER_PRIVATE_KEY =
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d' as const;
 export const USER_ADDRESS: Address = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
 
-/** Deployed by the fixture in this order from the sponsor account's nonces 0 and 1. */
-export const AGENT_FACTORY_ADDRESS = getContractAddress({
+/**
+ * Deployed by the fixture in this order from the sponsor account: nonce 0 is the RuleRegistry,
+ * nonce 1 the AgentFactory, nonce 2 the VaultFactory.
+ */
+export const RULE_REGISTRY_ADDRESS = getContractAddress({
   from: SPONSOR_ADDRESS,
   nonce: 0n,
 });
-export const VAULT_FACTORY_ADDRESS = getContractAddress({
+export const AGENT_FACTORY_ADDRESS = getContractAddress({
   from: SPONSOR_ADDRESS,
   nonce: 1n,
+});
+export const VAULT_FACTORY_ADDRESS = getContractAddress({
+  from: SPONSOR_ADDRESS,
+  nonce: 2n,
 });

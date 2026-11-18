@@ -2,7 +2,15 @@ import { decodeFunctionData } from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import { agentAbi } from '../src/abi/index.js';
-import { DraftError, encodeAddRule, missingSlots, readableSentence } from '../src/encode.js';
+import {
+  DraftError,
+  encodeAddRule,
+  encodeAddRuleParams,
+  missingSlots,
+  readableSentence,
+  ruleParamsFromDraft,
+  ruleParamsHash,
+} from '../src/encode.js';
 import { TEMPLATE_IDS, getTemplate } from '../src/generated/templates.js';
 import { TEMPLATE_FIXTURES } from '../../contracts/test/templates/fixtures.generated.js';
 
@@ -132,5 +140,101 @@ describe('encodeAddRule', () => {
     const draft = drafts[0]?.draft;
     if (!draft) throw new Error('no fixture');
     expect(() => encodeAddRule(AGENT, { ...draft, chainId: 999 })).toThrow(/Unsupported chain/);
+  });
+
+  it('defaults makePublic to false and honours an explicit true', () => {
+    const draft = drafts[0]?.draft;
+    if (!draft) throw new Error('no fixture');
+    const decode = (data: `0x${string}`) =>
+      decodeFunctionData({ abi: agentAbi, data }).args as readonly [unknown, boolean];
+
+    expect(decode(encodeAddRule(AGENT, draft))[1]).toBe(false);
+    expect(decode(encodeAddRule(AGENT, draft, { makePublic: true }))[1]).toBe(true);
+    expect(decode(encodeAddRule(AGENT, draft, { makePublic: false }))[1]).toBe(false);
+  });
+});
+
+describe('ruleParamsFromDraft', () => {
+  it('maps every fixture to the fields the registry hashes', () => {
+    for (const { fixture, draft } of drafts) {
+      const params = ruleParamsFromDraft(draft);
+      expect(params.template).toBe(fixture.template);
+      expect(params.chainId).toBe(CHAIN_ID);
+      expect(String(params.amountIn)).toBe(BigInt(draft.slots.amount_in ?? '0').toString());
+    }
+  });
+
+  it('matches the encoded calldata parameters', () => {
+    for (const { draft } of drafts) {
+      const params = ruleParamsFromDraft(draft);
+      const decoded = decodeFunctionData({ abi: agentAbi, data: encodeAddRule(AGENT, draft) });
+      const rule = decoded.args?.[0] as Record<string, unknown>;
+      expect(rule.template).toBe(params.template);
+      expect(rule.chainId).toBe(params.chainId);
+      expect(rule.pair).toBe(params.pair);
+      expect(rule.tokenIn).toBe(params.tokenIn);
+      expect(rule.tokenOut).toBe(params.tokenOut);
+      expect(rule.amountIn).toBe(params.amountIn);
+      expect(rule.threshold).toBe(params.threshold);
+      expect(rule.secondary).toBe(params.secondary);
+    }
+  });
+
+  it('encodes stored parameters byte-for-byte like the draft path', () => {
+    for (const { draft } of drafts) {
+      const params = ruleParamsFromDraft(draft);
+      expect(encodeAddRuleParams(AGENT, params, { makePublic: false })).toBe(
+        encodeAddRule(AGENT, draft, { makePublic: false }),
+      );
+    }
+  });
+
+  it('rejects an incomplete draft instead of hashing zeros', () => {
+    const draft = drafts[0]?.draft;
+    if (!draft) throw new Error('no fixture');
+    const slots = { ...draft.slots };
+    const template = getTemplate(draft.template);
+    const required = template?.slots.find((slot) => slot.required);
+    if (!required) throw new Error('no required slot');
+    delete slots[required.key];
+    expect(() => ruleParamsFromDraft({ ...draft, slots })).toThrow(DraftError);
+  });
+});
+
+describe('ruleParamsHash', () => {
+  it('is stable for identical parameters', () => {
+    const params = {
+      template: 1,
+      chainId: CHAIN_ID,
+      pair: '0x1d8698365321D6DcE1F7141c380C866b012eE9dA' as const,
+      tokenIn: '0x31d0220469e10c4E71834a79b1f276d740d3768F' as const,
+      tokenOut: '0x4200000000000000000000000000000000000006' as const,
+      amountIn: 10_000_000n,
+      threshold: 0n,
+      secondary: 604_800n,
+    };
+    expect(ruleParamsHash(params)).toBe(ruleParamsHash({ ...params }));
+  });
+
+  it('changes when any user-chosen parameter changes', () => {
+    const base = {
+      template: 1,
+      chainId: CHAIN_ID,
+      pair: '0x1d8698365321D6DcE1F7141c380C866b012eE9dA' as const,
+      tokenIn: '0x31d0220469e10c4E71834a79b1f276d740d3768F' as const,
+      tokenOut: '0x4200000000000000000000000000000000000006' as const,
+      amountIn: 10_000_000n,
+      threshold: 0n,
+      secondary: 604_800n,
+    };
+    const hash = ruleParamsHash(base);
+    expect(ruleParamsHash({ ...base, template: 2 })).not.toBe(hash);
+    expect(ruleParamsHash({ ...base, chainId: 8453 })).not.toBe(hash);
+    expect(ruleParamsHash({ ...base, amountIn: 20_000_000n })).not.toBe(hash);
+    expect(ruleParamsHash({ ...base, threshold: 1n })).not.toBe(hash);
+    expect(ruleParamsHash({ ...base, secondary: 1n })).not.toBe(hash);
+    expect(
+      ruleParamsHash({ ...base, tokenIn: '0x0000000000000000000000000000000000000001' }),
+    ).not.toBe(hash);
   });
 });

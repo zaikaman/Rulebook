@@ -89,6 +89,25 @@ const LASNA_EVENTS: EventDescriptor[] = [
     abi: agentFactoryAbi,
     schema: z.object({ owner: address, agent: address, index: uint }),
   },
+  {
+    name: 'RuleListed',
+    signature: 'RuleListed(address,address,uint256,uint8,bytes32,string)',
+    abi: ruleRegistryAbi,
+    schema: z.object({
+      author: address,
+      agent: address,
+      ruleId: uint,
+      template: z.number(),
+      paramsHash: text,
+      metadataURI: text,
+    }),
+  },
+  {
+    name: 'RuleDelisted',
+    signature: 'RuleDelisted(address,address,uint256)',
+    abi: ruleRegistryAbi,
+    schema: z.object({ author: address, agent: address, ruleId: uint }),
+  },
 ];
 
 const UNICHAIN_EVENTS: EventDescriptor[] = [
@@ -257,12 +276,39 @@ function asNumber(value: unknown): number {
 }
 
 /**
+ * The rule parameters `Agent.getRule` returns, used to backfill a rule the indexer learned
+ * about from an event. Only the fields the read model stores are kept.
+ */
+export interface RuleSnapshot {
+  readonly template: number;
+  readonly chainId: number;
+  readonly pair: string;
+  readonly tokenIn: string;
+  readonly tokenOut: string;
+  readonly amountIn: string;
+  readonly threshold: string;
+  readonly secondary: string;
+}
+
+/** Reads one stored rule from its Agent; absent in tests that do not need a chain read. */
+export type RuleReader = (
+  chainId: number,
+  agent: string,
+  ruleId: bigint,
+) => Promise<RuleSnapshot | null>;
+
+export interface PersistOptions {
+  readonly readRule?: RuleReader;
+}
+
+/**
  * Persists the read-model rows a decoded event implies. Idempotent by construction: every
  * write uses the primary key from data-model.md §2.
  */
 export async function persistDecodedEvent(
   repositories: Repositories,
   event: DecodedEvent,
+  options: PersistOptions = {},
 ): Promise<void> {
   const args = event.args;
 
@@ -297,19 +343,22 @@ export async function persistDecodedEvent(
     case 'RuleCreated': {
       const agent = asString(args.agent).toLowerCase();
       const ruleId = asString(args.ruleId);
+      const snapshot = options.readRule
+        ? await options.readRule(event.chainId, agent, args.ruleId as bigint).catch(() => null)
+        : null;
       await repositories.rules.upsert({
         agent,
         rule_id: ruleId,
         template: asNumber(args.template),
-        chain_id: UNI,
+        chain_id: snapshot?.chainId ?? UNI,
         status: 'active',
         latched: false,
-        pair: null,
-        token_in: null,
-        token_out: null,
-        amount_in: null,
-        threshold: null,
-        secondary: null,
+        pair: snapshot?.pair ?? null,
+        token_in: snapshot?.tokenIn ?? null,
+        token_out: snapshot?.tokenOut ?? null,
+        amount_in: snapshot?.amountIn ?? null,
+        threshold: snapshot?.threshold ?? null,
+        secondary: snapshot?.secondary ?? null,
         last_run_at: null,
         runs: 0,
         is_public: Boolean(args.publicRule),
@@ -324,6 +373,34 @@ export async function persistDecodedEvent(
         kind: 'created',
         block_time: event.blockTime,
       });
+      return;
+    }
+    case 'RuleListed': {
+      const agent = asString(args.agent).toLowerCase();
+      const ruleId = asString(args.ruleId);
+      await repositories.listings.upsert({
+        chain_id: event.chainId,
+        listing_id: ruleId,
+        agent,
+        rule_id: ruleId,
+        template: asNumber(args.template),
+        metadata_uri: asString(args.metadataURI),
+        is_public: true,
+        author: asString(args.author).toLowerCase(),
+        author_badge: 'community',
+        name: null,
+        description: null,
+        params_hash: asString(args.paramsHash).toLowerCase(),
+        created_at: event.blockTime,
+      });
+      await repositories.rules.setPublic(agent, ruleId, true);
+      return;
+    }
+    case 'RuleDelisted': {
+      const agent = asString(args.agent).toLowerCase();
+      const ruleId = asString(args.ruleId);
+      await repositories.listings.setPublic(event.chainId, agent, ruleId, false);
+      await repositories.rules.setPublic(agent, ruleId, false);
       return;
     }
     case 'RulePaused': {
@@ -360,7 +437,8 @@ export async function persistDecodedEvent(
       });
       return;
     }
-    case 'RuleEvaluated': {      const fired = Boolean(args.fired);
+    case 'RuleEvaluated': {
+      const fired = Boolean(args.fired);
       await repositories.ruleEvents.upsert({
         chain_id: event.chainId,
         tx_hash: event.txHash,

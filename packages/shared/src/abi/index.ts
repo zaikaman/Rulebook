@@ -16,6 +16,11 @@ export const agentAbi = [
         "internalType": "contract IReactiveSystem"
       },
       {
+        "name": "registry_",
+        "type": "address",
+        "internalType": "contract IRuleRegistry"
+      },
+      {
         "name": "factory_",
         "type": "address",
         "internalType": "address"
@@ -815,6 +820,19 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "registry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IRuleRegistry"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "remainingMonthlyBudget",
     "inputs": [],
     "outputs": [
@@ -1194,6 +1212,11 @@ export const agentAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "RegistryNotConfigured",
+    "inputs": []
   },
   {
     "type": "error",
@@ -2013,6 +2036,11 @@ export const agentFactoryAbi = [
         "name": "system_",
         "type": "address",
         "internalType": "contract IReactiveSystem"
+      },
+      {
+        "name": "registry_",
+        "type": "address",
+        "internalType": "contract IRuleRegistry"
       }
     ],
     "stateMutability": "nonpayable"
@@ -2067,6 +2095,19 @@ export const agentFactoryAbi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "registry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IRuleRegistry"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2532,21 +2573,6 @@ export const ruleRegistryAbi = [
     "name": "list",
     "inputs": [
       {
-        "name": "template",
-        "type": "uint8",
-        "internalType": "uint8"
-      },
-      {
-        "name": "paramsHash",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      },
-      {
-        "name": "metadataURI",
-        "type": "string",
-        "internalType": "string"
-      },
-      {
         "name": "agent",
         "type": "address",
         "internalType": "address"
@@ -2555,6 +2581,11 @@ export const ruleRegistryAbi = [
         "name": "ruleId",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "metadataURI",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "outputs": [],

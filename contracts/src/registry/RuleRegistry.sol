@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
+import {RuleLib} from "../libraries/RuleLib.sol";
 import {InvalidTemplateParams, NotOwner} from "../shared/Errors.sol";
+import {IRuleRegistry} from "./IRuleRegistry.sol";
 
 /// @title RuleRegistry
-/// @notice Public listing of rule parameters on Unichain Sepolia.
-/// @dev Holds no funds and has no execution path. Only the listing author may write.
-contract RuleRegistry {
+/// @notice Public listing of rule parameters.
+/// @dev Holds no funds and has no execution path. The only writer is the Agent's owner: the
+/// backend indexer never submits a listing (FR-052). `paramsHash` is derived from the rule the
+/// Agent actually stores, so a clone rebuilt from a listing matches the author's rule exactly.
+contract RuleRegistry is IRuleRegistry {
     /// @notice One public listing.
     struct Listing {
         address author;
@@ -36,25 +40,24 @@ contract RuleRegistry {
     /// @notice Number of live listings.
     uint256 public listingCount;
 
-    /// @notice Publishes `ruleId` for the agent the caller owns.
-    function list(
-        uint8 template,
-        bytes32 paramsHash,
-        string calldata metadataURI,
-        address agent,
-        uint256 ruleId
-    ) external {
-        address author = IAgentOwnable(agent).owner();
-        if (msg.sender != author) revert NotOwner();
-        if (template < 1 || template > 13 || paramsHash == bytes32(0)) {
+    /// @inheritdoc IRuleRegistry
+    /// @dev The caller is either the owner's own transaction or the Agent itself, which only
+    /// reaches here from `addRule` after its own `onlyAgentOwner` check.
+    function list(address agent, uint256 ruleId, string calldata metadataURI) external {
+        address author = IAgentRuleSource(agent).owner();
+        if (msg.sender != author && msg.sender != agent) revert NotOwner();
+
+        RuleLib.Rule memory rule = IAgentRuleSource(agent).getRule(ruleId);
+        if (rule.template < 1 || rule.template > RuleLib.TEMPLATE_COUNT) {
             revert InvalidTemplateParams();
         }
+
         bool replacing = _hasListing[agent][ruleId];
         _listings[agent][ruleId] = Listing({
             author: author,
             agent: agent,
-            template: template,
-            paramsHash: paramsHash,
+            template: rule.template,
+            paramsHash: RuleLib.paramsHash(rule),
             metadataURI: metadataURI,
             isPublic: true,
             createdAt: uint64(block.timestamp)
@@ -63,7 +66,9 @@ contract RuleRegistry {
         if (!replacing) {
             listingCount += 1;
         }
-        emit RuleListed(author, agent, ruleId, template, paramsHash, metadataURI);
+        emit RuleListed(
+            author, agent, ruleId, rule.template, RuleLib.paramsHash(rule), metadataURI
+        );
     }
 
     /// @notice Removes the caller's listing for `ruleId`.
@@ -91,6 +96,9 @@ contract RuleRegistry {
     }
 }
 
-interface IAgentOwnable {
+/// @notice The read-only Agent surface the registry trusts: owner and stored rule.
+interface IAgentRuleSource {
     function owner() external view returns (address);
+
+    function getRule(uint256 ruleId) external view returns (RuleLib.Rule memory rule);
 }

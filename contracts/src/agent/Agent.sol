@@ -7,6 +7,7 @@ import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {ChainConfig} from "../chain/ChainConfig.sol";
 import {PriceMath} from "../libraries/PriceMath.sol";
 import {RuleLib} from "../libraries/RuleLib.sol";
+import {IRuleRegistry} from "../registry/IRuleRegistry.sol";
 import {CallbackPayload, ExecutionPayload} from "../shared/CallbackPayload.sol";
 import {CallbackConfiguration, IReactiveSystem} from "../shared/ReactiveTypes.sol";
 import {
@@ -16,6 +17,7 @@ import {
     MonthlyCapExceeded,
     NotOwner,
     NotServiceProvider,
+    RegistryNotConfigured,
     RuleLimitReached,
     RuleNotActive
 } from "../shared/Errors.sol";
@@ -112,6 +114,8 @@ contract Agent is Ownable {
 
     /// @notice The Reactive system contract allowed to call `react()`.
     IReactiveSystem public immutable systemContract;
+    /// @notice Registry that stores public listings; the zero address disables publishing.
+    IRuleRegistry public immutable registry;
     /// @notice Factory that deployed this agent, recorded for provenance.
     address public immutable factory;
 
@@ -140,8 +144,14 @@ contract Agent is Ownable {
     mapping(uint256 => Subscription[2]) private _ruleSubscriptions;
     mapping(uint256 => MirrorConfig) private _mirrors;
 
-    constructor(address owner_, IReactiveSystem system_, address factory_) Ownable(owner_) {
+    constructor(
+        address owner_,
+        IReactiveSystem system_,
+        IRuleRegistry registry_,
+        address factory_
+    ) Ownable(owner_) {
         systemContract = system_;
+        registry = registry_;
         factory = factory_;
         lastActivity = uint64(block.timestamp);
     }
@@ -152,6 +162,8 @@ contract Agent is Ownable {
     }
 
     /// @notice Creates a rule owned by this account.
+    /// @dev This is the only path that writes the registry: the owner's own transaction lists
+    /// the rule, so the backend indexer never writes it (FR-038, FR-052).
     /// @param rule The complete rule, validated by `RuleLib.validate`.
     /// @param makePublic True when the rule should also be listed in the registry.
     /// @return ruleId The id assigned to the new rule.
@@ -181,6 +193,10 @@ contract Agent is Ownable {
         lastActivity = uint64(block.timestamp);
 
         _acquireSubscriptions(ruleId, stored);
+        if (makePublic) {
+            if (address(registry) == address(0)) revert RegistryNotConfigured();
+            registry.list(address(this), ruleId, "");
+        }
         emit RuleCreated(address(this), ruleId, rule.template, makePublic);
         _emitBudgetLowIfLow();
     }

@@ -337,27 +337,27 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 6 ⚠️ (write first, confirm each fails)
 
-- [ ] T207 [P] [US6] Contract test `contracts/test/unit/RuleRegistryListing.t.sol`: only the author may `list`/`delist`, `paramsHash` is stable, `listingCount` tracks listings, and no path on the contract can call a vault or move funds.
-- [ ] T208 [P] [US6] Backend test `backend/test/api/marketplace.test.ts`: pagination cursors, template filter, `sort` variants (`newest`/`runs`/`success_rate`), and that `author_badge` is present on every row.
-- [ ] T209 [P] [US6] RTL test: a listing card shows run count, success rate, and the team badge; statistics equal the values returned by the API (no local recomputation) (`frontend/test/listingCard.test.tsx`).
+- [x] T207 [P] [US6] Contract test `contracts/test/unit/RuleRegistryListing.t.sol`: only the author may `list`/`delist`, `paramsHash` is stable, `listingCount` tracks listings, and no path on the contract can call a vault or move funds.
+- [x] T208 [P] [US6] Backend test `backend/test/api/marketplace.test.ts`: pagination cursors, template filter, `sort` variants (`newest`/`runs`/`success_rate`), and that `author_badge` is present on every row.
+- [x] T209 [P] [US6] RTL test: a listing card shows run count, success rate, and the team badge; statistics equal the values returned by the API (no local recomputation) (`frontend/test/listingCard.test.tsx`).
 
 ### Implementation for User Story 6
 
-- [ ] T210 [US6] Finalise `RuleRegistry.list`/`delist` and derive `paramsHash` through `RuleLib.paramsHash` so a clone can reconstruct the rule exactly.
-- [ ] T211 [US6] Implement the public-flag path: `addRule(rule, makePublic)` writes to the registry from the user's own transaction, and document why the indexer never writes the registry (`contracts/src/agent/Agent.sol`).
-- [ ] T212 [US6] Add indexer handling for `RuleListed`/`RuleDelisted` → `listings` upserts with `author`, `template`, `metadata_uri`, `is_public`.
-- [ ] T213 [US6] Implement `GET /v1/marketplace` with template filter, sort, and cursor pagination.
-- [ ] T214 [US6] Implement `GET /v1/leaderboard` from `rule_stats`, ranked by runs then success rate.
-- [ ] T215 [US6] Add `backend/db/migrations/0002_views.sql` creating `rule_stats` (runs, success rate, average amount) and `marketplace_feed` (listings ⋈ rules ⋈ stats).
-- [ ] T216 [US6] Build `frontend/src/pages/Marketplace.tsx`: filters, sort, cursor pagination, and a guaranteed non-empty first load.
-- [ ] T217 [US6] Build `frontend/src/components/ListingCard.tsx` + `CloneButton.tsx` with the author badge and a one-click clone affordance.
-- [ ] T218 [US6] Build `frontend/src/pages/Leaderboard.tsx` with the team/community split visible.
-- [ ] T219 [US6] Implement the clone flow in `frontend/src/hooks/useCloneRule.ts`: reconstruct the draft from `paramsHash`-matching manifest slots, show it read-only, then `addRule` on the cloner's own agent with their per-run cap and budget.
-- [ ] T220 [US6] Add clone guards: refuse when the cloner is at 5 rules, when the template is unsupported on their chain, or when their vault ceiling is below the rule's amount — each with a specific message (`frontend/src/hooks/useCloneRule.ts`).
-- [ ] T221 [US6] Write `backend/scripts/seed-marketplace.ts` publishing the 3–4 team rules from `packages/shared/manifest/seed-rules.json`, each flagged `team`.
-- [ ] T222 [P] [US6] Test: the marketplace is never empty on first load (SC-013) and every seeded listing carries the team badge (FR-041) (`backend/test/api/marketplace.test.ts`).
-- [ ] T223 [US6] Playwright `frontend/e2e/clone.spec.ts`: clone from the marketplace and assert an active rule appears in the second account with the second account's limits.
-- [ ] T224 [US6] Write `docs/marketplace.md` covering listing, cloning, statistics provenance, and the team-badge honesty rule.
+- [x] T210 [US6] Finalise `RuleRegistry.list`/`delist` and derive `paramsHash` through `RuleLib.paramsHash` so a clone can reconstruct the rule exactly.
+- [x] T211 [US6] Implement the public-flag path: `addRule(rule, makePublic)` writes to the registry from the user's own transaction, and document why the indexer never writes the registry (`contracts/src/agent/Agent.sol`).
+- [x] T212 [US6] Add indexer handling for `RuleListed`/`RuleDelisted` → `listings` upserts with `author`, `template`, `metadata_uri`, `is_public`.
+- [x] T213 [US6] Implement `GET /v1/marketplace` with template filter, sort, and cursor pagination.
+- [x] T214 [US6] Implement `GET /v1/leaderboard` from `rule_stats`, ranked by runs then success rate.
+- [x] T215 [US6] Add `backend/db/migrations/0002_views.sql` creating `rule_stats` (runs, success rate, average amount) and `marketplace_feed` (listings ⋈ rules ⋈ stats).
+- [x] T216 [US6] Build `frontend/src/pages/Marketplace.tsx`: filters, sort, cursor pagination, and a guaranteed non-empty first load.
+- [x] T217 [US6] Build `frontend/src/components/ListingCard.tsx` + `CloneButton.tsx` with the author badge and a one-click clone affordance.
+- [x] T218 [US6] Build `frontend/src/pages/Leaderboard.tsx` with the team/community split visible.
+- [x] T219 [US6] Implement the clone flow in `frontend/src/hooks/useCloneRule.ts`: reconstruct the draft from `paramsHash`-matching manifest slots, show it read-only, then `addRule` on the cloner's own agent with their per-run cap and budget.
+- [x] T220 [US6] Add clone guards: refuse when the cloner is at 5 rules, when the template is unsupported on their chain, or when their vault ceiling is below the rule's amount — each with a specific message (`frontend/src/hooks/useCloneRule.ts`).
+- [x] T221 [US6] Write `backend/scripts/seed-marketplace.ts` publishing the 3–4 team rules from `packages/shared/manifest/seed-rules.json`, each flagged `team`.
+- [x] T222 [P] [US6] Test: the marketplace is never empty on first load (SC-013) and every seeded listing carries the team badge (FR-041) (`backend/test/api/marketplace.test.ts`).
+- [x] T223 [US6] Playwright `frontend/e2e/clone.spec.ts`: clone from the marketplace and assert an active rule appears in the second account with the second account's limits.
+- [x] T224 [US6] Write `docs/marketplace.md` covering listing, cloning, statistics provenance, and the team-badge honesty rule.
 
 ---
 

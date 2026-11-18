@@ -42,9 +42,9 @@ contract OnboardingTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
-        agentFactory = new AgentFactory(IReactiveSystem(address(system)));
-        vaultFactory = new VaultFactory(IPayable(payable(address(proxy))));
         registry = new RuleRegistry();
+        agentFactory = new AgentFactory(IReactiveSystem(address(system)), registry);
+        vaultFactory = new VaultFactory(IPayable(payable(address(proxy))));
     }
 
     function test_fullOnboardingWiring() public {
@@ -70,10 +70,10 @@ contract OnboardingTest is Test {
         assertEq(ruleId, 0);
         assertEq(Agent(agent).getRuleIds().length, 1);
 
-        vm.prank(USER);
-        registry.list(1, RuleLib.paramsHash(rule), "ipfs://dca", agent, ruleId);
-        assertEq(registry.listingCount(), 1);
+        // `addRule(..., true)` is the only listing path: the author's own transaction.
+        assertEq(registry.listingCount(), 1, "the public flag must list the rule");
         assertEq(registry.getListing(agent, ruleId).author, USER);
+        assertEq(registry.getListing(agent, ruleId).paramsHash, RuleLib.paramsHash(rule));
     }
 
     function test_repeatedOnboardingDoesNotDuplicate() public {

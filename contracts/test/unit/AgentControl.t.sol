@@ -6,6 +6,7 @@ import {IReactive} from "@reactive/interfaces/IReactive.sol";
 
 import {Agent} from "../../src/agent/Agent.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
+import {IRuleRegistry} from "../../src/registry/IRuleRegistry.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
 import {
     ExceedsPerRunCap,
@@ -39,7 +40,9 @@ contract AgentControlTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
-        agent = new Agent(USER, IReactiveSystem(address(system)), address(this));
+        agent = new Agent(
+            USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this)
+        );
     }
 
     function _rule() internal view returns (RuleLib.Rule memory rule) {

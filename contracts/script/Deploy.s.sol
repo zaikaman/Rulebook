@@ -28,7 +28,8 @@ contract Deploy is Script {
 
         vm.startBroadcast(privateKey);
         RuleRegistry registry = new RuleRegistry();
-        AgentFactory agentFactory = new AgentFactory(IReactiveSystem(config.systemContract));
+        AgentFactory agentFactory =
+            new AgentFactory(IReactiveSystem(config.systemContract), registry);
         VaultFactory vaultFactory = new VaultFactory(IPayable(payable(config.callbackProxy)));
         vm.stopBroadcast();
 

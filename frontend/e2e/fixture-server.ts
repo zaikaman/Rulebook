@@ -21,6 +21,7 @@ import { createRepositories } from '../../backend/src/db/repositories/index.js';
 import { InMemoryStore } from '../../backend/src/db/store.js';
 import { CursorStore } from '../../backend/src/indexer/cursors.js';
 import { IndexerPoller } from '../../backend/src/indexer/poller.js';
+import { seedMarketplace } from '../../backend/src/marketplace/seed.js';
 import { buildServer } from '../../backend/src/server.js';
 import { PublicAccountChain } from '../../backend/src/sponsor/accountChain.js';
 import {
@@ -50,6 +51,7 @@ function artifact(path: string): Artifact {
   ) as Artifact;
 }
 
+const ruleRegistryArtifact = artifact('../../contracts/out/RuleRegistry.sol/RuleRegistry.json');
 const agentFactoryArtifact = artifact('../../contracts/out/AgentFactory.sol/AgentFactory.json');
 const vaultFactoryArtifact = artifact('../../contracts/out/VaultFactory.sol/VaultFactory.json');
 const mockErc20Artifact = artifact('../../contracts/out/MockERC20.sol/MockERC20.json');
@@ -120,10 +122,21 @@ async function main(): Promise<void> {
     params: [getChain(LASNA_CHAIN_ID).systemContract, mockSystemArtifact.deployedBytecode.object],
   } as never);
 
+  // The registry is deployed first because every Agent stores its address; the factory nonces
+  // in `fixtureConfig.ts` depend on this order.
+  const registryTx = await wallet.deployContract({
+    abi: ruleRegistryArtifact.abi,
+    bytecode: ruleRegistryArtifact.bytecode.object,
+    args: [],
+  });
+  const registryReceipt = await publicClient.waitForTransactionReceipt({ hash: registryTx });
+  const registry = registryReceipt.contractAddress;
+  if (!registry) throw new Error('RuleRegistry was not deployed');
+
   const agentFactoryTx = await wallet.deployContract({
     abi: agentFactoryArtifact.abi,
     bytecode: agentFactoryArtifact.bytecode.object,
-    args: [getChain(LASNA_CHAIN_ID).systemContract],
+    args: [getChain(LASNA_CHAIN_ID).systemContract, registry],
   });
   await publicClient.waitForTransactionReceipt({ hash: agentFactoryTx });
   if (agentFactoryTx) {
@@ -185,6 +198,9 @@ async function main(): Promise<void> {
   const clients = createChainClients(config);
   const store = new InMemoryStore();
   const repositories = createRepositories(store);
+  // A fresh marketplace is never empty (SC-013): the clone spec borrows a team rule that
+  // already has a published `paramsHash`, exactly as the seeded production catalog does.
+  await seedMarketplace(repositories);
   const cursors = new CursorStore(store);
   const addresses = relayerAddresses(config);
   if (!addresses) throw new Error('fixture relayer addresses missing');
@@ -213,20 +229,21 @@ async function main(): Promise<void> {
   serverRef.current = built.app;
   await built.app.listen({ port: 8787, host: '127.0.0.1' });
 
-  // The control story needs the read model the indexer normally supplies. Both configured
-  // chains share this anvil, so one poller over its logs is enough; zero confirmations keeps
-  // the state visible while the spec is still running.
+  // The control and clone stories need the read model the indexer normally supplies. Both
+  // configured chains share this anvil, but every contract the fixture exercises (Agent,
+  // factory, registry) lives on the Lasna side, and a log only decodes under the chain id whose
+  // catalog defines it. Zero confirmations keeps the state visible while the spec still runs.
   const indexer = new IndexerPoller({
     repositories,
     store,
     cursors,
     clients,
-    startBlocks: { [UNICHAIN_SEPOLIA_CHAIN_ID]: 0 },
-    confirmationDepth: { [UNICHAIN_SEPOLIA_CHAIN_ID]: 0 },
+    startBlocks: { [LASNA_CHAIN_ID]: 0 },
+    confirmationDepth: { [LASNA_CHAIN_ID]: 0 },
     rangeSize: 1_000,
     pollIntervalMs: 500,
   });
-  void indexer.run([UNICHAIN_SEPOLIA_CHAIN_ID]);
+  void indexer.run([LASNA_CHAIN_ID]);
 
   process.stdout.write(`Fixture ready at ${FIXTURE_API_URL}\n`);
 }

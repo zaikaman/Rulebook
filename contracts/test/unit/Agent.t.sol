@@ -7,6 +7,8 @@ import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {Agent} from "../../src/agent/Agent.sol";
 import {AgentFactory} from "../../src/agent/AgentFactory.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
+import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
+import {IRuleRegistry} from "../../src/registry/IRuleRegistry.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
 import {
     ExceedsPerRunCap,
@@ -14,6 +16,7 @@ import {
     InvalidTemplateParams,
     NotOwner,
     NotServiceProvider,
+    RegistryNotConfigured,
     RuleLimitReached,
     RuleNotActive,
     UnknownTemplate
@@ -31,6 +34,7 @@ contract AgentTest is Test {
     MockERC20 internal usdc;
     MockERC20 internal weth;
     MockPair internal pair;
+    RuleRegistry internal registry;
     Agent internal agent;
 
     function setUp() public {
@@ -38,7 +42,8 @@ contract AgentTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
-        agent = new Agent(USER, IReactiveSystem(address(system)), address(this));
+        registry = new RuleRegistry();
+        agent = new Agent(USER, IReactiveSystem(address(system)), registry, address(this));
     }
 
     function _rule() internal view returns (RuleLib.Rule memory rule) {
@@ -53,6 +58,35 @@ contract AgentTest is Test {
     function _addRule() internal returns (uint256 ruleId) {
         vm.prank(USER);
         ruleId = agent.addRule(_rule(), false);
+    }
+
+    function test_addRuleListsWhenPublic() public {
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(_rule(), true);
+
+        RuleRegistry.Listing memory listing = registry.getListing(address(agent), ruleId);
+        assertEq(listing.author, USER);
+        assertEq(listing.template, 1);
+        assertEq(listing.paramsHash, RuleLib.paramsHash(agent.getRule(ruleId)));
+        assertTrue(listing.isPublic);
+        assertTrue(registry.isListed(address(agent), ruleId));
+    }
+
+    function test_addRuleKeepsPrivateRulesOutOfTheRegistry() public {
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(_rule(), false);
+
+        assertFalse(registry.isListed(address(agent), ruleId));
+        assertEq(registry.listingCount(), 0);
+    }
+
+    function test_addRuleRevertsWhenTheRegistryIsMissing() public {
+        Agent unlisted =
+            new Agent(USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this));
+
+        vm.prank(USER);
+        vm.expectRevert(RegistryNotConfigured.selector);
+        unlisted.addRule(_rule(), true);
     }
 
     function test_reactRejectsNonSystemCaller() public {
@@ -146,12 +180,13 @@ contract AgentTest is Test {
     }
 
     function test_agentFactoryDeploysAndRefusesRedeploy() public {
-        AgentFactory factory = new AgentFactory(IReactiveSystem(address(system)));
+        AgentFactory factory = new AgentFactory(IReactiveSystem(address(system)), registry);
         address deployed = factory.deploy(USER);
         assertEq(factory.agentOf(USER), deployed);
         assertEq(Agent(deployed).owner(), USER);
         assertEq(factory.agentCount(), 1);
         assertEq(address(factory.systemContract()), address(system));
+        assertEq(address(factory.registry()), address(registry));
 
         vm.expectRevert();
         factory.deploy(USER);

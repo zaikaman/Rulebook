@@ -7,9 +7,13 @@ import type { ReadyDraft } from './types.js';
 
 const DEBOUNCE_MS = 50;
 
-function encodeSafely(agent: Address, draft: ReadyDraft): { data?: `0x${string}`; error?: string } {
+function encodeSafely(
+  agent: Address,
+  draft: ReadyDraft,
+  makePublic: boolean,
+): { data?: `0x${string}`; error?: string } {
   try {
-    return { data: encodeAddRule(agent, draft) };
+    return { data: encodeAddRule(agent, draft, { makePublic }) };
   } catch (error) {
     const draftError = error as DraftError;
     return { error: draftError.message };
@@ -23,17 +27,19 @@ function encodeSafely(agent: Address, draft: ReadyDraft): { data?: `0x${string}`
 export function LiveCalldata({
   agent,
   draft,
+  makePublic = false,
 }: {
   readonly agent: Address;
   readonly draft: ReadyDraft | null;
+  readonly makePublic?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [settled, setSettled] = useState<{ data?: `0x${string}`; error?: string }>();
 
   const result = useMemo(() => {
     if (!draft) return undefined;
-    return encodeSafely(agent, draft);
-  }, [agent, draft]);
+    return encodeSafely(agent, draft, makePublic);
+  }, [agent, draft, makePublic]);
 
   useEffect(() => {
     const timer = setTimeout(() => setSettled(result), DEBOUNCE_MS);

@@ -88,7 +88,9 @@ export function Home() {
   });
 
   const rulesQuery = useQuery({
-    queryKey: ['rules', agent],
+    // Distinct from RuleDetail's `['rules', agent]`: this query caches the feed envelope, not
+    // the bare rule array. Both share the prefix so control/clone invalidation still covers them.
+    queryKey: ['rules', agent, 'feed'],
     queryFn: () => api.rulesFeed(agent as string, 'all'),
     enabled: Boolean(agent),
   });

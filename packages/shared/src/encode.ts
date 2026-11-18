@@ -2,7 +2,12 @@
  * The one rule encoder. The composer, the `/v1/encode/preview` route, and the contract test
  * fixtures all call this function, so client and server calldata cannot disagree.
  */
-import { encodeFunctionData, type Address } from 'viem';
+import {
+  encodeAbiParameters,
+  encodeFunctionData,
+  keccak256,
+  type Address,
+} from 'viem';
 
 import { agentAbi } from './abi/index.js';
 import { getChain } from './chains.js';
@@ -129,9 +134,61 @@ function numericSlot(draft: RuleDraft, key: string): bigint {
  * Encodes the `addRule` call for a draft. Rejects any unknown slot key, any value that is not
  * a number/address of the expected kind, and identical input/output tokens.
  */
-export function encodeAddRule(agentAddress: Address, draft: RuleDraft): `0x${string}` {
+export function encodeAddRule(
+  agentAddress: Address,
+  draft: RuleDraft,
+  options: { readonly makePublic?: boolean } = {},
+): `0x${string}` {
+  return encodeAddRuleParams(agentAddress, ruleParamsFromDraft(draft), options);
+}
+
+/** Encodes `addRule` from parameters that already came from a stored rule (the clone path). */
+export function encodeAddRuleParams(
+  _agentAddress: Address,
+  params: RuleParams,
+  options: { readonly makePublic?: boolean } = {},
+): `0x${string}` {
+  return encodeFunctionData({
+    abi: agentAbi,
+    functionName: 'addRule',
+    args: [
+      {
+        template: params.template,
+        chainId: params.chainId,
+        flags: 0,
+        pair: params.pair,
+        tokenIn: params.tokenIn,
+        tokenOut: params.tokenOut,
+        amountIn: params.amountIn,
+        threshold: params.threshold,
+        secondary: params.secondary,
+        lastRun: 0n,
+        runs: 0,
+      },
+      options.makePublic ?? false,
+    ],
+  });
+}
+
+/** The user-chosen parameters of a rule, exactly as `RuleLib.paramsHash` sees them. */
+export interface RuleParams {
+  readonly template: number;
+  readonly chainId: number;
+  readonly pair: Address;
+  readonly tokenIn: Address;
+  readonly tokenOut: Address;
+  readonly amountIn: bigint;
+  readonly threshold: bigint;
+  readonly secondary: bigint;
+}
+
+/**
+ * Maps a draft to the on-chain parameters. This is the inverse of `draftFromRule` and the single
+ * place the slot-to-field mapping lives, so calldata, the registry hash, and a clone agree.
+ */
+export function ruleParamsFromDraft(draft: RuleDraft): RuleParams {
   const template = requireTemplate(draft);
-  const chain = getChain(draft.chainId);
+  getChain(draft.chainId);
   assertKnownSlots(template, draft);
   assertDistinctTokens(draft);
 
@@ -154,30 +211,49 @@ export function encodeAddRule(agentAddress: Address, draft: RuleDraft): `0x${str
   // Templates that move money without exposing a pair still need one on chain (the Agent caches
   // a price for it), so they fall back to the chain's canonical pool.
   const recipient = slotValue(draft, 'destination') ?? slotValue(draft, 'source_wallet');
-  const pair = (slotValue(draft, 'pair') ?? recipient ?? chain.pair ?? ZERO_ADDRESS) as Address;
-  const tokenIn = (slotValue(draft, 'token_in') ?? ZERO_ADDRESS) as Address;
-  const tokenOut = (slotValue(draft, 'token_out') ?? ZERO_ADDRESS) as Address;
+  const pair = (slotValue(draft, 'pair') ?? recipient ?? getChain(draft.chainId).pair) as Address;
 
-  return encodeFunctionData({
-    abi: agentAbi,
-    functionName: 'addRule',
-    args: [
-      {
-        template: draft.template,
-        chainId: draft.chainId,
-        flags: 0,
-        pair,
-        tokenIn,
-        tokenOut,
-        amountIn: numericSlot(draft, 'amount_in'),
-        threshold,
-        secondary,
-        lastRun: 0n,
-        runs: 0,
-      },
-      false,
-    ],
-  });
+  return {
+    template: draft.template,
+    chainId: draft.chainId,
+    pair,
+    tokenIn: (slotValue(draft, 'token_in') ?? ZERO_ADDRESS) as Address,
+    tokenOut: (slotValue(draft, 'token_out') ?? ZERO_ADDRESS) as Address,
+    amountIn: numericSlot(draft, 'amount_in'),
+    threshold,
+    secondary,
+  };
+}
+
+/**
+ * Stable hash of the user-chosen parameters, byte-for-byte identical to `RuleLib.paramsHash`.
+ * The registry publishes it, so a clone can prove it rebuilt the author's exact rule.
+ */
+export function ruleParamsHash(params: RuleParams): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'uint8' },
+        { type: 'uint16' },
+        { type: 'address' },
+        { type: 'address' },
+        { type: 'address' },
+        { type: 'uint256' },
+        { type: 'uint256' },
+        { type: 'uint256' },
+      ],
+      [
+        params.template,
+        params.chainId,
+        params.pair,
+        params.tokenIn,
+        params.tokenOut,
+        params.amountIn,
+        params.threshold,
+        params.secondary,
+      ],
+    ),
+  );
 }
 
 /** The rule fields the read model returns, used to rebuild a sentence. */

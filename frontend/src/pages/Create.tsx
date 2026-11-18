@@ -43,6 +43,7 @@ export function CreateRuleForm({
   );
   const [issues, setIssues] = useState<SlotIssues>({});
   const [submitted, setSubmitted] = useState(false);
+  const [makePublic, setMakePublic] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const { status, error, result, create, reset } = useCreateRule();
 
@@ -71,7 +72,7 @@ export function CreateRuleForm({
       return;
     }
     if (!draft) return;
-    void create(agent, draft);
+    void create(agent, draft, makePublic);
   }
 
   if (result) {
@@ -85,6 +86,7 @@ export function CreateRuleForm({
           dispatch({ type: 'reset' });
           setSubmitted(false);
           setIssues({});
+          setMakePublic(false);
           reset();
         }}
       />
@@ -116,7 +118,22 @@ export function CreateRuleForm({
         </div>
 
         <div className="space-y-4">
-          <LiveCalldata agent={agent} draft={draft} />
+          <LiveCalldata agent={agent} draft={draft} makePublic={makePublic} />
+          <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-xs text-ink">
+            <input
+              type="checkbox"
+              checked={makePublic}
+              onChange={(event) => setMakePublic(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="block font-medium text-ink">Publish to the marketplace</span>
+              <span className="block text-ink-muted">
+                Anyone can clone these exact parameters into their own vault. Your vault, funds,
+                and signing key are never shared.
+              </span>
+            </span>
+          </label>
           {error ? (
             <div role="alert" className="space-y-1 rounded border border-silent/40 bg-silent/5 p-3">
               <p className="text-sm text-ink">{error.message}</p>

@@ -15,6 +15,11 @@ const DESCRIPTORS: ReadonlyArray<{
 }> = [
   { signature: 'NotOwner()', code: 'not_owner', human: 'Only the owner can do that.' },
   {
+    signature: 'RegistryNotConfigured()',
+    code: 'registry_not_configured',
+    human: 'This account was deployed without a rule registry, so public listing is unavailable.',
+  },
+  {
     signature: 'InvalidVaultAuthorization()',
     code: 'invalid_vault_authorization',
     human:
@@ -109,11 +114,7 @@ const DESCRIPTORS: ReadonlyArray<{
     code: 'transfer_failed',
     human: 'The token transfer failed.',
   },
-  {
-    signature: 'NotServiceProvider()',
-    code: 'not_service_provider',
-    human: 'Only the Reactive callback proxy may call this function.',
-  },
+  { signature: 'NotServiceProvider()', code: 'not_service_provider', human: 'Only the Reactive callback proxy may call this function.' },
   {
     signature: 'CallbackSenderMismatch(address,address)',
     code: 'callback_sender_mismatch',

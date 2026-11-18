@@ -110,7 +110,20 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     signature: 'InvalidCallbackPayload()',
     message: 'The execution callback did not match this rule, so the vault refused it.',
   },
+  {
+    signature: 'RegistryNotConfigured()',
+    message: 'Publishing rules is not configured on this deployment.',
+  },
 ];
+
+/** True when a wallet prompt was rejected by the user rather than failing for another reason. */
+export function isWalletRejection(error: unknown): boolean {
+  if (error && typeof error === 'object') {
+    const name = (error as { name?: string }).name;
+    if (name === 'UserRejectedRequestError') return true;
+  }
+  return error instanceof Error && /rejected|denied|cancelled|canceled/i.test(error.message);
+}
 
 export interface ContractErrorMessage {
   readonly selector: `0x${string}`;

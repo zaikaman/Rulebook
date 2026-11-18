@@ -11,7 +11,8 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./manifest/templates.json": "./manifest/templates.json"
+    "./manifest/templates.json": "./manifest/templates.json",
+    "./manifest/seed-rules.json": "./manifest/seed-rules.json"
   },
   "files": [
     "dist",

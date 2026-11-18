@@ -115,6 +115,9 @@ export type ListingRow = {
   is_public: boolean;
   author: string;
   author_badge: 'team' | 'community';
+  name: string | null;
+  description: string | null;
+  params_hash: string | null;
   created_at: string;
   indexed_at: string;
 };
@@ -216,6 +219,19 @@ export function createRepositories(store: Store) {
           orderBy: { column: 'rule_id', ascending: true },
         })) as RuleRow[];
       },
+      /** Every rule, used by the leaderboard and the marketplace join. */
+      async listAll(): Promise<RuleRow[]> {
+        return (await store.select('rules')) as RuleRow[];
+      },
+      async setPublic(agent: string, ruleId: string, isPublic: boolean): Promise<void> {
+        const existing = await this.get(agent, ruleId);
+        if (!existing) return;
+        await store.upsert(
+          'rules',
+          [withIndexedAt({ ...existing, is_public: isPublic })],
+          'agent,rule_id',
+        );
+      },
       async updateStatus(
         agent: string,
         ruleId: string,
@@ -290,6 +306,10 @@ export function createRepositories(store: Store) {
       async countForRule(agent: string, ruleId: string): Promise<number> {
         return store.count('executions', { agent, rule_id: ruleId });
       },
+      /** Every execution, used to derive marketplace and leaderboard statistics (FR-040). */
+      async listAll(): Promise<ExecutionRow[]> {
+        return (await store.select('executions')) as ExecutionRow[];
+      },
       async deleteByTx(chainId: number, txHash: string): Promise<void> {
         await store.deleteWhere('executions', { chain_id: chainId, tx_hash: txHash });
       },
@@ -319,7 +339,14 @@ export function createRepositories(store: Store) {
     },
     listings: {
       async upsert(row: Omit<ListingRow, 'indexed_at'>): Promise<void> {
-        await store.upsert('listings', [withIndexedAt(row)], 'chain_id,listing_id');
+        await store.upsert('listings', [withIndexedAt(row)], 'chain_id,agent,rule_id');
+      },
+      async get(chainId: number, agent: string, ruleId: string): Promise<ListingRow | null> {
+        return (await store.selectOne('listings', {
+          chain_id: chainId,
+          agent,
+          rule_id: ruleId,
+        })) as ListingRow | null;
       },
       async list(limit = 25): Promise<ListingRow[]> {
         return (await store.select(
@@ -330,6 +357,24 @@ export function createRepositories(store: Store) {
             orderBy: { column: 'created_at', ascending: false },
           },
         )) as ListingRow[];
+      },
+      /** All live listings; the route filters, sorts, and pages in memory. */
+      async listPublic(): Promise<ListingRow[]> {
+        return (await store.select('listings', { is_public: true })) as ListingRow[];
+      },
+      async setPublic(
+        chainId: number,
+        agent: string,
+        ruleId: string,
+        isPublic: boolean,
+      ): Promise<void> {
+        const existing = await this.get(chainId, agent, ruleId);
+        if (!existing) return;
+        await store.upsert(
+          'listings',
+          [withIndexedAt({ ...existing, is_public: isPublic })],
+          'chain_id,agent,rule_id',
+        );
       },
     },
     priceObservations: {

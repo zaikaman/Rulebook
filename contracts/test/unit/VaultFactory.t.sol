@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
 import {AgentFactory} from "../../src/agent/AgentFactory.sol";
+import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
 import {Vault} from "../../src/vault/Vault.sol";
 import {VaultFactory} from "../../src/vault/VaultFactory.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
@@ -35,7 +36,7 @@ contract VaultFactoryTest is Test {
         proxy = new MockCallbackProxy();
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
-        agentFactory = new AgentFactory(IReactiveSystem(address(system)));
+        agentFactory = new AgentFactory(IReactiveSystem(address(system)), new RuleRegistry());
         vaultFactory = new VaultFactory(IPayable(payable(address(proxy))));
         agent = agentFactory.deploy(USER);
     }

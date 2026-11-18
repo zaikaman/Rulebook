@@ -4,6 +4,8 @@ import {
   chainsResponseSchema,
   executionsResponseSchema,
   healthSchema,
+  leaderboardResponseSchema,
+  listingsResponseSchema,
   onboardingResponseSchema,
   proofSchema,
   ruleDetailResponseSchema,
@@ -13,6 +15,7 @@ import {
   type Account,
   type Address,
   type Health,
+  type LeaderboardResponse,
   type OnboardingResponse,
   type Proof,
   type Rule,
@@ -119,6 +122,27 @@ export class ApiClient {
 
   ruleDetail(agent: string, ruleId: string) {
     return this.request(`/v1/accounts/${agent}/rules/${ruleId}`, ruleDetailResponseSchema);
+  }
+
+  marketplace(
+    query: {
+      template?: number;
+      sort?: 'newest' | 'runs' | 'success_rate';
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ): Promise<z.infer<typeof listingsResponseSchema>> {
+    const params = new URLSearchParams();
+    if (query.template !== undefined) params.set('template', String(query.template));
+    if (query.sort) params.set('sort', query.sort);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (query.limit !== undefined) params.set('limit', String(query.limit));
+    const suffix = params.size > 0 ? `?${params.toString()}` : '';
+    return this.request(`/v1/marketplace${suffix}`, listingsResponseSchema);
+  }
+
+  leaderboard(limit = 50): Promise<LeaderboardResponse> {
+    return this.request(`/v1/leaderboard?limit=${limit}`, leaderboardResponseSchema);
   }
 
   sponsor(agent: string): Promise<SponsorStatus> {

@@ -1,10 +1,17 @@
+import { agentAbi } from '@rulebook/shared';
 import type { PublicClient } from 'viem';
 
 import type { Repositories } from '../db/repositories/index.js';
 import type { Store } from '../db/store.js';
 import { clientFor, type ChainClients } from '../chain/clients.js';
 import { CursorStore, type ChainCursor } from './cursors.js';
-import { decodeLog, isKnownTopic, persistDecodedEvent, type RawLog } from './decoders/index.js';
+import {
+  decodeLog,
+  isKnownTopic,
+  persistDecodedEvent,
+  type RawLog,
+  type RuleSnapshot,
+} from './decoders/index.js';
 import { recordDeadLetter } from './deadLetter.js';
 
 export interface PollerOptions {
@@ -65,7 +72,9 @@ export class IndexerPoller {
       };
       const outcome = decodeLog(raw);
       if (outcome.ok) {
-        await persistDecodedEvent(this.options.repositories, outcome.event);
+        await persistDecodedEvent(this.options.repositories, outcome.event, {
+          readRule: (chainId, agent, ruleId) => this.readRule(chainId, agent, ruleId),
+        });
         processed += 1;
       } else if (outcome.known || (raw.topics[0] && isKnownTopic(chainId, raw.topics[0]))) {
         await recordDeadLetter(this.options.repositories, raw, outcome.reason);
@@ -114,6 +123,35 @@ export class IndexerPoller {
     } catch {
       return '0x' + '0'.repeat(64);
     }
+  }
+
+  /**
+   * Backfills the rule parameters a chain-created rule owns. A failure (historical state,
+   * transient RPC error) leaves the row null rather than dropping the rule: the next replay
+   * can fill it in.
+   */
+  private async readRule(
+    chainId: number,
+    agent: string,
+    ruleId: bigint,
+  ): Promise<RuleSnapshot | null> {
+    const client = clientFor(this.options.clients, chainId);
+    const rule = await client.readContract({
+      address: agent as `0x${string}`,
+      abi: agentAbi,
+      functionName: 'getRule',
+      args: [ruleId],
+    });
+    return {
+      template: Number(rule.template),
+      chainId: Number(rule.chainId),
+      pair: rule.pair,
+      tokenIn: rule.tokenIn,
+      tokenOut: rule.tokenOut,
+      amountIn: rule.amountIn.toString(),
+      threshold: rule.threshold.toString(),
+      secondary: rule.secondary.toString(),
+    };
   }
 }
 

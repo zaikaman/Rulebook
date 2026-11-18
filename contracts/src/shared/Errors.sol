@@ -37,3 +37,5 @@ error TokenMismatch(address expected, address actual);
 error AlertOnlyTemplate(uint8 template);
 // The callback data did not match the six-word execution payload layout.
 error InvalidCallbackPayload();
+// The Agent has no registry address, so it cannot publish a public rule (FR-038).
+error RegistryNotConfigured();

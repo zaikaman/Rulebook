@@ -3,6 +3,7 @@ pragma solidity 0.8.29;
 
 import {Test} from "forge-std/Test.sol";
 
+import {Agent} from "../../src/agent/Agent.sol";
 import {AgentFactory} from "../../src/agent/AgentFactory.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
 import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
@@ -16,14 +17,15 @@ contract RuleRegistryTest is Test {
 
     MockSystemContract internal system;
     RuleRegistry internal registry;
-    address internal agent;
+    Agent internal agent;
+    uint256 internal ruleId;
     bytes32 internal paramsHash;
 
     function setUp() public {
         system = new MockSystemContract();
         registry = new RuleRegistry();
-        AgentFactory factory = new AgentFactory(IReactiveSystem(address(system)));
-        agent = factory.deploy(USER);
+        AgentFactory factory = new AgentFactory(IReactiveSystem(address(system)), registry);
+        agent = Agent(factory.deploy(USER));
 
         RuleLib.Rule memory rule;
         rule.template = 1;
@@ -33,19 +35,22 @@ contract RuleRegistryTest is Test {
         rule.tokenOut = address(0xBB);
         rule.amountIn = 10e6;
         paramsHash = RuleLib.paramsHash(rule);
+
+        vm.prank(USER);
+        ruleId = agent.addRule(rule, false);
     }
 
     function test_onlyTheAuthorMayList() public {
         vm.prank(STRANGER);
         vm.expectRevert(NotOwner.selector);
-        registry.list(1, paramsHash, "ipfs://rule", agent, 0);
+        registry.list(address(agent), ruleId, "ipfs://rule");
     }
 
     function test_listingIncrementsCountAndStoresTheHash() public {
         vm.prank(USER);
-        registry.list(1, paramsHash, "ipfs://rule", agent, 0);
+        registry.list(address(agent), ruleId, "ipfs://rule");
         assertEq(registry.listingCount(), 1);
-        RuleRegistry.Listing memory listing = registry.getListing(agent, 0);
+        RuleRegistry.Listing memory listing = registry.getListing(address(agent), ruleId);
         assertEq(listing.author, USER);
         assertEq(listing.paramsHash, paramsHash);
         assertTrue(listing.isPublic);
@@ -70,22 +75,22 @@ contract RuleRegistryTest is Test {
 
     function test_onlyTheAuthorMayDelist() public {
         vm.prank(USER);
-        registry.list(1, paramsHash, "ipfs://rule", agent, 0);
+        registry.list(address(agent), ruleId, "ipfs://rule");
 
         vm.prank(STRANGER);
         vm.expectRevert(NotOwner.selector);
-        registry.delist(agent, 0);
+        registry.delist(address(agent), ruleId);
 
         vm.prank(USER);
-        registry.delist(agent, 0);
+        registry.delist(address(agent), ruleId);
         assertEq(registry.listingCount(), 0);
-        assertFalse(registry.isListed(agent, 0));
+        assertFalse(registry.isListed(address(agent), ruleId));
     }
 
     function test_listingAgainDoesNotDoubleCount() public {
         vm.startPrank(USER);
-        registry.list(1, paramsHash, "ipfs://one", agent, 0);
-        registry.list(1, paramsHash, "ipfs://two", agent, 0);
+        registry.list(address(agent), ruleId, "ipfs://one");
+        registry.list(address(agent), ruleId, "ipfs://two");
         vm.stopPrank();
         assertEq(registry.listingCount(), 1);
     }

@@ -1,10 +1,10 @@
-import { agentAbi, encodeAddRule, LASNA_CHAIN_ID, type Address } from '@rulebook/shared';
+import { encodeAddRule, LASNA_CHAIN_ID, type Address } from '@rulebook/shared';
 import { useCallback, useState } from 'react';
-import { decodeEventLog } from 'viem';
 import { useAccount, useSendTransaction, useSwitchChain } from 'wagmi';
 
 import type { ReadyDraft } from '../composer/types.js';
-import { describeError } from '../lib/errors.js';
+import { describeError, isWalletRejection } from '../lib/errors.js';
+import { ruleIdFromLogs } from '../lib/receipts.js';
 import { lasnaPublicClient } from '../lib/wagmi.js';
 
 export type CreateFailureKind = 'simulation' | 'wallet' | 'chain';
@@ -29,36 +29,6 @@ export interface CreateRuleState {
   readonly result: CreateRuleResult | null;
 }
 
-const REJECTION = /rejected|denied|cancelled|canceled/i;
-
-function isWalletRejection(error: unknown): boolean {
-  if (error && typeof error === 'object') {
-    const name = (error as { name?: string }).name;
-    if (name === 'UserRejectedRequestError') return true;
-  }
-  return error instanceof Error && REJECTION.test(error.message);
-}
-
-function ruleIdFromLogs(
-  logs: ReadonlyArray<{ readonly data: `0x${string}`; readonly topics: readonly `0x${string}`[] }>,
-): bigint | null {
-  for (const log of logs) {
-    try {
-      const decoded = decodeEventLog({
-        abi: agentAbi,
-        data: log.data,
-        topics: log.topics as [`0x${string}`, ...`0x${string}`[]],
-      }) as { eventName?: string; args?: { ruleId?: bigint } };
-      if (decoded.eventName === 'RuleCreated' && decoded.args?.ruleId !== undefined) {
-        return decoded.args.ruleId;
-      }
-    } catch {
-      // Not an Agent event; the receipt may carry logs from other contracts.
-    }
-  }
-  return null;
-}
-
 /**
  * Creates a rule from a checked draft: simulate first so a custom error is explained before a
  * signature, then send the exact calldata the page previewed, then wait for the Lasna receipt.
@@ -79,12 +49,16 @@ export function useCreateRule() {
   }, []);
 
   const create = useCallback(
-    async (agent: Address, draft: ReadyDraft): Promise<CreateRuleResult | null> => {
+    async (
+      agent: Address,
+      draft: ReadyDraft,
+      makePublic = false,
+    ): Promise<CreateRuleResult | null> => {
       setState({ status: 'simulating', error: null, result: null });
 
       let data: `0x${string}`;
       try {
-        data = encodeAddRule(agent, draft);
+        data = encodeAddRule(agent, draft, { makePublic });
       } catch (error) {
         setState({
           status: 'failed',
@@ -127,7 +101,19 @@ export function useCreateRule() {
         if (chainId !== LASNA_CHAIN_ID) {
           await switchChainAsync({ chainId: LASNA_CHAIN_ID });
         }
-        hash = await sendTransactionAsync({ to: agent, data, chainId: LASNA_CHAIN_ID });
+        // The node's estimate can land a few thousand gas under what the call needs once a rule
+        // already exists, so send with a small margin instead of the bare estimate.
+        const estimate = await lasnaPublicClient.estimateGas({
+          to: agent,
+          data,
+          ...(address ? { account: address } : {}),
+        });
+        hash = await sendTransactionAsync({
+          to: agent,
+          data,
+          chainId: LASNA_CHAIN_ID,
+          gas: (estimate * 120n) / 100n,
+        });
       } catch (error) {
         setState({
           status: 'failed',
