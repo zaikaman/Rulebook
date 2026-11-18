@@ -1,5 +1,6 @@
 import {
   agentAbi,
+  vaultAbi,
   getChain,
   LASNA_CHAIN_ID,
   type CallbackRecord,
@@ -44,6 +45,8 @@ export interface ChainProof {
   readonly destinations: readonly ProofDestination[];
   readonly latency_ms: number | null;
   readonly callbacks: readonly CallbackRecord[];
+  readonly mirrorRequests?: readonly { leaderTx: TxHash; agent: string }[];
+  readonly leaderTransactions?: readonly TxHash[];
 }
 
 /**
@@ -100,17 +103,30 @@ export function createProofSource(clients: ChainClients): ProofSource {
 
       const receipt = await lasna.getTransactionReceipt({ hash: reactiveTxHash });
       const automationFacts = await blockTimestamp(lasna, receipt.blockNumber);
+      const mirrorRequests = parseEventLogs({
+        abi: agentAbi,
+        logs: receipt.logs,
+        eventName: 'MirrorCallbackRequested',
+      }).map((log) => ({ leaderTx: log.args.leaderTx, agent: log.address.toLowerCase() }));
 
       let origin: ProofOrigin | null = null;
       try {
-        const evaluated = parseEventLogs({
+        const evaluations = parseEventLogs({
           abi: agentAbi,
           logs: receipt.logs,
           eventName: 'RuleEvaluated',
-        })[0];
+        });
+        const mirror = mirrorRequests[0];
+        const evaluated = mirror
+          ? evaluations.find(
+              (log) =>
+                log.args.originTxHash === mirror.leaderTx &&
+                log.address.toLowerCase() === mirror.agent,
+            )
+          : (evaluations.find((log) => log.args.fired) ?? evaluations[0]);
         if (evaluated) {
           const originChainId = Number(evaluated.args.originChainId);
-          const originTxHash = evaluated.args.originTxHash as TxHash;
+          const originTxHash = evaluated.args.originTxHash;
           const originClient = clientFor(clients, originChainId);
           const originFacts = await receiptFacts(originClient, originTxHash);
           origin = {
@@ -126,6 +142,7 @@ export function createProofSource(clients: ChainClients): ProofSource {
       }
 
       const destinations: ProofDestination[] = [];
+      const leaderTransactions: TxHash[] = [];
       for (const callback of callbacks) {
         if (callback.destination_tx_hash === ZERO_TX_HASH) {
           destinations.push({
@@ -136,7 +153,18 @@ export function createProofSource(clients: ChainClients): ProofSource {
           continue;
         }
         const destinationClient = clientFor(clients, callback.destination_chain_id);
-        const facts = await receiptFacts(destinationClient, callback.destination_tx_hash);
+        let facts: Awaited<ReturnType<typeof receiptFacts>>;
+        try {
+          const receipt = await destinationClient.getTransactionReceipt({
+            hash: callback.destination_tx_hash,
+          });
+          if (parseEventLogs({ abi: vaultAbi, logs: receipt.logs, eventName: 'Executed' }).length) {
+            leaderTransactions.push(callback.destination_tx_hash);
+          }
+          facts = await blockTimestamp(destinationClient, receipt.blockNumber);
+        } catch {
+          facts = undefined;
+        }
         destinations.push({
           chain_id: callback.destination_chain_id,
           tx_hash: callback.destination_tx_hash,
@@ -165,6 +193,8 @@ export function createProofSource(clients: ChainClients): ProofSource {
         destinations,
         latency_ms: latencyMs,
         callbacks,
+        mirrorRequests,
+        leaderTransactions,
       };
     },
   };

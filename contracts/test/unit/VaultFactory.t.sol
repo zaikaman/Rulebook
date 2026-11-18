@@ -9,7 +9,12 @@ import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
 import {Vault} from "../../src/vault/Vault.sol";
 import {VaultFactory} from "../../src/vault/VaultFactory.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
-import {AgentAlreadyLinked, InvalidVaultAuthorization} from "../../src/shared/Errors.sol";
+import {
+    AgentAlreadyLinked,
+    InvalidTemplateParams,
+    InvalidVaultAuthorization,
+    TokenMismatch
+} from "../../src/shared/Errors.sol";
 import {MockCallbackProxy} from "../mocks/MockCallbackProxy.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockSystemContract} from "../mocks/MockSystemContract.sol";
@@ -48,6 +53,16 @@ contract VaultFactoryTest is Test {
         vaultFactory.deploy(STRANGER, agent, address(usdc), address(weth), deadline, signature);
     }
 
+    function test_rejectsMissingProxyOrInvalidAllowlist() public {
+        vm.expectRevert(InvalidTemplateParams.selector);
+        new VaultFactory(IPayable(payable(address(0))));
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.expectRevert(InvalidTemplateParams.selector);
+        vaultFactory.deployMirror(USER, agent, address(0), address(weth), deadline, "");
+        vm.expectPartialRevert(TokenMismatch.selector);
+        vaultFactory.deployMirror(USER, agent, address(usdc), address(usdc), deadline, "");
+    }
+
     function test_deploySetsOwnerToTheUserAndPopulatesVaultOf() public {
         address vault = _deployVault(USER, USER_KEY, agent);
         assertEq(vaultFactory.vaultOf(USER), vault);
@@ -72,6 +87,37 @@ contract VaultFactoryTest is Test {
         vm.expectEmit(true, true, true, true, address(vaultFactory));
         emit VaultFactory.VaultDeployed(USER, expected, agent, 1301);
         _deployVault(USER, USER_KEY, agent);
+    }
+
+    function test_modesAreImmutableAndDeploymentAuthorizationsAreDistinct() public {
+        address leaderVault = _deployVault(USER, USER_KEY, agent);
+        (uint256 deadline, bytes memory signature) =
+            _authorization(STRANGER_KEY, STRANGER, agent, address(usdc), address(weth));
+        vm.expectRevert(InvalidVaultAuthorization.selector);
+        vaultFactory.deployMirror(
+            STRANGER, agent, address(usdc), address(weth), deadline, signature
+        );
+
+        (deadline, signature) = _signAuthorization(
+            vaultFactory.MIRROR_DEPLOYMENT_TYPEHASH(),
+            STRANGER_KEY,
+            STRANGER,
+            agent,
+            address(usdc),
+            address(weth)
+        );
+        vm.expectRevert(InvalidVaultAuthorization.selector);
+        vaultFactory.deploy(STRANGER, agent, address(usdc), address(weth), deadline, signature);
+        address mirrorVault = vaultFactory.deployMirror(
+            STRANGER, agent, address(usdc), address(weth), deadline, signature
+        );
+        assertFalse(Vault(payable(leaderVault)).mirrorMode());
+        assertTrue(Vault(payable(mirrorVault)).mirrorMode());
+        assertEq(vaultFactory.vaultOf(STRANGER), mirrorVault);
+        vm.expectRevert(AgentAlreadyLinked.selector);
+        vaultFactory.deployMirror(USER, agent, address(usdc), address(weth), deadline, signature);
+        vm.expectRevert(AgentAlreadyLinked.selector);
+        vaultFactory.deploy(STRANGER, agent, address(usdc), address(weth), deadline, signature);
     }
 
     function test_authorizationNonceIsConsumedOnce() public {
@@ -113,17 +159,24 @@ contract VaultFactoryTest is Test {
         address agent_,
         address tokenIn,
         address tokenOut
-    ) private returns (uint256 deadline, bytes memory signature) {
+    ) private view returns (uint256 deadline, bytes memory signature) {
+        return _signAuthorization(
+            vaultFactory.VAULT_DEPLOYMENT_TYPEHASH(), ownerKey, owner, agent_, tokenIn, tokenOut
+        );
+    }
+
+    function _signAuthorization(
+        bytes32 typeHash,
+        uint256 ownerKey,
+        address owner,
+        address agent_,
+        address tokenIn,
+        address tokenOut
+    ) private view returns (uint256 deadline, bytes memory signature) {
         deadline = block.timestamp + 1 hours;
         bytes32 structHash = keccak256(
             abi.encode(
-                vaultFactory.VAULT_DEPLOYMENT_TYPEHASH(),
-                owner,
-                agent_,
-                tokenIn,
-                tokenOut,
-                vaultFactory.nonces(owner),
-                deadline
+                typeHash, owner, agent_, tokenIn, tokenOut, vaultFactory.nonces(owner), deadline
             )
         );
         bytes32 domainSeparator = keccak256(

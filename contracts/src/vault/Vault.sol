@@ -9,11 +9,12 @@ import {IPayable} from "@reactive/interfaces/IPayable.sol";
 
 import {PriceMath} from "../libraries/PriceMath.sol";
 import {RuleLib} from "../libraries/RuleLib.sol";
-import {CallbackPayload, ExecutionPayload} from "../shared/CallbackPayload.sol";
+import {CallbackPayload, ExecutionPayload, MirrorPayload} from "../shared/CallbackPayload.sol";
 import {
     AlertOnlyTemplate,
     CallbackSenderMismatch,
     ConditionNotMet,
+    DuplicateLeaderExecution,
     ExceedsPerRunCap,
     Expired,
     InsufficientPrincipal,
@@ -21,6 +22,7 @@ import {
     InvalidSecondary,
     InvalidTemplateParams,
     InvalidThreshold,
+    MirrorDepthNotAllowed,
     NotOwner,
     NotServiceProvider,
     SlippageExceeded,
@@ -89,6 +91,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     uint16 public slippageBps;
 
     mapping(address => uint256) private _principal;
+    mapping(bytes32 => bool) private _mirroredExecutions;
 
     constructor(
         IPayable callbackProxy,
@@ -187,6 +190,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     /// reserves — never from the Agent's cached price (FR-028).
     function execute(address agent_, uint256 ruleId, bytes calldata data) external nonReentrant {
         _authenticate(agent_);
+        if (mirrorMode) revert MirrorDepthNotAllowed();
         if (paused) revert ConditionNotMet();
         if (ruleId > type(uint32).max) revert InvalidTemplateParams();
 
@@ -206,6 +210,47 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         } else {
             _sendToRecipient(ruleId, payload);
         }
+    }
+
+    /// @notice Executes a proportional swap in a mirror vault with a live quote.
+    function executeMirror(address agent_, uint256 ruleId, bytes calldata data)
+        external
+        nonReentrant
+    {
+        _authenticate(agent_);
+        if (!mirrorMode) revert MirrorDepthNotAllowed();
+        if (paused) revert ConditionNotMet();
+        MirrorPayload memory payload = CallbackPayload.decodeMirror(data);
+        if (payload.leaderVault == address(0) || payload.leaderVault == address(this)) {
+            revert MirrorDepthNotAllowed();
+        }
+        if (payload.tokenIn != allowedTokenIn) {
+            revert TokenMismatch(allowedTokenIn, payload.tokenIn);
+        }
+        if (payload.tokenOut != allowedTokenOut) {
+            revert TokenMismatch(allowedTokenOut, payload.tokenOut);
+        }
+        if (payload.amountIn == 0 || payload.minOut == 0) revert InvalidAmount();
+        if (payload.amountIn > maxSpendPerRun) {
+            revert ExceedsPerRunCap(payload.amountIn, maxSpendPerRun);
+        }
+        uint256 available = _principal[allowedTokenIn];
+        if (payload.amountIn > available) {
+            revert InsufficientPrincipal(payload.amountIn, available);
+        }
+        bytes32 key = CallbackPayload.mirrorExecutionKey(
+            payload.leaderVault, payload.leaderRuleId, payload.leaderTx
+        );
+        if (_mirroredExecutions[key]) revert DuplicateLeaderExecution(key);
+        _mirroredExecutions[key] = true;
+
+        (uint256 reserveIn, uint256 reserveOut) = _liveReserves(payload.pair);
+        uint256 expected = PriceMath.expectedOut(payload.amountIn, reserveIn, reserveOut);
+        if (expected < payload.minOut) revert SlippageExceeded(payload.minOut, expected);
+        uint256 liveMinimum = PriceMath.applySlippage(expected, slippageBps);
+        _trade(payload.amountIn, liveMinimum > payload.minOut ? liveMinimum : payload.minOut);
+        emit Mirrored(ruleId, payload.leaderVault, payload.leaderTx);
+        _emitBalances(allowedTokenIn, allowedTokenOut);
     }
 
     /// @notice Principal recorded for `token`.
@@ -237,29 +282,33 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         // The minimum comes from live reserves, never from the Agent's cached price.
         uint256 minOut = PriceMath.applySlippage(expected, slippageBps);
 
+        uint256 received = _trade(payload.amountIn, minOut);
+        emit Executed(
+            ruleId, allowedTokenIn, allowedTokenOut, payload.amountIn, received, block.timestamp
+        );
+        _emitBalances(allowedTokenIn, allowedTokenOut);
+    }
+
+    /// @dev Trades through the configured router and accounts for the actual token delta.
+    function _trade(uint256 amountIn, uint256 minOut) private returns (uint256 received) {
         address[] memory path = new address[](2);
         path[0] = allowedTokenIn;
         path[1] = allowedTokenOut;
 
         uint256 balanceBefore = IERC20(allowedTokenOut).balanceOf(address(this));
-        IERC20(allowedTokenIn).forceApprove(router, payload.amountIn);
+        IERC20(allowedTokenIn).forceApprove(router, amountIn);
         try IUniswapV2Router02(router)
-            .swapExactTokensForTokens(
-                payload.amountIn, minOut, path, address(this), block.timestamp
-            ) {
+            .swapExactTokensForTokens(amountIn, minOut, path, address(this), block.timestamp) {
         // The router moved the tokens; the balance delta is the authoritative output.
         }
         catch {
             revert SlippageExceeded(minOut, 0);
         }
-        uint256 received = IERC20(allowedTokenOut).balanceOf(address(this)) - balanceBefore;
+        received = IERC20(allowedTokenOut).balanceOf(address(this)) - balanceBefore;
+        if (received < minOut) revert SlippageExceeded(minOut, received);
 
-        _spendPrincipal(allowedTokenIn, payload.amountIn);
+        _spendPrincipal(allowedTokenIn, amountIn);
         _principal[allowedTokenOut] += received;
-        emit Executed(
-            ruleId, allowedTokenIn, allowedTokenOut, payload.amountIn, received, block.timestamp
-        );
-        _emitBalances(allowedTokenIn, allowedTokenOut);
     }
 
     /// @dev Personal transfer path: send `amountIn` of the allowlisted token to the recipient.

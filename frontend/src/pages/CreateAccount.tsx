@@ -6,6 +6,7 @@ import {
   type Address,
   type OnboardingStep,
 } from '@rulebook/shared';
+import { useState } from 'react';
 import { BaseError, formatUnits } from 'viem';
 import { useAccount } from 'wagmi';
 
@@ -18,6 +19,7 @@ import { TxLink } from '../components/TxLink.js';
 import { useAccountSetup } from '../hooks/useAccountSetup.js';
 import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { api } from '../lib/api.js';
+import { MIRROR_ENABLED } from '../lib/contracts.js';
 import { WalletAuthorizationError } from '../lib/errors.js';
 
 const STEP_LABEL: Record<OnboardingStep['name'], string> = {
@@ -67,6 +69,7 @@ export function CreateAccount() {
   const wallet = useSetupWallet();
   const owner = address?.toLowerCase() as Address | undefined;
   const setup = useAccountSetup({ ...(owner ? { owner } : {}), api, wallet });
+  const [mirrorVault, setMirrorVault] = useState(false);
 
   const resumeLabel =
     setup.setupState === 'none'
@@ -126,6 +129,21 @@ export function CreateAccount() {
             {setup.vault ? (
               <AddressLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} address={setup.vault} />
             ) : null}
+            {MIRROR_ENABLED && !setup.vault && setup.setupState !== 'complete' ? (
+              <label className="app-field">
+                Vault mode
+                <select
+                  className="app-input"
+                  value={mirrorVault ? 'mirror' : 'leader'}
+                  disabled={setup.resuming}
+                  onChange={(event) => setMirrorVault(event.target.value === 'mirror')}
+                >
+                  <option value="leader">Standard vault</option>
+                  <option value="mirror">Mirror-only vault</option>
+                </select>
+                <span className="app-copy">Vault mode is permanent once deployed.</span>
+              </label>
+            ) : null}
           </div>
         </div>
         <div className="app-divider app-panel-pad flex flex-wrap items-center justify-between gap-3">
@@ -146,7 +164,9 @@ export function CreateAccount() {
             <button
               type="button"
               disabled={setup.resuming}
-              onClick={() => void setup.resume().catch(() => undefined)}
+              onClick={() =>
+                void setup.resume(mirrorVault ? 'mirror' : undefined).catch(() => undefined)
+              }
               className="app-button app-button--primary"
             >
               {setup.resuming ? 'Working…' : resumeLabel}

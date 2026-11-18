@@ -109,7 +109,8 @@ function ruleDelistedLog(index = 0): RawLog {
   };
 }
 
-function executedLog(): RawLog {  return {
+function executedLog(): RawLog {
+  return {
     chainId: 1301,
     address: VAULT,
     topics: [
@@ -140,6 +141,38 @@ function executedLog(): RawLog {  return {
 }
 
 describe('indexer idempotency', () => {
+  it('replays a mirror execution once with its leader transaction', async () => {
+    const repositories = createRepositories(new InMemoryStore());
+    const deployment = vaultDeployedLog();
+    const leaderTx = `0x${'6'.repeat(64)}` as const;
+    const logs: RawLog[] = [
+      deployment,
+      {
+        ...deployment,
+        topics: [toEventSelector('MirrorVaultDeployed(address)'), topicAddress(VAULT)],
+        data: '0x',
+        logIndex: 1,
+      },
+      {
+        ...executedLog(),
+        topics: [
+          toEventSelector('Mirrored(uint256,address,bytes32)'),
+          topicNumber(1),
+          topicAddress(AGENT),
+        ],
+        data: encodeAbiParameters([{ type: 'bytes32' }], [leaderTx]),
+      },
+    ];
+    for (const log of [...logs, ...logs]) {
+      const result = decodeLog(log);
+      expect(result.ok).toBe(true);
+      if (result.ok) await persistDecodedEvent(repositories, result.event);
+    }
+    expect(await repositories.vaults.get(VAULT)).toMatchObject({ mirror_mode: true });
+    expect(await repositories.executions.list({ vault: VAULT })).toMatchObject([
+      { kind: 'mirrored', leader_tx: leaderTx },
+    ]);
+  });
   it('replaying the same RuleCreated log twice writes one rule and one event row', async () => {
     const store = new InMemoryStore();
     const repositories = createRepositories(store);

@@ -30,7 +30,12 @@ export interface ProofRowProps {
  */
 export function ProofRow({ row }: ProofRowProps) {
   return (
-    <li data-testid="proof-row" data-role={row.role} className="app-proof-leg">
+    <li
+      data-testid="proof-row"
+      data-role={row.role}
+      data-execution-role={row.execution_role}
+      className="app-proof-leg"
+    >
       <div className="app-proof-leg-marker">
         <span className="app-icon">
           <HugeiconsIcon icon={ROLE_ICON[row.role]} size={18} aria-hidden="true" />
@@ -39,6 +44,14 @@ export function ProofRow({ row }: ProofRowProps) {
       <div className="app-proof-leg-content">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="app-panel-heading">{ROLE_LABEL[row.role]}</h2>
+          {row.execution_role ? (
+            <span
+              className="app-tag"
+              data-tone={row.execution_role === 'leader' ? 'neutral' : 'positive'}
+            >
+              {row.execution_role === 'leader' ? 'Leader trade' : 'Follower trade'}
+            </span>
+          ) : null}
           <NetworkBadge chainId={row.chain_id} />
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">

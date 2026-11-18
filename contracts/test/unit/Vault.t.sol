@@ -3,6 +3,7 @@ pragma solidity 0.8.29;
 
 import {Test} from "forge-std/Test.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {PriceMath} from "../../src/libraries/PriceMath.sol";
 import {Vault} from "../../src/vault/Vault.sol";
@@ -15,7 +16,9 @@ import {
     InsufficientPrincipal,
     InvalidAmount,
     InvalidCallbackPayload,
+    InvalidSecondary,
     InvalidTemplateParams,
+    InvalidThreshold,
     NotOwner,
     NotServiceProvider,
     SlippageExceeded,
@@ -468,5 +471,84 @@ contract VaultExecutionTest is Test {
         vm.prank(address(proxy));
         vm.expectRevert();
         vault.execute(AGENT, 1, data);
+    }
+
+    function test_slippageToleranceIsOwnerOnlyAndBounded() public {
+        uint16 invalidTolerance = vault.MAX_SLIPPAGE_BPS() + 1;
+        vm.expectRevert(NotOwner.selector);
+        vault.setSlippageBps(1);
+        vm.startPrank(USER);
+        vm.expectRevert(InvalidSecondary.selector);
+        vault.setSlippageBps(invalidTolerance);
+        vault.setSlippageBps(1);
+        vm.stopPrank();
+        assertEq(vault.slippageBps(), 1);
+    }
+
+    function test_refusesZeroInputBeforeCallingTokens() public {
+        vm.expectRevert(InvalidAmount.selector);
+        _execute(7, _payload(7, address(0), 0, 0, 0, uint256(uint160(RECIPIENT))));
+    }
+
+    function test_refusesASwapWithoutAPair() public {
+        vm.expectRevert(InvalidTemplateParams.selector);
+        _execute(1, _payload(1, address(0), 0, 10e6, 0, 0));
+    }
+
+    function test_refusesATakeProfitWithNoThreshold() public {
+        vm.expectRevert(InvalidThreshold.selector);
+        _execute(4, _payload(4, address(pair), 0, 10e6, 0, 0));
+    }
+
+    function test_takeProfitRechecksTheLivePrice() public {
+        _setPrice(1e18);
+        vm.expectRevert(ConditionNotMet.selector);
+        _execute(4, _payload(4, address(pair), 2e18, 10e6, 0, 0));
+        _execute(4, _payload(4, address(pair), 1e18, 10e6, 0, 0));
+        assertEq(router.swapCount(), 1);
+    }
+
+    function test_refusesAnEmptyPool() public {
+        vm.expectRevert(InvalidAmount.selector);
+        _execute(1, _payload(1, address(pair), 0, 10e6, 0, 0));
+    }
+
+    function test_failedRouterPreservesPrincipal() public {
+        _setPrice(1e18);
+        vm.mockCallRevert(
+            address(router), abi.encodePacked(MockRouter.swapExactTokensForTokens.selector), ""
+        );
+        vm.expectPartialRevert(SlippageExceeded.selector);
+        _execute(1, _payload(1, address(pair), 0, 10e6, 0, 0));
+        assertEq(vault.principalOf(address(usdc)), 50e6);
+    }
+
+    function test_requiresTransferSourceAndRecipient() public {
+        vm.expectRevert(InvalidTemplateParams.selector);
+        _execute(7, _payload(7, address(0), 0, 5e6, 0, 0));
+        vm.expectRevert(InvalidTemplateParams.selector);
+        _execute(9, _payload(9, address(0), 0, 5e6, 0, 0));
+    }
+
+    function test_refusesAnERC20TransferReturningFalseOrReverting() public {
+        bytes memory call = abi.encodeCall(IERC20.transfer, (RECIPIENT, 5e6));
+        bytes memory payload = _payload(7, address(0), 0, 5e6, 0, uint256(uint160(RECIPIENT)));
+        vm.mockCall(address(usdc), call, abi.encode(false));
+        vm.expectRevert(TransferFailed.selector);
+        _execute(7, payload);
+        vm.clearMockedCalls();
+        vm.mockCallRevert(address(usdc), call, "");
+        vm.expectRevert(TransferFailed.selector);
+        _execute(7, payload);
+    }
+
+    function test_refusesAnERC20PullReturningFalse() public {
+        vm.mockCall(
+            address(usdc),
+            abi.encodeCall(IERC20.transferFrom, (SOURCE, address(vault), 5e6)),
+            abi.encode(false)
+        );
+        vm.expectRevert(TransferFailed.selector);
+        _execute(9, _payload(9, address(0), 0, 5e6, 0, uint256(uint160(SOURCE))));
     }
 }

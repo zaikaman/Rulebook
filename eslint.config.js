@@ -15,6 +15,7 @@ export default [
       '**/cache/**',
       '**/broadcast/**',
       '**/coverage/**',
+      '**/*.min.js',
       'contracts/lib/**',
       'packages/shared/src/generated/**',
       'playwright-report/**',

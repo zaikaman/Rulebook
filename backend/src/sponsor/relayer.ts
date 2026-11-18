@@ -123,6 +123,9 @@ export class SponsorRelayer {
         addresses.vaultFactory.toLowerCase(),
         new Set([
           toFunctionSelector('function deploy(address,address,address,address,uint256,bytes)'),
+          toFunctionSelector(
+            'function deployMirror(address,address,address,address,uint256,bytes)',
+          ),
         ]),
       ],
       [
@@ -179,10 +182,11 @@ export class SponsorRelayer {
     agent: Address,
     deadline: bigint,
     authorization: Hex,
+    mirror = false,
   ): Promise<Deployment> {
     const data = encodeFunctionData({
       abi: vaultFactoryAbi,
-      functionName: 'deploy',
+      functionName: mirror ? 'deployMirror' : 'deploy',
       args: [owner, agent, this.addresses.usdc, this.addresses.weth, deadline, authorization],
     });
     const txHash = await this.send(

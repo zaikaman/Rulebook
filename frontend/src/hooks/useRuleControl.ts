@@ -107,5 +107,6 @@ export function useRuleControl(agent: Address | null) {
     cancel: (ruleId: bigint) => write('cancelRule', ruleId),
     reorder,
     attachMirror,
+    detachMirror: (ruleId: bigint) => write('detachMirror', ruleId),
   };
 }

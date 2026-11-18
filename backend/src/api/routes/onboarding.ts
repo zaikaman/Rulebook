@@ -13,6 +13,7 @@ import { sendError } from './errors.js';
 
 const bodySchema = z.object({
   owner: addressSchema,
+  vault_mode: z.enum(['leader', 'mirror']).default('leader'),
   vault_authorization: z
     .object({
       deadline: z
@@ -49,7 +50,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
         'The sponsor relayer is not configured in this environment.',
       );
     }
-    const { owner, vault_authorization: vaultAuthorization } = parsed.data;
+    const { owner, vault_authorization: vaultAuthorization, vault_mode: vaultMode } = parsed.data;
     if (!deps.onboardingLimiter.allow(owner)) {
       return sendError(
         reply,
@@ -121,6 +122,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
           agent,
           vaultAuthorization.deadline,
           vaultAuthorization.signature,
+          ...(vaultMode === 'mirror' ? ([true] as const) : []),
         );
         vault = deployment.address.toLowerCase() as `0x${string}`;
         steps.push({
@@ -136,7 +138,7 @@ export function registerOnboardingRoutes(app: FastifyInstance, deps: ServerDeps)
             agent,
             chain_id: UNICHAIN_SEPOLIA_CHAIN_ID,
             created_tx: deployment.txHash,
-            mirror_mode: false,
+            mirror_mode: vaultMode === 'mirror',
             allowed_token_in: unichain.usdc,
             allowed_token_out: unichain.weth,
             max_spend_per_run: null,

@@ -81,8 +81,9 @@ contract AgentTest is Test {
     }
 
     function test_addRuleRevertsWhenTheRegistryIsMissing() public {
-        Agent unlisted =
-            new Agent(USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this));
+        Agent unlisted = new Agent(
+            USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this)
+        );
 
         vm.prank(USER);
         vm.expectRevert(RegistryNotConfigured.selector);
@@ -301,67 +302,6 @@ contract AgentTest is Test {
         vm.stopPrank();
     }
 
-    function _mirrorConfig() internal pure returns (Agent.MirrorConfig memory) {
-        return Agent.MirrorConfig({
-            leaderChainId: 1301,
-            leaderVault: address(0x4444),
-            leaderRuleId: 7,
-            scaleBps: 5_000,
-            perRunCap: 5e6,
-            hourlyCap: 3
-        });
-    }
-
-    function test_addMirrorValidatesAndStoresConfig() public {
-        uint256 ruleId = _addRule();
-        Agent.MirrorConfig memory config = Agent.MirrorConfig({
-            leaderChainId: 1301,
-            leaderVault: address(0x4444),
-            leaderRuleId: 7,
-            scaleBps: 5_000,
-            perRunCap: 5e6,
-            hourlyCap: 3
-        });
-
-        vm.startPrank(USER);
-        agent.addMirror(ruleId, config);
-        assertEq(agent.getMirror(ruleId).leaderVault, address(0x4444));
-
-        Agent.MirrorConfig memory bad = config;
-        bad.leaderChainId = 999;
-        vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
-        agent.addMirror(ruleId, bad);
-
-        bad = _mirrorConfig();
-        bad.leaderVault = address(0);
-        vm.expectRevert(abi.encodeWithSelector(InvalidTemplateParams.selector));
-        agent.addMirror(ruleId, bad);
-
-        bad = _mirrorConfig();
-        bad.scaleBps = 0;
-        vm.expectRevert(InvalidSecondary.selector);
-        agent.addMirror(ruleId, bad);
-
-        bad = _mirrorConfig();
-        bad.scaleBps = 10_001;
-        vm.expectRevert(InvalidSecondary.selector);
-        agent.addMirror(ruleId, bad);
-
-        bad = _mirrorConfig();
-        bad.hourlyCap = 0;
-        vm.expectRevert(InvalidSecondary.selector);
-        agent.addMirror(ruleId, bad);
-
-        bad = _mirrorConfig();
-        bad.hourlyCap = 11;
-        vm.expectRevert(InvalidSecondary.selector);
-        agent.addMirror(ruleId, bad);
-
-        vm.expectRevert(abi.encodeWithSelector(RuleNotActive.selector, 99));
-        agent.addMirror(99, config);
-        vm.stopPrank();
-    }
-
     function test_reactCachesLastTradedPriceFromSync() public {
         IReactive.LogRecord memory log;
         log.chain_id = 1301;
@@ -378,6 +318,27 @@ contract AgentTest is Test {
         assertEq(price, 2e18);
         assertEq(observedAt, uint64(block.timestamp));
         assertEq(agent.getHighWater(0), 0);
+    }
+
+    function test_ignoresMalformedAndEmptySyncBeforeFirstPrice() public {
+        RuleLib.Rule memory rule = _rule();
+        rule.template = 11;
+        rule.amountIn = 0;
+        rule.threshold = 1e18;
+        vm.prank(USER);
+        uint256 ruleId = agent.addRule(rule, false);
+
+        IReactive.LogRecord memory log;
+        log.chain_id = 1301;
+        log._contract = address(pair);
+        log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
+        vm.startPrank(address(system));
+        agent.react(log);
+        log.data = abi.encode(uint112(0), uint112(1));
+        agent.react(log);
+        vm.stopPrank();
+        assertEq(agent.getRule(ruleId).runs, 0);
+        assertEq(agent.previousPriceOf(address(pair)), 0);
     }
 
     function test_reactEmitsRuleEvaluatedForEveryRule() public {

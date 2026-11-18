@@ -18,6 +18,7 @@ const uint = z.bigint();
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
 const bool = z.boolean();
 const text = z.string();
+const txHash = z.string().regex(/^0x[a-fA-F0-9]{64}$/);
 
 interface EventDescriptor {
   readonly name: string;
@@ -34,6 +35,32 @@ const LASNA_EVENTS: EventDescriptor[] = [
     signature: 'RuleCreated(address,uint256,uint8,bool)',
     abi: agentAbi,
     schema: z.object({ agent: address, ruleId: uint, template: z.number(), publicRule: bool }),
+  },
+  {
+    name: 'MirrorAttached',
+    signature: 'MirrorAttached(uint256,address,address,uint256,uint16,uint256,uint8)',
+    abi: agentAbi,
+    schema: z.object({
+      ruleId: uint,
+      leaderAgent: address,
+      leaderVault: address,
+      leaderRuleId: uint,
+      scaleBps: z.number().int().min(1).max(10_000),
+      perRunCap: uint,
+      hourlyCap: z.number().int().min(1).max(10),
+    }),
+  },
+  {
+    name: 'MirrorDetached',
+    signature: 'MirrorDetached(uint256)',
+    abi: agentAbi,
+    schema: z.object({ ruleId: uint }),
+  },
+  {
+    name: 'MirrorCallbackRequested',
+    signature: 'MirrorCallbackRequested(bytes32,address,uint256)',
+    abi: agentAbi,
+    schema: z.object({ leaderTx: txHash, leaderVault: address, ruleId: uint }),
   },
   {
     name: 'RulePaused',
@@ -131,10 +158,16 @@ const UNICHAIN_EVENTS: EventDescriptor[] = [
     }),
   },
   {
+    name: 'MirrorVaultDeployed',
+    signature: 'MirrorVaultDeployed(address)',
+    abi: vaultFactoryAbi,
+    schema: z.object({ vault: address }),
+  },
+  {
     name: 'Mirrored',
     signature: 'Mirrored(uint256,address,bytes32)',
     abi: vaultAbi,
-    schema: z.object({ ruleId: uint, leader: address, leaderTx: text }),
+    schema: z.object({ ruleId: uint, leader: address, leaderTx: txHash }),
   },
   {
     name: 'Balances',
@@ -326,17 +359,60 @@ export async function persistDecodedEvent(
       return;
     }
     case 'VaultDeployed': {
+      const address = asString(args.vault).toLowerCase();
+      const previous = await repositories.vaults.get(address);
       await repositories.vaults.upsert({
-        address: asString(args.vault).toLowerCase(),
+        address,
         owner: asString(args.owner).toLowerCase(),
         agent: asString(args.agent).toLowerCase(),
         chain_id: asNumber(args.chainId),
         created_tx: event.txHash,
-        mirror_mode: false,
-        allowed_token_in: null,
-        allowed_token_out: null,
-        max_spend_per_run: null,
-        paused: false,
+        mirror_mode: previous?.mirror_mode ?? false,
+        allowed_token_in: previous?.allowed_token_in ?? null,
+        allowed_token_out: previous?.allowed_token_out ?? null,
+        max_spend_per_run: previous?.max_spend_per_run ?? null,
+        paused: previous?.paused ?? false,
+      });
+      return;
+    }
+    case 'MirrorVaultDeployed': {
+      const vault = await repositories.vaults.get(asString(args.vault).toLowerCase());
+      if (vault && vault.created_tx === event.txHash) {
+        await repositories.vaults.markMirror(vault.address);
+      }
+      return;
+    }
+    case 'MirrorAttached': {
+      if (!(await repositories.agents.get(event.address))) return;
+      await repositories.mirrors.upsert({
+        follower_agent: event.address,
+        rule_id: asString(args.ruleId),
+        leader_agent: asString(args.leaderAgent).toLowerCase(),
+        leader_rule_id: asString(args.leaderRuleId),
+        leader_vault: asString(args.leaderVault).toLowerCase(),
+        scale_bps: asNumber(args.scaleBps),
+        per_run_cap: asString(args.perRunCap),
+        hourly_cap: asNumber(args.hourlyCap),
+        detached_at: null,
+      });
+      return;
+    }
+    case 'MirrorDetached': {
+      await repositories.mirrors.detach(event.address, asString(args.ruleId), event.blockTime);
+      return;
+    }
+    case 'MirrorCallbackRequested': {
+      if (!(await repositories.agents.get(event.address))) return;
+      await repositories.ruleEvents.upsert({
+        chain_id: event.chainId,
+        tx_hash: event.txHash,
+        log_index: event.logIndex,
+        agent: event.address,
+        rule_id: asString(args.ruleId),
+        kind: 'mirror_callback_requested',
+        block_time: event.blockTime,
+        origin_chain_id: UNI,
+        origin_tx: asString(args.leaderTx).toLowerCase(),
       });
       return;
     }
@@ -470,6 +546,7 @@ export async function persistDecodedEvent(
     case 'Executed':
     case 'Mirrored': {
       const vault = await repositories.vaults.get(event.address);
+      if (event.name === 'Mirrored' && !vault?.mirror_mode) return;
       const ruleId = asString(args.ruleId);
       await repositories.executions.upsert({
         chain_id: event.chainId,
@@ -486,7 +563,7 @@ export async function persistDecodedEvent(
         amount_out: event.name === 'Executed' ? asString(args.amountOut) : null,
         block_number: asNumber(event.blockNumber),
         block_time: event.blockTime,
-        leader_tx: event.name === 'Mirrored' ? asString(args.leaderTx) : null,
+        leader_tx: event.name === 'Mirrored' ? asString(args.leaderTx).toLowerCase() : null,
         status: 'confirmed',
       });
       return;

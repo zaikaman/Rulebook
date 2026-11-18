@@ -42,7 +42,7 @@ for (const line of (result.stdout ?? '').split(/\r?\n/)) {
   const cells = line.split('|').map((cell) => cell.trim());
   if (cells.length < 6) continue;
   const name = path.basename(cells[1]).replace(/\.sol$/i, '');
-  const branch = Number.parseFloat(cells[3].replace('%', ''));
+  const branch = Number.parseFloat(cells[4].replace('%', ''));
   if (Number.isFinite(branch)) measured.set(name, branch);
 }
 

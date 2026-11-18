@@ -4,6 +4,7 @@ import {
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type CallbackRecord,
   type TxHash,
+  txHashSchema,
 } from '@rulebook/shared';
 import type { FastifyInstance } from 'fastify';
 
@@ -25,6 +26,7 @@ interface ProofRowShape {
   timestamp?: string;
   explorer_url: string;
   error?: { selector: string; message: string; human: string } | null;
+  execution_role?: 'leader' | 'follower';
 }
 
 function explorerTxUrl(chainId: number, txHash: string): string {
@@ -85,6 +87,60 @@ function destinationRow(destination: ProofDestination): ProofRowShape {
     explorer_url: explorerTxUrl(destination.chain_id, destination.tx_hash),
     error: refusalOf(destination.callback),
   };
+}
+
+/** Discovers follower reactive hashes in the index and verifies their callbacks on Lasna. */
+async function groupedRows(deps: ServerDeps, proof: ChainProof): Promise<ProofRowShape[]> {
+  const rows = chainRows(proof);
+  const mirror = proof.mirrorRequests?.[0];
+  if (mirror && proof.origin?.tx_hash === mirror.leaderTx) {
+    const followerHashes = new Set(
+      proof.destinations
+        .filter(
+          (destination) => destination.callback.reacting_contract.toLowerCase() === mirror.agent,
+        )
+        .map((destination) => destination.tx_hash),
+    );
+    return rows.map((row) => {
+      if (row.role === 'origin') return { ...row, role: 'destination', execution_role: 'leader' };
+      const hash = txHashSchema.safeParse(row.tx_hash);
+      if (row.role === 'destination' && hash.success && followerHashes.has(hash.data)) {
+        return { ...row, execution_role: 'follower' };
+      }
+      return row;
+    });
+  }
+
+  const leaders = proof.leaderTransactions ?? [];
+  const seen = new Set(rows.map((row) => row.tx_hash));
+  for (const leader of leaders) {
+    const requests = await deps.repositories.ruleEvents.listMirrorRequests(leader).catch(() => []);
+    const candidates = new Set(requests.map((request) => request.tx_hash));
+    for (const candidate of candidates) {
+      const hash = txHashSchema.safeParse(candidate);
+      if (!hash.success || hash.data === proof.reactive_tx) continue;
+      const follower = await deps.proofSource?.read(hash.data).catch(() => null);
+      if (!follower) continue;
+      const verifiedAgents = new Set(
+        follower.mirrorRequests
+          ?.filter((request) => request.leaderTx === leader)
+          .map((request) => request.agent),
+      );
+      for (const destination of follower.destinations) {
+        if (
+          !verifiedAgents.has(destination.callback.reacting_contract.toLowerCase()) ||
+          destination.tx_hash === ZERO_TX_HASH ||
+          seen.has(destination.tx_hash)
+        )
+          continue;
+        const leaderRow = rows.find((row) => row.role === 'destination' && row.tx_hash === leader);
+        if (leaderRow) leaderRow.execution_role = 'leader';
+        rows.push({ ...destinationRow(destination), execution_role: 'follower' });
+        seen.add(destination.tx_hash);
+      }
+    }
+  }
+  return rows;
 }
 
 function cacheAgeSeconds(callbacks: readonly CallbackRow[]): number {
@@ -151,7 +207,7 @@ function cacheRows(
  * with its age — a cached proof is never presented as live (T136, T137).
  */
 export function registerProofRoutes(app: FastifyInstance, deps: ServerDeps): void {
-  app.get<{ Params: { reactiveTxHash: string } }>(
+  app.get<{ Params: { reactiveTxHash: string }; Querystring: { include?: string } }>(
     '/v1/proofs/:reactiveTxHash',
     async (request, reply) => {
       const hash = request.params.reactiveTxHash.toLowerCase();
@@ -172,26 +228,35 @@ export function registerProofRoutes(app: FastifyInstance, deps: ServerDeps): voi
             );
           }
 
-          await deps.repositories.callbacks.upsert(
-            proof.callbacks.map((callback) => ({
-              reactive_tx_hash: hash,
-              callback_index: callback.callback_index,
-              reactive_contract: callback.reacting_contract,
-              destination_chain_id: String(callback.destination_chain_id),
-              destination_tx_hash:
-                callback.destination_tx_hash === ZERO_TX_HASH ? null : callback.destination_tx_hash,
-              error_data: callback.error_data || null,
-              block_number: callback.block_number,
-              recorded_at: new Date().toISOString(),
-            })),
-          );
+          await deps.repositories.callbacks
+            .upsert(
+              proof.callbacks.map((callback) => ({
+                reactive_tx_hash: hash,
+                callback_index: callback.callback_index,
+                reactive_contract: callback.reacting_contract,
+                destination_chain_id: String(callback.destination_chain_id),
+                destination_tx_hash:
+                  callback.destination_tx_hash === ZERO_TX_HASH
+                    ? null
+                    : callback.destination_tx_hash,
+                error_data: callback.error_data || null,
+                block_number: callback.block_number,
+                recorded_at: new Date().toISOString(),
+              })),
+            )
+            .catch((error: unknown) =>
+              request.log.warn({ err: error }, 'proof cache write failed'),
+            );
 
           return {
             reactive_tx: proof.reactive_tx,
             source: 'chain' as const,
             cache_age_seconds: null,
             latency_ms: proof.latency_ms,
-            rows: chainRows(proof),
+            rows:
+              request.query.include === 'mirrors'
+                ? await groupedRows(deps, proof)
+                : chainRows(proof),
           };
         } catch {
           chainFailure = true;

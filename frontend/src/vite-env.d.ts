@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_AGENT_FACTORY_ADDRESS?: string;
   readonly VITE_VAULT_FACTORY_ADDRESS?: string;
   readonly VITE_ENABLE_CHAIN_ONLY_PROOF?: string;
+  readonly VITE_ENABLE_MIRROR?: string;
 }
 
 interface ImportMeta {

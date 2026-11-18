@@ -9,7 +9,7 @@ import {
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
-import { useReadContract } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
 import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
@@ -17,6 +17,7 @@ import { BudgetMeter } from '../components/BudgetMeter.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ExecutionTable } from '../components/ExecutionTable.js';
+import { DetachMirror } from '../components/MirrorForm.js';
 import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PriceLabel } from '../components/PriceLabel.js';
 import { TxLink } from '../components/TxLink.js';
@@ -57,6 +58,7 @@ function statusOf(status: 'active' | 'paused' | 'cancelled', latched: boolean): 
 /** `/rules/:agent/:ruleId`: the sentence, its parameters, and the execution history. */
 export function RuleDetail() {
   const { agent, ruleId } = useParams();
+  const { address } = useAccount();
   const detailQuery = useQuery({
     queryKey: ['rule', agent, ruleId],
     queryFn: () => api.ruleDetail(agent as string, ruleId as string),
@@ -76,6 +78,13 @@ export function RuleDetail() {
     functionName: 'getRuleIds',
     chainId: LASNA_CHAIN_ID,
     query: { enabled: Boolean(agent) },
+  });
+  const ownerQuery = useReadContract({
+    address: (agent as Address | undefined) ?? ZERO,
+    abi: agentAbi,
+    functionName: 'owner',
+    chainId: LASNA_CHAIN_ID,
+    query: { enabled: Boolean(address && agent && detailQuery.data?.mirror) },
   });
 
   const control = useRuleControl((agent as Address | undefined) ?? null);
@@ -115,7 +124,7 @@ export function RuleDetail() {
     );
   }
 
-  const { rule, recent_executions: executions, budget, sponsor } = detailQuery.data;
+  const { rule, recent_executions: executions, budget, sponsor, mirror } = detailQuery.data;
   const alerts = detailQuery.data.alerts ?? [];
   const agentAddress = agent as Address;
   const rules = rulesQuery.data ?? [];
@@ -135,11 +144,33 @@ export function RuleDetail() {
 
       <section className="app-panel">
         <div className="app-panel-pad app-rule-summary space-y-2">
-          <h2 className="app-overline">Rule sentence</h2>
+          <h2 className="app-overline">{mirror ? 'Mirror relationship' : 'Rule sentence'}</h2>
           <p className="break-words font-heading text-xl font-semibold text-ink">
-            “{ruleSentence(rule)}”
+            {mirror ? (
+              <>
+                {mirror.detached_at ? 'Detached from ' : 'Copies '}
+                <Link
+                  className="app-link"
+                  to={`/rules/${mirror.leader_agent}/${mirror.leader_rule_id}`}
+                >
+                  leader rule #{mirror.leader_rule_id.toString()}
+                </Link>
+              </>
+            ) : (
+              <>“{ruleSentence(rule)}”</>
+            )}
           </p>
-          {rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
+          {mirror ? (
+            <p className="app-copy">
+              {mirror.scale_bps} bps ({mirror.scale_bps / 100}%) · {mirror.hourly_cap} trades per
+              hour ·{' '}
+              {rule.token_in
+                ? signatureTokenAmount(rule.chain_id, rule.token_in, mirror.per_run_cap)
+                : `${mirror.per_run_cap} base units`}{' '}
+              per run
+            </p>
+          ) : null}
+          {!mirror && rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
             <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
           ) : null}
         </div>
@@ -185,8 +216,16 @@ export function RuleDetail() {
       <div className="app-detail-layout">
         <div className="app-page">
           <section aria-label="Execution history" className="app-panel">
-            <h2 className="app-panel-heading app-panel-pad">Executions</h2>
-            <ExecutionTable executions={executions} />
+            <h2 className="app-panel-heading app-panel-pad">
+              {mirror ? 'Mirrored executions' : 'Executions'}
+            </h2>
+            <ExecutionTable
+              executions={
+                mirror
+                  ? executions.filter((execution) => execution.kind === 'mirrored')
+                  : executions
+              }
+            />
           </section>
 
           <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
@@ -213,13 +252,21 @@ export function RuleDetail() {
         <div className="app-page">
           <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">
             <h2 className="app-panel-heading">Control</h2>
-            <RuleActions
-              ruleId={currentRuleId}
-              status={statusOf(rule.status, rule.latched)}
-              onPause={() => control.pause(currentRuleId)}
-              onResume={() => control.resume(currentRuleId)}
-              onCancel={() => control.cancel(currentRuleId)}
-            />
+            {mirror && !mirror.detached_at ? (
+              address && ownerQuery.data?.toLowerCase() === address.toLowerCase() ? (
+                <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
+              ) : (
+                <p className="app-copy">Connect the owner wallet to detach this mirror.</p>
+              )
+            ) : (
+              <RuleActions
+                ruleId={currentRuleId}
+                status={statusOf(rule.status, rule.latched)}
+                onPause={() => control.pause(currentRuleId)}
+                onResume={() => control.resume(currentRuleId)}
+                onCancel={() => control.cancel(currentRuleId)}
+              />
+            )}
           </section>
 
           {budget ? (

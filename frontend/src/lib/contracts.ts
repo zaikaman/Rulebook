@@ -20,3 +20,4 @@ export const UNICHAIN_CONFIG = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
 /** The fixed demo pair used by onboarding and starter funds. */
 export const DEMO_USDC = UNICHAIN_CONFIG.usdc;
 export const DEMO_WETH = UNICHAIN_CONFIG.weth;
+export const MIRROR_ENABLED = import.meta.env.VITE_ENABLE_MIRROR === 'true';

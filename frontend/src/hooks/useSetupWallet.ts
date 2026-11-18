@@ -50,7 +50,7 @@ export function useSetupWallet(): SetupWallet {
       });
       return vault === ZERO ? null : vault;
     },
-    authorizeVault: async (owner, agent) => {
+    authorizeVault: async (owner, agent, vaultMode) => {
       if (!address) throw new Error('Connect the wallet that owns this Agent.');
       if (address.toLowerCase() !== owner.toLowerCase()) {
         throw new Error('The connected wallet must match the account owner.');
@@ -64,10 +64,18 @@ export function useSetupWallet(): SetupWallet {
         args: [address],
       });
       return requestSignature(
-        signatureDetails.authorizeVault(factory, agent),
+        signatureDetails.authorizeVault(factory, agent, vaultMode),
         address,
         async () => {
           const deadline = BigInt(Math.floor(Date.now() / 1000) + 1800);
+          const authorizationFields = [
+            { name: 'owner', type: 'address' },
+            { name: 'agent', type: 'address' },
+            { name: 'tokenIn', type: 'address' },
+            { name: 'tokenOut', type: 'address' },
+            { name: 'nonce', type: 'uint256' },
+            { name: 'deadline', type: 'uint256' },
+          ] as const;
           const signature = await signTypedDataAsync({
             account: address,
             domain: {
@@ -76,17 +84,11 @@ export function useSetupWallet(): SetupWallet {
               chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
               verifyingContract: factory,
             },
-            types: {
-              VaultDeployment: [
-                { name: 'owner', type: 'address' },
-                { name: 'agent', type: 'address' },
-                { name: 'tokenIn', type: 'address' },
-                { name: 'tokenOut', type: 'address' },
-                { name: 'nonce', type: 'uint256' },
-                { name: 'deadline', type: 'uint256' },
-              ],
-            },
-            primaryType: 'VaultDeployment',
+            types:
+              vaultMode === 'mirror'
+                ? { MirrorVaultDeployment: authorizationFields }
+                : { VaultDeployment: authorizationFields },
+            primaryType: vaultMode === 'mirror' ? 'MirrorVaultDeployment' : 'VaultDeployment',
             message: {
               owner,
               agent,

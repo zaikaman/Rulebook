@@ -5,10 +5,12 @@ import { useState } from 'react';
 
 import { CloneButton } from '../components/CloneButton.js';
 import { ListingCard } from '../components/ListingCard.js';
+import { MirrorForm } from '../components/MirrorForm.js';
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { api } from '../lib/api.js';
+import { MIRROR_ENABLED } from '../lib/contracts.js';
 
 type Sort = 'newest' | 'runs' | 'success_rate';
 
@@ -47,6 +49,7 @@ export function Marketplace() {
         title="Rule marketplace"
         description="Explore public automations and clone their settings into your own account. Each copy uses your own vault."
       />
+      {MIRROR_ENABLED ? <MirrorForm listings={listings} /> : null}
 
       <div className="app-panel app-panel-pad flex flex-wrap items-end gap-3">
         <label className="app-field w-full sm:w-52">

@@ -1,8 +1,4 @@
-import {
-  leaderboardResponseSchema,
-  listingsResponseSchema,
-  type Listing,
-} from '@rulebook/shared';
+import { leaderboardResponseSchema, listingsResponseSchema, type Listing } from '@rulebook/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { AppConfig } from '../../src/config.js';
@@ -186,7 +182,7 @@ describe('GET /v1/marketplace', () => {
   it('sorts by newest, runs, and success rate', async () => {
     const oldest = await addRule(repositories, 0, { createdAt: '2026-11-01T00:00:00.000Z' });
     const middle = await addRule(repositories, 1, { createdAt: '2026-11-02T00:00:00.000Z' });
-    const newest = await addRule(repositories, 2, { createdAt: '2026-11-03T00:00:00.000Z' });
+    await addRule(repositories, 2, { createdAt: '2026-11-03T00:00:00.000Z' });
     // middle: 5 runs with one refusal (0.8); oldest: 2/2 (1.0); newest: 0 runs (0).
     for (let index = 0; index < 5; index += 1) {
       await addExecution(repositories, middle, index, index === 0 ? 'refused' : 'confirmed');

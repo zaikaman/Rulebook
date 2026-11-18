@@ -393,29 +393,29 @@ Monorepo per `plan.md`: `contracts/` (Foundry), `packages/shared/`, `backend/` (
 
 ### Tests for User Story 8 ⚠️ (write first, confirm each fails)
 
-- [ ] T235 [P] [US8] Contract test `contracts/test/unit/MirrorVault.t.sol`: a mirror vault emits `Mirrored` and never `Executed`, and its own executions are not offered as a copyable source (FR-046).
-- [ ] T236 [P] [US8] Contract test `contracts/test/unit/AgentMirror.t.sol`: `addMirror` rejects the same agent on both sides, rejects a mismatched `tokenIn`, rejects `scaleBps > 10_000`, and rejects `hourlyCap` outside 1..10.
-- [ ] T237 [P] [US8] Contract test: mirroring a `Mirrored` event is impossible because the copyable topic set contains only `Executed` — assert with a wrong-topic log that nothing fires (`contracts/test/unit/AgentMirror.t.sol`).
-- [ ] T238 [P] [US8] Contract test: the same leader `(vault, ruleId, txHash)` delivered twice produces one execution; an unacceptable live `minOut` skips rather than filling; the hourly cap blocks the N+1th burst (FR-045, FR-047, FR-048) (`contracts/test/unit/AgentMirror.t.sol`).
+- [X] T235 [P] [US8] Contract test `contracts/test/unit/MirrorVault.t.sol`: a mirror vault emits `Mirrored` and never `Executed`, and its own executions are not offered as a copyable source (FR-046).
+- [X] T236 [P] [US8] Contract test `contracts/test/unit/AgentMirror.t.sol`: `addMirror` rejects the same agent on both sides, rejects a mismatched `tokenIn`, rejects `scaleBps > 10_000`, and rejects `hourlyCap` outside 1..10.
+- [X] T237 [P] [US8] Contract test: mirroring a `Mirrored` event is impossible because the copyable topic set contains only `Executed` — assert with a wrong-topic log that nothing fires (`contracts/test/unit/AgentMirror.t.sol`).
+- [X] T238 [P] [US8] Contract test: the same leader `(vault, ruleId, txHash)` delivered twice produces one execution; an unacceptable live `minOut` skips rather than filling; the hourly cap blocks the N+1th burst (FR-045, FR-047, FR-048) (`contracts/test/unit/AgentMirror.t.sol`).
 
 ### Implementation for User Story 8
 
-- [ ] T239 [US8] Implement `contracts/src/vault/MirrorVault.sol`: `mirrorMode = true`, emits `Mirrored(ruleId, leader, leaderTx)`, inherits the same callback authentication as `Vault`.
-- [ ] T240 [US8] Implement `Agent.addMirror` validation and storage matching `data-model.md` §1.4 (`contracts/src/agent/Agent.sol`).
-- [ ] T241 [US8] Implement the mirror execution branch in `Agent.react()` for leader `Executed` logs: dedupe on `keccak256(leaderVault, ruleId, leaderTxHash)`, spend = `min(perRunCap, leaderAmountIn × scaleBps / 10_000)`, hourly counter, callback payload for the follower's vault.
-- [ ] T242 [US8] Enforce the mirror constraints in `Vault`: a mirror-mode vault accepts only mirror payloads and still applies its own live `minOut` check (`contracts/src/vault/Vault.sol`).
-- [ ] T243 [US8] Add `VaultFactory.deployMirror` with a test proving a leader vault cannot be converted into a mirror vault and vice versa (`contracts/test/unit/VaultFactory.t.sol`).
-- [ ] T244 [US8] Persist mirror links in the `mirrors` table and expose them on the rule detail API response (`backend/src/api/routes/rules.ts`).
-- [ ] T245 [US8] Add indexer handling for `Mirrored` → `executions` row with `kind: mirrored` and `leader_tx` populated (`backend/src/indexer/decoders/index.ts`).
-- [ ] T246 [US8] Build `frontend/src/components/MirrorForm.tsx`: leader selection, scale (bps), per-run cap, hourly cap, explicit warning about thin-pool fills, and detach.
-- [ ] T247 [US8] Show the mirror relationship on follower rule detail: “copies <leader rule>”, scale, caps, and its own mirrored execution history (`frontend/src/pages/RuleDetail.tsx`).
-- [ ] T248 [US8] Extend `GET /v1/proofs/:hash?include=mirrors` to return the follower's destination transaction alongside the leader's.
-- [ ] T249 [US8] Build the grouped proof view: leader and follower rows on one page with distinct badges and two explorer links (`frontend/src/pages/Proof.tsx`).
-- [ ] T250 [US8] Write `backend/scripts/seed-mirror.ts` creating a leader rule, a follower mirror, and a deterministic trigger for the demo.
-- [ ] T251 [US8] Playwright `frontend/e2e/mirror.spec.ts`: one leader event renders two destination rows from a fixture.
-- [ ] T252 [US8] Run the two-hop loop on testnet and record both destination hashes plus the dedupe replay result in `docs/measurements.md` and `docs/submission-evidence.md`.
-- [ ] T253 [US8] Write `docs/decisions/0006-mirror-depth-cap.md`: why the cap is structural (event type), not a counter.
-- [ ] T254 [US8] Add the documented fallback to `README.md`: if the two-hop loop is broken at the cut line, ship clone-only and state it plainly (`./README.md`).
+- [X] T239 [US8] Implement `contracts/src/vault/MirrorVault.sol`: `mirrorMode = true`, emits `Mirrored(ruleId, leader, leaderTx)`, inherits the same callback authentication as `Vault`.
+- [X] T240 [US8] Implement `Agent.addMirror` validation and storage matching `data-model.md` §1.4 (`contracts/src/agent/Agent.sol`).
+- [X] T241 [US8] Implement the mirror execution branch in `Agent.react()` for leader `Executed` logs: dedupe on `keccak256(leaderVault, ruleId, leaderTxHash)`, spend = `min(perRunCap, leaderAmountIn × scaleBps / 10_000)`, hourly counter, callback payload for the follower's vault.
+- [X] T242 [US8] Enforce the mirror constraints in `Vault`: a mirror-mode vault accepts only mirror payloads and still applies its own live `minOut` check (`contracts/src/vault/Vault.sol`).
+- [X] T243 [US8] Add `VaultFactory.deployMirror` with a test proving a leader vault cannot be converted into a mirror vault and vice versa (`contracts/test/unit/VaultFactory.t.sol`).
+- [X] T244 [US8] Persist mirror links in the `mirrors` table and expose them on the rule detail API response (`backend/src/api/routes/rules.ts`).
+- [X] T245 [US8] Add indexer handling for `Mirrored` → `executions` row with `kind: mirrored` and `leader_tx` populated (`backend/src/indexer/decoders/index.ts`).
+- [X] T246 [US8] Build `frontend/src/components/MirrorForm.tsx`: leader selection, scale (bps), per-run cap, hourly cap, explicit warning about thin-pool fills, and detach.
+- [X] T247 [US8] Show the mirror relationship on follower rule detail: “copies <leader rule>”, scale, caps, and its own mirrored execution history (`frontend/src/pages/RuleDetail.tsx`).
+- [X] T248 [US8] Extend `GET /v1/proofs/:hash?include=mirrors` to return the follower's destination transaction alongside the leader's.
+- [X] T249 [US8] Build the grouped proof view: leader and follower rows on one page with distinct badges and two explorer links (`frontend/src/pages/Proof.tsx`).
+- [X] T250 [US8] Write `backend/scripts/seed-mirror.ts` creating a leader rule, a follower mirror, and a deterministic trigger for the demo.
+- [X] T251 [US8] Playwright `frontend/e2e/mirror.spec.ts`: one leader event renders two destination rows from a fixture.
+- [X] T252 [US8] Run the two-hop loop on testnet and record both destination hashes plus the dedupe replay result in `docs/measurements.md` and `docs/submission-evidence.md`.
+- [X] T253 [US8] Write `docs/decisions/0006-mirror-depth-cap.md`: why the cap is structural (event type), not a counter.
+- [X] T254 [US8] Add the documented fallback to `README.md`: if the two-hop loop is broken at the cut line, ship clone-only and state it plainly (`./README.md`).
 
 ---
 

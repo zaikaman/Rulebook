@@ -111,6 +111,7 @@ export const proofRowSchema = z.object({
   timestamp: blockTimeSchema.optional(),
   explorer_url: z.string().url(),
   error: proofErrorSchema.nullable().optional(),
+  execution_role: z.enum(['leader', 'follower']).optional(),
 });
 export type ProofRow = z.infer<typeof proofRowSchema>;
 
@@ -321,6 +322,18 @@ export const ruleDetailResponseSchema = z.object({
   /** Present when the sponsor source could read the account's execution credit. */
   budget: ruleBudgetSchema.optional(),
   sponsor: sponsorStatusSchema.optional(),
+  mirror: z
+    .object({
+      leader_agent: addressSchema,
+      leader_rule_id: uint256Schema,
+      leader_vault: addressSchema,
+      scale_bps: z.number().int().min(1).max(10_000),
+      per_run_cap: uint256Schema,
+      hourly_cap: z.number().int().min(1).max(10),
+      detached_at: z.string().nullable(),
+    })
+    .optional(),
+  mirror_source: addressSchema.optional(),
 });
 
 export const executionsResponseSchema = z.object({

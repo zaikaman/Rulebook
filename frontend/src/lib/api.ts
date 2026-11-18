@@ -88,12 +88,14 @@ export class ApiClient {
   onboarding(
     owner: Address,
     vaultAuthorization?: { deadline: string; signature: `0x${string}` },
+    vaultMode?: 'mirror',
   ): Promise<OnboardingResponse> {
     return this.request('/v1/onboarding', onboardingResponseSchema, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         owner,
+        ...(vaultMode ? { vault_mode: vaultMode } : {}),
         ...(vaultAuthorization ? { vault_authorization: vaultAuthorization } : {}),
       }),
     });
@@ -150,7 +152,10 @@ export class ApiClient {
   }
 
   proof(reactiveTxHash: string): Promise<Proof> {
-    return this.request(`/v1/proofs/${encodeURIComponent(reactiveTxHash)}`, proofSchema);
+    return this.request(
+      `/v1/proofs/${encodeURIComponent(reactiveTxHash)}?include=mirrors`,
+      proofSchema,
+    );
   }
 }
 

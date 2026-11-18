@@ -16,6 +16,7 @@ export interface AccountSetupApi {
   onboarding(
     owner: Address,
     vaultAuthorization?: { deadline: string; signature: `0x${string}` },
+    vaultMode?: 'mirror',
   ): Promise<OnboardingResponse>;
   starterFunds(owner: Address, vault: Address): Promise<StarterFundsResponse>;
 }
@@ -31,6 +32,7 @@ export interface SetupWallet {
   authorizeVault(
     owner: Address,
     agent: Address,
+    vaultMode?: 'mirror',
   ): Promise<{ deadline: string; signature: `0x${string}` }>;
   linkVault(agent: Address, vault: Address, chainId: number): Promise<`0x${string}`>;
 }
@@ -48,7 +50,7 @@ export interface AccountSetup {
   readonly account: Account | null;
   readonly result: OnboardingResponse | null;
   readonly starterFunds: StarterFundsResponse | null;
-  readonly resume: () => Promise<OnboardingResponse | null>;
+  readonly resume: (vaultMode?: 'mirror') => Promise<OnboardingResponse | null>;
   readonly claimStarterFunds: () => Promise<StarterFundsResponse>;
   readonly resuming: boolean;
   readonly claiming: boolean;
@@ -82,14 +84,15 @@ export function useAccountSetup({ owner, api, wallet }: AccountSetupOptions): Ac
   const setupState: SetupState = account?.setup_state ?? (agent ? 'agent_only' : 'none');
 
   const resumeMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (vaultMode?: 'mirror') => {
       if (!owner) throw new Error('Connect a wallet before creating an account.');
       if (setupState === 'complete') return null;
 
       let result = await api.onboarding(owner);
       if (result.setup_state === 'agent_only' && result.agent && !result.vault) {
-        const authorization = await wallet.authorizeVault(owner, result.agent);
-        const authorized = await api.onboarding(owner, authorization);
+        const mode = vaultMode ? ([vaultMode] as const) : [];
+        const authorization = await wallet.authorizeVault(owner, result.agent, ...mode);
+        const authorized = await api.onboarding(owner, authorization, ...mode);
         const steps = new Map(result.steps.map((step) => [step.name, step]));
         for (const step of authorized.steps) {
           const previous = steps.get(step.name);

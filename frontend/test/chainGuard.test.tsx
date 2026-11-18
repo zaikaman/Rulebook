@@ -235,6 +235,8 @@ it('uses the reviewed cap and signer for the mirror write adapter', async () => 
   mocks.receipt.mockResolvedValue({ status: 'success' });
   const terms = {
     leaderChainId: BigInt(UNICHAIN_SEPOLIA_CHAIN_ID),
+    leaderAgent: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const,
+    tokenIn: DEMO_USDC,
     leaderVault: VAULT,
     leaderRuleId: 2n,
     scaleBps: 5000,

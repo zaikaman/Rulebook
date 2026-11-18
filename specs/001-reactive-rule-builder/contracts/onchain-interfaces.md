@@ -59,6 +59,12 @@ interface IAgent is IReactive {
     event EvaluationDeferred(uint256 indexed ruleId, uint256 gasRemaining);
     event BudgetLow(uint256 reserved, uint256 threshold);
     event VaultLinked(uint256 indexed chainId, address indexed vault);
+    event MirrorAttached(uint256 indexed ruleId, address indexed leaderAgent,
+                         address indexed leaderVault, uint256 leaderRuleId,
+                         uint16 scaleBps, uint256 perRunCap, uint8 hourlyCap);
+    event MirrorDetached(uint256 indexed ruleId);
+    event MirrorCallbackRequested(bytes32 indexed leaderTx, address indexed leaderVault,
+                                  uint256 indexed ruleId);
 
     // --- owner-only configuration ---
     function addRule(Rule calldata rule, bool makePublic) external returns (uint256 ruleId);
@@ -69,6 +75,7 @@ interface IAgent is IReactive {
     function reorderRules(uint256[] calldata ids) external;    // evaluation order, FR-014
     function linkVault(uint256 chainId, address vault) external;
     function addMirror(uint256 ruleId, MirrorConfig calldata config) external;
+    function detachMirror(uint256 ruleId) external;
 
     // --- reactive entry point ---
     function react(LogRecord calldata log) external;          // onlySystem
@@ -89,6 +96,8 @@ struct MirrorConfig {
     uint16  scaleBps;     // <= 10_000
     uint256 perRunCap;
     uint8   hourlyCap;    // 1..10
+    address leaderAgent;
+    address tokenIn;
 }
 ```
 
@@ -132,6 +141,7 @@ interface IVault is IERC20Receiver {
 
     // --- agent-triggered (callback) ---
     function execute(address agent, uint256 ruleId, bytes calldata data) external;
+    function executeMirror(address agent, uint256 ruleId, bytes calldata data) external;
 
     // --- views ---
     function owner() external view returns (address);
@@ -171,12 +181,19 @@ interface IAgentFactory {                 // Lasna
 
 interface IVaultFactory {                 // Unichain Sepolia
     event VaultDeployed(address indexed owner, address indexed vault, address indexed agent, uint256 chainId);
-    function deploy(address owner, address agent, address tokenIn, address tokenOut) external returns (address vault);
+    event MirrorVaultDeployed(address indexed vault);
+    function deploy(address owner, address agent, address tokenIn, address tokenOut,
+                    uint256 deadline, bytes calldata authorization) external returns (address vault);
+    function deployMirror(address owner, address agent, address tokenIn, address tokenOut,
+                          uint256 deadline, bytes calldata authorization) external returns (address vault);
     function vaultOf(address owner) external view returns (address);
 }
 ```
 
 **Ordering invariant** (FR-003): `AgentFactory.deploy` first, then `VaultFactory.deploy` with the resulting agent address. `Agent.linkVault(chainId, vault)` closes the loop. `VaultFactory` reverts `AgentAlreadyLinked()` if a vault already exists for `(owner, chainId)`, which is what makes onboarding idempotent-but-not-duplicating (FR-004).
+
+`deployMirror` uses the same ordering and owner binding with a separate EIP-712
+`MirrorVaultDeployment` authorization. The deployed vault's mode is immutable.
 
 ---
 

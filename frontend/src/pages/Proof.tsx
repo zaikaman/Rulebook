@@ -187,7 +187,7 @@ export function Proof() {
 
       <ol aria-label="Proof rows" className="app-proof-path app-panel">
         {proof.rows.map((row) => (
-          <ProofRow key={`${row.role}-${row.tx_hash}`} row={row} />
+          <ProofRow key={`${row.role}-${row.execution_role ?? ''}-${row.tx_hash}`} row={row} />
         ))}
       </ol>
 

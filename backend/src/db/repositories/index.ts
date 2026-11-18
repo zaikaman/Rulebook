@@ -100,6 +100,9 @@ export type MirrorRow = {
   rule_id: string;
   leader_agent: string;
   leader_rule_id: string;
+  leader_vault: string | null;
+  per_run_cap: string | null;
+  detached_at: string | null;
   scale_bps: number;
   hourly_cap: number;
   indexed_at: string;
@@ -204,6 +207,10 @@ export function createRepositories(store: Store) {
       async get(address: string): Promise<VaultRow | null> {
         return (await store.selectOne('vaults', { address })) as VaultRow | null;
       },
+      async markMirror(address: string): Promise<void> {
+        const vault = await this.get(address);
+        if (vault) await this.upsert({ ...vault, mirror_mode: true });
+      },
     },
     rules: {
       async upsert(row: Omit<RuleRow, 'indexed_at'>): Promise<void> {
@@ -280,6 +287,12 @@ export function createRepositories(store: Store) {
           { orderBy: { column: 'log_index', ascending: true } },
         )) as RuleEventRow[];
       },
+      async listMirrorRequests(leaderTx: string): Promise<RuleEventRow[]> {
+        return (await store.select('rule_events', {
+          origin_tx: leaderTx,
+          kind: 'mirror_callback_requested',
+        })) as RuleEventRow[];
+      },
       /** Alert activity rows: what fired, never an execution (US5). */
       async listAlerts(agent: string, ruleId?: string, limit = 10): Promise<RuleEventRow[]> {
         const filters: Record<string, StoreValue> = { agent, kind: 'alert' };
@@ -335,6 +348,16 @@ export function createRepositories(store: Store) {
     mirrors: {
       async upsert(row: Omit<MirrorRow, 'indexed_at'>): Promise<void> {
         await store.upsert('mirrors', [withIndexedAt(row)], 'follower_agent,rule_id');
+      },
+      async get(followerAgent: string, ruleId: string): Promise<MirrorRow | null> {
+        return (await store.selectOne('mirrors', {
+          follower_agent: followerAgent,
+          rule_id: ruleId,
+        })) as MirrorRow | null;
+      },
+      async detach(followerAgent: string, ruleId: string, timestamp: string): Promise<void> {
+        const link = await this.get(followerAgent, ruleId);
+        if (link) await this.upsert({ ...link, detached_at: timestamp });
       },
     },
     listings: {

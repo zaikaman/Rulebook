@@ -269,6 +269,7 @@ components:
             required: [role, chain_id, tx_hash, explorer_url]
             properties:
               role: { type: string, enum: [origin, automation, destination] }
+              execution_role: { type: string, enum: [leader, follower] }
               chain_id: { type: integer }
               tx_hash: { $ref: '#/components/schemas/TxHash' }
               block_number: { type: integer }
@@ -443,6 +444,29 @@ paths:
                   recent_executions:
                     type: array
                     items: { $ref: '#/components/schemas/Execution' }
+                  mirror_source:
+                    description: Linked standard vault for an eligible public swap rule.
+                    $ref: '#/components/schemas/Address'
+                  mirror:
+                    type: object
+                    required:
+                      [
+                        leader_agent,
+                        leader_rule_id,
+                        leader_vault,
+                        scale_bps,
+                        per_run_cap,
+                        hourly_cap,
+                        detached_at,
+                      ]
+                    properties:
+                      leader_agent: { $ref: '#/components/schemas/Address' }
+                      leader_rule_id: { $ref: '#/components/schemas/Uint256' }
+                      leader_vault: { $ref: '#/components/schemas/Address' }
+                      scale_bps: { type: integer, minimum: 1, maximum: 10000 }
+                      per_run_cap: { $ref: '#/components/schemas/Uint256' }
+                      hourly_cap: { type: integer, minimum: 1, maximum: 10 }
+                      detached_at: { type: string, format: date-time, nullable: true }
         '404':
           description: Unknown rule
           content:
@@ -482,17 +506,22 @@ paths:
   /v1/proofs/{reactiveTxHash}:
     get:
       tags: [proofs]
-      summary: Three-row proof built from chain state
+      summary: Execution proof built from chain state
       description: |
         Reads `getCallbacks(uint256)` on the Lasna system contract, then resolves the
         destination transaction on Unichain Sepolia. Supabase is a cache only; a cached
         response is always labelled `source: cache` with its age. This endpoint is the
         reason the submission survives its own database dying (SC-005, FR-034).
+        With `include=mirrors`, the index discovers related follower requests and
+        Lasna callback records verify their destination transactions.
       parameters:
         - name: reactiveTxHash
           in: path
           required: true
           schema: { $ref: '#/components/schemas/TxHash' }
+        - name: include
+          in: query
+          schema: { type: string, enum: [mirrors] }
       responses:
         '200':
           description: Proof
@@ -590,6 +619,13 @@ paths:
               required: [owner]
               properties:
                 owner: { $ref: '#/components/schemas/Address' }
+                vault_mode: { type: string, enum: [leader, mirror], default: leader }
+                vault_authorization:
+                  type: object
+                  required: [deadline, signature]
+                  properties:
+                    deadline: { $ref: '#/components/schemas/Uint256' }
+                    signature: { type: string, pattern: '^0x[0-9a-fA-F]{130}$' }
       responses:
         '200':
           description: Onboarding attempt result

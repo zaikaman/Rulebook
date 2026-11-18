@@ -17,3 +17,20 @@ setup through withdrawal against local Anvil and the fixture backend.
 The frontend tests also exercise keyboard focus and Escape cancellation in both prompts, rejection
 of a wallet that changes accounts or networks mid-review, and the mirror write adapter's displayed
 spend cap and signed arguments.
+
+## US8 · Mirror
+
+The Foundry integration scenario verified two independent swaps and no third swap
+after replay. Playwright verifies two destination rows with separate explorer links
+using a fixture.
+
+On 18 November 2026, the live leader swap spent 1 USDC and the follower swap spent
+0.5 USDC. Each swap settled in its own Unichain Sepolia transaction.
+
+- [Leader destination](https://sepolia.uniscan.xyz/tx/0xccf64f31878be71e8c0d3ba0dee0700e05d4d4bf0dc0e24d789a39e7e872bdcc)
+- [Follower destination](https://sepolia.uniscan.xyz/tx/0x1b01d4dff73a83807bf4c396ee49a0baa58463bb4e8fc448d8693d66e4438251)
+
+A read-only replay of the same leader log against confirmed Lasna state evaluated
+false and requested zero callbacks. The live vault receipts confirmed both swaps.
+Lasna `getCallbacks` returned empty arrays during verification, so the grouped
+proof remains verified by fixture. [Full transaction and replay evidence](./measurements.md)

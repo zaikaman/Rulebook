@@ -122,3 +122,16 @@ indexer, which is the one failure mode this product cannot afford.
 - Prices are the **last traded price**, which on a quiet pair can be hours old.
 - Sponsorship is load-bearing: if the operator stops topping up, automation pauses. Funds
   are never at risk, and `depositTo()` is permissionless, so anyone can revive an account.
+
+## Mirroring release fallback
+
+The current release configuration is clone-only. Users can copy a public rule's settings
+and run their own copy. Keep `VITE_ENABLE_MIRROR=false` if the two-hop testnet loop fails
+at the release cutoff. Announce the clone-only scope in the demo and submission.
+
+Both destination transactions and the replay check are recorded. Enable
+`VITE_ENABLE_MIRROR=true` once the chain-first proof endpoint returns both live
+destination rows. Use Phase 10 factories and the mirror links migration. Vault mode
+is permanent and mirror-only vaults are selected during account setup. See
+[the mirror design decision](./docs/decisions/0006-mirror-depth-cap.md) and
+[testnet verification status](./docs/measurements.md).

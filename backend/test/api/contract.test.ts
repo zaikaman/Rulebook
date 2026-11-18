@@ -7,6 +7,7 @@ import {
   executionsResponseSchema,
   healthSchema,
   listingsResponseSchema,
+  ruleDetailResponseSchema,
   sponsorStatusSchema,
 } from '@rulebook/shared';
 import { describe, expect, it } from 'vitest';
@@ -122,6 +123,75 @@ describe('API contract', () => {
   it('returns sponsor state for an account', async () => {
     const response = await app.inject({ method: 'GET', url: `/v1/sponsor/${AGENT}` });
     expect(sponsorStatusSchema.parse(response.json()).chains).toHaveLength(2);
+  });
+
+  it('exposes a detached mirror and retains its own execution history', async () => {
+    const deps = makeDeps();
+    const leader = '0x2222222222222222222222222222222222222222';
+    const leaderVault = '0x3333333333333333333333333333333333333333';
+    const followerVault = '0x4444444444444444444444444444444444444444';
+    const leaderTx = `0x${'5'.repeat(64)}`;
+    const followerTx = `0x${'6'.repeat(64)}`;
+    const timestamp = '2026-11-18T00:00:00.000Z';
+    await deps.repositories.rules.upsert({
+      agent: AGENT,
+      rule_id: '7',
+      template: 3,
+      chain_id: 1301,
+      status: 'cancelled',
+      latched: false,
+      pair: null,
+      token_in: null,
+      token_out: null,
+      amount_in: '500000',
+      threshold: null,
+      secondary: null,
+      last_run_at: timestamp,
+      runs: 1,
+      is_public: false,
+    });
+    await deps.repositories.mirrors.upsert({
+      follower_agent: AGENT,
+      rule_id: '7',
+      leader_agent: leader,
+      leader_rule_id: '2',
+      leader_vault: leaderVault,
+      scale_bps: 5000,
+      hourly_cap: 1,
+      per_run_cap: '500000',
+      detached_at: null,
+    });
+    await deps.repositories.mirrors.detach(AGENT, '7', timestamp);
+    await deps.repositories.executions.upsert({
+      chain_id: 1301,
+      tx_hash: followerTx,
+      log_index: 0,
+      vault: followerVault,
+      agent: AGENT,
+      owner: AGENT,
+      rule_id: '7',
+      kind: 'mirrored',
+      token_in: null,
+      token_out: null,
+      amount_in: null,
+      amount_out: null,
+      block_number: 12,
+      block_time: timestamp,
+      leader_tx: leaderTx,
+      status: 'confirmed',
+    });
+    const { app: mirrorApp } = buildServer(deps, { logger: false });
+    const response = await mirrorApp.inject(`/v1/accounts/${AGENT}/rules/7`);
+    const detail = ruleDetailResponseSchema.parse(response.json());
+    expect(detail.mirror).toMatchObject({
+      leader_agent: leader,
+      leader_rule_id: 2n,
+      per_run_cap: 500_000n,
+      detached_at: timestamp,
+    });
+    expect(detail.mirror_source).toBeUndefined();
+    expect(detail.recent_executions).toMatchObject([{ kind: 'mirrored', leader_tx: leaderTx }]);
+    await mirrorApp.close();
   });
 
   it('returns the canonical error shape for an unknown agent', async () => {

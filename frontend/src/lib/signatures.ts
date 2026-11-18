@@ -15,7 +15,7 @@ export interface SignatureDetails {
   readonly amount: string;
 }
 
-export type ControlFunction = 'pauseRule' | 'resumeRule' | 'cancelRule';
+export type ControlFunction = 'pauseRule' | 'resumeRule' | 'cancelRule' | 'detachMirror';
 type RuleSpend = Pick<RuleParams, 'chainId' | 'tokenIn' | 'amountIn'>;
 type MirrorTerms = {
   readonly leaderVault: Address;
@@ -54,15 +54,19 @@ const controlEffect: Record<ControlFunction, (id: bigint) => string> = {
   pauseRule: (id) => `Pause rule #${id} until you resume it.`,
   resumeRule: (id) => `Resume rule #${id} so it can run again.`,
   cancelRule: (id) => `Permanently cancel rule #${id} to stop future runs.`,
+  detachMirror: (id) => `Detach mirror #${id} to stop following future leader trades.`,
 };
 
 export const signatureDetails = {
-  authorizeVault(factory: Address, agent: Address): SignatureDetails {
+  authorizeVault(factory: Address, agent: Address, vaultMode?: 'mirror'): SignatureDetails {
     return {
       chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
       target: factory,
       targetLabel: 'Funds account factory',
-      effect: `Authorize the sponsor to create a funds account that you own for automation account ${agent}.`,
+      effect:
+        vaultMode === 'mirror'
+          ? `Authorize a mirror-only funds account that you own for automation account ${agent}. Vault mode is permanent.`
+          : `Authorize the sponsor to create a funds account that you own for automation account ${agent}.`,
       amount: noSpend,
     };
   },

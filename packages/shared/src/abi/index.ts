@@ -108,6 +108,19 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "MIRROR_CALLBACK_GAS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MONTHLY_SPEND_CAP",
     "inputs": [],
     "outputs": [
@@ -240,6 +253,16 @@ export const agentAbi = [
             "name": "hourlyCap",
             "type": "uint8",
             "internalType": "uint8"
+          },
+          {
+            "name": "leaderAgent",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "tokenIn",
+            "type": "address",
+            "internalType": "address"
           }
         ]
       }
@@ -356,6 +379,19 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "detachMirror",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "factory",
     "inputs": [],
     "outputs": [
@@ -455,6 +491,16 @@ export const agentAbi = [
             "name": "hourlyCap",
             "type": "uint8",
             "internalType": "uint8"
+          },
+          {
+            "name": "leaderAgent",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "tokenIn",
+            "type": "address",
+            "internalType": "address"
           }
         ]
       }
@@ -981,6 +1027,93 @@ export const agentAbi = [
   },
   {
     "type": "event",
+    "name": "MirrorAttached",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "leaderAgent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "leaderVault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "leaderRuleId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "scaleBps",
+        "type": "uint16",
+        "indexed": false,
+        "internalType": "uint16"
+      },
+      {
+        "name": "perRunCap",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "hourlyCap",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorCallbackRequested",
+    "inputs": [
+      {
+        "name": "leaderTx",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "leaderVault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorDetached",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "OwnershipTransferred",
     "inputs": [
       {
@@ -1167,6 +1300,11 @@ export const agentAbi = [
   },
   {
     "type": "error",
+    "name": "MirrorDepthNotAllowed",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "MonthlyCapExceeded",
     "inputs": [
       {
@@ -1242,6 +1380,22 @@ export const agentAbi = [
         "name": "ruleId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TokenMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actual",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -1413,6 +1567,29 @@ export const vaultAbi = [
   {
     "type": "function",
     "name": "execute",
+    "inputs": [
+      {
+        "name": "agent_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "executeMirror",
     "inputs": [
       {
         "name": "agent_",
@@ -1881,6 +2058,17 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "DuplicateLeaderExecution",
+    "inputs": [
+      {
+        "name": "key",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ExceedsPerRunCap",
     "inputs": [
       {
@@ -1950,6 +2138,11 @@ export const vaultAbi = [
   {
     "type": "error",
     "name": "InvalidThreshold",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "MirrorDepthNotAllowed",
     "inputs": []
   },
   {
@@ -2199,6 +2392,19 @@ export const vaultFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "MIRROR_DEPLOYMENT_TYPEHASH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "VAULT_DEPLOYMENT_TYPEHASH",
     "inputs": [],
     "outputs": [
@@ -2226,6 +2432,50 @@ export const vaultFactoryAbi = [
   {
     "type": "function",
     "name": "deploy",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "agent_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenIn_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "tokenOut_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "deadline_",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "authorization_",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "deployMirror",
     "inputs": [
       {
         "name": "owner_",
@@ -2371,6 +2621,19 @@ export const vaultFactoryAbi = [
     "type": "event",
     "name": "EIP712DomainChanged",
     "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "MirrorVaultDeployed",
+    "inputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
     "anonymous": false
   },
   {

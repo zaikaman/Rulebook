@@ -169,6 +169,47 @@ describe('GET /v1/proofs/:reactiveTxHash', () => {
     await app.close();
   });
 
+  it('verifies the follower callback on chain before grouping it with the leader', async () => {
+    const followerReactive = `0x${'4'.repeat(64)}` as const;
+    const followerDestination = `0x${'5'.repeat(64)}` as const;
+    const record = callback({
+      destination_tx_hash: followerDestination,
+      error_data: toFunctionSelector('SlippageExceeded(uint256,uint256)'),
+    });
+    const { app, repositories } = makeHarness({
+      read: async (hash) =>
+        hash === HASH
+          ? chainProof({ leaderTransactions: [DESTINATION_HASH] })
+          : chainProof({
+              reactive_tx: followerReactive,
+              mirrorRequests: [{ leaderTx: DESTINATION_HASH, agent: AGENT }],
+              destinations: [{ chain_id: 1301, tx_hash: followerDestination, callback: record }],
+              callbacks: [record],
+            }),
+    });
+    await repositories.ruleEvents.upsert({
+      chain_id: 5_318_007,
+      tx_hash: followerReactive,
+      log_index: 0,
+      agent: AGENT,
+      rule_id: '0',
+      kind: 'mirror_callback_requested',
+      origin_tx: DESTINATION_HASH,
+      block_time: '2026-11-18T00:00:00.000Z',
+    });
+    const response = await app.inject(`/v1/proofs/${HASH}?include=mirrors`);
+    expect(response.statusCode).toBe(200);
+    const destinations = proofSchema
+      .parse(response.json())
+      .rows.filter((row) => row.role === 'destination');
+    expect(destinations.map((row) => [row.execution_role, row.tx_hash])).toEqual([
+      ['leader', DESTINATION_HASH],
+      ['follower', followerDestination],
+    ]);
+    expect(destinations[1]?.error?.selector).toBe(record.error_data);
+    await app.close();
+  });
+
   it('returns 503 when both the chain and the cache are unavailable', async () => {
     proofSource = {
       read: async () => {
