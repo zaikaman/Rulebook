@@ -1,111 +1,85 @@
-import { Coins01Icon, SecurityCheckIcon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import { Coins01Icon, SecurityCheckIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { PageHeading } from '@/components/chrome/PageHeading.js';
+import { Link } from 'react-router';
+
+import { PageHeading } from '../components/chrome/PageHeading.js';
+import { appRoutes } from '../lib/routes.js';
+
+const COSTS = [
+  {
+    activity: 'Account deployment',
+    payer: 'Operator',
+    detail: 'Deploys your Automation Agent and Vault contracts.',
+  },
+  {
+    activity: 'Rule evaluation',
+    payer: 'Operator',
+    detail: 'Funds the Reactive Lasna credit used to watch events and evaluate rules.',
+  },
+  {
+    activity: 'Automated execution',
+    payer: 'Operator',
+    detail: 'Funds the destination gas when your vault executes an authorized action.',
+  },
+  {
+    activity: 'Trading principal',
+    payer: 'You',
+    detail: 'Only the funds you allocate to your vault are available for trades.',
+  },
+  {
+    activity: 'Direct wallet transactions',
+    payer: 'Your wallet',
+    detail: 'Your wallet shows the network fee for transactions it submits, such as withdrawals.',
+  },
+] as const;
 
 export function CostModelPage() {
   return (
-    <div className="space-y-8">
+    <section className="app-page">
       <PageHeading
-        title="Cost & Custody Model"
-        description="Who pays for what, why custody stays with you, and how the platform sustains sponsored gas."
+        title="Cost & custody model"
+        description="See which costs Rulebook sponsors and how your wallet keeps control of your funds."
       />
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* User Side */}
-        <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-8 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-400">
-              <HugeiconsIcon icon={Wallet01Icon} size={20} />
+      <section className="app-panel" aria-labelledby="cost-breakdown">
+        <div className="app-panel-header app-panel-pad">
+          <span className="app-icon">
+            <HugeiconsIcon icon={Coins01Icon} size={21} aria-hidden="true" />
+          </span>
+          <h2 id="cost-breakdown" className="app-panel-heading">
+            Who pays for what
+          </h2>
+        </div>
+        <dl className="app-divider app-cost-list">
+          {COSTS.map(({ activity, payer, detail }) => (
+            <div key={activity} className="app-panel-pad">
+              <dt>{activity}</dt>
+              <dd className="app-tag" data-tone={payer === 'Operator' ? 'positive' : undefined}>
+                {payer}
+              </dd>
+              <dd className="app-copy">{detail}</dd>
             </div>
-            <div>
-              <h3 className="font-heading font-semibold text-white text-lg">What You Pay</h3>
-              <span className="font-mono text-xs text-emerald-400">Zero Native Fee Tokens</span>
-            </div>
-          </div>
+          ))}
+        </dl>
+      </section>
 
-          <p className="text-sm text-neutral-300 leading-relaxed">
-            You only deposit the trading principal you want your rules to use (e.g. USDC). You never
-            need to acquire or manage fee tokens on Lasna or destination chains.
+      <section className="app-panel app-panel-pad app-custody" aria-labelledby="cost-custody">
+        <span className="app-icon">
+          <HugeiconsIcon icon={SecurityCheckIcon} size={21} aria-hidden="true" />
+        </span>
+        <div className="space-y-2">
+          <h2 id="cost-custody" className="app-panel-heading">
+            Your wallet owns the vault
+          </h2>
+          <p className="app-copy">
+            Your vault on Unichain Sepolia settles actions permitted by your rules. The operator can
+            fund execution credit. Only the vault owner can withdraw principal directly.
           </p>
-
-          <ul className="space-y-2 text-xs font-mono text-neutral-400 border-t border-white/5 pt-4">
-            <li className="flex items-center justify-between">
-              <span>Account Deployment:</span>
-              <span className="text-emerald-400">Free ($0.00)</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Rule Evaluation Gas:</span>
-              <span className="text-emerald-400">Sponsored ($0.00)</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Destination Execution:</span>
-              <span className="text-emerald-400">Sponsored ($0.00)</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Withdrawal:</span>
-              <span className="text-white">Direct via your wallet</span>
-            </li>
-          </ul>
+          <Link to={appRoutes.account} className="app-link inline-block text-sm">
+            View your vault
+          </Link>
         </div>
-
-        {/* Operator Side */}
-        <div className="rounded-3xl border border-white/5 bg-white/[0.02] p-8 space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-              <HugeiconsIcon icon={Coins01Icon} size={20} />
-            </div>
-            <div>
-              <h3 className="font-heading font-semibold text-white text-lg">
-                What The Operator Funds
-              </h3>
-              <span className="font-mono text-xs text-blue-400">Operational Sponsorship</span>
-            </div>
-          </div>
-
-          <p className="text-sm text-neutral-300 leading-relaxed">
-            The platform maintains subscription balances on the Reactive Network and destination
-            relayers to fund continuous contract evaluation and transaction relaying.
-          </p>
-
-          <ul className="space-y-2 text-xs font-mono text-neutral-400 border-t border-white/5 pt-4">
-            <li className="flex items-center justify-between">
-              <span>Lasna Reactive Gas:</span>
-              <span className="text-blue-400">Paid by Operator</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Destination Relayer:</span>
-              <span className="text-blue-400">Paid by Operator</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Price Indexing & Sync:</span>
-              <span className="text-blue-400">Paid by Operator</span>
-            </li>
-            <li className="flex items-center justify-between">
-              <span>Custody Access:</span>
-              <span className="text-red-400 font-bold">Zero Operator Access</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      {/* Custody Guarantee Card */}
-      <div className="rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.03] to-transparent p-8 space-y-4">
-        <div className="flex items-center gap-3 text-blue-400">
-          <HugeiconsIcon icon={SecurityCheckIcon} size={22} />
-          <h3 className="font-heading font-semibold text-white text-lg">
-            Why Custody Remains 100% Yours
-          </h3>
-        </div>
-
-        <p className="text-sm text-neutral-300 leading-relaxed">
-          Your personal Vault contract on Unichain Sepolia is deployed with your wallet as its
-          immutable owner. The operator contracts can only request valid actions (such as a Uniswap
-          swap) if authorized by a cryptographically signed rule matching your exact parameters.
-          Under no circumstances can the operator, the relayer, or the indexer initiate a transfer
-          of principal to any other address. You can call <code>withdraw()</code> directly on your
-          Vault at any time.
-        </p>
-      </div>
-    </div>
+      </section>
+    </section>
   );
 }

@@ -1,4 +1,5 @@
 import {
+  ArrowLeft01Icon,
   Award01Icon,
   Book02Icon,
   Coins01Icon,
@@ -6,6 +7,7 @@ import {
   Store01Icon,
   Wallet01Icon,
 } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 
@@ -30,11 +32,12 @@ export function AppSidebar() {
         <Wordmark />
       </Link>
 
-      <nav className="space-y-1 flex-1">
+      <nav aria-label="Workspace" className="space-y-1 flex-1">
         <SidebarSection
           label="Rules"
           href={appRoutes.rules}
           icon={Book02Icon}
+          nested
           items={[{ label: 'Compose sentence', href: appRoutes.create }]}
         />
         <SidebarSection
@@ -53,6 +56,7 @@ export function AppSidebar() {
           label="Proof Explorer"
           href={appRoutes.proof}
           icon={DocumentValidationIcon}
+          nested
           items={[]}
         />
         <SidebarSection
@@ -64,8 +68,8 @@ export function AppSidebar() {
         <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} items={[]} />
       </nav>
 
-      <div className="mt-auto pt-6 border-t border-white/5 space-y-4">
-        <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-3 text-xs">
+      <div className="app-divider mt-auto space-y-4 pt-6">
+        <div className="app-panel p-3 text-xs">
           <div className="flex items-center justify-between gap-2 mb-2">
             <span className="text-[10px] uppercase font-medium tracking-wider text-neutral-400">
               Wallet
@@ -80,7 +84,7 @@ export function AppSidebar() {
               <button
                 type="button"
                 onClick={() => disconnect()}
-                className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-neutral-400 hover:text-white transition-colors"
+                className="app-button min-h-8 px-2.5 text-xs"
               >
                 Disconnect
               </button>
@@ -90,7 +94,7 @@ export function AppSidebar() {
               type="button"
               disabled={isPending || !injectedConnector}
               onClick={() => injectedConnector && connect({ connector: injectedConnector })}
-              className="w-full rounded-full bg-white px-3 py-1.5 text-xs font-medium text-black transition-all hover:bg-neutral-200 disabled:opacity-50"
+              className="app-button app-button--primary w-full"
             >
               {isPending ? 'Connecting…' : 'Connect wallet'}
             </button>
@@ -99,10 +103,10 @@ export function AppSidebar() {
 
         <Link
           to={appRoutes.landing}
-          className="flex items-center justify-between px-3 py-1.5 text-xs text-neutral-400 hover:text-white transition-colors"
+          className="flex items-center gap-2 px-2 py-1.5 text-xs text-ink-muted transition-colors hover:text-ink"
         >
+          <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden="true" />
           <span>Back to overview</span>
-          <span className="font-mono text-[10px] text-neutral-400">ESC</span>
         </Link>
       </div>
     </aside>

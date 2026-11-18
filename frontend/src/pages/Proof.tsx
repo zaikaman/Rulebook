@@ -1,11 +1,14 @@
+import { ArrowRight02Icon, Copy01Icon, Search01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ChainOnlyProof } from '../components/ChainOnlyProof.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ProofRow } from '../components/ProofRow.js';
 import { useProof, proofErrorCopy } from '../hooks/useProof.js';
+import { appRoutes } from '../lib/routes.js';
 
 const CHAIN_ONLY_PROOF_ENABLED = import.meta.env.VITE_ENABLE_CHAIN_ONLY_PROOF === 'true';
 
@@ -18,45 +21,81 @@ export function Proof() {
   const { reactiveTxHash } = useParams();
   const navigate = useNavigate();
   const [lookup, setLookup] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [lookupInvalid, setLookupInvalid] = useState(false);
+  const [copyResult, setCopyResult] = useState<{ hash: string; ok: boolean }>();
   const proofQuery = useProof(reactiveTxHash);
+  const breadcrumb = (
+    <>
+      {' '}
+      <Link to={appRoutes.proof}>Proof explorer</Link>{' '}
+      <HugeiconsIcon icon={ArrowRight02Icon} size={12} aria-hidden="true" />{' '}
+      <span aria-current="page">Transaction</span>{' '}
+    </>
+  );
 
   async function copyHash(hash: string): Promise<void> {
-    await navigator.clipboard?.writeText(hash);
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(hash);
+      setCopyResult({ hash, ok: true });
+    } catch {
+      setCopyResult({ hash, ok: false });
+    }
   }
 
   if (!reactiveTxHash) {
     return (
-      <section className="space-y-5">
+      <section className="app-page">
         <PageHeading
           title="Execution proof"
-          description="Open a proof by the Lasna transaction that evaluated the rule."
+          description="Trace a rule from the event that triggered it to the outcome on the destination chain."
         />
         <form
-          className="flex flex-wrap gap-2"
+          className="app-panel app-panel-pad grid max-w-[46rem] gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             const value = lookup.trim().toLowerCase();
-            if (/^0x[0-9a-f]{64}$/.test(value)) navigate(`/proof/${value}`);
+            const valid = /^0x[0-9a-f]{64}$/.test(value);
+            setLookupInvalid(!valid);
+            if (valid) navigate(`/proof/${value}`);
           }}
         >
-          <label className="sr-only" htmlFor="proof-hash">
+          <div className="app-panel-header">
+            <span className="app-icon">
+              <HugeiconsIcon icon={Search01Icon} size={20} aria-hidden="true" />
+            </span>
+            <h2 className="app-panel-heading">Find a transaction</h2>
+          </div>
+          <label htmlFor="proof-hash" className="app-field">
             Reactive transaction hash
           </label>
-          <input
-            id="proof-hash"
-            value={lookup}
-            onChange={(event) => setLookup(event.target.value)}
-            placeholder="0x…"
-            className="min-w-72 flex-1 rounded border border-border bg-surface-raised px-3 py-2 font-mono text-xs text-ink"
-          />
-          <button
-            type="submit"
-            className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-surface"
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <input
+              id="proof-hash"
+              value={lookup}
+              onChange={(event) => {
+                setLookup(event.target.value);
+                setLookupInvalid(false);
+              }}
+              placeholder="0x…"
+              spellCheck={false}
+              autoCapitalize="off"
+              aria-invalid={lookupInvalid || undefined}
+              aria-describedby="proof-hash-hint"
+              className="app-input font-mono"
+            />
+            <button type="submit" className="app-button app-button--primary">
+              Open proof
+            </button>
+          </div>
+          <p
+            id="proof-hash-hint"
+            className={lookupInvalid ? 'text-sm text-silent' : 'app-copy'}
+            role={lookupInvalid ? 'alert' : undefined}
           >
-            Open proof
-          </button>
+            {lookupInvalid
+              ? 'Enter a complete Lasna transaction hash. It starts with 0x and contains 64 hexadecimal characters.'
+              : 'Paste the hash of the Lasna transaction that evaluated your rule.'}
+          </p>
         </form>
       </section>
     );
@@ -64,13 +103,14 @@ export function Proof() {
 
   if (proofQuery.isLoading) {
     return (
-      <section aria-busy="true" className="space-y-4">
-        <PageHeading title="Execution proof" description="Reading the chain…" />
+      <section aria-busy="true" className="app-page">
+        <PageHeading
+          title="Execution proof"
+          description="Reading the chain…"
+          breadcrumb={breadcrumb}
+        />
         {[0, 1, 2].map((index) => (
-          <div
-            key={index}
-            className="h-28 animate-pulse rounded-lg border border-border bg-surface-raised"
-          />
+          <div key={index} className="app-skeleton h-28 animate-pulse" />
         ))}
       </section>
     );
@@ -79,8 +119,8 @@ export function Proof() {
   if (proofQuery.error || !proofQuery.data) {
     const copy = proofErrorCopy(proofQuery.error);
     return (
-      <section className="space-y-4">
-        <PageHeading title="Execution proof" description="No proof is being invented." />
+      <section className="app-page">
+        <PageHeading title="Execution proof" breadcrumb={breadcrumb} />
         <ErrorState message={copy.title} detail={copy.detail} />
         {CHAIN_ONLY_PROOF_ENABLED ? <ChainOnlyProof reactiveTxHash={reactiveTxHash} /> : null}
       </section>
@@ -90,53 +130,68 @@ export function Proof() {
   const proof = proofQuery.data;
 
   return (
-    <section className="space-y-5">
+    <section className="app-page">
       <PageHeading
         title="Execution proof"
-        description="Origin event → automation transaction → destination transaction. Each row opens on its own explorer."
+        description="Follow each step of the execution and open it on the corresponding chain explorer."
+        breadcrumb={breadcrumb}
       />
 
-      <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-raised p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="app-panel app-panel-pad grid gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <span
             data-testid="proof-source"
             data-source={proof.source}
-            className={
-              proof.source === 'chain'
-                ? 'rounded-full border border-active/40 bg-active/10 px-2 py-0.5 text-xs text-active'
-                : 'rounded-full border border-paused/40 bg-paused/10 px-2 py-0.5 text-xs text-paused'
-            }
+            className="app-tag"
+            data-tone={proof.source === 'chain' ? 'positive' : 'warning'}
           >
             {proof.source === 'chain'
               ? 'Live from chain'
               : `Cached proof · ${proof.cache_age_seconds ?? 0}s old`}
           </span>
           {proof.latency_ms !== null && proof.latency_ms !== undefined ? (
-            <span data-testid="proof-latency" className="font-mono text-sm font-semibold text-ink">
-              {latencyLabel(proof.latency_ms)}
-            </span>
+            <p className="text-xs text-ink-muted">
+              Execution latency{' '}
+              <span
+                data-testid="proof-latency"
+                className="font-mono text-sm font-semibold text-ink"
+              >
+                {latencyLabel(proof.latency_ms)}
+              </span>
+            </p>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-2">
-          <code className="break-all font-mono text-xs text-ink-muted">{proof.reactive_tx}</code>
+        <div className="app-divider flex flex-wrap items-center justify-between gap-3 pt-3">
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-medium">Reactive transaction</p>
+            <code className="block break-all font-mono text-xs text-ink-muted">
+              {proof.reactive_tx}
+            </code>
+          </div>
           <button
             type="button"
             onClick={() => void copyHash(proof.reactive_tx)}
-            className="rounded-full border border-border px-3 py-1 text-xs text-ink"
+            className="app-button"
           >
-            {copied ? 'Copied' : 'Copy hash'}
+            <HugeiconsIcon icon={Copy01Icon} size={15} aria-hidden="true" />
+            {copyResult?.hash === proof.reactive_tx && copyResult.ok ? 'Copied' : 'Copy hash'}
           </button>
         </div>
+        {copyResult?.hash === proof.reactive_tx && !copyResult.ok ? (
+          <p role="status" className="app-copy">
+            Copy failed. Select the hash to copy it manually.
+          </p>
+        ) : null}
       </div>
 
-      <ol aria-label="Proof rows" className="space-y-3">
+      <ol aria-label="Proof rows" className="app-proof-path app-panel">
         {proof.rows.map((row) => (
           <ProofRow key={`${row.role}-${row.tx_hash}`} row={row} />
         ))}
       </ol>
 
-      <p className="text-xs text-ink-muted">
+      <p className="app-copy">
         This view is built from Lasna <code className="font-mono">getCallbacks</code> and the two
         public RPCs. Our database is a cache, never the authority.
       </p>

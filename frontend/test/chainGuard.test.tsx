@@ -207,7 +207,11 @@ it('guides recovery from a wallet permission error and retries only the account 
 
   await user.click(resume);
   await user.click(await screen.findByRole('button', { name: 'Continue to wallet' }));
-  expect(await screen.findByRole('button', { name: 'Account ready' })).toBeDisabled();
+  expect(await screen.findByText('Account ready')).toHaveAttribute('role', 'status');
+  expect(screen.getByRole('link', { name: 'View your account' })).toHaveAttribute(
+    'href',
+    '/account',
+  );
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(onboarding.mock.calls).toEqual([[OWNER], [OWNER]]);
   expect(mocks.sign).not.toHaveBeenCalled();

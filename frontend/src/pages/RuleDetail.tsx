@@ -1,5 +1,8 @@
+import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   agentAbi,
+  getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
@@ -11,8 +14,10 @@ import { useReadContract } from 'wagmi';
 import { AddressLink } from '../components/AddressLink.js';
 import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
 import { BudgetMeter } from '../components/BudgetMeter.js';
+import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ExecutionTable } from '../components/ExecutionTable.js';
+import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PriceLabel } from '../components/PriceLabel.js';
 import { TxLink } from '../components/TxLink.js';
 import { RuleActions } from '../components/RuleActions.js';
@@ -22,6 +27,7 @@ import { useRuleControl } from '../hooks/useRuleControl.js';
 import { api } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 import { lastRunLabel, ruleSentence } from '../lib/rules.js';
+import { signatureTokenAmount } from '../lib/signatures.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 /** Templates whose condition reads a cached pair price. */
@@ -74,26 +80,28 @@ export function RuleDetail() {
 
   const control = useRuleControl((agent as Address | undefined) ?? null);
 
-  const backLink = (
-    <Link to={appRoutes.rules} className="text-xs text-ink-muted hover:text-ink">
-      ← Back to all rules
-    </Link>
+  const breadcrumb = (
+    <>
+      <Link to={appRoutes.rules}>Your rules</Link>
+      <HugeiconsIcon icon={ArrowRight02Icon} size={12} aria-hidden="true" />
+      <span aria-current="page">Detail</span>
+    </>
   );
 
   if (detailQuery.isLoading) {
     return (
-      <section aria-busy="true" className="space-y-4">
-        {backLink}
-        <div className="h-40 animate-pulse rounded-lg border border-border bg-surface-raised" />
-        <div className="h-24 animate-pulse rounded-lg border border-border bg-surface-raised" />
+      <section aria-busy="true" className="app-page">
+        <PageHeading title="Rule details" breadcrumb={breadcrumb} />
+        <div className="app-skeleton h-40 animate-pulse" />
+        <div className="app-skeleton h-24 animate-pulse" />
       </section>
     );
   }
 
   if (detailQuery.error || !detailQuery.data) {
     return (
-      <section className="space-y-4">
-        {backLink}
+      <section className="app-page">
+        <PageHeading title="Rule details" breadcrumb={breadcrumb} />
         <ErrorState
           message="This rule could not be loaded."
           detail={
@@ -118,92 +126,113 @@ export function RuleDetail() {
   const currentRuleId = rule.rule_id;
 
   return (
-    <section className="space-y-6">
-      {backLink}
+    <section className="app-page">
+      <PageHeading
+        title={`Rule #${currentRuleId.toString()}`}
+        breadcrumb={breadcrumb}
+        aside={<StatusPill status={statusOf(rule.status, rule.latched)} />}
+      />
 
-      <header className="space-y-3 rounded-lg border border-border bg-surface-raised p-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-ink-muted">#{rule.rule_id.toString()}</span>
-          <StatusPill status={statusOf(rule.status, rule.latched)} />
-          <span className="text-xs text-ink-muted">{rule.runs} runs</span>
-          <span className="text-xs text-ink-muted">Last run: {lastRunLabel(rule)}</span>
+      <section className="app-panel">
+        <div className="app-panel-pad app-rule-summary space-y-2">
+          <h2 className="app-overline">Rule sentence</h2>
+          <p className="break-words font-heading text-xl font-semibold text-ink">
+            “{ruleSentence(rule)}”
+          </p>
+          {rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
+            <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
+          ) : null}
         </div>
-        <p className="text-xl text-ink">“{ruleSentence(rule)}”</p>
-        {rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
-          <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
-        ) : null}
-        <dl className="grid gap-3 text-xs sm:grid-cols-2">
+        <dl className="app-divider app-panel-pad grid gap-x-4 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <dt className="text-ink-muted">Automation account (Lasna)</dt>
+            <dt className="mb-1 text-xs text-ink-muted">Automation account</dt>
             <dd>
               <AddressLink chainId={LASNA_CHAIN_ID} address={agentAddress} />
             </dd>
           </div>
           <div>
-            <dt className="text-ink-muted">Funds network</dt>
+            <dt className="mb-1 text-xs text-ink-muted">Funds network</dt>
             <dd className="text-ink">
-              Unichain Sepolia ({UNICHAIN_SEPOLIA_CHAIN_ID}) holds the principal
+              <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
             </dd>
           </div>
           <div>
-            <dt className="text-ink-muted">Template</dt>
-            <dd className="text-ink">{rule.template}</dd>
+            <dt className="mb-1 text-xs text-ink-muted">Rule type</dt>
+            <dd className="text-ink">{getTemplate(rule.template)?.name ?? rule.template}</dd>
           </div>
           <div>
-            <dt className="text-ink-muted">Per-run amount</dt>
-            <dd className="text-ink">{rule.amount_in?.toString() ?? '—'} (base units)</dd>
+            <dt className="mb-1 text-xs text-ink-muted">Per-run amount</dt>
+            <dd className="break-words text-ink">
+              {rule.amount_in === undefined
+                ? '—'
+                : rule.token_in
+                  ? signatureTokenAmount(rule.chain_id, rule.token_in, rule.amount_in)
+                  : `${rule.amount_in} base units`}
+            </dd>
+          </div>
+          <div>
+            <dt className="mb-1 text-xs text-ink-muted">Runs</dt>
+            <dd className="app-number">{rule.runs}</dd>
+          </div>
+          <div>
+            <dt className="mb-1 text-xs text-ink-muted">Last run</dt>
+            <dd>{lastRunLabel(rule)}</dd>
           </div>
         </dl>
-      </header>
-
-      <section aria-label="Execution history" className="space-y-3">
-        <h2 className="text-base font-semibold text-ink">Executions</h2>
-        <ExecutionTable executions={executions} />
-      </section>
-
-      <section aria-label="Alerts" className="space-y-3">
-        <h2 className="text-base font-semibold text-ink">Alerts</h2>
-        {alerts.length === 0 ? (
-          <p className="text-xs text-ink-muted">
-            No alerts yet. An alert records activity and never moves funds.
-          </p>
-        ) : (
-          <ul className="space-y-1 text-xs text-ink-muted">
-            {alerts.map((alert) => (
-              <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
-                <span>alerted</span>
-                <span>
-                  {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)} UTC
-                </span>
-                <TxLink chainId={LASNA_CHAIN_ID} txHash={alert.tx_hash} />
-              </li>
-            ))}
-          </ul>
-        )}
       </section>
 
       <BudgetAtRiskBanner state={worstSponsorState(sponsor)} agent={agentAddress} />
+      <div className="app-detail-layout">
+        <div className="app-page">
+          <section aria-label="Execution history" className="app-panel">
+            <h2 className="app-panel-heading app-panel-pad">Executions</h2>
+            <ExecutionTable executions={executions} />
+          </section>
 
-      {budget ? (
-        <section aria-label="Execution budget">
-          <BudgetMeter budget={budget} />
-        </section>
-      ) : null}
+          <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
+            <h2 className="app-panel-heading">Alerts</h2>
+            {alerts.length === 0 ? (
+              <p className="app-copy">
+                No alerts yet. An alert records activity and never moves funds.
+              </p>
+            ) : (
+              <ul className="space-y-1 text-xs text-ink-muted">
+                {alerts.map((alert) => (
+                  <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
+                    <span>alerted</span>
+                    <span>
+                      {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)} UTC
+                    </span>
+                    <TxLink chainId={LASNA_CHAIN_ID} txHash={alert.tx_hash} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+        <div className="app-page">
+          <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">
+            <h2 className="app-panel-heading">Control</h2>
+            <RuleActions
+              ruleId={currentRuleId}
+              status={statusOf(rule.status, rule.latched)}
+              onPause={() => control.pause(currentRuleId)}
+              onResume={() => control.resume(currentRuleId)}
+              onCancel={() => control.cancel(currentRuleId)}
+            />
+          </section>
 
-      <section aria-label="Rule actions" className="space-y-3">
-        <h2 className="text-base font-semibold text-ink">Control</h2>
-        <RuleActions
-          ruleId={currentRuleId}
-          status={statusOf(rule.status, rule.latched)}
-          onPause={() => control.pause(currentRuleId)}
-          onResume={() => control.resume(currentRuleId)}
-          onCancel={() => control.cancel(currentRuleId)}
-        />
-      </section>
+          {budget ? (
+            <section aria-label="Execution budget">
+              <BudgetMeter budget={budget} />
+            </section>
+          ) : null}
+        </div>
+      </div>
 
-      <section aria-label="Evaluation order" className="space-y-3">
-        <h2 className="text-base font-semibold text-ink">Evaluation order</h2>
-        <p className="text-xs text-ink-muted">
+      <section aria-label="Evaluation order" className="app-panel app-panel-pad space-y-3">
+        <h2 className="app-panel-heading">Evaluation order</h2>
+        <p className="app-copy">
           Rules run top to bottom on every wake-up. Move one to change which gets the gas first.
         </p>
         <RuleOrderList ids={order} labels={labels} onReorder={control.reorder} />

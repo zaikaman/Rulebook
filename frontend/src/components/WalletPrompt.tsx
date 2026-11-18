@@ -81,11 +81,11 @@ export function WalletPrompt({
         event.preventDefault();
         if (!busy) onCancel();
       }}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-auto rounded-2xl border border-border bg-surface-raised p-5 text-ink shadow-2xl backdrop:bg-surface backdrop:opacity-80 sm:p-6"
+      className="app-dialog app-panel app-panel-pad m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-auto text-ink shadow-2xl backdrop:bg-surface backdrop:opacity-80"
     >
       <div className="space-y-2">
         <NetworkBadge chainId={chainId} />
-        <h2 id={titleId} className="text-lg font-semibold leading-snug">
+        <h2 id={titleId} className="app-panel-heading text-lg leading-snug">
           {title}
         </h2>
       </div>
@@ -93,24 +93,19 @@ export function WalletPrompt({
         {children}
       </div>
       {busy ? (
-        <p ref={waitingRef} tabIndex={-1} role="status" className="mt-5 text-sm">
+        <p ref={waitingRef} tabIndex={-1} role="status" className="app-alert mt-5 text-sm">
           Confirm the request in your wallet.
         </p>
       ) : (
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <button
-            ref={cancelRef}
-            type="button"
-            onClick={onCancel}
-            className="rounded-full border border-border px-4 py-2 text-sm font-medium hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink"
-          >
+        <div className="app-divider mt-5 flex flex-wrap justify-end gap-2 pt-4">
+          <button ref={cancelRef} type="button" onClick={onCancel} className="app-button">
             Cancel
           </button>
           <button
             ref={confirmRef}
             type="button"
             onClick={onConfirm}
-            className="rounded-full bg-ink px-4 py-2 text-sm font-semibold text-surface hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            className="app-button app-button--primary"
           >
             {confirmLabel}
           </button>

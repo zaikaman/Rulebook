@@ -19,13 +19,6 @@ const COPY: Record<RuleBudget['state'], { label: string; detail: string }> = {
   },
 };
 
-const TONE: Record<RuleBudget['state'], string> = {
-  healthy: 'border-active/40 bg-active/10 text-ink',
-  low: 'border-latched/50 bg-latched/10 text-ink',
-  exhausted: 'border-silent/50 bg-silent/10 text-ink',
-  debt: 'border-cancelled/50 bg-cancelled/10 text-ink',
-};
-
 function asPercent(value: bigint, scale: bigint): number {
   if (scale === 0n) return 0;
   const clamped = value > scale ? scale : value;
@@ -48,11 +41,16 @@ export function BudgetMeter({ budget }: { readonly budget: RuleBudget }) {
     <div
       data-testid="budget-meter"
       data-state={budget.state}
-      className={`space-y-2 rounded-lg border p-4 ${TONE[budget.state]}`}
+      data-tone={
+        budget.state === 'healthy' ? 'success' : budget.state === 'low' ? 'warning' : 'error'
+      }
+      className="app-alert space-y-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">{copy.label}</span>
-        <span className="font-mono text-xs">{budget.remaining.toString()} wei remaining</span>
+        <span className="break-all font-mono text-xs">
+          {budget.remaining.toString()} wei remaining
+        </span>
       </div>
 
       <div
@@ -73,7 +71,7 @@ export function BudgetMeter({ budget }: { readonly budget: RuleBudget }) {
       </div>
 
       <div className="flex flex-wrap justify-between gap-2 text-xs">
-        <span>Warning below {budget.threshold.toString()} wei</span>
+        <span className="break-all">Warning below {budget.threshold.toString()} wei</span>
         <span>{copy.detail}</span>
       </div>
     </div>

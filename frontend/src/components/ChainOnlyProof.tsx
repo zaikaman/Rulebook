@@ -58,10 +58,10 @@ export function ChainOnlyProof({ reactiveTxHash }: ChainOnlyProofProps) {
   }
 
   return (
-    <section className="space-y-3 rounded-lg border border-dashed border-border p-4">
+    <section className="app-panel app-panel-pad space-y-3">
       <div className="space-y-1">
-        <h2 className="text-sm font-semibold text-ink">Read the proof directly from Lasna</h2>
-        <p className="text-xs text-ink-muted">
+        <h2 className="app-panel-heading">Read the proof directly from Lasna</h2>
+        <p className="app-copy">
           This path bypasses Rulebook entirely. It proves the automation and destination legs from{' '}
           <code className="font-mono">getCallbacks</code>; the origin leg still needs the
           Agent&apos;s <code className="font-mono">RuleEvaluated</code> log.
@@ -72,17 +72,21 @@ export function ChainOnlyProof({ reactiveTxHash }: ChainOnlyProofProps) {
         type="button"
         onClick={() => void readFromChain()}
         disabled={reading}
-        className="rounded-full border border-border px-3 py-1 text-xs text-ink disabled:opacity-50"
+        className="app-button"
       >
         {reading ? 'Reading Lasna…' : 'Read getCallbacks'}
       </button>
 
-      {error ? <p className="text-xs text-cancelled">{error}</p> : null}
+      {error ? (
+        <p className="app-alert text-xs" data-tone="error" role="alert">
+          {error}
+        </p>
+      ) : null}
 
       {records ? (
-        <ul className="space-y-2 text-xs">
+        <ul className="app-divider app-rules-list text-xs">
           {records.map((record) => (
-            <li key={record.callback_index} className="rounded border border-border p-3">
+            <li key={record.callback_index} className="space-y-1 py-3">
               <p className="font-mono text-ink">
                 callback {record.callback_index} · block {record.block_number}
               </p>

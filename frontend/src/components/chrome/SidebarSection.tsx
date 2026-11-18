@@ -30,14 +30,16 @@ export function SidebarSection({
     <div className="pt-2">
       <Link
         to={href}
-        className={cx(
-          'flex items-center gap-3 px-3 py-2 rounded-xl transition-colors',
-          sectionActive
-            ? 'bg-white/[0.08] text-white shadow-[0_0_20px_rgba(59,130,246,0.15)] ring-1 ring-white/10'
-            : 'text-neutral-400 hover:text-white hover:bg-white/[0.04]',
-        )}
+        aria-current={pathname === href ? 'page' : undefined}
+        data-active={sectionActive || undefined}
+        className="app-nav-link flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-ink-muted transition-colors"
       >
-        <HugeiconsIcon icon={icon} size={16} className={sectionActive ? 'text-blue-400' : ''} />
+        <HugeiconsIcon
+          icon={icon}
+          size={16}
+          className={sectionActive ? 'text-[var(--rb-accent)]' : ''}
+          aria-hidden="true"
+        />
         <span className="text-sm font-medium">{label}</span>
       </Link>
       {items.length > 0 && (
@@ -52,7 +54,7 @@ export function SidebarSection({
                 aria-current={active ? 'page' : undefined}
                 className={cx(
                   'relative flex items-center gap-3 px-3 py-2 transition-colors rounded-lg',
-                  active ? 'text-white' : 'text-neutral-400 hover:text-white',
+                  active ? 'text-ink' : 'text-ink-muted hover:text-ink',
                 )}
               >
                 <div
@@ -62,7 +64,10 @@ export function SidebarSection({
                   )}
                 />
                 {active && (
-                  <span className="absolute left-0 h-1 w-1 rounded-full bg-blue-400 shadow-[0_0_8px_#60a5fa]" />
+                  <span
+                    className="absolute left-0 h-1 w-1 rounded-full bg-[var(--rb-accent)]"
+                    aria-hidden="true"
+                  />
                 )}
                 <span className="text-xs font-medium">{item.label}</span>
               </Link>

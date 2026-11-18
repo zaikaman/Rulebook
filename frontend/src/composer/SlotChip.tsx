@@ -1,14 +1,15 @@
 import type { TemplateSlot } from '@rulebook/shared';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useId } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 
-import { chipsForSlot, type ValueChip } from './ChipPalette.js';
+import { chipsForSlot, type ChipDragData } from './ChipPalette.js';
 import type { SlotIssues, SlotValues } from './types.js';
 
 export interface ComposerSlotContextValue {
   readonly issues: SlotIssues;
   readonly slots: SlotValues;
   readonly setSlot: (key: TemplateSlot['key'], value: string) => void;
+  readonly presetTime: number;
 }
 
 export const ComposerSlotContext = createContext<ComposerSlotContextValue | null>(null);
@@ -25,45 +26,48 @@ function useComposerSlot(): ComposerSlotContextValue {
  * renders the slot's own message, never a generic error.
  */
 export function SlotChip({ slot }: { readonly slot: TemplateSlot }) {
-  const { issues, slots, setSlot } = useComposerSlot();
-  const { setNodeRef, isOver } = useDroppable({
-    id: `slot:${slot.key}`,
+  const { issues, slots, setSlot, presetTime } = useComposerSlot();
+  const id = useId();
+  const { active, setNodeRef, isOver } = useDroppable({
+    id,
     data: { slotKey: slot.key, kind: slot.kind },
   });
   const value = slots[slot.key] ?? '';
-  const chips = chipsForSlot(slot);
+  const chips = chipsForSlot(slot, presetTime);
   const issue = issues[slot.key];
+  const dragged = active?.data.current as ChipDragData | undefined;
+  const acceptsDrop =
+    dragged?.kind === slot.kind && chips.some((chip) => chip.value === dragged.value);
 
   return (
     <span
-      ref={setNodeRef}
       data-slot={slot.key}
       data-invalid={issue ? 'true' : undefined}
-      className={`mx-1 inline-flex flex-col rounded-md border px-1 py-0.5 align-middle ${
-        issue
-          ? 'border-silent bg-silent/10'
-          : isOver
-            ? 'border-automation bg-automation/10'
-            : 'border-border bg-surface-raised'
-      }`}
+      className="rule-composer__slot"
     >
-      <select
-        aria-label={slot.label}
-        aria-invalid={issue ? true : undefined}
-        aria-describedby={issue ? `slot-${slot.key}-error` : undefined}
-        value={value}
-        onChange={(event) => setSlot(slot.key, event.target.value)}
-        className="min-w-24 bg-transparent text-sm text-ink outline-none"
+      <span
+        ref={setNodeRef}
+        className="rule-composer__select rule-composer__select--slot"
+        data-filled={value ? 'true' : undefined}
+        data-drop={acceptsDrop ? (isOver ? 'over' : 'available') : undefined}
       >
-        <option value="">[{slot.label}]</option>
-        {chips.map((chip: ValueChip) => (
-          <option key={chip.id} value={chip.value}>
-            {chip.label}
-          </option>
-        ))}
-      </select>
+        <select
+          aria-label={slot.label}
+          aria-invalid={issue ? true : undefined}
+          aria-describedby={issue ? `${id}-error` : undefined}
+          value={value}
+          onChange={(event) => setSlot(slot.key, event.target.value)}
+        >
+          <option value="">{slot.label}</option>
+          {chips.map((chip) => (
+            <option key={chip.id} value={chip.value}>
+              {chip.label}
+            </option>
+          ))}
+        </select>
+      </span>
       {issue ? (
-        <span id={`slot-${slot.key}-error`} role="alert" className="text-[10px] text-silent">
+        <span id={`${id}-error`} role="alert" className="rule-composer__slot-error">
           {issue}
         </span>
       ) : null}

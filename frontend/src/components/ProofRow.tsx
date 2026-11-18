@@ -1,3 +1,5 @@
+import { Activity01Icon, FlashIcon, TransactionHistoryIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import type { ProofRow as ProofRowData } from '@rulebook/shared';
 
 import { NetworkBadge } from './NetworkBadge.js';
@@ -6,6 +8,11 @@ const ROLE_LABEL: Record<ProofRowData['role'], string> = {
   origin: 'Origin event',
   automation: 'Automation',
   destination: 'Destination',
+};
+const ROLE_ICON = {
+  origin: Activity01Icon,
+  automation: FlashIcon,
+  destination: TransactionHistoryIcon,
 };
 
 function clock(timestamp: string | undefined): string {
@@ -23,43 +30,48 @@ export interface ProofRowProps {
  */
 export function ProofRow({ row }: ProofRowProps) {
   return (
-    <li
-      data-testid="proof-row"
-      data-role={row.role}
-      className="space-y-2 rounded-lg border border-border bg-surface-raised p-5"
-    >
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-xs font-semibold text-ink">{ROLE_LABEL[row.role]}</span>
-        <NetworkBadge chainId={row.chain_id} />
-        <span className="font-mono text-xs text-ink-muted">
-          {row.block_number !== undefined ? `Block ${row.block_number}` : 'Block pending'}
+    <li data-testid="proof-row" data-role={row.role} className="app-proof-leg">
+      <div className="app-proof-leg-marker">
+        <span className="app-icon">
+          <HugeiconsIcon icon={ROLE_ICON[row.role]} size={18} aria-hidden="true" />
         </span>
-        <time className="font-mono text-xs text-ink-muted" dateTime={row.timestamp}>
-          {clock(row.timestamp)}
-        </time>
       </div>
-
-      <a
-        href={row.explorer_url}
-        target="_blank"
-        rel="noreferrer"
-        className="block break-all font-mono text-xs text-ink underline decoration-dotted underline-offset-4"
-        title={row.tx_hash}
-      >
-        {row.tx_hash}
-      </a>
-
-      {row.error ? (
-        <div className="rounded border border-cancelled/40 bg-cancelled/10 p-3 text-xs">
-          <p className="text-ink">{row.error.human}</p>
-          <code
-            data-testid="proof-error-selector"
-            className="mt-1 block break-all font-mono text-ink-muted"
-          >
-            {row.error.selector}
-          </code>
+      <div className="app-proof-leg-content">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="app-panel-heading">{ROLE_LABEL[row.role]}</h2>
+          <NetworkBadge chainId={row.chain_id} />
         </div>
-      ) : null}
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="font-mono text-xs text-ink-muted">
+            {row.block_number !== undefined ? `Block ${row.block_number}` : 'Block pending'}
+          </span>
+          <time className="font-mono text-xs text-ink-muted" dateTime={row.timestamp}>
+            {clock(row.timestamp)}
+          </time>
+        </div>
+
+        <a
+          href={row.explorer_url}
+          target="_blank"
+          rel="noreferrer"
+          className="app-link mt-2 block break-all font-mono text-xs"
+          title={row.tx_hash}
+        >
+          {row.tx_hash}
+        </a>
+
+        {row.error ? (
+          <div className="app-alert mt-3 text-xs" data-tone="error">
+            <p className="text-ink">{row.error.human}</p>
+            <code
+              data-testid="proof-error-selector"
+              className="mt-1 block break-all font-mono text-ink-muted"
+            >
+              {row.error.selector}
+            </code>
+          </div>
+        ) : null}
+      </div>
     </li>
   );
 }

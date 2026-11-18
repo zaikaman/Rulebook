@@ -1,3 +1,5 @@
+import { InformationCircleIcon, Layers01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   supportedTemplatesFor,
   TEMPLATES,
@@ -21,54 +23,48 @@ export interface TemplatePickerProps {
 
 /**
  * Offers the templates the selected chain can express, grouped by category in a native select
- * (so arrow keys, Enter, and screen readers all work), and prints the manifest's caveat for the
- * templates that need one (#2, #6, #9, #12). Caveat text comes from the manifest, so the honesty
- * copy cannot drift from the catalog.
+ * and shows the selected template's caveat from the manifest when it has one.
  */
 export function TemplatePicker({ chainId, selected, onSelect }: TemplatePickerProps) {
   const supported = supportedTemplatesFor(chainId);
   const available = TEMPLATES.filter((template) => supported.includes(template.id));
-  const caveats = available.filter((template) => template.caveat);
+  const caveat = available.find((template) => template.id === selected)?.caveat;
 
   return (
-    <div className="space-y-2">
-      <label htmlFor="template" className="text-xs uppercase tracking-wide text-ink-muted">
-        Rule type
-      </label>
-      <select
-        id="template"
-        value={selected}
-        onChange={(event) => onSelect(Number(event.target.value) as TemplateId)}
-        className="w-full rounded border border-border bg-surface-raised px-3 py-2 text-sm text-ink"
-      >
-        {TEMPLATE_CATEGORIES.map((category) => {
-          const templates = available.filter((template) => template.category === category);
-          if (templates.length === 0) return null;
-          return (
-            <optgroup key={category} label={CATEGORY_LABELS[category]}>
-              {templates.map((template) => (
-                <option key={template.id} value={template.id}>
-                  {template.name}
-                </option>
-              ))}
-            </optgroup>
-          );
-        })}
-      </select>
-
-      {caveats.length > 0 ? (
-        <ul aria-label="Template caveats" className="space-y-1">
-          {caveats.map((template) => (
-            <li
-              key={template.id}
-              data-caveat={template.id}
-              className="text-[11px] leading-snug text-ink-muted"
-            >
-              <span className="font-medium text-ink">{template.name}: </span>
-              {template.caveat}
-            </li>
-          ))}
-        </ul>
+    <div className="rule-composer__template">
+      <div className="rule-composer__template-row">
+        <label htmlFor="template">
+          <HugeiconsIcon icon={Layers01Icon} size={17} aria-hidden="true" />
+          Rule type
+        </label>
+        <span className="rule-composer__select rule-composer__select--template">
+          <select
+            id="template"
+            value={selected}
+            onChange={(event) => onSelect(Number(event.target.value) as TemplateId)}
+            aria-describedby={caveat ? 'template-caveat' : undefined}
+          >
+            {TEMPLATE_CATEGORIES.map((category) => {
+              const templates = available.filter((template) => template.category === category);
+              if (templates.length === 0) return null;
+              return (
+                <optgroup key={category} label={CATEGORY_LABELS[category]}>
+                  {templates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
+          </select>
+        </span>
+      </div>
+      {caveat ? (
+        <p id="template-caveat" data-caveat={selected} className="rule-composer__note">
+          <HugeiconsIcon icon={InformationCircleIcon} size={16} aria-hidden="true" />
+          <span>{caveat}</span>
+        </p>
       ) : null}
     </div>
   );

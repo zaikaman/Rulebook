@@ -1,6 +1,9 @@
+import { Add01Icon, ArrowRight02Icon, Book02Icon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   agentAbi,
   agentFactoryAbi,
+  getTemplate,
   LASNA_CHAIN_ID,
   type Address,
   type Rule,
@@ -10,6 +13,8 @@ import { Link } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
 import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
+import { EmptyState } from '../components/chrome/EmptyState.js';
+import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
 import { api } from '../lib/api.js';
@@ -27,17 +32,19 @@ function statusOf(rule: Rule): RuleStatus {
 function RuleRow({ rule, agent }: { readonly rule: Rule; readonly agent: Address }) {
   const ruleId = rule.rule_id.toString();
   return (
-    <li className="flex flex-col gap-3 rounded-lg border border-border bg-surface-raised p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="space-y-2">
+    <li className="app-panel-pad flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-mono text-xs text-ink-muted">#{ruleId}</span>
           <StatusPill status={statusOf(rule)} />
-          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted">
-            {rule.template}
+          <span className="app-tag">
+            {getTemplate(rule.template)?.name ?? `Template ${rule.template}`}
           </span>
         </div>
-        <p className="text-sm text-ink">“{ruleSentence(rule)}”</p>
-        <dl className="flex flex-wrap gap-4 text-xs text-ink-muted">
+        <p className="break-words font-heading text-base font-semibold text-ink">
+          “{ruleSentence(rule)}”
+        </p>
+        <dl className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-muted">
           <div className="flex gap-1">
             <dt>Runs</dt>
             <dd className="text-ink">{rule.runs}</dd>
@@ -54,11 +61,9 @@ function RuleRow({ rule, agent }: { readonly rule: Rule; readonly agent: Address
           </div>
         </dl>
       </div>
-      <Link
-        to={`/rules/${agent}/${ruleId}`}
-        className="self-start rounded-full border border-border px-3 py-1 text-xs text-ink sm:self-center"
-      >
+      <Link to={`/rules/${agent}/${ruleId}`} className="app-button self-start sm:self-center">
         Detail
+        <HugeiconsIcon icon={ArrowRight02Icon} size={15} aria-hidden="true" />
       </Link>
     </li>
   );
@@ -104,47 +109,74 @@ export function Home() {
 
   if (!address) {
     return (
-      <section className="space-y-3">
-        <h1 className="text-2xl font-semibold text-ink">Your rules</h1>
-        <p className="text-ink-muted">Connect a wallet to see the rules it owns.</p>
+      <section className="app-page">
+        <PageHeading
+          title="Your rules"
+          description="Manage the automations owned by your wallet."
+        />
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Connect a wallet"
+          description="Use Connect wallet in the navigation to see the rules it owns."
+        />
       </section>
     );
   }
 
   if (agentQuery.isLoading || (agent && rulesQuery.isLoading)) {
     return (
-      <section aria-busy="true" className="space-y-3">
-        <h1 className="text-2xl font-semibold text-ink">Your rules</h1>
+      <section aria-busy="true" className="app-page">
+        <PageHeading
+          title="Your rules"
+          description="Manage the automations owned by your wallet."
+        />
+        <span role="status" className="sr-only">
+          Loading rules
+        </span>
         <div className="space-y-2">
           {[0, 1, 2].map((index) => (
-            <div
-              key={index}
-              className="h-24 animate-pulse rounded-lg border border-border bg-surface-raised"
-            />
+            <div key={index} className="app-skeleton h-24 animate-pulse" />
           ))}
         </div>
       </section>
     );
   }
 
-  if (rulesQuery.error) {
+  if ((!agent && agentQuery.error) || rulesQuery.error) {
+    const error = agentQuery.error ?? rulesQuery.error;
     return (
-      <ErrorState
-        message="Rules could not be loaded from the indexer."
-        detail={rulesQuery.error instanceof Error ? rulesQuery.error.message : null}
-        chainId={LASNA_CHAIN_ID}
-      />
+      <section className="app-page">
+        <PageHeading title="Your rules" />
+        <ErrorState
+          message={
+            agentQuery.error
+              ? 'Your automation account could not be loaded.'
+              : 'Rules could not be loaded from the indexer.'
+          }
+          detail={error instanceof Error ? error.message : null}
+          chainId={LASNA_CHAIN_ID}
+        />
+      </section>
     );
   }
 
   if (!agent) {
     return (
-      <section className="space-y-3">
-        <h1 className="text-2xl font-semibold text-ink">Your rules</h1>
-        <p className="text-ink-muted">You do not have an automation account yet.</p>
-        <Link to={appRoutes.account} className="text-sm text-automation underline">
-          Create your account
-        </Link>
+      <section className="app-page">
+        <PageHeading
+          title="Your rules"
+          description="Manage the automations owned by your wallet."
+        />
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Set up your automation account"
+          description="Create an account for this wallet before you compose your first rule."
+          action={
+            <Link to={appRoutes.account} className="app-button app-button--primary">
+              Create your account
+            </Link>
+          }
+        />
       </section>
     );
   }
@@ -161,36 +193,51 @@ export function Home() {
   });
 
   return (
-    <section className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-2xl font-semibold text-ink">Your rules</h1>
-          <p className="text-sm text-ink-muted">
-            Evaluated top to bottom, in the order shown. Only you can pause, cancel, or withdraw.
-          </p>
-        </div>
-        <Link
-          to={appRoutes.create}
-          className="rounded-full bg-ink px-4 py-2 text-xs font-semibold text-surface"
-        >
-          Assemble new rule
-        </Link>
-      </header>
+    <section className="app-page">
+      <PageHeading
+        title="Your rules"
+        description={
+          rules.length
+            ? 'Your Agent evaluates rules from top to bottom, in the order shown.'
+            : 'Compose and manage automations owned by your wallet.'
+        }
+        aside={
+          rules.length ? (
+            <Link to={appRoutes.create} className="app-button app-button--primary">
+              <HugeiconsIcon icon={Add01Icon} size={17} aria-hidden="true" />
+              Compose a rule
+            </Link>
+          ) : null
+        }
+      />
 
       <BudgetAtRiskBanner state={worstSponsorState(sponsorQuery.data)} agent={agent ?? undefined} />
 
       {rules.length === 0 ? (
-        <div className="space-y-2 rounded-lg border border-dashed border-border p-8 text-center">
-          <p className="text-sm text-ink">No rules yet.</p>
-          <p className="text-xs text-ink-muted">
-            Build one from a sentence: pick a rule type, fill the blanks, sign once.
-          </p>
-          <Link to={appRoutes.create} className="text-sm text-automation underline">
-            Compose your first rule
-          </Link>
+        <div className="app-panel app-rule-start">
+          <EmptyState
+            icon={Book02Icon}
+            title="No rules yet"
+            description="Choose a rule type, fill in the sentence, and sign once to add the automation to your account."
+            action={
+              <Link to={appRoutes.create} className="app-button app-button--primary">
+                Compose your first rule
+                <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />
+              </Link>
+            }
+          />
+          <figure className="app-rule-example">
+            <figcaption>Example rule</figcaption>
+            <blockquote>
+              Every <strong>day</strong>, buy <strong>10 USDC</strong>{' '}
+              <span className="whitespace-nowrap">
+                worth of <strong>WETH</strong>.
+              </span>
+            </blockquote>
+          </figure>
         </div>
       ) : (
-        <ol aria-label="Rules in evaluation order" className="space-y-3">
+        <ol aria-label="Rules in evaluation order" className="app-panel app-rules-list">
           {rules.map((rule) => (
             <RuleRow key={`${rule.agent}-${rule.rule_id}`} rule={rule} agent={agent} />
           ))}
@@ -198,9 +245,9 @@ export function Home() {
       )}
 
       {alerts.length > 0 ? (
-        <section aria-label="Alerts" className="space-y-2">
-          <h2 className="text-base font-semibold text-ink">Alerts</h2>
-          <p className="text-xs text-ink-muted">
+        <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
+          <h2 className="app-panel-heading">Alerts</h2>
+          <p className="app-copy">
             Alerts are activity records from your rules. They never move funds.
           </p>
           <ul className="space-y-1 text-xs text-ink-muted">

@@ -41,7 +41,8 @@ export function BudgetAtRiskBanner({
     <aside
       role="status"
       data-state={state}
-      className="space-y-2 rounded-lg border border-latched/50 bg-latched/10 p-4"
+      data-tone={state === 'low' ? 'warning' : 'error'}
+      className="app-alert space-y-2"
     >
       <p className="text-sm font-semibold text-ink">{HEADLINE[state]}</p>
       <p className="text-xs text-ink">{CONSEQUENCE[state]}</p>

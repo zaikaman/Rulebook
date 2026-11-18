@@ -1,7 +1,8 @@
 import { getContractAddress, type Address } from 'viem';
 
 /** Local anvil for the onboarding smoke test. Never a public network or a real key. */
-export const ANVIL_RPC_URL = 'http://127.0.0.1:8545';
+export const ANVIL_RPC_PORT = Number(process.env.RULEBOOK_E2E_RPC_PORT ?? 8545);
+export const ANVIL_RPC_URL = `http://127.0.0.1:${ANVIL_RPC_PORT}`;
 export const ANVIL_CHAIN_ID = 1301;
 export const FIXTURE_API_PORT = Number(process.env.RULEBOOK_E2E_API_PORT ?? 18787);
 export const FIXTURE_FRONTEND_PORT = Number(process.env.RULEBOOK_E2E_FRONTEND_PORT ?? 15173);

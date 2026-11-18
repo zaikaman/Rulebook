@@ -1,5 +1,5 @@
 import {
-  getChain,
+  CHAIN_CONFIGS,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
@@ -26,11 +26,18 @@ type MirrorTerms = {
 
 const noSpend = 'No principal moves.';
 
+export function knownToken(chainId: number, token: string | undefined) {
+  const chain = CHAIN_CONFIGS.get(chainId);
+  if (!chain) return undefined;
+  const address = token?.toLowerCase();
+  if (address === chain.usdc.toLowerCase()) return { symbol: 'USDC', decimals: 6 };
+  if (address === chain.weth.toLowerCase()) return { symbol: 'WETH', decimals: 18 };
+  return undefined;
+}
+
 export function signatureTokenAmount(chainId: number, token: Address, amount: bigint): string {
-  const chain = getChain(chainId);
-  const address = token.toLowerCase();
-  if (address === chain.usdc.toLowerCase()) return `${formatUnits(amount, 6)} USDC`;
-  if (address === chain.weth.toLowerCase()) return `${formatUnits(amount, 18)} WETH`;
+  const info = knownToken(chainId, token);
+  if (info) return `${formatUnits(amount, info.decimals)} ${info.symbol}`;
   return `${amount} base units of token ${token}`;
 }
 

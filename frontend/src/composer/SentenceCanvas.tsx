@@ -1,29 +1,47 @@
 import { getTemplate, type SlotKey } from '@rulebook/shared';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   DndContext,
   KeyboardSensor,
+  pointerWithin,
   PointerSensor,
+  rectIntersection,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
 } from '@dnd-kit/core';
 
-import { chipsForSlot, type ChipDragData } from './ChipPalette.js';
+import { ChipPalette, chipsForSlot, type ChipDragData } from './ChipPalette.js';
 import { ComposerSlotContext, SlotChip } from './SlotChip.js';
 import type { SlotIssues, SlotValues } from './types.js';
 
-type SentencePart = { readonly text: string } | { readonly slotKey: string };
+type SentencePart =
+  | { readonly text: string }
+  | { readonly slotKey: string; readonly prefix?: string; readonly suffix?: string };
 
 function splitSentence(sentence: string): SentencePart[] {
-  return sentence
-    .split(/(\{[a-z_]+\})/g)
-    .filter((token) => token.length > 0)
-    .map((token) => {
-      const match = /^\{([a-z_]+)\}$/.exec(token);
-      return match?.[1] ? { slotKey: match[1] } : { text: token };
-    });
+  const parts: SentencePart[] = [];
+  let end = 0;
+  for (const match of sentence.matchAll(/(?:\b([a-z]+) )?\{([a-z_]+)\}([,.])?/gi)) {
+    const [fragment, prefix, slotKey, suffix] = match;
+    if (!slotKey) continue;
+    if (match.index > end) parts.push({ text: sentence.slice(end, match.index) });
+    parts.push({ slotKey, ...(prefix && { prefix }), ...(suffix && { suffix }) });
+    end = match.index + fragment.length;
+  }
+  if (end < sentence.length) parts.push({ text: sentence.slice(end) });
+  return parts;
 }
+
+const detectSlot: CollisionDetection = (args) => {
+  const kind = args.active.data.current?.kind;
+  const droppableContainers = args.droppableContainers.filter(
+    (slot) => slot.data.current?.kind === kind,
+  );
+  const detect = args.pointerCoordinates ? pointerWithin : rectIntersection;
+  return detect({ ...args, droppableContainers });
+};
 
 /**
  * The rule as one sentence, in trigger → condition → action order. Blanks are inline drop
@@ -44,40 +62,47 @@ export function SentenceCanvas({
   readonly children?: ReactNode;
 }) {
   const definition = getTemplate(template);
+  const [presetTime] = useState(() => Math.floor(Date.now() / 1000));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
     useSensor(KeyboardSensor),
   );
 
-  const parts = useMemo(() => (definition ? splitSentence(definition.sentence) : []), [definition]);
+  const sentence = definition?.sentence ?? '';
+  const parts = useMemo(() => splitSentence(sentence), [sentence]);
 
   function handleDragEnd(event: DragEndEvent): void {
-    const overId = event.over?.id;
-    if (typeof overId !== 'string' || !overId.startsWith('slot:')) return;
-    const slotKey = overId.slice('slot:'.length);
+    const slotKey = event.over?.data.current?.slotKey;
     const data = event.active.data.current as ChipDragData | undefined;
     const slot = definition?.slots.find((candidate) => candidate.key === slotKey);
     if (!data || !slot || slot.kind !== data.kind) return;
-    if (!chipsForSlot(slot).some((chip) => chip.value === data.value)) return;
+    if (!chipsForSlot(slot, presetTime).some((chip) => chip.value === data.value)) return;
     setSlot(slot.key, data.value);
   }
 
   return (
-    <ComposerSlotContext.Provider value={{ issues, slots, setSlot }}>
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <p className="text-xl leading-relaxed text-ink" data-testid="composer-sentence">
-          {parts.map((part, index) =>
-            'text' in part ? (
-              <span key={`text-${index}`}>{part.text}</span>
-            ) : (
-              (() => {
-                const slot = definition?.slots.find((candidate) => candidate.key === part.slotKey);
-                return slot ? <SlotChip key={slot.key} slot={slot} /> : null;
-              })()
-            ),
-          )}
-        </p>
-        {children}
+    <ComposerSlotContext.Provider value={{ issues, slots, setSlot, presetTime }}>
+      <DndContext sensors={sensors} collisionDetection={detectSlot} onDragEnd={handleDragEnd}>
+        <section className="rule-composer__canvas" aria-labelledby="rule-sentence-heading">
+          <h2 id="rule-sentence-heading">Rule sentence</h2>
+          <p className="rule-composer__sentence" data-testid="composer-sentence">
+            {parts.map((part, index) => {
+              if ('text' in part) return <span key={index}>{part.text}</span>;
+              const slot = definition?.slots.find((candidate) => candidate.key === part.slotKey);
+              if (!slot) return null;
+              const prefix = slot.kind === 'schedule' && slots.schedule ? undefined : part.prefix;
+              return (
+                <span key={`${slot.key}-${index}`} className="rule-composer__fragment">
+                  {prefix ? <span>{prefix} </span> : null}
+                  <SlotChip slot={slot} />
+                  {part.suffix}
+                </span>
+              );
+            })}
+          </p>
+          {children}
+        </section>
+        <ChipPalette template={template} presetTime={presetTime} />
       </DndContext>
     </ComposerSlotContext.Provider>
   );

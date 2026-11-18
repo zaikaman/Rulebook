@@ -1,3 +1,4 @@
+import { Search01Icon, Store01Icon } from '@hugeicons/core-free-icons';
 import { TEMPLATES } from '@rulebook/shared';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useState } from 'react';
@@ -41,14 +42,14 @@ export function Marketplace() {
   const listings = query.data?.pages.flatMap((page) => page.listings) ?? [];
 
   return (
-    <section className="space-y-6">
+    <section className="app-page">
       <PageHeading
         title="Rule marketplace"
-        description="Public rules published by their owners. Cloning copies the exact parameters into your own vault; it never touches the author's funds."
+        description="Explore public automations and clone their settings into your own account. Each copy uses your own vault."
       />
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs text-neutral-400">
+      <div className="app-panel app-panel-pad flex flex-wrap items-end gap-3">
+        <label className="app-field w-full sm:w-52">
           Rule type
           <select
             value={template}
@@ -56,7 +57,7 @@ export function Marketplace() {
               const value = event.target.value;
               setTemplate(value === 'all' ? 'all' : Number(value));
             }}
-            className="rounded-lg border border-white/10 bg-[#04060a] px-3 py-2 text-sm text-neutral-100"
+            className="app-input"
           >
             <option value="all">All rule types</option>
             {TEMPLATES.map((item) => (
@@ -67,12 +68,12 @@ export function Marketplace() {
           </select>
         </label>
 
-        <label className="flex flex-col gap-1 text-xs text-neutral-400">
+        <label className="app-field w-full sm:w-44">
           Sort by
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value as Sort)}
-            className="rounded-lg border border-white/10 bg-[#04060a] px-3 py-2 text-sm text-neutral-100"
+            className="app-input"
           >
             {SORT_LABELS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -81,15 +82,21 @@ export function Marketplace() {
             ))}
           </select>
         </label>
+        {query.isSuccess && listings.length > 0 ? (
+          <p className="app-copy pb-2 sm:ml-auto" role="status">
+            {listings.length} {listings.length === 1 ? 'rule' : 'rules'} shown
+          </p>
+        ) : null}
       </div>
 
       {query.isLoading ? (
-        <div aria-busy="true" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {[0, 1, 2, 3, 4, 5].map((index) => (
-            <div
-              key={index}
-              className="h-52 animate-pulse rounded-2xl border border-white/5 bg-white/[0.02]"
-            />
+        <div
+          aria-label="Loading public rules"
+          aria-busy="true"
+          className="grid gap-4 md:grid-cols-2"
+        >
+          {[0, 1, 2, 3].map((index) => (
+            <div key={index} className="app-skeleton h-52 animate-pulse" />
           ))}
         </div>
       ) : query.error ? (
@@ -99,12 +106,24 @@ export function Marketplace() {
         />
       ) : listings.length === 0 ? (
         <EmptyState
-          title="No public rules match these filters"
-          description="Clear the rule-type filter, or publish one of your own rules from the composer to start the catalog."
+          icon={template === 'all' ? Store01Icon : Search01Icon}
+          title={template === 'all' ? 'No public rules yet' : 'No rules of this type'}
+          description={
+            template === 'all'
+              ? 'Rules appear here when their owners publish them.'
+              : 'Choose another rule type or browse the full marketplace.'
+          }
+          action={
+            template === 'all' ? undefined : (
+              <button type="button" className="app-button" onClick={() => setTemplate('all')}>
+                Show all rule types
+              </button>
+            )
+          }
         />
       ) : (
         <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid items-start gap-4 md:grid-cols-2">
             {listings.map((listing) => (
               <ListingCard
                 key={`${listing.agent}-${listing.rule_id.toString()}`}
@@ -120,7 +139,7 @@ export function Marketplace() {
                 type="button"
                 disabled={query.isFetchingNextPage}
                 onClick={() => void query.fetchNextPage()}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-neutral-200 disabled:opacity-50"
+                className="app-button"
               >
                 {query.isFetchingNextPage ? 'Loading more…' : 'Load more rules'}
               </button>

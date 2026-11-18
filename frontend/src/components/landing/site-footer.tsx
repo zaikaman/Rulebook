@@ -10,8 +10,7 @@ export function SiteFooter() {
         <div className="flex flex-col gap-4">
           <Wordmark />
           <p className="max-w-sm text-sm font-light leading-relaxed text-neutral-400">
-            Rulebook turns personal on-chain money rules into self-executing automations without
-            sacrificing custody or requiring gas tokens.
+            Automate trades, transfers, and alerts with a vault owned by your wallet.
           </p>
         </div>
         <nav aria-label="Footer" className="flex flex-col gap-3 text-sm md:items-end">
@@ -25,15 +24,14 @@ export function SiteFooter() {
             </a>
           ))}
           <Link to={appRoutes.rules} className="text-white transition-colors hover:text-blue-200">
-            Open Rulebook App
+            Open Rulebook
           </Link>
         </nav>
       </div>
       <div className="mx-auto mt-10 max-w-6xl px-6">
         <p className="border-t border-white/5 pt-6 text-xs font-light leading-relaxed text-neutral-400">
-          Rulebook is completely non-custodial: user funds remain in user-owned Vault contracts on
-          destination chains. Reactive Network, Uniswap, and Unichain names and logos are trademarks
-          of their respective foundations, shown solely to describe technical integrations.
+          Reactive Network, Uniswap, and Unichain names and logos identify the networks and
+          protocols Rulebook uses. They belong to their respective owners.
         </p>
       </div>
     </footer>

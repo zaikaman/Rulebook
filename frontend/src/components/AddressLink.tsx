@@ -14,7 +14,7 @@ export function AddressLink({ chainId, address, label }: AddressLinkProps) {
       href={`${chain.explorerUrl}/address/${address}`}
       target="_blank"
       rel="noreferrer"
-      className="font-mono text-sm text-ink underline decoration-dotted underline-offset-4"
+      className="app-link break-all font-mono text-xs"
       title={address}
     >
       {label ?? `${address.slice(0, 8)}…${address.slice(-6)}`}

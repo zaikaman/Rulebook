@@ -4,10 +4,20 @@ import { expect, expectTypeOf, it } from 'vitest';
 import { BalanceTrio, type BalanceTrioProps } from '../src/components/BalanceTrio.js';
 
 it('shows only three independently labelled figures, grouped by network and ownership', () => {
-  expectTypeOf<keyof BalanceTrioProps>().toEqualTypeOf<
+  expectTypeOf<keyof Omit<BalanceTrioProps, 'accounts'>>().toEqualTypeOf<
     'principal' | 'executionCost' | 'watchingCredit'
   >();
-  render(<BalanceTrio principal="10 USDC" executionCost="0.01 ETH" watchingCredit="0.2 REACT" />);
+  render(
+    <BalanceTrio
+      principal="10 USDC"
+      executionCost="0.01 ETH"
+      watchingCredit="0.2 REACT"
+      accounts={{
+        agent: '0x1111111111111111111111111111111111111111',
+        vault: '0x2222222222222222222222222222222222222222',
+      }}
+    />,
+  );
 
   const funds = within(screen.getByRole('region', { name: 'Unichain Sepolia balances' }));
   expect(funds.getByText('Principal (your funds)')).toBeVisible();

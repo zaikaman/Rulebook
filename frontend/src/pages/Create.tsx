@@ -1,31 +1,33 @@
+import { ArrowRight02Icon, LockKeyIcon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   agentFactoryAbi,
+  getTemplate,
   LASNA_CHAIN_ID,
-  readableSentence,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
   type SlotKey,
   type TemplateId,
 } from '@rulebook/shared';
-import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
-import { ChipPalette } from '../composer/ChipPalette.js';
 import { LiveCalldata } from '../composer/LiveCalldata.js';
 import { SentenceCanvas } from '../composer/SentenceCanvas.js';
 import { TemplatePicker } from '../composer/TemplatePicker.js';
-import {
-  canSign,
-  composerReducer,
-  initialComposerState,
-  toReadyDraft,
-} from '../composer/reducer.js';
-import type { SlotIssues } from '../composer/types.js';
+import { composerReducer, initialComposerState, toReadyDraft } from '../composer/reducer.js';
 import { slotIssues } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
+import { EmptyState } from '../components/chrome/EmptyState.js';
+import { PageHeading } from '../components/chrome/PageHeading.js';
+import { ErrorState } from '../components/ErrorState.js';
 import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
 import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
+import { appRoutes } from '../lib/routes.js';
+import { formatRuleSentence } from '../lib/rules.js';
+import '../styles/composer.css';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 
@@ -41,7 +43,6 @@ export function CreateRuleForm({
     composerReducer,
     initialComposerState(UNICHAIN_SEPOLIA_CHAIN_ID, initialTemplate),
   );
-  const [issues, setIssues] = useState<SlotIssues>({});
   const [submitted, setSubmitted] = useState(false);
   const [makePublic, setMakePublic] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -49,10 +50,10 @@ export function CreateRuleForm({
 
   const draft = useMemo(() => toReadyDraft(state), [state]);
   const sentence = useMemo(() => safeSentence(state.template, state.slots), [state]);
-
-  useEffect(() => {
-    if (submitted) setIssues(slotIssues(state));
-  }, [state, submitted]);
+  const issues = useMemo(() => slotIssues(state), [state]);
+  const required = getTemplate(state.template)?.slots.filter((slot) => slot.required) ?? [];
+  const complete = required.filter((slot) => !issues[slot.key]).length;
+  const busy = status === 'simulating' || status === 'signing' || status === 'confirming';
 
   const setSlot = (key: SlotKey, value: string): void => {
     dispatch({ type: 'setSlot', key, value });
@@ -60,10 +61,9 @@ export function CreateRuleForm({
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault();
+    if (busy) return;
     setSubmitted(true);
-    const found = slotIssues(state);
-    setIssues(found);
-    const firstInvalid = Object.keys(found)[0];
+    const firstInvalid = Object.keys(issues)[0];
     if (firstInvalid) {
       const control = formRef.current?.querySelector<HTMLElement>(
         `[data-slot="${firstInvalid}"] select`,
@@ -85,7 +85,6 @@ export function CreateRuleForm({
         onCreateAnother={() => {
           dispatch({ type: 'reset' });
           setSubmitted(false);
-          setIssues({});
           setMakePublic(false);
           reset();
         }}
@@ -94,49 +93,54 @@ export function CreateRuleForm({
   }
 
   return (
-    <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
-      <TemplatePicker
-        chainId={LASNA_CHAIN_ID}
-        selected={state.template}
-        onSelect={(template) => {
-          dispatch({ type: 'selectTemplate', template });
-          setIssues({});
-          setSubmitted(false);
-        }}
-      />
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="space-y-4">
-          <SentenceCanvas
-            template={state.template}
-            issues={issues}
-            slots={state.slots}
-            setSlot={setSlot}
-          />
-          <ChipPalette template={state.template} />
+    <form ref={formRef} onSubmit={handleSubmit} className="rule-composer rule-composer__layout">
+      <div className="rule-composer__editor">
+        <TemplatePicker
+          chainId={LASNA_CHAIN_ID}
+          selected={state.template}
+          onSelect={(template) => {
+            dispatch({ type: 'selectTemplate', template });
+            setSubmitted(false);
+          }}
+        />
+        <SentenceCanvas
+          template={state.template}
+          issues={submitted ? issues : {}}
+          slots={state.slots}
+          setSlot={setSlot}
+        >
           {state.slots.schedule ? <ScheduleLabel seconds={state.slots.schedule} /> : null}
-        </div>
+        </SentenceCanvas>
+      </div>
 
-        <div className="space-y-4">
-          <LiveCalldata agent={agent} draft={draft} makePublic={makePublic} />
-          <label className="flex items-start gap-2 rounded-lg border border-border p-3 text-xs text-ink">
+      <div className="rule-composer__review">
+        <LiveCalldata
+          agent={agent}
+          draft={draft}
+          makePublic={makePublic}
+          complete={complete}
+          required={required.length}
+        />
+        <div className="rule-composer__actions">
+          <div className="rule-composer__publish">
             <input
+              id="publish-rule"
               type="checkbox"
               checked={makePublic}
               onChange={(event) => setMakePublic(event.target.checked)}
-              className="mt-0.5"
+              aria-describedby="publish-rule-description"
             />
-            <span>
-              <span className="block font-medium text-ink">Publish to the marketplace</span>
-              <span className="block text-ink-muted">
-                Anyone can clone these exact parameters into their own vault. Your vault, funds, and
-                signing key are never shared.
-              </span>
-            </span>
-          </label>
+            <div>
+              <label htmlFor="publish-rule">Publish to the marketplace</label>
+              <p id="publish-rule-description">
+                Anyone can reuse this rule’s settings. Your vault, funds, and signing key stay
+                private.
+              </p>
+            </div>
+          </div>
           {error ? (
-            <div role="alert" className="space-y-1 rounded border border-silent/40 bg-silent/5 p-3">
-              <p className="text-sm text-ink">{error.message}</p>
+            <div role="alert" className="rule-composer__error">
+              <p>{error.message}</p>
               {error.selector ? (
                 <p className="font-mono text-[11px] text-ink-muted">selector {error.selector}</p>
               ) : null}
@@ -149,11 +153,7 @@ export function CreateRuleForm({
               </p>
             </div>
           ) : null}
-          <button
-            type="submit"
-            disabled={status === 'simulating' || status === 'signing' || status === 'confirming'}
-            className="w-full rounded-full bg-ink px-4 py-3 text-sm font-semibold text-surface disabled:opacity-50"
-          >
+          <button type="submit" disabled={busy} className="rule-composer__submit">
             {status === 'simulating'
               ? 'Simulating…'
               : status === 'signing'
@@ -161,14 +161,12 @@ export function CreateRuleForm({
                 : status === 'confirming'
                   ? 'Waiting for the Lasna receipt…'
                   : 'Review and create rule'}
+            {!busy && <HugeiconsIcon icon={ArrowRight02Icon} size={18} aria-hidden="true" />}
           </button>
-          <p className="text-xs text-ink-muted">
-            One Lasna signature creates the rule. The operator pays the execution cost; your
-            principal stays in your own vault.
+          <p className="rule-composer__footnote">
+            <HugeiconsIcon icon={LockKeyIcon} size={15} aria-hidden="true" />
+            <span>Your funds stay in your vault. The operator pays execution costs.</span>
           </p>
-          {!canSign(state) ? (
-            <p className="text-xs text-ink-muted">Some blanks are still empty.</p>
-          ) : null}
         </div>
       </div>
     </form>
@@ -177,7 +175,7 @@ export function CreateRuleForm({
 
 function safeSentence(template: number, slots: Record<string, string | undefined>): string {
   try {
-    return readableSentence({
+    return formatRuleSentence({
       template,
       chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
       slots: slots as Record<string, string>,
@@ -201,42 +199,49 @@ export function Create() {
   });
   const agent = agentQuery.data && agentQuery.data !== ZERO ? agentQuery.data : null;
 
-  if (!address) {
-    return (
-      <section className="space-y-3">
-        <h1 className="text-2xl font-semibold text-ink">Compose a rule</h1>
-        <p className="text-ink-muted">Connect the wallet that owns your automation account.</p>
-      </section>
-    );
-  }
-
-  if (agentQuery.isLoading) {
-    return <p className="text-sm text-ink-muted">Looking for your automation account…</p>;
-  }
-
-  if (!agent) {
-    return (
-      <section className="space-y-3">
-        <h1 className="text-2xl font-semibold text-ink">Compose a rule</h1>
-        <p className="text-ink-muted">
-          You need an automation account before you can create a rule.
-        </p>
-        <a href="/account" className="text-sm text-automation underline">
-          Create your account
-        </a>
-      </section>
-    );
-  }
-
   return (
-    <section className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold text-ink">Compose a rule</h1>
-        <p className="text-ink-muted">
-          Choose values for each blank. You read the sentence, then sign once.
-        </p>
-      </header>
-      <CreateRuleForm agent={agent} />
+    <section className="app-page">
+      <PageHeading
+        title="Compose a rule"
+        description="Build an automation by filling in the sentence. Review it, then sign once."
+        breadcrumb={
+          <>
+            <Link to={appRoutes.rules}>Rules</Link>
+            <HugeiconsIcon icon={ArrowRight02Icon} size={12} aria-hidden="true" />
+            <span aria-current="page">Composer</span>
+          </>
+        }
+      />
+      {agent ? (
+        <CreateRuleForm agent={agent} />
+      ) : !address ? (
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Connect the owner wallet"
+          description="Use Connect wallet in the navigation to open your automation account."
+        />
+      ) : agentQuery.isLoading ? (
+        <div className="app-skeleton h-32 animate-pulse" role="status">
+          <span className="sr-only">Looking for your automation account…</span>
+        </div>
+      ) : agentQuery.error ? (
+        <ErrorState
+          message="Your automation account could not be loaded."
+          detail={agentQuery.error.message}
+          chainId={LASNA_CHAIN_ID}
+        />
+      ) : (
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Set up your automation account"
+          description="Create an account for this wallet before you compose your first rule."
+          action={
+            <Link to={appRoutes.account} className="app-button app-button--primary">
+              Create your account
+            </Link>
+          }
+        />
+      )}
     </section>
   );
 }

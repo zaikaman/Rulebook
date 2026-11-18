@@ -1,6 +1,6 @@
 import type { Proof as ProofData } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -78,7 +78,7 @@ describe('proof page', () => {
     expect(screen.getByText('Block 100')).toBeInTheDocument();
     expect(screen.getByText('2026-11-16 10:00:00 UTC')).toBeInTheDocument();
 
-    const links = screen.getAllByRole('link');
+    const links = within(screen.getByRole('list', { name: 'Proof rows' })).getAllByRole('link');
     expect(links[0]).toHaveAttribute('href', proof.rows[0]?.explorer_url);
     expect(links[1]).toHaveAttribute('href', proof.rows[1]?.explorer_url);
     expect(links[2]).toHaveAttribute('href', proof.rows[2]?.explorer_url);

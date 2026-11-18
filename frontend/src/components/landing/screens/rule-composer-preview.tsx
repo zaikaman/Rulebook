@@ -1,7 +1,7 @@
 const ruleFields = [
-  { label: 'Trigger', value: 'ETH below $2,500', color: 'text-blue-300' },
-  { label: 'Action', value: 'Swap 250 USDC', color: 'text-violet-300' },
-  { label: 'Destination', value: 'Personal Vault', color: 'text-emerald-300' },
+  { label: 'Schedule', value: 'Every week', color: 'text-blue-300' },
+  { label: 'Spend', value: '10 USDC', color: 'text-violet-300' },
+  { label: 'Buy', value: 'WETH', color: 'text-emerald-300' },
 ] as const;
 
 export function RuleComposerPreview() {
@@ -13,11 +13,11 @@ export function RuleComposerPreview() {
       </div>
       <div className="flex flex-1 flex-col justify-center gap-[2.5cqw]">
         <span className="font-mono text-[1.65cqw] uppercase tracking-widest text-blue-300">
-          Limit buy
+          Scheduled buy
         </span>
         <p className="max-w-[85%] text-[4.3cqw] font-medium leading-tight tracking-tight text-white">
-          When ETH drops below <span className="text-blue-300">$2,500</span>, swap{' '}
-          <span className="text-violet-300">250 USDC</span> for ETH.
+          Every <span className="text-blue-300">week</span>, buy{' '}
+          <span className="text-violet-300">10 USDC</span> worth of WETH.
         </p>
         <dl className="grid grid-cols-3 gap-[1.5cqw]">
           {ruleFields.map(({ label, value, color }) => (
@@ -32,7 +32,7 @@ export function RuleComposerPreview() {
         </dl>
       </div>
       <span className="border-t border-white/10 py-[2cqw] text-[1.7cqw] text-neutral-400">
-        Execution gas sponsored
+        Runs on testnet
       </span>
     </div>
   );

@@ -51,9 +51,6 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
     }
   };
 
-  const button =
-    'rounded-full border border-border px-3 py-1 text-xs font-medium text-ink disabled:opacity-40';
-
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -63,7 +60,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
         {isBaseStatus(display) && display === 'paused' ? (
           <button
             type="button"
-            className={button}
+            className="app-button"
             disabled={pending}
             onClick={() => void run('active', onResume)}
           >
@@ -74,7 +71,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
         {isBaseStatus(display) && display === 'active' ? (
           <button
             type="button"
-            className={button}
+            className="app-button"
             disabled={pending}
             onClick={() => void run('paused', onPause)}
           >
@@ -90,10 +87,10 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
 
         {display !== 'cancelled' && isBaseStatus(display) ? (
           confirmingCancel ? (
-            <span className="flex items-center gap-1">
+            <span className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className={`${button} border-cancelled/50 text-cancelled`}
+                className="app-button app-button--danger"
                 disabled={pending}
                 onClick={() => {
                   setConfirmingCancel(false);
@@ -104,7 +101,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
               </button>
               <button
                 type="button"
-                className={button}
+                className="app-button"
                 disabled={pending}
                 onClick={() => setConfirmingCancel(false)}
               >
@@ -114,7 +111,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
           ) : (
             <button
               type="button"
-              className={button}
+              className="app-button app-button--danger"
               disabled={pending}
               onClick={() => setConfirmingCancel(true)}
             >
@@ -125,10 +122,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
       </div>
 
       {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-cancelled/40 bg-cancelled/10 p-3 text-xs text-ink"
-        >
+        <div role="alert" className="app-alert text-sm" data-tone="error">
           {error}
         </div>
       ) : null}

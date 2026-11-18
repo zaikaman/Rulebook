@@ -1,3 +1,4 @@
+import { Wallet01Icon } from '@hugeicons/core-free-icons';
 import {
   agentAbi,
   agentFactoryAbi,
@@ -10,9 +11,10 @@ import {
 import { formatEther, formatUnits } from 'viem';
 import { useAccount, useBalance, useReadContract } from 'wagmi';
 
-import { AddressLink } from '../components/AddressLink.js';
 import { BalanceTrio } from '../components/BalanceTrio.js';
-import { NetworkBadge } from '../components/NetworkBadge.js';
+import { EmptyState } from '../components/chrome/EmptyState.js';
+import { PageHeading } from '../components/chrome/PageHeading.js';
+import { ErrorState } from '../components/ErrorState.js';
 import { WithdrawForm } from '../components/WithdrawForm.js';
 import {
   AGENT_FACTORY_ADDRESS,
@@ -21,6 +23,7 @@ import {
   UNICHAIN_CONFIG,
   VAULT_FACTORY_ADDRESS,
 } from '../lib/contracts.js';
+import { shortAddress } from '../lib/listings.js';
 import { CreateAccount } from './CreateAccount.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
@@ -32,25 +35,20 @@ function balancePlaceholder(failed: boolean): string {
 /** Owned contracts plus the three balances, each labelled with its network and owner. */
 export function Account() {
   return (
-    <div className="space-y-8">
+    <div className="app-page">
       <AccountContent />
-      <section className="space-y-3 border-t border-border pt-5" aria-labelledby="account-networks">
-        <h2 id="account-networks" className="text-base font-semibold">
+      <section className="app-divider space-y-3 pt-5" aria-labelledby="account-networks">
+        <h2 id="account-networks" className="app-panel-heading">
           Why two networks?
         </h2>
-        <p className="max-w-prose text-sm text-ink-muted">
+        <p className="app-copy">
           Rules live on {LASNA_CONFIG.name} so they can watch for events, while your funds stay in
           your own vault on {UNICHAIN_CONFIG.name}, where trades and withdrawals settle.
         </p>
         <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           {[LASNA_CONFIG, UNICHAIN_CONFIG].map((network) => (
             <li key={network.chainId}>
-              <a
-                href={network.explorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-ink underline underline-offset-4"
-              >
+              <a href={network.explorerUrl} target="_blank" rel="noreferrer" className="app-link">
                 {network.name} explorer
               </a>
             </li>
@@ -117,49 +115,61 @@ function AccountContent() {
 
   if (!address) {
     return (
-      <section className="space-y-2">
-        <h1 className="text-2xl font-semibold">Your account</h1>
-        <p className="text-ink-muted">Connect a wallet to see your accounts and balances.</p>
+      <section className="app-page">
+        <PageHeading
+          title="Your account"
+          description="View the automation account and vault owned by your wallet."
+        />
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Connect a wallet"
+          description="Use Connect wallet in the navigation to see your accounts and balances."
+        />
       </section>
     );
   }
 
   if (agentQuery.isLoading || vaultQuery.isLoading || linkedVault.isLoading) {
     return (
-      <p role="status" className="text-sm text-ink-muted">
-        Looking up your accounts…
-      </p>
+      <section className="app-page" aria-busy="true">
+        <PageHeading title="Your account" />
+        <p role="status" className="sr-only">
+          Looking up your accounts…
+        </p>
+        <div className="app-skeleton h-36 animate-pulse" />
+      </section>
+    );
+  }
+  const lookupError = (!agent && agentQuery.error) || (!vault && vaultQuery.error);
+  if (lookupError) {
+    return (
+      <section className="app-page">
+        <PageHeading title="Your account" />
+        <ErrorState message="Your accounts could not be loaded." detail={lookupError.message} />
+      </section>
     );
   }
   if (!agent || !vault) return <CreateAccount />;
   const needsLink = linkedVault.isSuccess && linkedVault.data.toLowerCase() !== vault.toLowerCase();
 
   return (
-    <section className="space-y-6">
+    <section className="app-page">
       {needsLink ? (
         <CreateAccount />
       ) : (
-        <>
-          <header className="space-y-1">
-            <h1 className="text-2xl font-semibold">Your account</h1>
-            <p className="text-sm text-ink-muted">Owned by {address}.</p>
-          </header>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-4 text-sm">
-              <span className="font-medium">Automation account</span>
-              <NetworkBadge chainId={LASNA_CHAIN_ID} />
-              <AddressLink chainId={LASNA_CHAIN_ID} address={agent} />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-4 text-sm">
-              <span className="font-medium">Funds account</span>
-              <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
-              <AddressLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} address={vault} />
-            </div>
-          </div>
-        </>
+        <PageHeading
+          title="Your account"
+          description="Manage your vault and the credits that keep your automations running."
+          aside={
+            <span className="app-tag" title={address}>
+              Owner <code>{shortAddress(address)}</code>
+            </span>
+          }
+        />
       )}
 
       <BalanceTrio
+        accounts={{ agent, vault }}
         principal={
           principal === undefined
             ? balancePlaceholder(principalQuery.isError)
@@ -176,6 +186,14 @@ function AccountContent() {
             : balancePlaceholder(agentBalance.isError)
         }
       />
+
+      {linkedVault.error ? (
+        <ErrorState
+          message="The link between your accounts could not be verified."
+          detail={linkedVault.error.message}
+          chainId={LASNA_CHAIN_ID}
+        />
+      ) : null}
 
       {principal !== undefined ? (
         <WithdrawForm

@@ -1,3 +1,5 @@
+import { ArrowDown01Icon, ArrowUp01Icon, DragDropVerticalIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   DndContext,
   KeyboardSensor,
@@ -91,7 +93,7 @@ export function RuleOrderList({ ids, labels, onReorder, disabled = false }: Rule
           items={order.map((id) => id.toString())}
           strategy={verticalListSortingStrategy}
         >
-          <ol aria-label="Rule evaluation order" className="space-y-2">
+          <ol aria-label="Rule evaluation order" className="app-divider app-rules-list">
             {order.map((id, index) => (
               <SortableRule
                 key={id.toString()}
@@ -108,10 +110,7 @@ export function RuleOrderList({ ids, labels, onReorder, disabled = false }: Rule
       </DndContext>
 
       {error ? (
-        <div
-          role="alert"
-          className="rounded-lg border border-cancelled/40 bg-cancelled/10 p-3 text-xs text-ink"
-        >
+        <div role="alert" className="app-alert text-sm" data-tone="error">
           {error} The previous order is still in effect.
         </div>
       ) : null}
@@ -154,8 +153,8 @@ function SortableRule({
             ? { transition }
             : undefined
       }
-      className={`flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-raised p-3 text-sm ${
-        isDragging ? 'opacity-70' : ''
+      className={`flex flex-wrap items-center gap-x-2 gap-y-3 bg-surface-raised py-3 text-sm ${
+        isDragging ? 'relative z-10 opacity-90' : ''
       }`}
     >
       <button
@@ -164,21 +163,17 @@ function SortableRule({
         {...listeners}
         disabled={disabled}
         aria-label={`Drag rule ${label}`}
-        className="cursor-grab text-ink-muted disabled:cursor-not-allowed"
+        className="app-button app-icon-button app-grab"
       >
-        ⠿
+        <HugeiconsIcon icon={DragDropVerticalIcon} size={17} aria-hidden="true" />
       </button>
 
       <span aria-hidden="true" className="font-mono text-xs text-ink-muted">
         {index + 1}.
       </span>
-      <span className="min-w-0 flex-1 truncate text-ink">{label}</span>
+      <span className="min-w-0 flex-[1_1_10rem] break-words text-ink">{label}</span>
 
-      {index === 0 ? (
-        <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-wide text-ink-muted">
-          Runs first
-        </span>
-      ) : null}
+      {index === 0 ? <span className="app-tag">Runs first</span> : null}
 
       <span className="flex gap-1">
         <button
@@ -186,18 +181,20 @@ function SortableRule({
           onClick={() => onMove(index, index - 1)}
           disabled={disabled || index === 0}
           aria-label={`Move rule ${label} up`}
-          className="rounded-full border border-border px-2 py-0.5 text-xs text-ink disabled:opacity-40"
+          title="Move up"
+          className="app-button app-icon-button"
         >
-          Move up
+          <HugeiconsIcon icon={ArrowUp01Icon} size={17} aria-hidden="true" />
         </button>
         <button
           type="button"
           onClick={() => onMove(index, index + 1)}
           disabled={disabled || index === total - 1}
           aria-label={`Move rule ${label} down`}
-          className="rounded-full border border-border px-2 py-0.5 text-xs text-ink disabled:opacity-40"
+          title="Move down"
+          className="app-button app-icon-button"
         >
-          Move down
+          <HugeiconsIcon icon={ArrowDown01Icon} size={17} aria-hidden="true" />
         </button>
       </span>
     </li>

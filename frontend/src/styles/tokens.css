@@ -1,21 +1,30 @@
 :root {
   /* Two networks, two colours. Every badge reads these. */
-  --rb-automation: #7c5cff;
-  --rb-automation-ink: #efeaff;
-  --rb-funds: #14b8a6;
-  --rb-funds-ink: #e6fffb;
+  --rb-automation: oklch(0.835 0.083 290);
+  --rb-automation-tint: oklch(0.259 0.047 290);
+  --rb-automation-line: oklch(0.436 0.069 290);
+  --rb-funds: oklch(0.817 0.106 175);
+  --rb-funds-tint: oklch(0.255 0.038 175);
+  --rb-funds-line: oklch(0.437 0.061 175);
 
   /* Surfaces, borders, and text. */
-  --rb-surface: #020202;
-  --rb-surface-raised: #0a0a0a;
-  --rb-border: rgba(255, 255, 255, 0.08);
-  --rb-ink: #ededed;
-  --rb-ink-muted: #a3a3a3;
+  --rb-surface: oklch(0.135 0.006 252);
+  --rb-surface-raised: oklch(0.189 0.01 252);
+  --rb-surface-inset: oklch(0.218 0.016 252);
+  --rb-control: oklch(0.242 0.015 252);
+  --rb-border: oklch(0.31 0.017 252);
+  --rb-control-border: oklch(0.42 0.028 252);
+  --rb-ink: oklch(0.957 0.009 252);
+  --rb-ink-muted: oklch(0.739 0.021 252);
+  --rb-accent: oklch(0.789 0.108 248);
+  --rb-accent-ink: oklch(0.204 0.044 254);
+  --rb-accent-tint: oklch(0.286 0.054 249);
+  --rb-danger: oklch(0.784 0.115 20);
 
   /* Status colours: latched and silent must never look like active. */
-  --rb-status-active: #22c55e;
-  --rb-status-paused: #f59e0b;
-  --rb-status-cancelled: #6b7280;
-  --rb-status-latched: #38bdf8;
-  --rb-status-silent: #ef4444;
+  --rb-status-active: oklch(0.812 0.113 151);
+  --rb-status-paused: oklch(0.831 0.113 79);
+  --rb-status-cancelled: oklch(0.713 0.025 252);
+  --rb-status-latched: oklch(0.794 0.099 230);
+  --rb-status-silent: var(--rb-danger);
 }

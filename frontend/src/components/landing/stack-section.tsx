@@ -1,47 +1,37 @@
 import reactiveLogo from '@/assets/partners/reactive.svg';
 import uniswapLogo from '@/assets/partners/uniswap.svg';
 import unichainLogo from '@/assets/partners/unichain.svg';
-import ethLogo from '@/assets/partners/ethereum.svg';
 
 const services = [
   {
     name: 'Reactive Network',
     logo: reactiveLogo,
     logoClassName: 'h-6',
-    role: 'Watches the world on Lasna, executes cross-chain logic in ReactVM without custody.',
+    role: 'Your automation account watches for triggers and evaluates your rules on Lasna.',
   },
   {
-    name: 'Uniswap V3',
+    name: 'Uniswap V2',
     logo: uniswapLogo,
     logoClassName: 'h-6',
-    role: 'Executes spot automations, DCA, and rebalances against decentralized liquidity pools.',
+    role: 'Your vault uses Uniswap pools to read prices and make swaps.',
   },
   {
     name: 'Unichain Sepolia',
     logo: unichainLogo,
     logoClassName: 'h-6',
-    role: 'Hosts your personal non-custodial Vault. Only your wallet can withdraw principal.',
-  },
-  {
-    name: 'Sponsored Relayer',
-    logo: ethLogo,
-    logoClassName: 'h-6',
-    role: 'Pays gas and contract deployment costs. You keep the money, the operator pays the execution.',
+    role: 'Your vault lives on this testnet, where swaps, transfers, and withdrawals settle.',
   },
 ] as const;
 
 export function StackSection() {
   return (
     <section className="relative z-10 mx-auto max-w-6xl px-6 pb-12 pt-4">
-      <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_both] mb-6 text-[10px] font-medium uppercase tracking-[0.2em] text-neutral-400">
-        Infrastructure & Networks
-      </p>
-      <ul className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] grid overflow-hidden rounded-3xl border border-white/5 bg-white/[0.02] sm:grid-cols-2 lg:grid-cols-4">
+      <h2 className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_both] mb-6 text-xl font-medium tracking-tight text-white">
+        Networks and protocols
+      </h2>
+      <ul className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] grid divide-y divide-white/10 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] md:grid-cols-3 md:divide-x md:divide-y-0">
         {services.map((service) => (
-          <li
-            key={service.name}
-            className="flex flex-col gap-4 border-white/5 p-6 not-last:border-b sm:odd:border-r lg:border-b-0 lg:not-last:border-r"
-          >
+          <li key={service.name} className="flex flex-col gap-4 p-6">
             <span className="flex h-12 items-center">
               <img
                 src={service.logo}

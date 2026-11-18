@@ -15,7 +15,7 @@ export function TxLink({ chainId, txHash, label }: TxLinkProps) {
       href={`${chain.explorerUrl}/tx/${txHash}`}
       target="_blank"
       rel="noreferrer"
-      className="font-mono text-sm text-ink underline decoration-dotted underline-offset-4"
+      className="app-link break-all font-mono text-xs"
       title={txHash}
     >
       {label ?? short}

@@ -19,9 +19,7 @@ const expectedCalldata = encodeAddRule(AGENT_PLACEHOLDER, {
   slots: { ...dca.slots },
 });
 
-test('composes a weekly USDC→WETH DCA sentence, matches the fixture, and signs once', async ({
-  page,
-}) => {
+test('composes a USDC→WETH DCA sentence, matches the fixture, and signs once', async ({ page }) => {
   test.setTimeout(240_000);
   await installWallet(page, COMPOSER);
 
@@ -37,12 +35,16 @@ test('composes a weekly USDC→WETH DCA sentence, matches the fixture, and signs
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'Compose a rule' })).toBeVisible();
 
-  // Only selections — there is no free-text field anywhere in the flow.
+  const amount = page.getByLabel('amount', { exact: true });
+  await page.getByRole('button', { name: '10', exact: true }).dragTo(amount, { steps: 12 });
+  await expect(amount).toHaveValue('10000000');
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1');
+
   await page.getByLabel('pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('buy').selectOption({ label: 'WETH' });
-  await page.getByLabel('amount').selectOption({ label: '10' });
   await page.getByLabel('schedule').selectOption({ label: 'every day' });
 
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4');
   await expect(page.getByTestId('live-calldata')).toHaveText(expectedCalldata);
 
   await page.getByRole('button', { name: 'Review and create rule' }).click();

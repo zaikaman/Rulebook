@@ -1,3 +1,5 @@
+import { FlashIcon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import {
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -8,6 +10,8 @@ import { BaseError, formatUnits } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
+import { EmptyState } from '../components/chrome/EmptyState.js';
+import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { NetworkBadge } from '../components/NetworkBadge.js';
 import { TxLink } from '../components/TxLink.js';
@@ -32,14 +36,27 @@ const STATUS_LABEL: Record<OnboardingStep['status'], string> = {
 
 function StepRow({ step }: { readonly step: OnboardingStep }) {
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded border border-border px-3 py-2">
+    <li className="app-panel-pad flex flex-wrap items-center gap-2 text-sm">
       <span className="font-medium">{STEP_LABEL[step.name]}</span>
-      <span className="text-xs text-ink-muted">{STATUS_LABEL[step.status]}</span>
+      <span
+        className="app-tag"
+        data-tone={
+          step.status === 'confirmed'
+            ? 'positive'
+            : step.status === 'failed'
+              ? 'warning'
+              : undefined
+        }
+      >
+        {STATUS_LABEL[step.status]}
+      </span>
       {step.chain_id ? <NetworkBadge chainId={step.chain_id} /> : null}
       {step.tx_hash && step.chain_id ? (
         <TxLink chainId={step.chain_id} txHash={step.tx_hash} />
       ) : null}
-      {step.error ? <span className="text-xs text-cancelled">{step.error}</span> : null}
+      {step.error ? (
+        <span className="basis-full break-words text-xs text-silent">{step.error}</span>
+      ) : null}
     </li>
   );
 }
@@ -62,40 +79,80 @@ export function CreateAccount() {
 
   if (!address) {
     return (
-      <section className="space-y-3">
-        <h1 className="text-2xl font-semibold">Create your account</h1>
-        <p className="text-ink-muted">
-          Connect the wallet that should own your automation account and your funds account. Only
-          that wallet can withdraw.
-        </p>
+      <section className="app-page">
+        <PageHeading title="Create your account" />
+        <EmptyState
+          icon={Wallet01Icon}
+          title="Connect the owner wallet"
+          description="Connect the wallet that should own both accounts. Only that wallet can withdraw funds."
+        />
       </section>
     );
   }
 
   return (
-    <section className="space-y-6">
-      <header className="space-y-2">
-        <h1 className="text-2xl font-semibold">Create your account</h1>
-        <p className="text-ink-muted">
-          Two contracts, both owned by {address.slice(0, 6)}…{address.slice(-4)}. The operator pays
-          deployment and execution costs and can never withdraw your principal.
-        </p>
-      </header>
+    <section className="app-page">
+      <PageHeading
+        title="Create your account"
+        description={`Set up two linked contracts for ${address.slice(0, 6)}…${address.slice(-4)}. Your wallet owns both accounts.`}
+      />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          disabled={setup.resuming || setup.setupState === 'complete'}
-          onClick={() => void setup.resume().catch(() => undefined)}
-          className="rounded bg-ink px-4 py-2 font-medium text-surface disabled:opacity-50"
-        >
-          {setup.resuming ? 'Working…' : resumeLabel}
-        </button>
-        {setup.setupState === 'complete' ? (
-          <a href="/account" className="text-sm underline">
-            View your account
-          </a>
-        ) : null}
+      <div className="app-panel">
+        <div className="app-balance-grid">
+          <div className="app-panel-pad space-y-3">
+            <div className="app-panel-header">
+              <span className="app-icon">
+                <HugeiconsIcon icon={FlashIcon} size={19} aria-hidden="true" />
+              </span>
+              <h2 className="app-panel-heading">Automation account</h2>
+            </div>
+            <NetworkBadge chainId={LASNA_CHAIN_ID} />
+            <p className="app-copy">
+              Stores your rules and watches for the events that trigger them.
+            </p>
+            {setup.agent ? <AddressLink chainId={LASNA_CHAIN_ID} address={setup.agent} /> : null}
+          </div>
+          <div className="app-panel-pad space-y-3">
+            <div className="app-panel-header">
+              <span className="app-icon">
+                <HugeiconsIcon icon={Wallet01Icon} size={19} aria-hidden="true" />
+              </span>
+              <h2 className="app-panel-heading">Funds account</h2>
+            </div>
+            <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+            <p className="app-copy">
+              Holds your funds and settles trades and withdrawals on Unichain.
+            </p>
+            {setup.vault ? (
+              <AddressLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} address={setup.vault} />
+            ) : null}
+          </div>
+        </div>
+        <div className="app-divider app-panel-pad flex flex-wrap items-center justify-between gap-3">
+          {setup.setupState === 'complete' ? (
+            <p className="app-tag" data-tone="positive" role="status">
+              Account ready
+            </p>
+          ) : (
+            <p className="app-copy">
+              The operator covers contract deployment and automated execution.
+            </p>
+          )}
+          {setup.setupState === 'complete' ? (
+            <a href="/account" className="app-button app-button--primary">
+              View your account
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled={setup.resuming}
+              onClick={() => void setup.resume().catch(() => undefined)}
+              className="app-button app-button--primary"
+            >
+              {setup.resuming ? 'Working…' : resumeLabel}
+            </button>
+          )}
+        </div>
       </div>
 
       {setup.error instanceof WalletAuthorizationError ? (
@@ -110,35 +167,19 @@ export function CreateAccount() {
       ) : null}
 
       {setup.result ? (
-        <ol className="space-y-2" aria-label="Setup steps">
+        <ol className="app-panel app-rules-list" aria-label="Setup steps">
           {setup.result.steps.map((step) => (
             <StepRow key={step.name} step={step} />
           ))}
         </ol>
       ) : null}
 
-      {setup.agent ? (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-ink-muted">Automation account</span>
-          <NetworkBadge chainId={LASNA_CHAIN_ID} />
-          <AddressLink chainId={LASNA_CHAIN_ID} address={setup.agent} />
-        </div>
-      ) : null}
-
       {setup.vault ? (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-ink-muted">Funds account</span>
-          <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
-          <AddressLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} address={setup.vault} />
-        </div>
-      ) : null}
-
-      {setup.vault ? (
-        <div className="space-y-2 rounded-lg border border-border p-4">
-          <h2 className="flex flex-wrap items-center gap-2 font-medium">
+        <div className="app-panel app-panel-pad space-y-3">
+          <h2 className="app-panel-header app-panel-heading">
             Get test funds <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
           </h2>
-          <p className="text-sm text-ink-muted">
+          <p className="app-copy">
             The sponsor sends a small, capped amount of demo USDC and WETH into your funds account.
             You can claim once per address. The sponsor signs the funding transaction.
           </p>
@@ -146,7 +187,7 @@ export function CreateAccount() {
             type="button"
             disabled={setup.claiming}
             onClick={() => void setup.claimStarterFunds().catch(() => undefined)}
-            className="rounded border border-border px-3 py-1.5 text-sm disabled:opacity-50"
+            className="app-button"
           >
             {setup.claiming ? 'Sending…' : 'Send starter funds'}
           </button>

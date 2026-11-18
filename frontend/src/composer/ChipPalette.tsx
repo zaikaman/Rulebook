@@ -23,7 +23,7 @@ const DAY = 86_400;
  * Presets per slot kind. Duration is split by unit: an expiry is a unix second, an inactivity
  * period is a number of days. Every preset still passes the manifest's own min/max check.
  */
-function presetsForKind(kind: TemplateSlot['kind'], unit: string | null): ValueChip[] {
+function presetsForKind(kind: TemplateSlot['kind'], unit: string | null, now: number): ValueChip[] {
   const make = (prefix: string, entries: ReadonlyArray<{ label: string; value: string }>) =>
     entries.map((entry, index) => ({ id: `${prefix}-${index}`, kind, ...entry }));
 
@@ -57,8 +57,7 @@ function presetsForKind(kind: TemplateSlot['kind'], unit: string | null): ValueC
         { label: '5%', value: '500' },
         { label: '10%', value: '1000' },
       ]);
-    case 'duration': {
-      const now = Math.floor(Date.now() / 1000);
+    case 'duration':
       return unit === 'unix seconds'
         ? make('expiry', [
             { label: 'in 30 days', value: String(now + 30 * DAY) },
@@ -70,7 +69,6 @@ function presetsForKind(kind: TemplateSlot['kind'], unit: string | null): ValueC
             { label: '90 days', value: '90' },
             { label: '180 days', value: '180' },
           ]);
-    }
     case 'address':
       return make('address', [
         { label: 'price pair', value: UNICHAIN_CONFIG.pair },
@@ -82,12 +80,12 @@ function presetsForKind(kind: TemplateSlot['kind'], unit: string | null): ValueC
 }
 
 /** The chips that may fill one specific slot, derived from the manifest's kind and unit. */
-export function chipsForSlot(slot: TemplateSlot): readonly ValueChip[] {
-  return presetsForKind(slot.kind, slot.unit);
+export function chipsForSlot(slot: TemplateSlot, presetTime: number): readonly ValueChip[] {
+  return presetsForKind(slot.kind, slot.unit, presetTime);
 }
 
 /** Slot definitions grouped by the kind of value they accept, for the chosen template. */
-export function slotsByKind(template: number): Map<TemplateSlot['kind'], TemplateSlot[]> {
+function slotsByKind(template: number): Map<TemplateSlot['kind'], TemplateSlot[]> {
   const grouped = new Map<TemplateSlot['kind'], TemplateSlot[]>();
   for (const slot of getTemplate(template)?.slots ?? []) {
     const list = grouped.get(slot.kind) ?? [];
@@ -98,7 +96,7 @@ export function slotsByKind(template: number): Map<TemplateSlot['kind'], Templat
 }
 
 function DraggableChip({ chip }: { readonly chip: ValueChip }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({
     id: `chip:${chip.id}`,
     data: { kind: chip.kind, value: chip.value } satisfies ChipDragData,
   });
@@ -108,9 +106,11 @@ function DraggableChip({ chip }: { readonly chip: ValueChip }) {
       type="button"
       {...listeners}
       {...attributes}
-      className={`rounded-full border border-border bg-surface-raised px-3 py-1 text-xs text-ink hover:border-automation ${
-        isDragging ? 'opacity-50' : ''
-      }`}
+      className="rule-composer__preset"
+      data-dragging={isDragging ? 'true' : undefined}
+      style={
+        transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined
+      }
     >
       {chip.label}
     </button>
@@ -121,30 +121,50 @@ function DraggableChip({ chip }: { readonly chip: ValueChip }) {
  * Value chips grouped by slot kind. A chip is draggable onto a blank in the sentence; the same
  * values are offered as a native select inside each blank for keyboard users.
  */
-export function ChipPalette({ template }: { readonly template: number }) {
+const KIND_LABEL: Record<TemplateSlot['kind'], string> = {
+  schedule: 'Schedule',
+  amount: 'Amount',
+  token: 'Token',
+  price: 'Price',
+  percent: 'Percentage',
+  duration: 'Duration',
+  address: 'Address',
+};
+
+export function ChipPalette({
+  template,
+  presetTime,
+}: {
+  readonly template: number;
+  readonly presetTime: number;
+}) {
   const grouped = slotsByKind(template);
   return (
-    <section aria-label="Value chips" className="space-y-3 rounded-lg border border-border p-4">
-      <h2 className="text-sm font-medium text-ink">Values</h2>
-      <p className="text-xs text-ink-muted">
-        Drag a chip onto a blank, or focus a blank and choose a value. There is no text field.
-      </p>
-      {[...grouped.entries()].map(([kind, slots]) => {
-        const chips = chipsForSlot(slots[0]!);
-        if (chips.length === 0) return null;
-        return (
-          <div key={kind} className="space-y-1">
-            <h3 className="text-xs uppercase tracking-wide text-ink-muted">
-              {kind} — {slots.map((slot) => slot.label).join(', ')}
-            </h3>
-            <div className="flex flex-wrap gap-2">
-              {chips.map((chip) => (
-                <DraggableChip key={chip.id} chip={chip} />
-              ))}
+    <section aria-labelledby="rule-values-heading" className="rule-composer__presets">
+      <h2 id="rule-values-heading">Preset values</h2>
+      <p>Drag a value into the sentence, or choose it from a blank’s menu.</p>
+      <div className="rule-composer__preset-list">
+        {[...grouped.entries()].map(([kind, [slot, ...otherSlots]]) => {
+          if (!slot) return null;
+          const chips = chipsForSlot(slot, presetTime);
+          if (chips.length === 0) return null;
+          return (
+            <div key={kind} className="rule-composer__preset-row">
+              <h3>
+                {KIND_LABEL[kind]}
+                {otherSlots.length > 0 ? (
+                  <small>{[slot, ...otherSlots].map((entry) => entry.label).join(' · ')}</small>
+                ) : null}
+              </h3>
+              <div className="rule-composer__preset-chips">
+                {chips.map((chip) => (
+                  <DraggableChip key={chip.id} chip={chip} />
+                ))}
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </section>
   );
 }

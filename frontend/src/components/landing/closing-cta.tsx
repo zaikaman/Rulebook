@@ -19,22 +19,20 @@ export function ClosingCta() {
       />
       <div className="relative mx-auto max-w-3xl">
         <h2 className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_both] mb-5 text-4xl font-medium leading-tight tracking-tight text-white md:text-5xl">
-          Your money stays in your hands.
-          <br />
-          <span className="text-neutral-400">The operator pays the gas.</span>
+          Try Rulebook on testnet
         </h2>
         <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] mx-auto mb-10 max-w-xl text-base font-light leading-relaxed text-neutral-400">
-          Assemble a personal money rule by snapping pieces together. Sign once, keep custody, and
-          let Reactive Network execute the rest.
+          Connect a wallet, set up your account, and claim starter test tokens during setup.
         </p>
         <Link
-          to={appRoutes.rules}
+          to={appRoutes.account}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
-          <span>Launch Rulebook</span>
+          <span>Set up your account</span>
           <HugeiconsIcon
             icon={ArrowRight02Icon}
             size={16}
+            aria-hidden="true"
             className="transition-transform group-hover:translate-x-0.5"
           />
         </Link>

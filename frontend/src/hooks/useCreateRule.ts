@@ -1,7 +1,6 @@
 import {
   encodeAddRuleParams,
   LASNA_CHAIN_ID,
-  readableSentence,
   ruleParamsFromDraft,
   type Address,
   type RuleParams,
@@ -12,6 +11,7 @@ import { useAccount, useSendTransaction } from 'wagmi';
 import type { ReadyDraft } from '../composer/types.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
+import { formatRuleSentence } from '../lib/rules.js';
 import { signatureDetails } from '../lib/signatures.js';
 import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
 import { useChainGuard } from './useChainGuard.js';
@@ -111,7 +111,7 @@ export function useCreateRule() {
       try {
         const gas = await estimateAddRuleGas(agent, data, address);
         hash = await requestSignature(
-          signatureDetails.create(agent, params, readableSentence(draft), makePublic),
+          signatureDetails.create(agent, params, formatRuleSentence(draft), makePublic),
           address,
           () =>
             sendTransactionAsync({

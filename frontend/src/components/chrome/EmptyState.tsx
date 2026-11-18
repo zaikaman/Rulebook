@@ -1,18 +1,24 @@
-import type { ReactNode } from 'react';
+import { HugeiconsIcon } from '@hugeicons/react';
+import type { ComponentProps, ReactNode } from 'react';
 
 export function EmptyState({
   title,
   description,
   action,
+  icon,
 }: {
   title: string;
   description: string;
   action?: ReactNode;
+  icon: ComponentProps<typeof HugeiconsIcon>['icon'];
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-3xl border border-white/5 bg-white/[0.02] px-6 py-20 text-center">
-      <span className="text-lg font-medium text-white">{title}</span>
-      <p className="max-w-md text-sm text-neutral-400">{description}</p>
+    <div className="app-panel app-state">
+      <span className="app-icon" aria-hidden="true">
+        <HugeiconsIcon icon={icon} size={21} />
+      </span>
+      <h2>{title}</h2>
+      <p>{description}</p>
       {action}
     </div>
   );

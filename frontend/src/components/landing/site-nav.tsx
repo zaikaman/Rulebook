@@ -41,8 +41,8 @@ export function SiteNav() {
             className="group relative flex min-h-10 items-center gap-2 rounded-full bg-neutral-900 px-4 text-xs font-medium text-white transition-all hover:bg-neutral-800"
             style={bagBorder}
           >
-            <span>Launch App</span>
-            <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} />
+            <span>Open Rulebook</span>
+            <HugeiconsIcon icon={ArrowUpRight01Icon} size={12} aria-hidden="true" />
           </Link>
         </div>
       </nav>

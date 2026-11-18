@@ -32,6 +32,7 @@ import {
 } from '../../backend/src/sponsor/relayer.js';
 import {
   AGENT_FACTORY_ADDRESS,
+  ANVIL_RPC_PORT,
   ANVIL_RPC_URL,
   FIXTURE_API_PORT,
   FIXTURE_API_URL,
@@ -95,7 +96,7 @@ async function main(): Promise<void> {
     process.env.ANVIL_PATH ?? (process.platform === 'win32' ? '.tools/foundry/anvil.exe' : 'anvil');
   const anvil: ChildProcess = spawn(
     anvilPath,
-    ['--chain-id', '1301', '--port', '8545', '--silent'],
+    ['--chain-id', '1301', '--port', String(ANVIL_RPC_PORT), '--silent'],
     { stdio: 'inherit' },
   );
   const serverRef: { current?: ReturnType<typeof buildServer>['app'] } = {};

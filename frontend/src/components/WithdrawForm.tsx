@@ -112,11 +112,11 @@ export function WithdrawForm({
 
   if (receipt.data?.status === 'success' && hash) {
     return (
-      <section className="space-y-2 rounded-lg border border-confirmed/40 p-4">
-        <h2 className="flex items-center gap-2 font-medium">
+      <section className="app-alert grid gap-2" data-tone="success">
+        <h2 className="app-panel-header app-panel-heading">
           Withdrawn on Unichain Sepolia <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
         </h2>
-        <p className="text-sm text-ink-muted">
+        <p className="app-copy">
           Principal arrived at {destination}. No operator approval was involved.
         </p>
         <TxLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} txHash={hash} label="View withdrawal" />
@@ -125,47 +125,51 @@ export function WithdrawForm({
   }
 
   return (
-    <section className="space-y-3 rounded-lg border border-border p-4">
-      <h2 className="flex items-center gap-2 font-medium">
+    <section className="app-panel app-panel-pad grid gap-4">
+      <h2 className="app-panel-header app-panel-heading">
         Withdraw principal <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
       </h2>
-      <p className="text-sm text-ink-muted">
+      <p className="app-copy">
         Available: {formatUnits(principal, tokenDecimals)} {tokenSymbol}. The owner signs on
         Unichain Sepolia; the operator cannot block or perform this.
       </p>
 
-      <label className="block text-sm">
-        Amount ({tokenSymbol})
-        <input
-          aria-label="Withdrawal amount"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          inputMode="decimal"
-          className="mt-1 w-full rounded border border-border bg-surface px-3 py-2"
-        />
-      </label>
+      <div className="grid gap-3 sm:grid-cols-[minmax(9rem,1fr)_minmax(0,2fr)]">
+        <label className="app-field">
+          Amount ({tokenSymbol})
+          <input
+            aria-label="Withdrawal amount"
+            value={amount}
+            onChange={(event) => setAmount(event.target.value)}
+            inputMode="decimal"
+            className="app-input"
+          />
+        </label>
 
-      <label className="block text-sm">
-        Destination
-        <input
-          aria-label="Destination address"
-          value={destination}
-          onChange={(event) => setDestination(event.target.value)}
-          className="mt-1 w-full rounded border border-border bg-surface px-3 py-2 font-mono text-xs"
-        />
-      </label>
+        <label className="app-field">
+          Destination
+          <input
+            aria-label="Destination address"
+            value={destination}
+            onChange={(event) => setDestination(event.target.value)}
+            className="app-input font-mono"
+          />
+        </label>
+      </div>
 
-      <label className="flex items-start gap-2 text-sm">
+      <label className="flex items-start gap-2 text-sm text-ink-muted">
         <input
           type="checkbox"
           checked={confirmed}
           onChange={(event) => setConfirmed(event.target.checked)}
-          className="mt-1"
+          className="mt-1 accent-[var(--rb-accent)]"
         />
         I confirm this destination. Withdrawals are final and the operator cannot reverse them.
       </label>
 
-      {validation ? <p className="text-sm text-cancelled">{validation}</p> : null}
+      {validation ? (
+        <p className={principal === 0n ? 'app-copy' : 'text-sm text-silent'}>{validation}</p>
+      ) : null}
       {error ? (
         <ErrorState
           message="Withdrawal failed"
@@ -178,7 +182,7 @@ export function WithdrawForm({
         type="button"
         disabled={!canSubmit}
         onClick={() => void submit()}
-        className="rounded bg-ink px-4 py-2 font-medium text-surface disabled:opacity-50"
+        className="app-button app-button--primary justify-self-start"
       >
         {submitting || receipt.isLoading ? 'Confirming on Unichain…' : 'Withdraw'}
       </button>

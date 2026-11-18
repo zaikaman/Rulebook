@@ -1,11 +1,14 @@
+import { Award01Icon } from '@hugeicons/core-free-icons';
 import { getTemplate, type LeaderboardRow } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
 
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { api } from '../lib/api.js';
 import { shortAddress } from '../lib/listings.js';
+import { appRoutes } from '../lib/routes.js';
 
 function templateLabel(row: LeaderboardRow): string {
   const template = row.template === undefined ? undefined : getTemplate(row.template);
@@ -26,40 +29,47 @@ function LeaderboardTable({
   readonly rows: readonly LeaderboardRow[];
 }) {
   return (
-    <section aria-label={title} className="space-y-3">
-      <div>
-        <h3 className="text-base font-semibold text-white">{title}</h3>
-        <p className="text-xs text-neutral-400">{description}</p>
-      </div>
+    <section aria-label={title} className="app-panel">
+      <header className="app-panel-pad space-y-1">
+        <h2 className="app-panel-heading">{title}</h2>
+        <p className="app-copy">{description}</p>
+      </header>
       {rows.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-white/10 p-6 text-center text-xs text-neutral-400">
-          No {title.toLowerCase()} rules have an execution record yet.
+        <p className="app-divider app-panel-pad text-sm text-ink-muted">
+          No verified executions in this group yet.
         </p>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.02]">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-white/5 text-xs font-mono uppercase text-neutral-400">
+        <div
+          className="app-table-wrap app-divider rounded-t-none"
+          tabIndex={0}
+          role="region"
+          aria-label={`${title} rankings`}
+        >
+          <table className="app-table">
+            <thead>
               <tr>
-                <th className="py-3 pl-5 pr-3">Rank</th>
-                <th className="px-3 py-3">Rule</th>
-                <th className="px-3 py-3">Runs</th>
-                <th className="py-3 pl-3 pr-5">Success rate</th>
+                <th scope="col">Rank</th>
+                <th scope="col">Rule</th>
+                <th scope="col" className="app-number">
+                  Runs
+                </th>
+                <th scope="col" className="app-number">
+                  Success rate
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody>
               {rows.map((row) => (
                 <tr key={`${row.agent}-${row.rule_id.toString()}`}>
-                  <td className="py-3 pl-5 pr-3 font-mono text-neutral-300">#{row.rank}</td>
-                  <td className="px-3 py-3">
-                    <span className="font-medium text-white">{templateLabel(row)}</span>
-                    <span className="block font-mono text-[10px] text-neutral-500">
+                  <td className="font-mono text-ink-muted">#{row.rank}</td>
+                  <td>
+                    <span className="font-semibold">{templateLabel(row)}</span>
+                    <span className="mt-0.5 block font-mono text-xs text-ink-muted">
                       {shortAddress(row.agent)}
                     </span>
                   </td>
-                  <td className="px-3 py-3 font-mono text-neutral-200">{row.runs}</td>
-                  <td className="py-3 pl-3 pr-5 font-mono text-emerald-400">
-                    {successRate(row.success_rate)}
-                  </td>
+                  <td className="app-number font-mono">{row.runs}</td>
+                  <td className="app-number font-mono">{successRate(row.success_rate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -85,19 +95,16 @@ export function Leaderboard() {
   const community = query.data?.rows.filter((row) => row.author_badge === 'community') ?? [];
 
   return (
-    <section className="space-y-6">
+    <section className="app-page app-leaderboard">
       <PageHeading
         title="Automation leaderboard"
-        description="Rules ranked by verified executions, then by success rate. Statistics come from indexed execution records, never from a self-reported claim."
+        description="Public rules ranked by verified executions, with success rate as the tiebreaker."
       />
 
       {query.isLoading ? (
-        <div aria-busy="true" className="space-y-2">
+        <div aria-label="Loading rankings" aria-busy="true" className="space-y-2">
           {[0, 1, 2].map((index) => (
-            <div
-              key={index}
-              className="h-16 animate-pulse rounded-2xl border border-white/5 bg-white/[0.02]"
-            />
+            <div key={index} className="app-skeleton animate-pulse" />
           ))}
         </div>
       ) : query.error ? (
@@ -107,19 +114,25 @@ export function Leaderboard() {
         />
       ) : team.length === 0 && community.length === 0 ? (
         <EmptyState
+          icon={Award01Icon}
           title="No executions to rank yet"
-          description="The leaderboard fills as rules execute. A rule with no execution record is never given a placeholder score."
+          description="Public rules appear in the rankings after their first verified execution."
+          action={
+            <Link to={appRoutes.marketplace} className="app-button">
+              Browse public rules
+            </Link>
+          }
         />
       ) : (
-        <div className="space-y-8">
+        <div className="grid gap-5">
           <LeaderboardTable
             title="Team rules"
-            description="Published by the Rulebook team. Badges mirror the listing registry; no local rule can claim one."
+            description="Rules published by the Rulebook team."
             rows={team}
           />
           <LeaderboardTable
             title="Community rules"
-            description="Published by their owners. Same execution-counted statistics as the team catalog."
+            description="Rules published by individual automation owners."
             rows={community}
           />
         </div>

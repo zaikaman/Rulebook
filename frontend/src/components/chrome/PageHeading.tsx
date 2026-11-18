@@ -4,18 +4,25 @@ export function PageHeading({
   title,
   description,
   aside,
+  breadcrumb,
 }: {
   title: string;
-  description: string;
+  description?: string;
   aside?: ReactNode;
+  breadcrumb?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col md:flex-row md:items-end justify-between mb-8 gap-3 mt-2">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-2xl font-medium text-white tracking-tight">{title}</h2>
-        <p className="text-sm text-neutral-400">{description}</p>
+    <header className="app-heading">
+      <div>
+        {breadcrumb ? (
+          <nav aria-label="Breadcrumb" className="app-breadcrumb">
+            {breadcrumb}
+          </nav>
+        ) : null}
+        <h1>{title}</h1>
+        {description ? <p>{description}</p> : null}
       </div>
       {aside}
-    </div>
+    </header>
   );
 }

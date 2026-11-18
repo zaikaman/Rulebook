@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 import { useAccount, useConnect } from 'wagmi';
 
@@ -6,7 +7,7 @@ import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { Wordmark } from './Wordmark.js';
 
 const items = [
-  { label: 'Rules', href: appRoutes.rules, exact: true },
+  { label: 'Rules', href: appRoutes.rules, exact: false },
   { label: 'Create', href: appRoutes.create, exact: true },
   { label: 'Marketplace', href: appRoutes.marketplace, exact: true },
   { label: 'Leaderboard', href: appRoutes.leaderboard, exact: true },
@@ -18,33 +19,49 @@ const items = [
 export function AppMobileNav() {
   const { pathname } = useLocation();
   const { address, isConnected } = useAccount();
-  const { connect, connectors } = useConnect();
+  const { connect, connectors, isPending } = useConnect();
   const injectedConnector = connectors.find((connector) => connector.id === 'injected');
+  const navRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const active = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !active) return;
+    const navBox = nav.getBoundingClientRect();
+    const itemBox = active.getBoundingClientRect();
+    if (itemBox.right > navBox.right || itemBox.left < navBox.left) {
+      nav.scrollLeft += itemBox.left - navBox.left - 16;
+    }
+  }, [pathname]);
 
   return (
-    <div className="lg:hidden sticky top-0 z-30 flex flex-col border-b border-white/5 bg-[#070707]/95 backdrop-blur-md">
-      <div className="flex items-center justify-between px-5 py-3 border-b border-white/5">
+    <div className="lg:hidden sticky top-0 z-30 flex flex-col border-b border-border bg-surface">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
         <Link to={appRoutes.landing}>
           <Wordmark />
         </Link>
         <div>
           {isConnected ? (
-            <span className="font-mono text-xs text-neutral-400 bg-white/5 px-2.5 py-1 rounded-full border border-white/10">
+            <span className="app-tag font-mono" title={address}>
               {address?.slice(0, 5)}…{address?.slice(-3)}
             </span>
           ) : (
             <button
               type="button"
-              disabled={!injectedConnector}
+              disabled={!injectedConnector || isPending}
               onClick={() => injectedConnector && connect({ connector: injectedConnector })}
-              className="rounded-full bg-white px-3 py-1 text-xs font-medium text-black"
+              className="app-button app-button--primary"
             >
-              Connect
+              {isPending ? 'Connecting…' : 'Connect wallet'}
             </button>
           )}
         </div>
       </div>
-      <nav className="flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5">
+      <nav
+        ref={navRef}
+        aria-label="Workspace"
+        className="relative flex gap-1.5 overflow-x-auto no-scrollbar px-4 py-2.5"
+      >
         {items.map((item) => {
           const active = isActiveRoute(pathname, item.href, item.exact);
           return (
@@ -53,10 +70,10 @@ export function AppMobileNav() {
               to={item.href}
               aria-current={active ? 'page' : undefined}
               className={cx(
-                'flex min-h-8 shrink-0 items-center rounded-full px-3 text-xs font-medium transition-colors',
+                'flex min-h-9 shrink-0 items-center rounded-lg border px-3 text-xs font-medium transition-colors',
                 active
-                  ? 'bg-white text-black'
-                  : 'bg-white/[0.04] text-neutral-400 hover:text-white',
+                  ? 'border-[var(--rb-control-border)] bg-[var(--rb-accent-tint)] text-[var(--rb-accent)]'
+                  : 'border-transparent text-ink-muted hover:bg-surface-raised hover:text-ink',
               )}
             >
               {item.label}

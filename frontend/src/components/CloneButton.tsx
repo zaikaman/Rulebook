@@ -26,7 +26,7 @@ export function CloneButton({ listing }: CloneButtonProps) {
         type="button"
         aria-label={`Clone ${title}`}
         onClick={() => setOpen(true)}
-        className="w-full rounded-full bg-white px-4 py-2 text-xs font-semibold text-black transition-colors hover:bg-neutral-200"
+        className="app-button"
       >
         Clone into my vault
       </button>
@@ -34,26 +34,27 @@ export function CloneButton({ listing }: CloneButtonProps) {
   }
 
   return (
-    <section
-      aria-label="Clone preview"
-      className="space-y-2 rounded-xl border border-white/10 bg-[#04060a] p-3"
-    >
-      <p className="text-[11px] leading-relaxed text-neutral-400">
+    <section aria-label="Clone preview" className="w-full space-y-3">
+      <p className="app-copy">
         This copies the author&apos;s exact parameters into your own automation account. You sign
         once on Lasna with your own per-run ceiling and budget.
       </p>
 
-      {clone.loading ? <p className="text-xs text-neutral-400">Loading the published rule…</p> : null}
+      {clone.loading ? (
+        <p role="status" className="app-copy">
+          Loading the published rule…
+        </p>
+      ) : null}
 
       {clone.sentence ? (
-        <p className="text-xs leading-relaxed text-neutral-100">“{clone.sentence}”</p>
+        <p className="break-words text-sm leading-relaxed text-ink">“{clone.sentence}”</p>
       ) : null}
 
       {clone.guard && !clone.guard.ok ? (
-        <p role="alert" className="text-xs leading-relaxed text-amber-300">
+        <p role="alert" className="app-alert text-xs leading-relaxed" data-tone="warning">
           {clone.guard.message}{' '}
           {clone.guard.code === 'no_agent' ? (
-            <Link to={appRoutes.account} className="underline">
+            <Link to={appRoutes.account} className="app-link">
               Create your account
             </Link>
           ) : null}
@@ -61,10 +62,10 @@ export function CloneButton({ listing }: CloneButtonProps) {
       ) : null}
 
       {clone.error ? (
-        <p role="alert" className="text-xs leading-relaxed text-silent">
+        <p role="alert" className="app-alert text-xs leading-relaxed" data-tone="error">
           {clone.error.message}
           {clone.error.selector ? (
-            <span className="block font-mono text-[10px] text-neutral-500">
+            <span className="block font-mono text-xs text-ink-muted">
               selector {clone.error.selector}
             </span>
           ) : null}
@@ -72,12 +73,13 @@ export function CloneButton({ listing }: CloneButtonProps) {
       ) : null}
 
       {clone.result ? (
-        <div className="space-y-1 rounded-lg border border-active/40 bg-active/5 p-2">
-          <p className="text-xs text-neutral-100">
-            Cloned{clone.result.ruleId !== null ? ` as rule #${clone.result.ruleId.toString()}` : ''}
-            . It now runs on your account.
+        <div className="app-alert space-y-1" data-tone="success">
+          <p className="text-sm text-ink">
+            Cloned
+            {clone.result.ruleId !== null ? ` as rule #${clone.result.ruleId.toString()}` : ''}. It
+            now runs on your account.
           </p>
-          <Link to={appRoutes.rules} className="text-xs text-automation underline">
+          <Link to={appRoutes.rules} className="app-link text-xs">
             View your rules
           </Link>
         </div>
@@ -88,7 +90,7 @@ export function CloneButton({ listing }: CloneButtonProps) {
           type="button"
           disabled={!clone.canClone}
           onClick={() => void clone.clone()}
-          className="rounded-full bg-ink px-3 py-1.5 text-xs font-semibold text-surface disabled:opacity-50"
+          className="app-button app-button--primary"
         >
           {clone.status === 'simulating'
             ? 'Checking your account…'
@@ -98,11 +100,7 @@ export function CloneButton({ listing }: CloneButtonProps) {
                 ? 'Waiting for the Lasna receipt…'
                 : 'Confirm clone'}
         </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="rounded-full border border-border px-3 py-1.5 text-xs text-ink"
-        >
+        <button type="button" onClick={() => setOpen(false)} className="app-button">
           Close
         </button>
       </div>
