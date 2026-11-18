@@ -10,15 +10,15 @@ Target runtime **2:55**. Use testnet wallets and have the receipts open before r
 | 1:16–1:45 | Show the seeded pool reserves, cross the limit with a small swap, and show the resulting destination receipt. Read the thin-pair disclosure below.                                                                                                |
 | 1:45–2:13 | Select a team listing, review the clone with a second wallet, and open the copy in its new owner's rules.                                                                                                                                         |
 | 2:13–2:35 | Show the leader and follower destination receipts and the follower's per-run cap. If the grouped proof has no callback records, show the verified receipts and state what the testnet returned. Say if the deployed build has mirroring disabled. |
-| 2:35–2:55 | Show a confirmed execution from an unattended run and open the three balances. Read the sponsorship disclosure below.                                                                                                                             |
+| 2:35–2:55 | Show a confirmed execution from an unattended run and open the three balances. Explain where each balance is used.                                                                                                                                |
 
 **Thin pair.** “We seeded this thin demo pool so a small swap could move the price on
 camera. Our earlier Unichain Sepolia WETH/USDC measurement put the public pool near
 $33,700 of liquidity and a five-percent move near $400 of USDC.”
 
-**Sponsored credit.** “Rulebook sponsors deployment and execution credit. This vault’s
-principal belongs to my wallet. If the sponsors stop topping up, automation can pause.
-Anyone can add credit, and I can still withdraw my principal.”
+**Network fees.** “I got the test tokens through the links in Rulebook. I used REACT
+to pay for monitoring and ETH to pay for execution. My wallet owns the vault funds
+I set aside for trades.”
 
 Use the actual start and destination receipts in the capture. Label fixture views
 on screen if you use them to illustrate UI alongside the live receipts.

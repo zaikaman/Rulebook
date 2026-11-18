@@ -22,7 +22,7 @@ export function SignatureSummary({
           <dd className="break-all font-mono text-xs">{details.target}</dd>
         </div>
         <div>
-          <dt className="font-medium text-ink">Principal</dt>
+          <dt className="font-medium text-ink">{details.amountLabel ?? 'Principal'}</dt>
           <dd>{details.amount}</dd>
         </div>
       </dl>

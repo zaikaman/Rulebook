@@ -1,49 +1,118 @@
-import { Wallet01Icon } from '@hugeicons/core-free-icons';
-import {
-  agentAbi,
-  agentFactoryAbi,
-  LASNA_CHAIN_ID,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
-  vaultAbi,
-  vaultFactoryAbi,
-  type Address,
-} from '@rulebook/shared';
+import type { Address } from '@rulebook/shared';
 import { formatEther, formatUnits } from 'viem';
-import { useAccount, useBalance, useReadContract } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
+import { UNICHAIN_SEPOLIA_CHAIN_ID, vaultAbi } from '@rulebook/shared';
 
+import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
 import { BalanceTrio } from '../components/BalanceTrio.js';
-import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { WithdrawForm } from '../components/WithdrawForm.js';
-import {
-  AGENT_FACTORY_ADDRESS,
-  DEMO_USDC,
-  LASNA_CONFIG,
-  UNICHAIN_CONFIG,
-  VAULT_FACTORY_ADDRESS,
-} from '../lib/contracts.js';
+import { useAccountSetup } from '../hooks/useAccountSetup.js';
+import { useSetupWallet } from '../hooks/useSetupWallet.js';
+import { DEMO_USDC, LASNA_CONFIG, UNICHAIN_CONFIG } from '../lib/contracts.js';
 import { shortAddress } from '../lib/listings.js';
 import { CreateAccount } from './CreateAccount.js';
 
-const ZERO = '0x0000000000000000000000000000000000000000';
-
-function balancePlaceholder(failed: boolean): string {
-  return failed ? 'Unavailable' : 'Loading…';
+function displayBalance(
+  value: bigint | undefined,
+  format: (value: bigint) => string,
+  failed: boolean,
+) {
+  return value !== undefined ? format(value) : failed ? 'Unavailable' : 'Loading…';
 }
 
-/** Owned contracts plus the three balances, each labelled with its network and owner. */
-export function Account() {
+function FundedAccount({ agent, vault }: { agent: Address; vault: Address }) {
+  const principal = useReadContract({
+    address: vault,
+    abi: vaultAbi,
+    functionName: 'principalOf',
+    args: [DEMO_USDC],
+    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+  });
+  const { execution, watching } = useExecutionCredit(agent, vault);
+  const refreshBalances = () =>
+    void Promise.all([principal.refetch(), execution.refetch(), watching.refetch()]);
+
   return (
-    <div className="app-page">
-      <AccountContent />
+    <>
+      <BalanceTrio
+        accounts={{ agent, vault }}
+        principal={displayBalance(
+          principal.data,
+          (value) => `${formatUnits(value, 6)} USDC`,
+          principal.isError,
+        )}
+        executionCost={displayBalance(
+          execution.data,
+          (value) => `${formatEther(value)} ETH`,
+          execution.isError,
+        )}
+        watchingCredit={displayBalance(
+          watching.data,
+          (value) => `${formatEther(value)} REACT`,
+          watching.isError,
+        )}
+      />
+      <AccountFunding agent={agent} vault={vault} onConfirmed={refreshBalances} />
+      {(principal.isError || execution.isError || watching.isError) && (
+        <ErrorState message="Some balances could not be loaded." onRetry={refreshBalances} />
+      )}
+      {principal.data !== undefined && (
+        <WithdrawForm
+          vault={vault}
+          token={DEMO_USDC}
+          tokenSymbol="USDC"
+          tokenDecimals={6}
+          principal={principal.data}
+          onConfirmed={() => void principal.refetch()}
+        />
+      )}
+    </>
+  );
+}
+
+export function Account() {
+  const { address } = useAccount();
+  const owner = address?.toLowerCase() as Address | undefined;
+  const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
+  const { agent, vault, linked } = setup.data ?? {};
+
+  return (
+    <section className="app-page">
+      <PageHeading
+        title="Your account"
+        description="Manage your vault funds and the network fees for your rules."
+        aside={
+          address && (
+            <span className="app-tag" title={address}>
+              Owner <code>{shortAddress(address)}</code>
+            </span>
+          )
+        }
+      />
+      {agent && vault && linked ? (
+        <FundedAccount agent={agent} vault={vault} />
+      ) : setup.isLoading ? (
+        <div className="app-skeleton h-36 animate-pulse" role="status">
+          <span className="sr-only">Looking up your accounts…</span>
+        </div>
+      ) : setup.error ? (
+        <ErrorState
+          message="Your accounts could not be loaded."
+          detail={setup.error.message}
+          onRetry={() => void setup.refetch()}
+        />
+      ) : (
+        <CreateAccount setup={setup} />
+      )}
       <section className="app-divider space-y-3 pt-5" aria-labelledby="account-networks">
         <h2 id="account-networks" className="app-panel-heading">
           Why two networks?
         </h2>
         <p className="app-copy">
-          Rules live on {LASNA_CONFIG.name} so they can watch for events, while your funds stay in
-          your own vault on {UNICHAIN_CONFIG.name}, where trades and withdrawals settle.
+          Reactive Lasna watches for rule triggers. Your vault on Unichain Sepolia carries out
+          trades and withdrawals.
         </p>
         <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           {[LASNA_CONFIG, UNICHAIN_CONFIG].map((network) => (
@@ -55,174 +124,6 @@ export function Account() {
           ))}
         </ul>
       </section>
-    </div>
-  );
-}
-
-function AccountContent() {
-  const { address } = useAccount();
-  const owner = (address?.toLowerCase() as Address | undefined) ?? ZERO;
-
-  const agentQuery = useReadContract({
-    address: AGENT_FACTORY_ADDRESS ?? ZERO,
-    abi: agentFactoryAbi,
-    functionName: 'agentOf',
-    args: [owner],
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(address && AGENT_FACTORY_ADDRESS) },
-  });
-  const agent = agentQuery.data && agentQuery.data !== ZERO ? agentQuery.data : null;
-
-  const vaultQuery = useReadContract({
-    address: VAULT_FACTORY_ADDRESS ?? ZERO,
-    abi: vaultFactoryAbi,
-    functionName: 'vaultOf',
-    args: [owner],
-    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-    query: { enabled: Boolean(address && VAULT_FACTORY_ADDRESS) },
-  });
-  const vault = vaultQuery.data && vaultQuery.data !== ZERO ? vaultQuery.data : null;
-
-  const linkedVault = useReadContract({
-    address: agent ?? ZERO,
-    abi: agentAbi,
-    functionName: 'getVault',
-    args: [BigInt(UNICHAIN_SEPOLIA_CHAIN_ID)],
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(agent && vault) },
-  });
-
-  const principalQuery = useReadContract({
-    address: vault ?? ZERO,
-    abi: vaultAbi,
-    functionName: 'principalOf',
-    args: [DEMO_USDC],
-    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-    query: { enabled: Boolean(vault) },
-  });
-  const principal = principalQuery.data;
-
-  const fundsBalance = useBalance({
-    address: vault ?? ZERO,
-    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-    query: { enabled: Boolean(vault) },
-  });
-  const agentBalance = useBalance({
-    address: agent ?? ZERO,
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(agent) },
-  });
-
-  if (!address) {
-    return (
-      <section className="app-page">
-        <PageHeading
-          title="Your account"
-          description="View the automation account and vault owned by your wallet."
-        />
-        <EmptyState
-          icon={Wallet01Icon}
-          title="Connect a wallet"
-          description="Use Connect wallet in the navigation to see your accounts and balances."
-        />
-      </section>
-    );
-  }
-
-  if (agentQuery.isLoading || vaultQuery.isLoading || linkedVault.isLoading) {
-    return (
-      <section className="app-page" aria-busy="true">
-        <PageHeading title="Your account" />
-        <p role="status" className="sr-only">
-          Looking up your accounts…
-        </p>
-        <div className="app-skeleton h-36 animate-pulse" />
-      </section>
-    );
-  }
-  const lookupError = (!agent && agentQuery.error) || (!vault && vaultQuery.error);
-  if (lookupError) {
-    return (
-      <section className="app-page">
-        <PageHeading title="Your account" />
-        <ErrorState
-          message="Your accounts could not be loaded."
-          detail={lookupError.message}
-          onRetry={() => void Promise.all([agentQuery.refetch(), vaultQuery.refetch()])}
-        />
-      </section>
-    );
-  }
-  if (!agent || !vault) return <CreateAccount />;
-  const needsLink = linkedVault.isSuccess && linkedVault.data.toLowerCase() !== vault.toLowerCase();
-
-  return (
-    <section className="app-page">
-      {needsLink ? (
-        <CreateAccount />
-      ) : (
-        <PageHeading
-          title="Your account"
-          description="Manage your vault and the credits that keep your automations running."
-          aside={
-            <span className="app-tag" title={address}>
-              Owner <code>{shortAddress(address)}</code>
-            </span>
-          }
-        />
-      )}
-
-      <BalanceTrio
-        accounts={{ agent, vault }}
-        principal={
-          principal === undefined
-            ? balancePlaceholder(principalQuery.isError)
-            : `${formatUnits(principal, 6)} USDC`
-        }
-        executionCost={
-          fundsBalance.data
-            ? `${formatEther(fundsBalance.data.value)} ETH`
-            : balancePlaceholder(fundsBalance.isError)
-        }
-        watchingCredit={
-          agentBalance.data
-            ? `${formatEther(agentBalance.data.value)} REACT`
-            : balancePlaceholder(agentBalance.isError)
-        }
-      />
-
-      {linkedVault.error ? (
-        <ErrorState
-          message="The link between your accounts could not be verified."
-          detail={linkedVault.error.message}
-          chainId={LASNA_CHAIN_ID}
-          onRetry={() => void linkedVault.refetch()}
-        />
-      ) : null}
-
-      {principalQuery.isError || fundsBalance.isError || agentBalance.isError ? (
-        <ErrorState
-          message="Some balances could not be loaded."
-          onRetry={() =>
-            void Promise.all([
-              principalQuery.refetch(),
-              fundsBalance.refetch(),
-              agentBalance.refetch(),
-            ])
-          }
-        />
-      ) : null}
-
-      {principal !== undefined ? (
-        <WithdrawForm
-          vault={vault}
-          token={DEMO_USDC}
-          tokenSymbol="USDC"
-          tokenDecimals={6}
-          principal={principal}
-          onConfirmed={() => void principalQuery.refetch()}
-        />
-      ) : null}
     </section>
   );
 }

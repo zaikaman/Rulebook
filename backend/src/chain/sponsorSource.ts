@@ -1,10 +1,10 @@
 import {
+  executionCreditAbi,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
 } from '@rulebook/shared';
-import { parseAbi } from 'viem';
 
 import { clientFor, type ChainClients } from '../chain/clients.js';
 
@@ -23,17 +23,11 @@ export interface SponsorSource {
   }): Promise<CreditReading[]>;
 }
 
-const CREDIT_ABI = parseAbi([
-  'function reserves(address account) view returns (uint256)',
-  'function debt(address account) view returns (uint256)',
-]);
-
 const ZERO = '0x0000000000000000000000000000000000000000' as Address;
 
 /**
  * The watching-side credit lives on the Lasna system contract; the funds-side callback
- * proxy carries the vault's debt. A failed read is reported as zero credit, which is the
- * honest direction to err: the UI warns rather than claiming the account is healthy.
+ * proxy carries the vault's debt. The caller handles unavailable network reads.
  */
 export class PublicSponsorSource implements SponsorSource {
   constructor(private readonly clients: ChainClients) {}
@@ -55,22 +49,18 @@ export class PublicSponsorSource implements SponsorSource {
     if (account === ZERO) return { chain_id: chainId, reserves: '0', debt: '0' };
     const client = clientFor(this.clients, chainId);
     const [reserves, debt] = await Promise.all([
-      client
-        .readContract({
-          address: target,
-          abi: CREDIT_ABI,
-          functionName: 'reserves',
-          args: [account],
-        })
-        .catch(() => 0n),
-      client
-        .readContract({
-          address: target,
-          abi: CREDIT_ABI,
-          functionName: 'debt',
-          args: [account],
-        })
-        .catch(() => 0n),
+      client.readContract({
+        address: target,
+        abi: executionCreditAbi,
+        functionName: 'reserves',
+        args: [account],
+      }),
+      client.readContract({
+        address: target,
+        abi: executionCreditAbi,
+        functionName: 'debt',
+        args: [account],
+      }),
     ]);
     return { chain_id: chainId, reserves: reserves.toString(), debt: debt.toString() };
   }

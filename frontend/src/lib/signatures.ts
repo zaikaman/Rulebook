@@ -13,6 +13,7 @@ export interface SignatureDetails {
   readonly targetLabel: string;
   readonly effect: string;
   readonly amount: string;
+  readonly amountLabel?: string;
 }
 
 export type ControlFunction = 'pauseRule' | 'resumeRule' | 'cancelRule' | 'detachMirror';
@@ -66,7 +67,7 @@ export const signatureDetails = {
       effect:
         vaultMode === 'mirror'
           ? `Authorize a mirror-only funds account that you own for automation account ${agent}. Vault mode is permanent.`
-          : `Authorize the sponsor to create a funds account that you own for automation account ${agent}.`,
+          : `Authorize a vault that you own for automation account ${agent}.`,
       amount: noSpend,
     };
   },

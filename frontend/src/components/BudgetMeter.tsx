@@ -3,7 +3,7 @@ import type { RuleBudget } from '@rulebook/shared';
 const COPY: Record<RuleBudget['state'], { label: string; detail: string }> = {
   healthy: {
     label: 'Execution credit is healthy',
-    detail: 'The sponsor can pay for this rule’s next wake-ups.',
+    detail: 'Your account has funds for upcoming rule checks.',
   },
   low: {
     label: 'Execution credit is low',

@@ -2,25 +2,7 @@ openapi: 3.1.0
 info:
   title: Rulebook Read API
   version: 0.1.0
-  description: |
-    API serving the Rulebook frontend from the Supabase-derived index, plus the sponsor
-    relayer used only during onboarding.
-
-    **No endpoint here can create, modify, pause, or cancel a rule, and none can move
-    principal.** Rule changes are signed by the user's wallet against the Agent contract
-    on Lasna; every fund movement happens on Unichain Sepolia inside the user's own Vault.
-
-    Exactly two write endpoints exist and both are sponsor-only:
-    `POST /v1/onboarding` deploys the user's Agent and Vault (both owned by the requested
-    address, never by the operator), and `POST /v1/starter-funds` sends demo tokens into
-    that user's Vault. The sponsor key behind them can only call factory `deploy`,
-    `depositTo`, and fixed demo-token transfers. It holds no admin right over any Vault,
-    cannot withdraw principal, and cannot reach a rule. Scope, caps, and rotation are
-    recorded in `docs/decisions/0003-sponsor-relayer-key.md`.
-
-    Every response is validated against a zod schema in `packages/shared/src/schemas.ts`
-    before serialization. Amounts and ids are uint256 and therefore serialized as decimal
-    strings, never JSON numbers.
+  description: Read-only API for the Rulebook index and on-chain account data.
 servers:
   - url: https://api.rulebook.example
     description: Production (Heroku)
@@ -600,99 +582,6 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SponsorStatus' }
-
-  /v1/onboarding:
-    post:
-      tags: [accounts]
-      summary: Deploy the caller's Agent and Vault via the sponsor relayer
-      description: |
-        Idempotent and resumable. Returns `setup_state` after attempting every missing step,
-        so a half-built account is completed rather than duplicated (US1 scenario 2). The
-        relayer deploys contracts whose owner is `owner` from the request body — it never
-        becomes an owner itself. Rate limited per address and globally capped.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner]
-              properties:
-                owner: { $ref: '#/components/schemas/Address' }
-                vault_mode: { type: string, enum: [leader, mirror], default: leader }
-                vault_authorization:
-                  type: object
-                  required: [deadline, signature]
-                  properties:
-                    deadline: { $ref: '#/components/schemas/Uint256' }
-                    signature: { type: string, pattern: '^0x[0-9a-fA-F]{130}$' }
-      responses:
-        '200':
-          description: Onboarding attempt result
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [setup_state, steps]
-                properties:
-                  setup_state: { type: string, enum: [none, agent_only, partial, complete] }
-                  steps:
-                    type: array
-                    items:
-                      type: object
-                      required: [name, status]
-                      properties:
-                        name: { type: string, enum: [agent, vault, link, fund_credit] }
-                        status: { type: string, enum: [skipped, submitted, confirmed, failed] }
-                        tx_hash: { $ref: '#/components/schemas/TxHash' }
-                        chain_id: { type: integer }
-                        error: { type: string, nullable: true }
-        '429':
-          description: Rate limited
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '503':
-          description: Relayer unavailable or out of sponsored funds
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-
-  /v1/starter-funds:
-    post:
-      tags: [accounts]
-      summary: Send demo tokens into a user's Vault
-      description: |
-        Sends a small, capped amount of demo USDC/WETH from the sponsor's demo wallet to the
-        user's Vault, so a first rule can run without a faucet detour. Cannot withdraw, cannot
-        target an address that is not a Vault owned by `owner`.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [owner, vault]
-              properties:
-                owner: { $ref: '#/components/schemas/Address' }
-                vault: { $ref: '#/components/schemas/Address' }
-      responses:
-        '200':
-          description: Transfer submitted
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [tx_hash, amount_usdc, amount_weth]
-                properties:
-                  tx_hash: { $ref: '#/components/schemas/TxHash' }
-                  amount_usdc: { $ref: '#/components/schemas/Uint256' }
-                  amount_weth: { $ref: '#/components/schemas/Uint256' }
-        '409':
-          description: Starter funds already claimed for this owner
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/Error' }
 
   /v1/encode/preview:
     post:

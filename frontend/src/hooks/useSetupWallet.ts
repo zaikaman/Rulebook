@@ -3,6 +3,7 @@ import {
   agentFactoryAbi,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  vaultAbi,
   vaultFactoryAbi,
   type Address,
 } from '@rulebook/shared';
@@ -28,29 +29,71 @@ export function useSetupWallet(): SetupWallet {
   const { writeContractAsync } = useWriteContract();
   const { signTypedDataAsync } = useSignTypedData();
 
+  const getAgent: SetupWallet['getAgent'] = async (owner) => {
+    if (!AGENT_FACTORY_ADDRESS) return null;
+    const agent = await lasnaPublicClient.readContract({
+      address: AGENT_FACTORY_ADDRESS,
+      abi: agentFactoryAbi,
+      functionName: 'agentOf',
+      args: [owner],
+    });
+    return agent === ZERO ? null : agent;
+  };
+  const getVault: SetupWallet['getVault'] = async (owner) => {
+    if (!VAULT_FACTORY_ADDRESS) return null;
+    const vault = await unichainPublicClient.readContract({
+      address: VAULT_FACTORY_ADDRESS,
+      abi: vaultFactoryAbi,
+      functionName: 'vaultOf',
+      args: [owner],
+    });
+    return vault === ZERO ? null : vault;
+  };
+
   return {
-    ...(address ? { address: address.toLowerCase() as Address } : {}),
-    getAgent: async (owner) => {
-      if (!AGENT_FACTORY_ADDRESS) return null;
-      const agent = await lasnaPublicClient.readContract({
-        address: AGENT_FACTORY_ADDRESS,
-        abi: agentFactoryAbi,
-        functionName: 'agentOf',
-        args: [owner],
-      });
-      return agent === ZERO ? null : agent;
-    },
-    getVault: async (owner) => {
-      if (!VAULT_FACTORY_ADDRESS) return null;
-      const vault = await unichainPublicClient.readContract({
-        address: VAULT_FACTORY_ADDRESS,
-        abi: vaultFactoryAbi,
-        functionName: 'vaultOf',
-        args: [owner],
+    getAgent,
+    getVault,
+    getLink: async (agent) => {
+      const vault = await lasnaPublicClient.readContract({
+        address: agent,
+        abi: agentAbi,
+        functionName: 'getVault',
+        args: [BigInt(UNICHAIN_SEPOLIA_CHAIN_ID)],
       });
       return vault === ZERO ? null : vault;
     },
-    authorizeVault: async (owner, agent, vaultMode) => {
+    getVaultAgent: (vault) =>
+      unichainPublicClient.readContract({ address: vault, abi: vaultAbi, functionName: 'agent' }),
+    createAgent: async (owner) => {
+      const factory = AGENT_FACTORY_ADDRESS;
+      if (!factory) throw new Error('The automation factory is unavailable.');
+      const hash = await requestSignature(
+        {
+          chainId: LASNA_CHAIN_ID,
+          target: factory,
+          targetLabel: 'Automation account factory',
+          effect: 'Create the automation account owned by your wallet.',
+          amount: 'No funds are deposited.',
+        },
+        owner,
+        () =>
+          writeContractAsync({
+            chainId: LASNA_CHAIN_ID,
+            account: owner,
+            address: factory,
+            abi: agentFactoryAbi,
+            functionName: 'deploy',
+            args: [owner],
+            maxPriorityFeePerGas: 1n,
+          }),
+      );
+      const receipt = await lasnaPublicClient.waitForTransactionReceipt({ hash });
+      const agent = await getAgent(owner);
+      if (receipt.status !== 'success' || !agent)
+        throw new Error('The automation account creation did not complete.');
+      return agent;
+    },
+    createVault: async (owner: Address, agent, vaultMode) => {
       if (!address) throw new Error('Connect the wallet that owns this Agent.');
       if (address.toLowerCase() !== owner.toLowerCase()) {
         throw new Error('The connected wallet must match the account owner.');
@@ -63,7 +106,7 @@ export function useSetupWallet(): SetupWallet {
         functionName: 'nonces',
         args: [address],
       });
-      return requestSignature(
+      const authorization = await requestSignature(
         signatureDetails.authorizeVault(factory, agent, vaultMode),
         address,
         async () => {
@@ -98,9 +141,40 @@ export function useSetupWallet(): SetupWallet {
               deadline,
             },
           });
-          return { deadline: deadline.toString(), signature };
+          return { deadline, signature };
         },
       );
+      const hash = await requestSignature(
+        {
+          chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+          target: factory,
+          targetLabel: 'Vault factory',
+          effect: 'Create the vault owned by your wallet.',
+          amount: 'No funds are deposited.',
+        },
+        owner,
+        () =>
+          writeContractAsync({
+            chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+            account: owner,
+            address: factory,
+            abi: vaultFactoryAbi,
+            functionName: vaultMode === 'mirror' ? 'deployMirror' : 'deploy',
+            args: [
+              owner,
+              agent,
+              DEMO_USDC,
+              DEMO_WETH,
+              authorization.deadline,
+              authorization.signature,
+            ],
+          }),
+      );
+      const receipt = await unichainPublicClient.waitForTransactionReceipt({ hash });
+      const vault = await getVault(owner);
+      if (receipt.status !== 'success' || !vault)
+        throw new Error('The vault creation did not complete.');
+      return vault;
     },
     linkVault: async (agent, vault, destinationChainId) => {
       const hash = await requestSignature(signatureDetails.linkVault(agent, vault), address, () =>
@@ -117,7 +191,6 @@ export function useSetupWallet(): SetupWallet {
       const receipt = await lasnaPublicClient.waitForTransactionReceipt({ hash });
       if (receipt.status !== 'success')
         throw new Error('The account link reverted on Reactive Lasna.');
-      return hash;
     },
   };
 }

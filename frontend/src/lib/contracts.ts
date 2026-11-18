@@ -17,7 +17,7 @@ export const VAULT_FACTORY_ADDRESS = configuredAddress(import.meta.env.VITE_VAUL
 export const LASNA_CONFIG = getChain(LASNA_CHAIN_ID);
 export const UNICHAIN_CONFIG = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
 
-/** The fixed demo pair used by onboarding and starter funds. */
+/** The supported testnet pair for account setup and wallet deposits. */
 export const DEMO_USDC = UNICHAIN_CONFIG.usdc;
 export const DEMO_WETH = UNICHAIN_CONFIG.weth;
 export const MIRROR_ENABLED = import.meta.env.VITE_ENABLE_MIRROR === 'true';

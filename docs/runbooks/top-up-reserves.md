@@ -1,5 +1,11 @@
 # Top up execution reserves
 
+In Rulebook, open **Account & Vault** and use **Fund your account** to add monitoring
+or execution fees from your wallet. The app selects the network and credits the correct
+account. Faucet links are under **Need more test tokens?**.
+
+## Command-line verification and funding
+
 Read **reserves** and **debt** on the contract that bills the target. The Lasna system
 contract credits the Agent in test REACT. The Unichain Sepolia callback proxy credits the
 Vault in test ETH. Anyone can top up either account using their own funded testnet wallet.

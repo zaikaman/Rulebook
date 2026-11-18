@@ -26,7 +26,7 @@ test('composes a USDC→WETH DCA sentence, matches the fixture, and signs once',
   // A rule needs an Agent, so finish onboarding first.
   await page.goto('/account');
   await page.getByRole('button', { name: 'Connect wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible({
+  await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible({
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();

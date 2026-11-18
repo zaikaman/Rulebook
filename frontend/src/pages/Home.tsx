@@ -53,12 +53,6 @@ function RuleRow({ rule, agent }: { readonly rule: Rule; readonly agent: Address
             <dt>Last run</dt>
             <dd className="text-ink">{lastRunLabel(rule)}</dd>
           </div>
-          <div className="flex gap-1">
-            <dt>Remaining budget</dt>
-            <dd className="text-ink">
-              {rule.status === 'active' ? 'operator-sponsored' : 'not running'}
-            </dd>
-          </div>
         </dl>
       </div>
       <Link to={`/rules/${agent}/${ruleId}`} className="app-button self-start sm:self-center">

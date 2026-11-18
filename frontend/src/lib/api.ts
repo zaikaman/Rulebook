@@ -6,21 +6,16 @@ import {
   healthSchema,
   leaderboardResponseSchema,
   listingsResponseSchema,
-  onboardingResponseSchema,
   proofSchema,
   ruleDetailResponseSchema,
   rulesResponseSchema,
   sponsorStatusSchema,
-  starterFundsResponseSchema,
   type Account,
-  type Address,
   type Health,
   type LeaderboardResponse,
-  type OnboardingResponse,
   type Proof,
   type Rule,
   type SponsorStatus,
-  type StarterFundsResponse,
 } from '@rulebook/shared';
 import type { z } from 'zod';
 
@@ -84,30 +79,6 @@ export class ApiClient {
 
   account(agent: string): Promise<Account> {
     return this.request(`/v1/accounts/${agent}`, accountSchema);
-  }
-
-  onboarding(
-    owner: Address,
-    vaultAuthorization?: { deadline: string; signature: `0x${string}` },
-    vaultMode?: 'mirror',
-  ): Promise<OnboardingResponse> {
-    return this.request('/v1/onboarding', onboardingResponseSchema, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        owner,
-        ...(vaultMode ? { vault_mode: vaultMode } : {}),
-        ...(vaultAuthorization ? { vault_authorization: vaultAuthorization } : {}),
-      }),
-    });
-  }
-
-  starterFunds(owner: Address, vault: Address): Promise<StarterFundsResponse> {
-    return this.request('/v1/starter-funds', starterFundsResponseSchema, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ owner, vault }),
-    });
   }
 
   executions() {

@@ -22,13 +22,13 @@ export function ClosingCta() {
           Try Rulebook on testnet
         </h2>
         <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] mx-auto mb-10 max-w-xl text-base font-light leading-relaxed text-neutral-400">
-          Connect a wallet, set up your account, and claim starter test tokens during setup.
+          Get test tokens, set up your account, and create your first automation.
         </p>
         <Link
-          to={appRoutes.account}
+          to={appRoutes.create}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
-          <span>Set up your account</span>
+          <span>Create your first rule</span>
           <HugeiconsIcon
             icon={ArrowRight02Icon}
             size={16}

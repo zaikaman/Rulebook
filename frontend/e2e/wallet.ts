@@ -122,14 +122,14 @@ export async function approveSignature(
   const review = page.getByRole('dialog', { name: `Review signature on ${network}` });
   await expect(review.locator('[data-chain-id]')).toBeVisible({ timeout: 60_000 });
   await expect(review.locator('[data-chain-id]')).toHaveText(network);
+  const prompt = await review.elementHandle();
   await review.getByRole('button', { name: 'Continue to wallet' }).click();
-  await expect(review).toBeHidden({ timeout: 60_000 });
+  await prompt.waitForElementState('hidden', { timeout: 60_000 });
 }
 
 export async function approveSetup(page: Page) {
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Unichain Sepolia');
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await expect(page.getByRole('link', { name: 'View your account' })).toBeVisible({
-    timeout: 60_000,
-  });
 }

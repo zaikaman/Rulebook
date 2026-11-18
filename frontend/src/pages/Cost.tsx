@@ -9,18 +9,18 @@ import { appRoutes } from '../lib/routes.js';
 const COSTS = [
   {
     activity: 'Account deployment',
-    payer: 'Operator',
-    detail: 'Deploys your Automation Agent and Vault contracts.',
+    payer: 'Your wallet',
+    detail: 'Pays the network fees to create and link your accounts.',
   },
   {
     activity: 'Rule evaluation',
-    payer: 'Operator',
-    detail: 'Funds the Reactive Lasna credit used to watch events and evaluate rules.',
+    payer: 'Your Lasna fee balance',
+    detail: 'Uses test REACT to watch for events and check your rules.',
   },
   {
     activity: 'Automated execution',
-    payer: 'Operator',
-    detail: 'Funds the destination gas when your vault executes an authorized action.',
+    payer: 'Your Unichain Sepolia fee balance',
+    detail: 'Uses test ETH when your vault carries out an authorized action.',
   },
   {
     activity: 'Trading principal',
@@ -71,7 +71,7 @@ export function Cost() {
     <section className="app-page">
       <PageHeading
         title="Cost & custody model"
-        description="See which costs Rulebook sponsors and how your wallet keeps control of your funds."
+        description="See how network fees are paid and how your wallet keeps control of your funds."
       />
 
       <section className="app-panel" aria-labelledby="cost-breakdown">
@@ -87,9 +87,7 @@ export function Cost() {
           {COSTS.map(({ activity, payer, detail }) => (
             <div key={activity} className="app-panel-pad">
               <dt>{activity}</dt>
-              <dd className="app-tag" data-tone={payer === 'Operator' ? 'positive' : undefined}>
-                {payer}
-              </dd>
+              <dd className="app-tag">{payer}</dd>
               <dd className="app-copy">{detail}</dd>
             </div>
           ))}
@@ -122,8 +120,8 @@ export function Cost() {
             Your wallet owns the vault
           </h2>
           <p className="app-copy">
-            Your vault on Unichain Sepolia settles actions permitted by your rules. The operator can
-            fund execution credit. Only the vault owner can withdraw principal directly.
+            Your vault on Unichain Sepolia settles actions permitted by your rules. Only your wallet
+            can withdraw your funds directly.
           </p>
           <Link to={appRoutes.account} className="app-link inline-block text-sm">
             View your vault

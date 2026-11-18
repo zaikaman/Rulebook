@@ -13,7 +13,7 @@ import { NetworkBadge } from './NetworkBadge.js';
 export interface BalanceTrioProps {
   /** Principal held in the user's own vault. */
   readonly principal: string;
-  /** Funds-side execution cost already covered by the sponsor. */
+  /** Fee balance on the network that carries out the rule. */
   readonly executionCost: string;
   /** Watching-side credit remaining on Reactive Lasna. */
   readonly watchingCredit: string;
@@ -22,7 +22,7 @@ export interface BalanceTrioProps {
 
 /**
  * Shows the three balances as three separate figures (FR-008). The component exposes no total
- * and no combining API, so sponsored credit can never be presented as principal.
+ * and no combining API so fee credit stays separate from principal.
  */
 export function BalanceTrio({
   principal,
@@ -51,7 +51,7 @@ export function BalanceTrio({
             <dd className="app-balance-value">{principal}</dd>
           </div>
           <div data-figure="execution-cost">
-            <dt className="text-sm text-ink-muted">Execution cost (sponsored)</dt>
+            <dt className="text-sm text-ink-muted">Execution fees</dt>
             <dd className="app-balance-value">{executionCost}</dd>
           </div>
         </dl>
@@ -77,7 +77,7 @@ export function BalanceTrio({
         </div>
         <dl className="app-divider pt-4">
           <div data-figure="watching-credit">
-            <dt className="text-sm text-ink-muted">Watching credit (sponsored)</dt>
+            <dt className="text-sm text-ink-muted">Monitoring fees</dt>
             <dd className="app-balance-value">{watchingCredit}</dd>
           </div>
         </dl>

@@ -11,6 +11,7 @@ import { SignatureSummary } from './SignatureSummary.js';
 import type { WalletPromptActions } from './WalletPrompt.js';
 
 interface Review extends WalletPromptActions {
+  readonly id: number;
   readonly stage: 'switch' | 'review';
   readonly details: SignatureDetails;
 }
@@ -20,6 +21,7 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
   const { switchChainAsync } = useSwitchChain();
   const [review, setReview] = useState<Review>();
   const pending = useRef(false);
+  const nextPrompt = useRef(0);
 
   const requestSignature = useCallback(
     async <T,>(
@@ -53,6 +55,7 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
           let confirmed = false;
           signal.addEventListener('abort', onCancel, { once: true });
           setReview({
+            id: ++nextPrompt.current,
             stage,
             details,
             onCancel,
@@ -101,8 +104,8 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
   return (
     <WalletReviewContext.Provider value={requestSignature}>
       {children}
-      {review?.stage === 'switch' ? <ChainSwitchPrompt {...review} /> : null}
-      {review?.stage === 'review' ? <SignatureSummary {...review} /> : null}
+      {review?.stage === 'switch' ? <ChainSwitchPrompt key={review.id} {...review} /> : null}
+      {review?.stage === 'review' ? <SignatureSummary key={review.id} {...review} /> : null}
     </WalletReviewContext.Provider>
   );
 }

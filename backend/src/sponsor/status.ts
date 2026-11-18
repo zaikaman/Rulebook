@@ -5,7 +5,7 @@ import {
   type ruleBudgetSchema,
   type sponsorStatusSchema,
 } from '@rulebook/shared';
-import { isAddress } from 'viem';
+import { isAddress, parseEther } from 'viem';
 import type { z } from 'zod';
 
 import type { CreditReading } from '../chain/sponsorSource.js';
@@ -17,6 +17,10 @@ interface AccountCredit {
 }
 
 type SponsorState = 'healthy' | 'low' | 'exhausted' | 'debt';
+
+function warningThreshold(chainId: number) {
+  return parseEther(chainId === LASNA_CHAIN_ID ? '0.05' : '0.0001');
+}
 
 const SEVERITY: Record<SponsorState, number> = {
   healthy: 0,
@@ -45,7 +49,10 @@ async function resolveVault(deps: ServerDeps, agent: Address): Promise<Address |
   const row = await deps.repositories.agents.get(agent);
   if (row) {
     const vaults = await deps.repositories.vaults.listByOwner(row.owner);
-    const destination = vaults.find((vault) => vault.chain_id === UNICHAIN_SEPOLIA_CHAIN_ID);
+    const destination = vaults.find(
+      (vault) =>
+        vault.chain_id === UNICHAIN_SEPOLIA_CHAIN_ID && vault.agent.toLowerCase() === agent,
+    );
     if (destination) return destination.address as Address;
   }
   try {
@@ -69,8 +76,7 @@ export async function loadAccountCredit(
   const agent = agentParam.toLowerCase() as Address;
   const vault = await resolveVault(deps, agent);
   const readings = await deps.sponsorSource.read({ agent, vault });
-  const threshold = BigInt(deps.config.SPONSOR_GAS_TOP_UP_WEI);
-  const states = readings.map((reading) => chainState(reading, threshold));
+  const states = readings.map((reading) => chainState(reading, warningThreshold(reading.chain_id)));
   const state = worstState(states);
   const destination =
     readings.find((reading) => reading.chain_id === UNICHAIN_SEPOLIA_CHAIN_ID) ??
@@ -87,7 +93,7 @@ export async function loadAccountCredit(
     budget: {
       state,
       remaining: destination?.reserves ?? '0',
-      threshold: threshold.toString(),
+      threshold: warningThreshold(destination?.chain_id ?? UNICHAIN_SEPOLIA_CHAIN_ID).toString(),
       low: state === 'low',
       exhausted: state === 'exhausted' || state === 'debt',
     },

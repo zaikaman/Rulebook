@@ -7,11 +7,9 @@ import { registerEncodeRoutes } from './encode.js';
 import { registerExecutionRoutes } from './executions.js';
 import { registerHealthRoutes } from './health.js';
 import { registerMarketplaceRoutes } from './marketplace.js';
-import { registerOnboardingRoutes } from './onboarding.js';
 import { registerProofRoutes } from './proofs.js';
 import { registerRuleRoutes } from './rules.js';
 import { registerSponsorRoutes } from './sponsor.js';
-import { registerStarterFundsRoutes } from './starterFunds.js';
 
 /** Registers the complete route set declared in contracts/http-api.yaml. */
 export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
@@ -23,7 +21,5 @@ export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
   registerProofRoutes(app, deps);
   registerMarketplaceRoutes(app, deps);
   registerSponsorRoutes(app, deps);
-  registerOnboardingRoutes(app, deps);
-  registerStarterFundsRoutes(app, deps);
   registerEncodeRoutes(app);
 }

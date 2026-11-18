@@ -25,12 +25,6 @@ const config: AppConfig = {
   INDEXER_ENABLED: false,
   INDEXER_START_BLOCK_LASNA: 0,
   INDEXER_START_BLOCK_UNICHAIN: 0,
-  SPONSOR_GAS_TOP_UP_WEI: '50000000000000000',
-  SPONSOR_RESERVE_TARGET_WEI: '200000000000000000',
-  STARTER_FUNDS_USDC: '10000000',
-  STARTER_FUNDS_WETH: '10000000000000000',
-  ONBOARDING_RATE_LIMIT_PER_MINUTE: 3,
-  ONBOARDING_DAILY_CAP: 100,
   corsOrigins: ['http://localhost:5173'],
 };
 
@@ -88,7 +82,6 @@ function makeHarness(proofSource?: ProofSource) {
     databaseReachable: async () => true,
     rpcHealth: async () => [],
     accountChain: { agentLink: async () => null, vaultOwner: async () => null },
-    onboardingLimiter: { allow: () => true },
     ...(proofSource ? { proofSource } : {}),
   };
   return { app: buildServer(deps, { logger: false }).app, repositories, deps };

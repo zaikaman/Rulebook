@@ -1,7 +1,7 @@
-import { ArrowRight02Icon, LockKeyIcon, Wallet01Icon } from '@hugeicons/core-free-icons';
+import { ArrowRight02Icon, LockKeyIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  agentFactoryAbi,
+  agentAbi,
   getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -19,17 +19,17 @@ import { TemplatePicker } from '../composer/TemplatePicker.js';
 import { composerReducer, initialComposerState, toReadyDraft } from '../composer/reducer.js';
 import { slotIssues } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
-import { EmptyState } from '../components/chrome/EmptyState.js';
+import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
-import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
+import { useAccountSetup } from '../hooks/useAccountSetup.js';
+import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { appRoutes } from '../lib/routes.js';
 import { formatRuleSentence } from '../lib/rules.js';
+import { CreateAccount } from './CreateAccount.js';
 import '../styles/composer.css';
-
-const ZERO = '0x0000000000000000000000000000000000000000';
 
 /** The composer itself, split from the account lookup so tests can render it with an agent. */
 export function CreateRuleForm({
@@ -165,7 +165,7 @@ export function CreateRuleForm({
           </button>
           <p className="rule-composer__footnote">
             <HugeiconsIcon icon={LockKeyIcon} size={15} aria-hidden="true" />
-            <span>Your funds stay in your vault. The operator pays execution costs.</span>
+            <span>Your vault holds trading funds. You add network fees separately.</span>
           </p>
         </div>
       </div>
@@ -188,22 +188,15 @@ function safeSentence(template: number, slots: Record<string, string | undefined
 /** `/create`: connect, find the owner's Agent, then compose. */
 export function Create() {
   const { address } = useAccount();
-  const owner = (address?.toLowerCase() as Address | undefined) ?? ZERO;
-  const agentQuery = useReadContract({
-    address: AGENT_FACTORY_ADDRESS ?? ZERO,
-    abi: agentFactoryAbi,
-    functionName: 'agentOf',
-    args: [owner],
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(address && AGENT_FACTORY_ADDRESS) },
-  });
-  const agent = agentQuery.data && agentQuery.data !== ZERO ? agentQuery.data : null;
+  const owner = address?.toLowerCase() as Address | undefined;
+  const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
+  const { agent, vault, linked } = setup.data ?? {};
 
   return (
     <section className="app-page">
       <PageHeading
         title="Compose a rule"
-        description="Build an automation by filling in the sentence. Review it, then sign once."
+        description="Fill in a sentence to tell Rulebook what to do and when."
         breadcrumb={
           <>
             <Link to={appRoutes.rules}>Rules</Link>
@@ -212,37 +205,76 @@ export function Create() {
           </>
         }
       />
-      {agent ? (
-        <CreateRuleForm agent={agent} />
-      ) : !address ? (
-        <EmptyState
-          icon={Wallet01Icon}
-          title="Connect the owner wallet"
-          description="Use Connect wallet in the navigation to open your automation account."
-        />
-      ) : agentQuery.isLoading ? (
+      {agent && vault && linked ? (
+        <FirstRule agent={agent} vault={vault} />
+      ) : setup.isLoading ? (
         <div className="app-skeleton h-32 animate-pulse" role="status">
           <span className="sr-only">Looking for your automation account…</span>
         </div>
-      ) : agentQuery.error ? (
+      ) : setup.error ? (
         <ErrorState
           message="Your automation account could not be loaded."
-          detail={agentQuery.error.message}
-          chainId={LASNA_CHAIN_ID}
-          onRetry={() => void agentQuery.refetch()}
+          detail={setup.error.message}
+          onRetry={() => void setup.refetch()}
         />
       ) : (
-        <EmptyState
-          icon={Wallet01Icon}
-          title="Set up your automation account"
-          description="Create an account for this wallet before you compose your first rule."
-          action={
-            <Link to={appRoutes.account} className="app-button app-button--primary">
-              Create your account
-            </Link>
+        <CreateAccount setup={setup} />
+      )}
+    </section>
+  );
+}
+
+function FirstRule({ agent, vault }: { agent: Address; vault: Address }) {
+  const rules = useReadContract({
+    address: agent,
+    abi: agentAbi,
+    functionName: 'getRuleIds',
+    chainId: LASNA_CHAIN_ID,
+  });
+  const credits = useExecutionCredit(agent, vault);
+  const [showFunding, setShowFunding] = useState(false);
+  const first = rules.data?.length === 0;
+  const suggested = !credits.watching.data
+    ? 'watching'
+    : !credits.execution.data
+      ? 'execution'
+      : 'vault';
+  return (
+    <>
+      {first && (
+        <div className="app-panel app-panel-pad space-y-3">
+          <h2 className="app-panel-heading">Before your first rule runs</h2>
+          <p className="app-copy">
+            Fund monitoring on Lasna and execution on Unichain Sepolia. Add USDC to your vault for
+            rules that spend USDC.
+          </p>
+          {credits.watching.data === 0n && (
+            <p className="app-copy">Add REACT to start monitoring your rules.</p>
+          )}
+          {credits.execution.data === 0n && (
+            <p className="app-copy">Add ETH to run trades and transfers.</p>
+          )}
+          <button
+            type="button"
+            className="app-button"
+            aria-expanded={showFunding}
+            onClick={() => setShowFunding((shown) => !shown)}
+          >
+            {showFunding ? 'Hide funding' : 'Add funds'}
+          </button>
+        </div>
+      )}
+      {first && showFunding && (
+        <AccountFunding
+          agent={agent}
+          vault={vault}
+          suggested={suggested}
+          onConfirmed={() =>
+            void Promise.all([credits.watching.refetch(), credits.execution.refetch()])
           }
         />
       )}
-    </section>
+      <CreateRuleForm agent={agent} />
+    </>
   );
 }

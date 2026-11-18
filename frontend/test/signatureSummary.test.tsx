@@ -25,7 +25,7 @@ describe('SignatureSummary', () => {
       signatureDetails.authorizeVault(FACTORY, AGENT),
       'Unichain Sepolia',
       FACTORY,
-      /authorize the sponsor/i,
+      /authorize a vault that you own/i,
       /No principal/i,
     ],
     [

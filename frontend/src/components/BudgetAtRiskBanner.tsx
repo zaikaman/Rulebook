@@ -1,4 +1,6 @@
 import type { SponsorStatus } from '@rulebook/shared';
+import { Link } from 'react-router';
+import { appRoutes } from '../lib/routes.js';
 
 export type AtRiskState = 'healthy' | 'low' | 'exhausted' | 'debt';
 
@@ -10,7 +12,7 @@ const HEADLINE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
 
 const CONSEQUENCE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
   low: 'Your rules can keep running until this balance runs out.',
-  exhausted: 'The balance that Rulebook uses to pay network fees for your rules has run out.',
+  exhausted: 'Add network fees to keep your rules running.',
   debt: 'Your rules can run again once the outstanding fees are paid.',
 };
 
@@ -24,7 +26,7 @@ export function worstSponsorState(status: SponsorStatus | undefined): AtRiskStat
   );
 }
 
-/** Explains how the fee balance affects rules and links to the manual top-up guide. */
+/** Explains how the fee balance affects rules and links to account funding. */
 export function BudgetAtRiskBanner({ state }: { readonly state: AtRiskState }) {
   if (state === 'healthy') return null;
 
@@ -37,14 +39,9 @@ export function BudgetAtRiskBanner({ state }: { readonly state: AtRiskState }) {
     >
       <p className="text-sm font-semibold text-ink">{HEADLINE[state]}</p>
       <p className="text-xs text-ink">{CONSEQUENCE[state]}</p>
-      <a
-        href="https://github.com/zaikaman/Rulebook/blob/main/docs/runbooks/top-up-reserves.md"
-        target="_blank"
-        rel="noreferrer"
-        className="app-link inline-block text-xs"
-      >
-        Manual top-up guide
-      </a>
+      <Link to={`${appRoutes.account}#fund-account`} className="app-link inline-block text-xs">
+        Add network fees
+      </Link>
     </aside>
   );
 }

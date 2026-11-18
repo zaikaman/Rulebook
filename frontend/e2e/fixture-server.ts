@@ -25,20 +25,14 @@ import { seedMarketplace } from '../../backend/src/marketplace/seed.js';
 import { buildServer } from '../../backend/src/server.js';
 import { PublicAccountChain } from '../../backend/src/sponsor/accountChain.js';
 import {
-  createRelayerTransport,
-  relayerAddresses,
-  relayerOptions,
-  SponsorRelayer,
-} from '../../backend/src/sponsor/relayer.js';
-import {
   AGENT_FACTORY_ADDRESS,
   ANVIL_RPC_PORT,
   ANVIL_RPC_URL,
   FIXTURE_API_PORT,
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_URL,
-  SPONSOR_ADDRESS,
   SPONSOR_PRIVATE_KEY,
+  USER_ADDRESS,
   VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig.js';
 
@@ -119,10 +113,15 @@ async function main(): Promise<void> {
 
   // Lasna's system contract is at a fixed address with no code locally. Installing the double
   // there lets an Agent's subscribe() call succeed, exactly as it does on the real network.
-  await publicClient.request({
-    method: 'anvil_setCode',
-    params: [getChain(LASNA_CHAIN_ID).systemContract, mockSystemArtifact.deployedBytecode.object],
-  } as never);
+  for (const billingContract of [
+    getChain(LASNA_CHAIN_ID).systemContract,
+    getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy,
+  ]) {
+    await publicClient.request({
+      method: 'anvil_setCode',
+      params: [billingContract, mockSystemArtifact.deployedBytecode.object],
+    } as never);
+  }
 
   // The registry is deployed first because every Agent stores its address; the factory nonces
   // in `fixtureConfig.ts` depend on this order.
@@ -151,7 +150,12 @@ async function main(): Promise<void> {
     bytecode: vaultFactoryArtifact.bytecode.object,
     args: [getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy],
   });
-  await publicClient.waitForTransactionReceipt({ hash: vaultFactoryTx });
+  const vaultFactoryReceipt = await publicClient.waitForTransactionReceipt({
+    hash: vaultFactoryTx,
+  });
+  if (vaultFactoryReceipt.contractAddress?.toLowerCase() !== VAULT_FACTORY_ADDRESS.toLowerCase()) {
+    throw new Error('VaultFactory was not deployed at its expected address');
+  }
 
   const usdc = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
   const weth = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).weth;
@@ -170,7 +174,7 @@ async function main(): Promise<void> {
       address: token as Address,
       abi: ERC20,
       functionName: 'mint',
-      args: [SPONSOR_ADDRESS, amount],
+      args: [USER_ADDRESS, amount],
     });
     await publicClient.waitForTransactionReceipt({ hash });
   }
@@ -185,15 +189,6 @@ async function main(): Promise<void> {
     INDEXER_ENABLED: false,
     INDEXER_START_BLOCK_LASNA: 0,
     INDEXER_START_BLOCK_UNICHAIN: 0,
-    SPONSOR_PRIVATE_KEY,
-    AGENT_FACTORY_ADDRESS,
-    VAULT_FACTORY_ADDRESS,
-    SPONSOR_GAS_TOP_UP_WEI: '50000000000000000',
-    SPONSOR_RESERVE_TARGET_WEI: '1000000000000000',
-    STARTER_FUNDS_USDC: '10000000',
-    STARTER_FUNDS_WETH: '10000000000000000',
-    ONBOARDING_RATE_LIMIT_PER_MINUTE: 50,
-    ONBOARDING_DAILY_CAP: 1000,
     corsOrigins: [FIXTURE_FRONTEND_URL],
   };
 
@@ -204,13 +199,6 @@ async function main(): Promise<void> {
   // already has a published `paramsHash`, exactly as the seeded production catalog does.
   await seedMarketplace(repositories);
   const cursors = new CursorStore(store);
-  const addresses = relayerAddresses(config);
-  if (!addresses) throw new Error('fixture relayer addresses missing');
-  const relayer = new SponsorRelayer(
-    createRelayerTransport(config, clients),
-    addresses,
-    relayerOptions(config),
-  );
 
   const built = buildServer(
     {
@@ -222,9 +210,7 @@ async function main(): Promise<void> {
         { chain_id: LASNA_CHAIN_ID, rpc_ok: true },
         { chain_id: UNICHAIN_SEPOLIA_CHAIN_ID, rpc_ok: true },
       ],
-      relayer,
       accountChain: new PublicAccountChain(clients),
-      onboardingLimiter: { allow: () => true },
     },
     { logger: false },
   );

@@ -1,156 +1,62 @@
-import {
-  UNICHAIN_SEPOLIA_CHAIN_ID,
-  type Account,
-  type Address,
-  type OnboardingResponse,
-  type SetupState,
-  type StarterFundsResponse,
-} from '@rulebook/shared';
+import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { isAddressEqual } from 'viem';
 
-import { ApiError } from '../lib/api.js';
-
-/** The API surface onboarding needs; injected so the hook is testable without a server. */
-export interface AccountSetupApi {
-  account(agent: string): Promise<Account>;
-  onboarding(
-    owner: Address,
-    vaultAuthorization?: { deadline: string; signature: `0x${string}` },
-    vaultMode?: 'mirror',
-  ): Promise<OnboardingResponse>;
-  starterFunds(owner: Address, vault: Address): Promise<StarterFundsResponse>;
-}
-
-/**
- * Wallet actions onboarding needs. `linkVault` resolves only after the Lasna transaction is
- * confirmed, so the account query never reports `complete` from a pending signature.
- */
 export interface SetupWallet {
-  readonly address?: Address;
   getAgent(owner: Address): Promise<Address | null>;
   getVault(owner: Address): Promise<Address | null>;
-  authorizeVault(
-    owner: Address,
-    agent: Address,
-    vaultMode?: 'mirror',
-  ): Promise<{ deadline: string; signature: `0x${string}` }>;
-  linkVault(agent: Address, vault: Address, chainId: number): Promise<`0x${string}`>;
+  getLink(agent: Address): Promise<Address | null>;
+  getVaultAgent(vault: Address): Promise<Address>;
+  createAgent(owner: Address): Promise<Address>;
+  createVault(owner: Address, agent: Address, mode?: 'mirror'): Promise<Address>;
+  linkVault(agent: Address, vault: Address, chainId: number): Promise<void>;
 }
 
-export interface AccountSetupOptions {
-  readonly owner?: Address;
-  readonly api: AccountSetupApi;
-  readonly wallet: SetupWallet;
+async function readSetup(owner: Address, wallet: SetupWallet) {
+  const [agent, vault] = await Promise.all([wallet.getAgent(owner), wallet.getVault(owner)]);
+  if (!agent || !vault) return { agent, vault, linked: false };
+  const link = await wallet.getLink(agent);
+  const linked = !!link && isAddressEqual(link, vault);
+  if (linked && !isAddressEqual(await wallet.getVaultAgent(vault), agent)) {
+    throw new Error('This vault is linked to a different automation account.');
+  }
+  return { agent, vault, linked };
 }
 
-export interface AccountSetup {
-  readonly setupState: SetupState;
-  readonly agent: Address | null;
-  readonly vault: Address | null;
-  readonly account: Account | null;
-  readonly result: OnboardingResponse | null;
-  readonly starterFunds: StarterFundsResponse | null;
-  readonly resume: (vaultMode?: 'mirror') => Promise<OnboardingResponse | null>;
-  readonly claimStarterFunds: () => Promise<StarterFundsResponse>;
-  readonly resuming: boolean;
-  readonly claiming: boolean;
-  readonly error: Error | null;
-}
-
-/**
- * Resolves the setup state, resumes only the missing step, and polls until the Agent reports
- * the vault link. A completed account is never sent through onboarding again (FR-004).
- */
-export function useAccountSetup({ owner, api, wallet }: AccountSetupOptions): AccountSetup {
+/** Read the factories on-chain before each retry so confirmed steps are never submitted twice. */
+export function useAccountSetup({ owner, wallet }: { owner?: Address; wallet: SetupWallet }) {
   const queryClient = useQueryClient();
-
-  const agentQuery = useQuery({
-    queryKey: ['agentOf', owner, wallet.address],
-    queryFn: async () => (owner ? wallet.getAgent(owner) : null),
-    enabled: Boolean(owner),
+  const key = ['wallet-setup', owner];
+  const account = useQuery({
+    queryKey: key,
+    enabled: !!owner,
+    queryFn: () => readSetup(owner!, wallet),
+    retry: false,
   });
-
-  const agent = agentQuery.data ?? null;
-  const accountQuery = useQuery({
-    queryKey: ['account', agent],
-    queryFn: () => api.account(agent as string),
-    enabled: Boolean(agent),
-    retry: (count, error) =>
-      !(error instanceof ApiError && error.status >= 400 && error.status < 500) && count < 2,
-    refetchInterval: (query) => (query.state.data?.setup_state === 'complete' ? false : 5_000),
-  });
-
-  const account = accountQuery.data ?? null;
-  const setupState: SetupState = account?.setup_state ?? (agent ? 'agent_only' : 'none');
-
-  const resumeMutation = useMutation({
-    mutationFn: async (vaultMode?: 'mirror') => {
-      if (!owner) throw new Error('Connect a wallet before creating an account.');
-      if (setupState === 'complete') return null;
-
-      let result = await api.onboarding(owner);
-      if (result.setup_state === 'agent_only' && result.agent && !result.vault) {
-        const mode = vaultMode ? ([vaultMode] as const) : [];
-        const authorization = await wallet.authorizeVault(owner, result.agent, ...mode);
-        const authorized = await api.onboarding(owner, authorization, ...mode);
-        const steps = new Map(result.steps.map((step) => [step.name, step]));
-        for (const step of authorized.steps) {
-          const previous = steps.get(step.name);
-          if (previous?.status === 'confirmed' && step.status === 'skipped') continue;
-          steps.set(step.name, step);
-        }
-        result = { ...authorized, steps: [...steps.values()] };
+  const setup = useMutation({
+    mutationFn: async (mode?: 'mirror') => {
+      if (!owner) throw new Error('Connect your wallet to create an account.');
+      const current = await readSetup(owner, wallet);
+      if (current.linked) return current;
+      const agent = current.agent ?? (await wallet.createAgent(owner));
+      const vault = current.vault ?? (await wallet.createVault(owner, agent, mode));
+      if (!isAddressEqual(await wallet.getVaultAgent(vault), agent)) {
+        throw new Error('This vault is linked to a different automation account.');
       }
-      if (result.setup_state === 'partial' && result.agent && result.vault) {
-        const linkTx = await wallet.linkVault(
-          result.agent,
-          result.vault,
-          UNICHAIN_SEPOLIA_CHAIN_ID,
-        );
-        result = {
-          ...result,
-          steps: result.steps.map((step) =>
-            step.name === 'link'
-              ? { ...step, status: 'confirmed', tx_hash: linkTx, error: null }
-              : step,
-          ),
-        };
-      }
-      return result;
+      await wallet.linkVault(agent, vault, UNICHAIN_SEPOLIA_CHAIN_ID);
+      return { agent, vault, linked: true };
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(key, result);
     },
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['agentOf'] });
-      await queryClient.invalidateQueries({ queryKey: ['account'] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: key }),
+        queryClient.invalidateQueries({ queryKey: ['readContract'] }),
+        queryClient.invalidateQueries({ queryKey: ['mirror-account', owner] }),
+      ]);
     },
   });
 
-  const vaultFromResult = resumeMutation.data?.vault ?? null;
-  const vault = account?.vaults[0]?.address ?? vaultFromResult;
-
-  const starterMutation = useMutation({
-    mutationFn: async () => {
-      if (!owner) throw new Error('Connect a wallet before claiming starter funds.');
-      if (!vault) throw new Error('Create your vault before claiming starter funds.');
-      return api.starterFunds(owner, vault);
-    },
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['account'] });
-    },
-  });
-
-  const error = resumeMutation.error ?? starterMutation.error ?? accountQuery.error ?? null;
-
-  return {
-    setupState,
-    agent,
-    vault,
-    account,
-    result: resumeMutation.data ?? null,
-    starterFunds: starterMutation.data ?? null,
-    resume: resumeMutation.mutateAsync,
-    claimStarterFunds: starterMutation.mutateAsync,
-    resuming: resumeMutation.isPending,
-    claiming: starterMutation.isPending,
-    error: error instanceof Error ? error : null,
-  };
+  return { ...account, resume: setup.mutate, resuming: setup.isPending, setupError: setup.error };
 }

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "No-code builder for personal on-chain automations: the user keeps the money, the operator pays the gas.",
+  "description": "No-code builder for wallet-owned, self-funded on-chain automations.",
   "engines": {
     "node": ">=24"
   },

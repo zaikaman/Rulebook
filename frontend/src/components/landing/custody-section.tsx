@@ -24,9 +24,9 @@ export function CustodySection() {
           </p>
           <dl className="mt-6 space-y-5">
             <div>
-              <dt className="text-sm font-medium text-white">Sponsored execution</dt>
+              <dt className="text-sm font-medium text-white">Network fees</dt>
               <dd className="mt-1.5 text-sm leading-relaxed text-neutral-400">
-                The operator funds the network fees for monitoring and running your rules.
+                Add test REACT for monitoring and test ETH for running your rules.
               </dd>
             </div>
             <div>

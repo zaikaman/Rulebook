@@ -2,7 +2,7 @@
 
 Build personal on-chain automations from a sentence such as “Every Friday, buy 10 USDC
 worth of WETH.” Your wallet owns the Agent that evaluates the rule and the Vault that
-holds your funds. Rulebook sponsors setup and execution credit on testnet.
+holds your funds. Use your own testnet tokens for setup, network fees, and trades.
 
 ## Architecture
 
@@ -32,26 +32,28 @@ movement between evaluation and settlement. Alerts record activity without movin
 
 ## Custody and funding
 
-| Action                             | Wallet owner                             | Operator |
-| ---------------------------------- | ---------------------------------------- | -------- |
-| Own the Agent and Vault            | Yes                                      | No       |
-| Create, pause or cancel rules      | Yes                                      | No       |
-| Withdraw principal                 | Yes, including when automation is paused | No       |
-| Fund execution and watching credit | Yes                                      | Yes      |
-| Set the Vault’s spending limits    | Yes                                      | No       |
-
 The Vault can spend principal under an authorized rule, within the owner’s limits.
-The sponsor pays for setup, provides starter test funds and tops up execution credit.
-Direct wallet transactions can still incur network fees. The UI displays principal,
-Lasna watching credit and Unichain execution credit separately.
-
-**This is not a bot. The indexer cannot move funds.** Reactive and the contracts run the
-automation. The indexer reads chain events and provides a rebuildable view. Two sponsor
-routes can deploy user-owned contracts and fund accounts with sponsor assets.
+The wallet owner sets spending limits, controls rules, and can withdraw principal even
+while automation is paused. Reactive and the contracts run the automation. The indexer
+reads chain events and provides a rebuildable view.
 
 A wake-up costs about 0.02 REACT at the measured Lasna gas price. A destination swap
 adds an estimated 0.0000006 ETH at the sampled Unichain rate. Weekly and daily rules on the
 same cron subscription wake for the same ticks. [Measured fees and annual estimates](./docs/cost-model.md)
+
+### Create your first testnet rule
+
+Open **Compose sentence** and connect a wallet. The composer links to faucets for
+[Lasna REACT](https://dev.reactive.network/reactive-mainnet#reactive-faucet),
+[Unichain Sepolia ETH](https://console.optimism.io/faucet), and
+[Unichain Sepolia USDC](https://faucet.circle.com/). Get REACT and ETH for wallet fees.
+Get USDC if your rule spends it.
+
+Select **Create my account** and approve the requests as they appear. Rulebook finds
+any existing contracts, creates the missing ones, and links the networks. Before your
+rule runs, use **Add funds** to add REACT for monitoring, ETH for execution, and USDC
+to your vault when needed. **Account & Vault** shows each balance and lets you top up
+or withdraw vault funds later.
 
 ## Local setup
 
@@ -69,9 +71,9 @@ Copy-Item frontend/.env.example frontend/.env.local
 ```
 
 Fill in the Supabase API URL and service-role key in `backend/.env`. Add the public RPC
-URLs and the configured Lasna AgentFactory and Unichain VaultFactory addresses to both
-environments. For local read-only work, set `INDEXER_ENABLED=false` and leave the sponsor
-variable unset. For local database migrations, set `DATABASE_URL` in the backend
+URLs to both environments and the deployed Lasna AgentFactory and Unichain VaultFactory
+addresses to the frontend environment. To run the API without indexing, set
+`INDEXER_ENABLED=false`. For local database migrations, set `DATABASE_URL` in the backend
 environment and run `npm run migrate -w backend`. [Deployment addresses](./deployments/README.md)
 
 ```powershell
@@ -97,10 +99,10 @@ and accessibility without spending testnet funds.
 The existing Heroku app is `rulebook-backend`. Set the backend’s CORS allowlist to the
 Vercel site origin. Set `VITE_API_BASE_URL` to the backend URL, and set the RPC and factory
 addresses in the frontend’s build environment. All `VITE_*` values are public. The
-Supabase service-role key and sponsor key belong in backend config vars.
+Supabase service-role key belongs in backend config vars.
 
-The workspace polls `/health` every 30 seconds. It warns when a reported cursor is more
-than 60 seconds behind and identifies unavailable RPCs. The deployment smoke target is
+The workspace polls `/health` every 30 seconds and shows connection failures.
+The deployment smoke target is
 under 15 seconds of reported lag with the database reachable. Proofs show their source.
 When Lasna has no callback record, use the independently verified transaction links in
 the evidence to inspect the origin, evaluation and destination receipts. [Submission evidence](./docs/submission-evidence.md)
@@ -108,12 +110,11 @@ the evidence to inspect the origin, evaluation and destination receipts. [Submis
 - [Top up execution reserves](./docs/runbooks/top-up-reserves.md)
 - [Pause or cancel an automation](./docs/runbooks/pause-cancel-a-rule.md)
 - [Rebuild the read model](./docs/runbooks/reindex-from-chain.md)
-- [Rotate the sponsor key](./docs/runbooks/rotate-sponsor-key.md)
 
 ## Known limitations and what comes next
 
 - The release targets testnets and one destination chain, Unichain Sepolia.
-- Rules can go quiet if sponsored credit runs out. Anyone can top up a target with
+- Rules can stop running if network fees run out. Anyone can top up a target with
   `depositTo`, and the wallet owner can still withdraw principal.
 - Cron windows are approximate. A Friday rule runs sometime on Friday.
 - Thin pools make it easy to demonstrate a price trigger. Their fills and price impact

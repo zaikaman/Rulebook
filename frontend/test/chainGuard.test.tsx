@@ -1,14 +1,15 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, type Account } from '@rulebook/shared';
+import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BaseError } from 'viem';
+import { BaseError, zeroAddress } from 'viem';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import { WalletReviewProvider } from '../src/components/WalletReviewProvider.js';
+import { useAccountSetup } from '../src/hooks/useAccountSetup.js';
 import { useChainGuard } from '../src/hooks/useChainGuard.js';
 import { useRuleControl } from '../src/hooks/useRuleControl.js';
-import { api } from '../src/lib/api.js';
+import { useSetupWallet } from '../src/hooks/useSetupWallet.js';
 import { DEMO_USDC } from '../src/lib/contracts.js';
 import { signatureDetails } from '../src/lib/signatures.js';
 import { CreateAccount } from '../src/pages/CreateAccount.js';
@@ -30,6 +31,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock('wagmi', () => ({
   useConfig: () => ({}),
   useAccount: () => ({ address: OWNER }),
+  useBalance: () => ({}),
+  useConnect: () => ({ connectors: [] }),
   useSwitchChain: () => ({ switchChainAsync: mocks.switchChain }),
   useSignTypedData: () => ({ signTypedDataAsync: mocks.sign }),
   useWriteContract: () => ({ writeContractAsync: mocks.writeContract }),
@@ -38,12 +41,14 @@ vi.mock('wagmi/actions', () => ({ getAccount: mocks.getAccount }));
 vi.mock('../src/lib/contracts.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/lib/contracts.js')>()),
   AGENT_FACTORY_ADDRESS: '0xdddddddddddddddddddddddddddddddddddddddd',
+  VAULT_FACTORY_ADDRESS: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
 }));
 vi.mock('../src/lib/wagmi.js', () => ({
   lasnaPublicClient: {
     readContract: mocks.readContract,
     waitForTransactionReceipt: mocks.receipt,
   },
+  unichainPublicClient: { readContract: mocks.readContract },
 }));
 
 const connector = { uid: 'wallet', getChainId: mocks.getChainId };
@@ -148,30 +153,22 @@ it('does not sign if the wallet changes networks after opening the review', asyn
 
 it('guides recovery from a wallet permission error and retries only the account link', async () => {
   const hash = `0x${'1'.repeat(64)}` as const;
-  const partial: Account = {
-    owner: OWNER,
-    agent: { address: AGENT, created_tx: hash, active_rules: 0 },
-    vaults: [
-      {
-        address: VAULT,
-        chain_id: UNICHAIN_SEPOLIA_CHAIN_ID,
-        connected: false,
-        paused: false,
-        mirror_mode: false,
-      },
-    ],
-    setup_state: 'partial',
-  };
-  const accountRequest = vi.spyOn(api, 'account').mockResolvedValue(partial);
-  const onboarding = vi.spyOn(api, 'onboarding').mockResolvedValue({
-    setup_state: 'partial',
-    agent: AGENT,
-    vault: VAULT,
-    steps: [{ name: 'link', status: 'skipped', chain_id: LASNA_CHAIN_ID }],
-  });
+  let linked = false;
   mocks.getAccount.mockReturnValue(account(LASNA_CHAIN_ID));
   mocks.getChainId.mockResolvedValue(LASNA_CHAIN_ID);
-  mocks.readContract.mockResolvedValue(AGENT);
+  mocks.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+    switch (functionName) {
+      case 'agentOf':
+      case 'agent':
+        return AGENT;
+      case 'vaultOf':
+        return VAULT;
+      case 'getVault':
+        return linked ? VAULT : zeroAddress;
+      default:
+        throw new Error(`Unexpected read: ${functionName}`);
+    }
+  });
   mocks.writeContract
     .mockRejectedValueOnce(
       new BaseError('The requested account and/or method has not been authorized by the user.', {
@@ -181,26 +178,35 @@ it('guides recovery from a wallet permission error and retries only the account 
     )
     .mockResolvedValueOnce(hash);
   mocks.receipt.mockImplementation(async () => {
-    accountRequest.mockResolvedValue({ ...partial, setup_state: 'complete' });
+    linked = true;
     return { status: 'success' };
   });
+
+  function Setup() {
+    const setup = useAccountSetup({ owner: OWNER, wallet: useSetupWallet() });
+    return setup.data?.linked ? (
+      <p role="status">Account ready</p>
+    ) : (
+      <CreateAccount setup={setup} />
+    );
+  }
 
   const user = userEvent.setup();
   render(
     <QueryClientProvider client={new QueryClient()}>
       <WalletReviewProvider>
-        <CreateAccount />
+        <Setup />
       </WalletReviewProvider>
     </QueryClientProvider>,
   );
 
-  const resume = await screen.findByRole('button', { name: 'Resume: link my accounts' });
+  const resume = await screen.findByRole('button', { name: 'Continue account setup' });
   await user.click(resume);
   await user.click(await screen.findByRole('button', { name: 'Continue to wallet' }));
 
   const alert = await screen.findByRole('alert');
   expect(alert).toHaveTextContent(/disconnect this site.*reconnect with the same account/i);
-  expect(alert).toHaveTextContent(/resume: link my accounts/i);
+  expect(alert).toHaveTextContent(/continue account setup/i);
   expect(alert).not.toHaveTextContent('Request Arguments');
   expect(within(alert).getByText('Reactive Lasna')).toBeVisible();
   expect(mocks.receipt).not.toHaveBeenCalled();
@@ -208,12 +214,7 @@ it('guides recovery from a wallet permission error and retries only the account 
   await user.click(resume);
   await user.click(await screen.findByRole('button', { name: 'Continue to wallet' }));
   expect(await screen.findByText('Account ready')).toHaveAttribute('role', 'status');
-  expect(screen.getByRole('link', { name: 'View your account' })).toHaveAttribute(
-    'href',
-    '/account',
-  );
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-  expect(onboarding.mock.calls).toEqual([[OWNER], [OWNER]]);
   expect(mocks.sign).not.toHaveBeenCalled();
   expect(mocks.writeContract).toHaveBeenCalledTimes(2);
   expect(mocks.writeContract).toHaveBeenNthCalledWith(

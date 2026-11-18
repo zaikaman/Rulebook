@@ -19,6 +19,13 @@ export function registerSponsorRoutes(app: FastifyInstance, deps: ServerDeps): v
 
     const credit = await loadAccountCredit(deps, agent).catch(() => null);
     if (credit) return credit.status;
+    if (deps.sponsorSource)
+      return sendError(
+        reply,
+        503,
+        'credit_unavailable',
+        'Network fee balances are temporarily unavailable.',
+      );
 
     // No sponsor source configured: keep the documented shape but claim nothing about funds.
     return {

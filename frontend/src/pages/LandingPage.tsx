@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from '@hugeicons/react';
-import { ArrowRight02Icon, Book02Icon } from '@hugeicons/core-free-icons';
+import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
 import { Link } from 'react-router';
 import { BackgroundEffects } from '@/components/landing/background-effects.js';
 import { ClosingCta } from '@/components/landing/closing-cta.js';
@@ -37,30 +37,18 @@ export function LandingPage() {
               worth of WETH every week.”
             </p>
 
-            <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex flex-wrap items-center justify-center gap-4">
+            <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
               <Link
                 to={appRoutes.create}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
               >
-                <span>Create a rule</span>
+                <span>Create your first rule</span>
                 <HugeiconsIcon
                   icon={ArrowRight02Icon}
                   size={16}
                   aria-hidden="true"
                   className="transition-transform group-hover:translate-x-0.5"
                 />
-              </Link>
-              <Link
-                to={appRoutes.marketplace}
-                className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-6 py-3 text-sm font-medium text-white transition-all hover:bg-white/[0.08]"
-              >
-                <HugeiconsIcon
-                  icon={Book02Icon}
-                  size={16}
-                  className="text-neutral-400"
-                  aria-hidden="true"
-                />
-                <span>Browse public rules</span>
               </Link>
             </div>
           </div>

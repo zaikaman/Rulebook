@@ -80,7 +80,10 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await page.getByRole('button', { name: 'Connect wallet' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
   await approveSetup(page);
-  const agentHref = await page.locator('a[href*="/address/"]').first().getAttribute('href');
+  const agentHref = await page
+    .getByRole('region', { name: 'Reactive Lasna balances' })
+    .locator('a[href*="/address/"]')
+    .getAttribute('href');
   const agent = agentHref?.match(/0x[a-f0-9]{40}/i)?.[0];
   expect(agent).toBeTruthy();
 
