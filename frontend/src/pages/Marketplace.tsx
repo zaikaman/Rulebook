@@ -44,7 +44,7 @@ export function Marketplace() {
   const listings = query.data?.pages.flatMap((page) => page.listings) ?? [];
 
   return (
-    <section className="app-page">
+    <section className="app-page app-marketplace">
       <PageHeading
         title="Rule marketplace"
         description="Explore public automations and clone their settings into your own account. Each copy uses your own vault."
@@ -93,13 +93,9 @@ export function Marketplace() {
       </div>
 
       {query.isLoading ? (
-        <div
-          aria-label="Loading public rules"
-          aria-busy="true"
-          className="grid gap-4 md:grid-cols-2"
-        >
+        <div aria-label="Loading public rules" aria-busy="true" className="app-listing-grid">
           {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="app-skeleton h-52 animate-pulse" />
+            <div key={index} className="app-skeleton app-listing-skeleton animate-pulse" />
           ))}
         </div>
       ) : query.error ? (
@@ -127,7 +123,7 @@ export function Marketplace() {
         />
       ) : (
         <div className="space-y-5">
-          <div className="grid items-start gap-4 md:grid-cols-2">
+          <div className="app-listing-grid">
             {listings.map((listing) => (
               <ListingCard
                 key={`${listing.agent}-${listing.rule_id.toString()}`}

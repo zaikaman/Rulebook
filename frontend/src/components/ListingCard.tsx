@@ -20,47 +20,44 @@ export function ListingCard({ listing, action }: ListingCardProps) {
   const team = listing.author_badge === 'team';
 
   return (
-    <article aria-label={`${title} listing`} className="app-panel app-panel-pad grid gap-4">
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-xs text-ink-muted">#{listing.listing_id.toString()}</span>
-          {template ? <span className="app-tag">{template.name}</span> : null}
-          <span
-            aria-label={team ? 'Team badge' : 'Community badge'}
-            className="app-tag ml-auto"
-            data-tone={team ? 'positive' : undefined}
-          >
+    <article aria-label={`${title} listing`} className="app-panel app-listing">
+      <div className="app-panel-pad app-listing-body">
+        <header className="flex items-start gap-3">
+          <h2 className="app-panel-heading app-listing-title">{title}</h2>
+          <span aria-label={team ? 'Team badge' : 'Community badge'} className="app-tag">
             {team ? 'Team' : 'Community'}
           </span>
-        </div>
-
-        <h2 className="app-panel-heading break-words">{title}</h2>
+        </header>
 
         {listing.description ? <p className="app-copy">{listing.description}</p> : null}
 
-        <dl className="app-divider flex flex-wrap gap-x-6 gap-y-3 pt-3 text-xs text-ink-muted">
-          <div className="space-y-1">
+        <div className="app-listing-meta">
+          {template ? <span>{template.name}</span> : null}
+          <span className="font-mono text-ink-muted">#{listing.listing_id.toString()}</span>
+        </div>
+      </div>
+
+      <footer className="app-divider app-listing-footer">
+        <dl className="app-listing-stats text-xs text-ink-muted">
+          <div>
             <dt>Runs</dt>
             <dd className="app-number font-mono text-ink">{listing.runs} runs</dd>
           </div>
-          <div className="space-y-1">
+          <div>
             <dt>Success rate</dt>
             <dd className="app-number font-mono text-ink">
               {successRateLabel(listing.success_rate)}
             </dd>
           </div>
-          <div className="space-y-1">
+          <div>
             <dt>Author</dt>
             <dd className="font-mono text-ink" title={listing.author}>
               {shortAddress(listing.author)}
             </dd>
           </div>
         </dl>
-      </div>
-
-      {action ? (
-        <div className="app-divider flex flex-col items-start gap-2 pt-3">{action}</div>
-      ) : null}
+        {action}
+      </footer>
     </article>
   );
 }

@@ -6,5 +6,20 @@
       "maxFindings": 5,
       "maxChars": 8000
     }
+  },
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "frontend/src/styles/workspace.css"
+        ],
+        "createdAt": "2026-11-19T04:51:16.629Z",
+        "reason": "Agent: The existing Rules onboarding example uses the neutral panel border as an internal divider between adjacent regions. At narrow widths the same divider runs across the top."
+      }
+    ]
   }
 }

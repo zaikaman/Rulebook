@@ -1,3 +1,5 @@
+import { Copy01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import type { Listing } from '@rulebook/shared';
 import { useState } from 'react';
 import { Link } from 'react-router';
@@ -28,6 +30,7 @@ export function CloneButton({ listing }: CloneButtonProps) {
         onClick={() => setOpen(true)}
         className="app-button"
       >
+        <HugeiconsIcon icon={Copy01Icon} size={16} aria-hidden="true" />
         Clone into my vault
       </button>
     );
