@@ -36,6 +36,10 @@
   padding-block: clamp(2rem, 7dvh, 5rem) 0.5rem;
 }
 
+.account-setup__stage--compact {
+  padding-block-start: clamp(1.25rem, 4dvh, 3rem);
+}
+
 .account-setup__heading {
   display: flex;
   flex-wrap: wrap;
@@ -337,6 +341,88 @@
   color: var(--rb-ink-muted);
   font-size: 0.75rem;
   overflow-wrap: anywhere;
+}
+
+.account-setup__fees {
+  margin: 0;
+}
+
+.account-setup__fees > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.375rem 0.75rem;
+  padding-block: 0.75rem;
+}
+
+.account-setup__fees > li:first-child {
+  padding-block-start: 0;
+}
+
+.account-setup__fees > li:last-child {
+  padding-block-end: 0;
+}
+
+.account-setup__fees > li + li {
+  border-block-start: 1px solid var(--rb-border);
+}
+
+.account-setup__fees strong {
+  font-size: 0.9375rem;
+  font-weight: 650;
+}
+
+.account-setup__fees .account-setup__network-dot {
+  margin-block-start: 0.5rem;
+}
+
+.account-setup__fees [data-network='automation'] .account-setup__network-dot {
+  background: var(--rb-automation);
+}
+
+.account-setup__fees .account-setup__fee-debt {
+  grid-column: 2 / -1;
+  color: var(--rb-status-paused);
+}
+
+.account-setup__fees + [role='alert'] {
+  margin-block-start: 0.75rem;
+}
+
+.account-setup__funding-form {
+  border-block-start: 1px solid var(--rb-border);
+  background: var(--rb-surface);
+}
+
+.account-setup__funding-form .app-field {
+  flex-basis: min(100%, 16rem);
+}
+
+.account-setup__funding-form :is(code, p) {
+  overflow-wrap: anywhere;
+}
+
+.account-setup__funding-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  border-block-start: 1px solid var(--rb-border);
+}
+
+.account-setup__funding-footer > p,
+.account-setup__funding-footer > div {
+  flex-basis: 100%;
+}
+
+.account-setup__funding-footer .app-button--primary {
+  margin-inline-start: auto;
+}
+
+@container (width < 25rem) {
+  .account-setup__funding-footer .app-button {
+    inline-size: 100%;
+  }
 }
 
 .account-setup__stack {

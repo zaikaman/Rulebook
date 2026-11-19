@@ -1,11 +1,12 @@
 import {
+  feeCreditWarningThreshold,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
   type ruleBudgetSchema,
   type sponsorStatusSchema,
 } from '@rulebook/shared';
-import { isAddress, parseEther } from 'viem';
+import { isAddress } from 'viem';
 import type { z } from 'zod';
 
 import type { CreditReading } from '../chain/sponsorSource.js';
@@ -17,10 +18,6 @@ interface AccountCredit {
 }
 
 type SponsorState = 'healthy' | 'low' | 'exhausted' | 'debt';
-
-function warningThreshold(chainId: number) {
-  return parseEther(chainId === LASNA_CHAIN_ID ? '0.05' : '0.0001');
-}
 
 const SEVERITY: Record<SponsorState, number> = {
   healthy: 0,
@@ -76,7 +73,9 @@ export async function loadAccountCredit(
   const agent = agentParam.toLowerCase() as Address;
   const vault = await resolveVault(deps, agent);
   const readings = await deps.sponsorSource.read({ agent, vault });
-  const states = readings.map((reading) => chainState(reading, warningThreshold(reading.chain_id)));
+  const states = readings.map((reading) =>
+    chainState(reading, feeCreditWarningThreshold(reading.chain_id)),
+  );
   const state = worstState(states);
   const destination =
     readings.find((reading) => reading.chain_id === UNICHAIN_SEPOLIA_CHAIN_ID) ??
@@ -93,7 +92,9 @@ export async function loadAccountCredit(
     budget: {
       state,
       remaining: destination?.reserves ?? '0',
-      threshold: warningThreshold(destination?.chain_id ?? UNICHAIN_SEPOLIA_CHAIN_ID).toString(),
+      threshold: feeCreditWarningThreshold(
+        destination?.chain_id ?? UNICHAIN_SEPOLIA_CHAIN_ID,
+      ).toString(),
       low: state === 'low',
       exhausted: state === 'exhausted' || state === 'debt',
     },

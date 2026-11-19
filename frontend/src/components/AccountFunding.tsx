@@ -5,15 +5,24 @@ import {
   vaultAbi,
   type Address,
 } from '@rulebook/shared';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router';
-import { erc20Abi, formatEther, formatUnits, parseUnits, zeroAddress, type Hex } from 'viem';
+import {
+  erc20Abi,
+  formatEther,
+  formatUnits,
+  isHash,
+  parseUnits,
+  zeroAddress,
+  type Hex,
+} from 'viem';
 import { useAccount, useBalance, useReadContract, useWriteContract } from 'wagmi';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { DEMO_USDC, LASNA_CONFIG, UNICHAIN_CONFIG } from '../lib/contracts.js';
 import { costModel } from '../lib/costModel.js';
+import { ruleFees, type RuleFee } from '../lib/funding.js';
 import { appRoutes } from '../lib/routes.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
@@ -59,46 +68,71 @@ export function useExecutionCredit(agent: Address, vault: Address) {
   return { watching, execution };
 }
 
-type FundingChoice = 'watching' | 'execution' | 'vault';
+type FundingChoice = RuleFee | 'vault';
+type FundingTransaction = {
+  hash: Hex;
+  chainId: number;
+  kind: 'approval' | 'deposit';
+};
+
+function readPendingFunding(key: string, chainId: number): FundingTransaction | undefined {
+  try {
+    const saved = JSON.parse(window.localStorage.getItem(key) ?? 'null');
+    if (
+      typeof saved?.hash === 'string' &&
+      isHash(saved.hash) &&
+      (saved.kind === 'approval' || saved.kind === 'deposit')
+    ) {
+      return { hash: saved.hash, chainId, kind: saved.kind };
+    }
+  } catch {
+    // Funding still works in the current view when storage is unavailable.
+  }
+}
 
 function fundingEstimate(choice: FundingChoice, amount: bigint) {
-  if (choice === 'vault' || amount === 0n) return null;
+  if (choice === 'vault' || amount <= 0n) return null;
   const { monitoringReactPerYear, ethPerSwap } = costModel.dailyDca;
-  const days =
-    choice === 'watching'
-      ? (amount * 365n) / parseUnits(monitoringReactPerYear, 18)
-      : amount / parseUnits(ethPerSwap, 18);
+  if (choice === 'execution') {
+    const swaps = amount / parseUnits(ethPerSwap, 18);
+    return swaps === 0n
+      ? 'Below the measured fee for one testnet swap.'
+      : `Estimated to cover ${swaps.toLocaleString()} ${swaps === 1n ? 'swap' : 'swaps'}.`;
+  }
+  const days = (amount * 365n) / parseUnits(monitoringReactPerYear, 18);
   const duration =
     days === 0n
       ? 'Less than one day'
       : `About ${days.toLocaleString()} ${days === 1n ? 'day' : 'days'}`;
-  const activity = choice === 'watching' ? 'of monitoring' : 'of swap fees';
-  return `${duration} ${activity} for one daily buy, based on measured testnet fees.`;
+  return `${duration} of monitoring for one daily buy.`;
 }
 
 export function AccountFunding({
   agent,
   vault,
   onConfirmed,
-  suggested,
+  guided,
+  onBusyChange,
 }: {
   agent: Address;
   vault: Address;
-  onConfirmed?: () => void;
-  suggested?: FundingChoice;
+  onConfirmed?: () => void | Promise<void>;
+  guided?: { choice: FundingChoice; suggestedAmount?: string; debt?: bigint };
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const section = useRef<HTMLElement>(null);
   const { hash } = useLocation();
   useEffect(() => {
-    if (hash === '#fund-account') section.current?.scrollIntoView();
-  }, [hash]);
-  const [chosen, setChoice] = useState<FundingChoice>();
-  const choice = chosen ?? suggested ?? 'watching';
+    if (!guided && hash === '#fund-account') section.current?.scrollIntoView();
+  }, [guided, hash]);
+  const [chosen, setChoice] = useState<FundingChoice>('watching');
+  const queryClient = useQueryClient();
+  const choice = guided?.choice ?? chosen;
   const options = {
     watching: {
       label: 'Rule monitoring fees',
       chainId: LASNA_CHAIN_ID,
-      target: LASNA_CONFIG.systemContract,
+      target: ruleFees.watching.target,
       beneficiary: agent,
       symbol: 'REACT',
       decimals: 18,
@@ -107,7 +141,7 @@ export function AccountFunding({
     execution: {
       label: 'Rule execution fees',
       chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-      target: UNICHAIN_CONFIG.callbackProxy,
+      target: ruleFees.execution.target,
       beneficiary: vault,
       symbol: 'ETH',
       decimals: 18,
@@ -128,37 +162,81 @@ export function AccountFunding({
   const { address } = useAccount();
   const { writeContractAsync } = useWriteContract();
   const requestSignature = useChainGuard();
-  const [amount, setAmount] = useState('');
-  const balance = useBalance({ address, chainId: selected.chainId, query: { enabled: !!address } });
+  const [enteredAmount, setAmount] = useState<string>();
+  const [localSubmission, setLocalSubmission] = useState<{ key: string; tx: FundingTransaction }>();
+  const pendingKey = address
+    ? `rulebook:pending-funding:v1:${selected.chainId}:${address.toLowerCase()}:${choice}:${selected.beneficiary.toLowerCase()}`
+    : undefined;
+  const submitted = pendingKey
+    ? localSubmission?.key === pendingKey
+      ? localSubmission.tx
+      : readPendingFunding(pendingKey, selected.chainId)
+    : undefined;
+  function rememberSubmission(key: string, tx?: FundingTransaction) {
+    setLocalSubmission(tx ? { key, tx } : undefined);
+    try {
+      if (tx) window.localStorage.setItem(key, JSON.stringify(tx));
+      else window.localStorage.removeItem(key);
+    } catch {
+      // Keep receipt rechecking available in memory when storage is blocked.
+    }
+  }
+  const amount = enteredAmount ?? guided?.suggestedAmount ?? '';
+  const balance = useBalance({
+    address,
+    chainId: selected.chainId,
+    query: { enabled: !!address, refetchOnWindowFocus: 'always' },
+  });
   const token = useReadContract({
     address: DEMO_USDC,
     abi: erc20Abi,
     functionName: 'balanceOf',
     args: [address ?? zeroAddress],
     chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-    query: { enabled: !!address && isVault },
+    query: { enabled: !!address && isVault, refetchOnWindowFocus: 'always' },
   });
   const parsed =
     /^\d{1,15}(?:\.\d+)?$/.test(amount) && (amount.split('.')[1]?.length ?? 0) <= selected.decimals
       ? parseUnits(amount, selected.decimals)
       : 0n;
   const sufficient =
+    !balance.isError &&
+    (!isVault || !token.isError) &&
     balance.data !== undefined &&
     balance.data.value > 0n &&
     (isVault ? token.data !== undefined && parsed <= token.data : parsed < balance.data.value);
-  const estimate = fundingEstimate(choice, parsed);
+  const estimate = fundingEstimate(choice, parsed - (guided?.debt ?? 0n));
 
   const deposit = useMutation({
-    mutationFn: async () => {
-      if (!address || parsed <= 0n || !sufficient)
+    mutationFn: async (retry?: FundingTransaction): Promise<FundingTransaction> => {
+      if (!address || !pendingKey) throw new Error('Connect the wallet that started this deposit.');
+      const key = pendingKey;
+      const confirm = async (transaction: FundingTransaction) => {
+        rememberSubmission(key, transaction);
+        let replaced = false;
+        const receipt = await selected.client.waitForTransactionReceipt({
+          hash: transaction.hash,
+          onReplaced: ({ reason }) => {
+            replaced = reason !== 'repriced';
+          },
+        });
+        rememberSubmission(key);
+        if (replaced || receipt.status !== 'success') {
+          throw new Error('The transaction was cancelled, replaced, or reverted.');
+        }
+        return { ...transaction, hash: receipt.transactionHash };
+      };
+      if (retry) return confirm(retry);
+      const broadcast = readPendingFunding(key, selected.chainId);
+      if (broadcast) {
+        setLocalSubmission({ key, tx: broadcast });
+        throw new Error('Check the submitted transaction before adding funds again.');
+      }
+      if (parsed <= 0n || !sufficient)
         throw new Error(
           'Enter an amount your wallet can cover. Leave enough for the transaction fee.',
         );
       const display = `${formatUnits(parsed, selected.decimals)} test ${selected.symbol}`;
-      const confirm = async (hash: Hex) => {
-        const receipt = await selected.client.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success') throw new Error('The transaction did not complete.');
-      };
       let hash: Hex;
       if (isVault) {
         const allowance = await unichainPublicClient.readContract({
@@ -177,8 +255,9 @@ export function AccountFunding({
               amount: display,
             },
             address,
-            () =>
+            (connector) =>
               writeContractAsync({
+                connector,
                 account: address,
                 address: DEMO_USDC,
                 chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -187,7 +266,7 @@ export function AccountFunding({
                 args: [vault, parsed],
               }),
           );
-          await confirm(approval);
+          await confirm({ chainId: selected.chainId, hash: approval, kind: 'approval' });
         }
         hash = await requestSignature(
           {
@@ -198,8 +277,9 @@ export function AccountFunding({
             amount: display,
           },
           address,
-          () =>
+          (connector) =>
             writeContractAsync({
+              connector,
               account: address,
               address: vault,
               chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -219,8 +299,9 @@ export function AccountFunding({
             amountLabel: 'Fee top-up',
           },
           address,
-          () =>
+          (connector) =>
             writeContractAsync({
+              connector,
               account: address,
               address: selected.target,
               chainId: selected.chainId,
@@ -232,80 +313,132 @@ export function AccountFunding({
             }),
         );
       }
-      await confirm(hash);
-      return { hash, chainId: selected.chainId };
+      return confirm({ hash, chainId: selected.chainId, kind: 'deposit' });
     },
-    onSuccess: () => {
-      setAmount('');
-      if (suggested) setChoice(undefined);
-      void balance.refetch();
-      if (isVault) void token.refetch();
-      onConfirmed?.();
+    onSuccess: async ({ kind }) => {
+      if (kind === 'approval') return;
+      await Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()]);
+      setAmount(guided ? undefined : '');
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey: [type, account] }) =>
+          (type === 'sponsor' || type === 'rule') &&
+          typeof account === 'string' &&
+          account.toLowerCase() === agent.toLowerCase(),
+      });
     },
   });
+  const locked = deposit.isPending || !!submitted;
+  useEffect(() => {
+    onBusyChange?.(deposit.isPending);
+  }, [deposit.isPending, onBusyChange]);
+
+  const fundingToken = isVault ? testnetTokens.usdc : ruleFees[choice].token;
+  const heading = guided ? (isVault ? 'Vault USDC' : ruleFees[choice].title) : 'Fund your account';
+  const balanceError = balance.isError || (isVault && token.isError);
+  const submit = (
+    <button
+      type="submit"
+      className="app-button app-button--primary"
+      disabled={!address || !sufficient || parsed <= 0n || locked}
+    >
+      {deposit.isPending
+        ? 'Waiting for confirmation…'
+        : isVault
+          ? 'Deposit USDC'
+          : guided
+            ? `Add ${selected.symbol}`
+            : 'Add network fees'}
+    </button>
+  );
 
   return (
     <section
       ref={section}
-      className="app-panel app-panel-pad space-y-4"
-      id="fund-account"
-      aria-label="Fund your account"
+      className={guided ? 'account-setup__section space-y-3' : 'app-panel app-panel-pad space-y-4'}
+      id={guided ? undefined : 'fund-account'}
+      aria-label={heading}
     >
       <header className="space-y-1">
-        <h2 className="app-panel-heading">Fund your account</h2>
-        <p className="app-copy">
-          Add REACT to monitor your rules and ETH to carry out trades and transfers. Add USDC to
-          your vault if your rule spends it.
-        </p>
+        <h2 className="app-panel-heading" tabIndex={guided ? -1 : undefined}>
+          {heading}
+        </h2>
+        {guided ? (
+          <p>
+            {fundingToken.network.name} ·{' '}
+            {isVault ? 'Deposit USDC if your first rule spends it.' : ruleFees[choice].description}
+          </p>
+        ) : (
+          <p className="app-copy">
+            Add REACT to monitor your rules and ETH to carry out trades and transfers. Add USDC to
+            your vault if your rule spends it.
+          </p>
+        )}
       </header>
       <form
         className="space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
-          if (parsed > 0n && sufficient && !deposit.isPending) deposit.mutate();
+          if (parsed > 0n && sufficient && !locked) deposit.mutate(undefined);
         }}
       >
-        <div className="flex flex-wrap gap-3">
-          <label className="app-field">
-            Fund with
-            <select
-              className="app-input"
-              value={choice}
-              disabled={deposit.isPending}
-              onChange={(event) => {
-                setChoice(event.target.value as keyof typeof options);
-                setAmount('');
-                deposit.reset();
-              }}
-            >
-              <option value="watching">REACT · Reactive Lasna monitoring</option>
-              <option value="execution">ETH · Unichain Sepolia execution</option>
-              <option value="vault">USDC · Unichain Sepolia vault</option>
-            </select>
-          </label>
+        <div className="flex flex-wrap items-end gap-3">
+          {!guided && (
+            <label className="app-field">
+              Fund with
+              <select
+                className="app-input"
+                value={choice}
+                disabled={locked}
+                onChange={(event) => {
+                  setChoice(event.target.value as keyof typeof options);
+                  setAmount('');
+                  deposit.reset();
+                }}
+              >
+                <option value="watching">REACT · Reactive Lasna monitoring</option>
+                <option value="execution">ETH · Unichain Sepolia execution</option>
+                <option value="vault">USDC · Unichain Sepolia vault</option>
+              </select>
+            </label>
+          )}
           <label className="app-field">
             Amount ({selected.symbol})
             <input
               className="app-input"
               inputMode="decimal"
+              autoComplete="off"
               value={amount}
-              disabled={deposit.isPending}
-              onChange={(event) => {
-                setChoice(choice);
-                setAmount(event.target.value);
-              }}
+              disabled={locked}
+              onChange={(event) => setAmount(event.target.value)}
             />
           </label>
+          {guided && submit}
         </div>
-        {balance.data && (
+        {balanceError ? (
+          <ErrorState
+            message="Your wallet balance could not be checked."
+            onRetry={() => void Promise.all([balance.refetch(), isVault && token.refetch()])}
+          />
+        ) : balance.data && (!isVault || token.data !== undefined) ? (
           <p className="app-copy">
             In your wallet: {formatEther(balance.data.value)} {isVault ? 'ETH' : selected.symbol}
             {isVault && token.data !== undefined ? ` and ${formatUnits(token.data, 6)} USDC` : ''}.
             Keep some native tokens for wallet fees.
           </p>
+        ) : (
+          <p role="status" className="app-copy">
+            Checking wallet balance…
+          </p>
         )}
-        {amount && parsed > 0n && balance.data && !sufficient && (
-          <p className="app-copy">Your wallet needs more test tokens for this amount.</p>
+        {amount && parsed <= 0n && (
+          <p className="app-copy">
+            Enter an amount above zero with up to {selected.decimals} decimal places.
+          </p>
+        )}
+        {amount && parsed > 0n && balance.data && !balanceError && !sufficient && (
+          <p className="app-copy">
+            Enter a smaller amount or get more test tokens. Leave enough for the wallet fee.
+          </p>
         )}
         {estimate && sufficient && (
           <p className="app-copy">
@@ -315,31 +448,61 @@ export function AccountFunding({
             </Link>
           </p>
         )}
-        <button
-          type="submit"
-          className="app-button app-button--primary"
-          disabled={!address || !sufficient || parsed <= 0n || deposit.isPending}
-        >
-          {deposit.isPending
-            ? 'Waiting for confirmation…'
-            : isVault
-              ? 'Deposit USDC'
-              : 'Add network fees'}
-        </button>
+        {!guided && submit}
       </form>
-      {deposit.error && (
+      {deposit.error && !submitted && (
         <ErrorState message="The deposit could not be completed." detail={deposit.error.message} />
+      )}
+      {submitted && (
+        <div className="space-y-2">
+          <p role="status" className="app-copy">
+            {deposit.isPending
+              ? 'Transaction submitted.'
+              : 'Check the submitted transaction before adding funds again.'}{' '}
+            <TxLink chainId={submitted.chainId} txHash={submitted.hash} label="View transaction" />
+          </p>
+          {!deposit.isPending && (
+            <button type="button" className="app-button" onClick={() => deposit.mutate(submitted)}>
+              Check transaction
+            </button>
+          )}
+        </div>
       )}
       {deposit.data && (
         <p role="status" className="app-copy">
-          Deposit confirmed.{' '}
-          <TxLink chainId={deposit.data.chainId} txHash={deposit.data.hash} label="View deposit" />
+          {deposit.data.kind === 'approval'
+            ? 'Approval confirmed. Select Deposit USDC to finish.'
+            : 'Deposit confirmed.'}{' '}
+          <TxLink
+            chainId={deposit.data.chainId}
+            txHash={deposit.data.hash}
+            label="View transaction"
+          />
         </p>
       )}
-      <details className="space-y-3">
-        <summary className="app-link cursor-pointer text-sm">Need more test tokens?</summary>
-        <TestnetFaucets />
-      </details>
+      {guided ? (
+        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <a className="app-link" href={fundingToken.faucet} target="_blank" rel="noreferrer">
+            {fundingToken.linkLabel}
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+          <button
+            type="button"
+            className="app-link"
+            disabled={locked}
+            onClick={() =>
+              void Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()])
+            }
+          >
+            Check balances
+          </button>
+        </p>
+      ) : (
+        <details className="space-y-3">
+          <summary className="app-link cursor-pointer text-sm">Need more test tokens?</summary>
+          <TestnetFaucets />
+        </details>
+      )}
     </section>
   );
 }

@@ -12,7 +12,7 @@ import { Link, useParams } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
-import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
+import { BudgetAtRiskBanner } from '../components/BudgetAtRiskBanner.js';
 import { BudgetMeter } from '../components/BudgetMeter.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
@@ -84,7 +84,14 @@ export function RuleDetail() {
     abi: agentAbi,
     functionName: 'owner',
     chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(address && agent && detailQuery.data?.mirror) },
+    query: {
+      enabled: Boolean(
+        address &&
+        agent &&
+        (detailQuery.data?.mirror ||
+          detailQuery.data?.sponsor?.chains.some(({ state }) => state !== 'healthy')),
+      ),
+    },
   });
 
   const control = useRuleControl((agent as Address | undefined) ?? null);
@@ -134,6 +141,7 @@ export function RuleDetail() {
     rules.map((candidate) => [candidate.rule_id.toString(), ruleSentence(candidate)]),
   );
   const currentRuleId = rule.rule_id;
+  const isOwner = !!address && ownerQuery.data?.toLowerCase() === address.toLowerCase();
 
   return (
     <section className="app-page">
@@ -213,7 +221,7 @@ export function RuleDetail() {
         </dl>
       </section>
 
-      <BudgetAtRiskBanner state={worstSponsorState(sponsor)} />
+      <BudgetAtRiskBanner sponsor={sponsor} canFund={isOwner} />
       <div className="app-detail-layout">
         <div className="app-page">
           <section aria-label="Execution history" className="app-panel">
@@ -254,7 +262,7 @@ export function RuleDetail() {
           <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">
             <h2 className="app-panel-heading">Control</h2>
             {mirror && !mirror.detached_at ? (
-              address && ownerQuery.data?.toLowerCase() === address.toLowerCase() ? (
+              isOwner ? (
                 <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
               ) : (
                 <p className="app-copy">Connect the owner wallet to detach this mirror.</p>

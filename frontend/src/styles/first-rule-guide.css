@@ -1,0 +1,78 @@
+.driver-popover.first-rule-guide {
+  box-sizing: border-box;
+  min-width: min(17rem, calc(100vw - 2rem));
+  max-width: min(21rem, calc(100vw - 2rem));
+  border: 1px solid var(--rb-control-border);
+  border-radius: 0.875rem;
+  padding: 1rem;
+  background: var(--rb-surface-raised);
+  color: var(--rb-ink);
+  color-scheme: dark;
+  box-shadow: none;
+  font-family: var(--font-geist), sans-serif;
+}
+
+.first-rule-guide .driver-popover-title {
+  padding-inline-end: 1.75rem;
+  font-family: var(--font-manrope), sans-serif;
+  font-size: 1.0625rem;
+  line-height: 1.35;
+}
+
+.first-rule-guide .driver-popover-description,
+.first-rule-guide .driver-popover-progress-text {
+  color: var(--rb-ink-muted);
+}
+
+.first-rule-guide .driver-popover-footer {
+  gap: 0.5rem;
+}
+
+.first-rule-guide .driver-popover-footer-btn {
+  min-block-size: 2.375rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.5rem;
+  padding-inline: 0.625rem;
+  background: var(--rb-control);
+  color: var(--rb-ink);
+  font-weight: 600;
+}
+
+.first-rule-guide .driver-popover-next-btn {
+  border-color: var(--rb-accent);
+  background: var(--rb-accent);
+  color: var(--rb-accent-ink);
+}
+
+.first-rule-guide .driver-popover-close-btn {
+  inset: 0.375rem 0.375rem auto auto;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  border-radius: 0.5rem;
+  color: var(--rb-ink-muted);
+}
+
+.first-rule-guide .driver-popover-close-btn:hover {
+  color: var(--rb-ink);
+}
+
+.first-rule-guide button:focus-visible {
+  outline: 2px solid var(--rb-accent);
+  outline-offset: 2px;
+}
+
+.first-rule-guide .driver-popover-arrow-side-left {
+  border-left-color: var(--rb-control-border);
+}
+
+.first-rule-guide .driver-popover-arrow-side-right {
+  border-right-color: var(--rb-control-border);
+}
+
+.first-rule-guide .driver-popover-arrow-side-top {
+  border-top-color: var(--rb-control-border);
+}
+
+.first-rule-guide .driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--rb-control-border);
+}

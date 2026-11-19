@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
-import { BudgetAtRiskBanner, worstSponsorState } from '../components/BudgetAtRiskBanner.js';
+import { BudgetAtRiskBanner } from '../components/BudgetAtRiskBanner.js';
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
@@ -206,7 +206,7 @@ export function Home() {
         }
       />
 
-      <BudgetAtRiskBanner state={worstSponsorState(sponsorQuery.data)} />
+      {rules.length > 0 && <BudgetAtRiskBanner sponsor={sponsorQuery.data} />}
 
       {rules.length === 0 ? (
         <div className="app-panel app-rule-start">
@@ -238,6 +238,8 @@ export function Home() {
           ))}
         </ol>
       )}
+
+      {rules.length === 0 && <BudgetAtRiskBanner sponsor={sponsorQuery.data} beforeFirstRule />}
 
       {alerts.length > 0 ? (
         <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">

@@ -16,6 +16,7 @@ import { createPublicClient, createWalletClient, http, parseAbi, type Abi, type 
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { createChainClients } from '../../backend/src/chain/clients.js';
+import { PublicSponsorSource } from '../../backend/src/chain/sponsorSource.js';
 import type { AppConfig } from '../../backend/src/config.js';
 import { createRepositories } from '../../backend/src/db/repositories/index.js';
 import { InMemoryStore } from '../../backend/src/db/store.js';
@@ -211,6 +212,7 @@ async function main(): Promise<void> {
         { chain_id: UNICHAIN_SEPOLIA_CHAIN_ID, rpc_ok: true },
       ],
       accountChain: new PublicAccountChain(clients),
+      sponsorSource: new PublicSponsorSource(clients),
     },
     { logger: false },
   );

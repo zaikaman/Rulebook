@@ -220,3 +220,8 @@ export async function approveSignature(
   await review.getByRole('button', { name: 'Continue to wallet' }).click();
   await prompt.waitForElementState('hidden', { timeout: 60_000 });
 }
+
+export async function skipRuleFunding(page: Page) {
+  await page.getByRole('button', { name: 'Compose and fund later' }).click();
+  await page.getByRole('button', { name: 'Skip guide' }).click();
+}

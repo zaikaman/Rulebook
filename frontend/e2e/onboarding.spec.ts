@@ -21,7 +21,7 @@ test('guides a new wallet through setup and self-funding from the composer', asy
   });
   await page.goto('/create');
   await expect(page.getByRole('heading', { level: 1, name: 'Connect your wallet' })).toBeVisible();
-  await expect(page.getByText('Step 1 of 4')).toBeVisible();
+  await expect(page.getByText('Step 1 of 5')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Get Lasna REACT' })).toHaveCount(0);
 
@@ -35,7 +35,7 @@ test('guides a new wallet through setup and self-funding from the composer', asy
     await page.getByRole('button', { name: 'Connect wallet to start' }).click();
     await expect(page.getByRole('heading', { name: 'Get test tokens', exact: true })).toBeFocused();
     await expect(page.getByRole('region', { name: 'Set up test networks' })).toBeHidden();
-    await expect(page.getByText('Step 3 of 4')).toBeVisible();
+    await expect(page.getByText('Step 3 of 5')).toBeVisible();
     expect(await walletRequests(page)).toEqual([]);
     await expect(page.getByRole('link', { name: 'Get Lasna REACT' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Get Unichain Sepolia ETH' })).toBeVisible();
@@ -130,38 +130,68 @@ test('guides a new wallet through setup and self-funding from the composer', asy
     'Link your automation account and vault',
   );
   await resumeLink.click();
-  await expect(page.getByRole('heading', { name: 'Compose a rule' })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeFocused();
   expect(vaultReadAtDeployment).toBe(true);
   expect(vaultAgentReadAtDeployment).toBe(true);
   await page.unroute(ANVIL_RPC_URL);
-  await expect(page.getByRole('heading', { name: 'Before your first rule runs' })).toBeVisible({
-    timeout: 60_000,
-  });
-  await page.getByRole('button', { name: 'Add funds', exact: true }).click();
-  const funding = page.getByRole('region', { name: 'Fund your account' });
-  await expect(funding.getByLabel('Fund with')).toHaveValue('watching');
-  await funding.getByLabel('Amount (REACT)').fill('0.1');
-  await expect(funding.getByText(/Less than one day of monitoring/)).toBeVisible();
-  await funding.getByRole('button', { name: 'Add network fees' }).click();
+  await expect(page.getByText('Step 5 of 5')).toBeVisible();
+
+  const monitoring = page.getByRole('region', { name: 'Monitoring fees' });
+  await expect(monitoring.getByLabel('Amount (REACT)')).toHaveValue('0.121');
+  await expect(page.getByLabel('Amount (ETH)')).toHaveCount(0);
+  await monitoring.getByRole('button', { name: 'Add REACT' }).click();
   await approveSignature(page, 'Reactive Lasna');
-  await expect(funding.getByText('Deposit confirmed.')).toBeVisible();
 
-  await expect(funding.getByLabel('Fund with')).toHaveValue('execution');
-  await funding.getByLabel('Amount (ETH)').fill('0.01');
-  await funding.getByRole('button', { name: 'Add network fees' }).click();
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
-  await expect(funding.getByText('Deposit confirmed.')).toBeVisible();
+  const execution = page.getByRole('region', { name: 'Execution fees' });
+  await expect(execution.getByRole('heading')).toBeFocused();
+  await page.reload();
+  await expect(page.getByText('0.121 REACT', { exact: true })).toBeVisible();
+  await expect(execution.getByLabel('Amount (ETH)')).toHaveValue('0.0001');
+  await execution.getByRole('button', { name: 'Add ETH' }).click();
+  await approveSignature(page, 'Unichain Sepolia');
+  await expect(page.getByRole('heading', { name: 'Your rule fees are funded' })).toBeVisible();
 
-  await expect(funding.getByLabel('Fund with')).toHaveValue('vault');
-  await funding.getByLabel('Amount (USDC)').fill('10');
-  await funding.getByRole('button', { name: 'Deposit USDC' }).click();
+  const compose = page.getByRole('button', { name: 'Compose your first rule' });
+  await expect(compose).toBeEnabled();
+  await expect(page.getByLabel('Amount (USDC)')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Add optional USDC' }).click();
+  const usdc = page.getByRole('region', { name: 'Vault USDC' });
+  await usdc.getByLabel('Amount (USDC)').fill('10');
+  await usdc.getByRole('button', { name: 'Deposit USDC' }).click();
+  await expect(compose).toBeDisabled();
   await approveSignature(page, 'Unichain Sepolia');
   await approveSignature(page, 'Unichain Sepolia');
-  await expect(funding.getByText('Deposit confirmed.')).toBeVisible();
+  await expect(usdc.getByText('Deposit confirmed.')).toBeVisible();
 
-  await page.getByRole('link', { name: 'Account & Vault' }).click();
-  await expect(page.getByText('0.1 REACT', { exact: true })).toBeVisible();
-  await expect(page.getByText('0.01 ETH', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 375, height: 760 });
+  await compose.click();
+  const guide = page.getByRole('dialog', {
+    name: /Choose a rule type|Fill in the sentence|Review and sign/,
+  });
+  await expect(guide).toHaveAccessibleName('Choose a rule type');
+  await expect(guide).toBeInViewport({ ratio: 1 });
+  await page.keyboard.press('Escape');
+  await expect(guide).toBeHidden();
+  const replay = page.getByRole('button', { name: 'Rule composer guide' });
+  await expect(replay).toBeFocused();
+  await replay.click();
+  await guide.getByRole('button', { name: 'Next' }).click();
+  await expect(guide).toHaveAccessibleName('Fill in the sentence');
+  await expect(guide).toBeInViewport({ ratio: 1 });
+  await page.getByLabel('pay with').selectOption({ label: 'USDC' });
+  await page.getByLabel('buy').selectOption({ label: 'WETH' });
+  await page.getByLabel('amount', { exact: true }).selectOption({ label: '10' });
+  await page.getByLabel('schedule').selectOption({ label: 'every day' });
+  await guide.getByRole('button', { name: 'Next' }).click();
+  await expect(guide).toHaveAccessibleName('Review and sign');
+  await page.getByRole('button', { name: 'Review and create rule' }).click();
+  await expect(guide).toBeHidden();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible();
+
+  await page.goto('/account');
+  await expect(page.getByText('0.121 REACT', { exact: true })).toBeVisible();
+  await expect(page.getByText('0.0001 ETH', { exact: true })).toBeVisible();
   await expect(page.getByText('10 USDC', { exact: true })).toBeVisible();
 
   await page.getByLabel('Withdrawal amount').fill('10');

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { approveSignature, installWallet } from './wallet.js';
+import { approveSignature, installWallet, skipRuleFunding } from './wallet.js';
 
 // A third anvil account, so the control story never shares state with onboarding or compose.
 const CONTROLLER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906' as const;
@@ -30,6 +30,8 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
+  await skipRuleFunding(page);
+  await page.goto('/account');
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })
     .locator('a[href*="/address/"]')
@@ -56,7 +58,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     )
     .toBe(2);
   await page.goto('/rules');
-  const rows = page.getByRole('listitem');
+  const rows = page.getByRole('list', { name: 'Rules in evaluation order' }).getByRole('listitem');
   await expect(rows).toHaveCount(2, { timeout: 30_000 });
 
   // Pause the first rule and confirm the pill, not a pending toast, changed.

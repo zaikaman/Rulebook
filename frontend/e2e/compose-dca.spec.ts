@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { encodeAddRule } from '@rulebook/shared';
+import { toFunctionSelector } from 'viem';
 
 import { TEMPLATE_FIXTURES } from '../../contracts/test/templates/fixtures.generated.js';
-import { approveSignature, installWallet } from './wallet.js';
+import { ANVIL_RPC_URL } from './fixtureConfig.js';
+import { approveSignature, installWallet, skipRuleFunding, walletRequests } from './wallet.js';
 
 const AGENT_PLACEHOLDER = '0x1111111111111111111111111111111111111111' as const;
 // A different anvil account than the onboarding spec uses, so each story owns its own account
@@ -30,7 +32,64 @@ test('composes a USDC→WETH DCA sentence, matches the fixture, and signs once',
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeVisible();
+  await skipRuleFunding(page);
+
+  await page.goto('/rules');
+  await expect(page.getByRole('heading', { name: 'No rules yet' })).toBeVisible();
+  await page.getByRole('link', { name: 'Add test ETH to run trades and transfers' }).click();
+  await expect(page.getByRole('heading', { name: 'Add execution fees' })).toBeFocused();
+  await expect(page.getByLabel('Amount (ETH)')).toBeVisible();
+  await expect(page.getByLabel('Amount (REACT)')).toHaveCount(0);
+  await expect(page.getByLabel('Fund with')).toHaveCount(0);
+  const depositTo = toFunctionSelector('depositTo(address)');
+  let fundingHash: string | undefined;
+  await page.route(ANVIL_RPC_URL, async (route) => {
+    const rpc = route.request().postDataJSON();
+    if (rpc?.method === 'eth_sendTransaction' && rpc.params[0]?.data?.startsWith(depositTo)) {
+      const response = await route.fetch();
+      fundingHash = (await response.json()).result;
+      await route.fulfill({ response });
+      return;
+    }
+    if (
+      fundingHash &&
+      rpc?.method === 'eth_getTransactionReceipt' &&
+      rpc.params[0] === fundingHash
+    ) {
+      await route.fulfill({
+        headers: { 'access-control-allow-origin': '*' },
+        json: {
+          jsonrpc: '2.0',
+          id: rpc.id,
+          error: { code: -32602, message: 'Receipt lookup unavailable in this test' },
+        },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.getByRole('button', { name: 'Add ETH' }).click();
+  await approveSignature(page, 'Unichain Sepolia');
+  const checkTransaction = page.getByRole('button', { name: 'Check transaction' });
+  await expect(checkTransaction).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('button', { name: 'Add ETH' })).toBeDisabled();
+  expect(
+    (await walletRequests(page)).filter(({ method }) => method === 'eth_sendTransaction'),
+  ).toHaveLength(1);
+  await page.reload();
+  await expect(checkTransaction).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Add ETH' })).toBeDisabled();
+  await page.unroute(ANVIL_RPC_URL);
+  await checkTransaction.click();
+  await expect(page.getByText('Deposit confirmed.')).toBeVisible();
+  expect(
+    (await walletRequests(page)).filter(({ method }) => method === 'eth_sendTransaction'),
+  ).toHaveLength(0);
+  await page.getByRole('link', { name: 'Back to rules' }).click();
+  await expect(page.getByRole('link', { name: 'Add test REACT to monitor rules' })).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: 'Add test ETH to run trades and transfers' }),
+  ).toHaveCount(0);
 
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'Compose a rule' })).toBeVisible();

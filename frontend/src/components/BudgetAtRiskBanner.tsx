@@ -1,47 +1,73 @@
-import type { SponsorStatus } from '@rulebook/shared';
+import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, type SponsorStatus } from '@rulebook/shared';
 import { Link } from 'react-router';
-import { appRoutes } from '../lib/routes.js';
 
-export type AtRiskState = 'healthy' | 'low' | 'exhausted' | 'debt';
+import { ruleFeeFundingRoute, ruleFees, type RuleFee } from '../lib/funding.js';
 
-const HEADLINE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
-  low: 'Low balance for network fees',
-  exhausted: 'Your rules can’t run right now',
-  debt: 'Unpaid network fees',
+const feeByChain: Readonly<Partial<Record<number, RuleFee>>> = {
+  [LASNA_CHAIN_ID]: 'watching',
+  [UNICHAIN_SEPOLIA_CHAIN_ID]: 'execution',
 };
 
-const CONSEQUENCE: Record<Exclude<AtRiskState, 'healthy'>, string> = {
-  low: 'Your rules can keep running until this balance runs out.',
-  exhausted: 'Add network fees to keep your rules running.',
-  debt: 'Your rules can run again once the outstanding fees are paid.',
-};
+export function BudgetAtRiskBanner({
+  sponsor,
+  beforeFirstRule = false,
+  canFund = true,
+}: {
+  sponsor?: SponsorStatus;
+  beforeFirstRule?: boolean;
+  canFund?: boolean;
+}) {
+  if (!sponsor) return null;
+  const affected = sponsor.chains.flatMap(({ chain_id, state }) => {
+    const fee = feeByChain[chain_id];
+    return fee && state !== 'healthy' ? [{ fee, state }] : [];
+  });
+  if (affected.length === 0) return null;
 
-/** Reduces the per-chain sponsor readings to the single worst state a banner should show. */
-export function worstSponsorState(status: SponsorStatus | undefined): AtRiskState {
-  if (!status) return 'healthy';
-  const order: AtRiskState[] = ['healthy', 'low', 'exhausted', 'debt'];
-  return status.chains.reduce<AtRiskState>(
-    (worst, chain) => (order.indexOf(chain.state) > order.indexOf(worst) ? chain.state : worst),
-    'healthy',
-  );
-}
-
-/** Explains how the fee balance affects rules and links to account funding. */
-export function BudgetAtRiskBanner({ state }: { readonly state: AtRiskState }) {
-  if (state === 'healthy') return null;
+  const blocked = affected.some(({ state }) => state === 'exhausted' || state === 'debt');
+  const headline = beforeFirstRule
+    ? 'Fund your rules before they run'
+    : blocked
+      ? 'Network fees need attention'
+      : 'Low balance for network fees';
 
   return (
     <aside
-      role="status"
-      data-state={state}
-      data-tone={state === 'low' ? 'warning' : 'error'}
+      aria-label="Rule fee status"
+      data-tone={!beforeFirstRule && blocked ? 'error' : 'warning'}
       className="app-alert space-y-2"
     >
-      <p className="text-sm font-semibold text-ink">{HEADLINE[state]}</p>
-      <p className="text-xs text-ink">{CONSEQUENCE[state]}</p>
-      <Link to={`${appRoutes.account}#fund-account`} className="app-link inline-block text-xs">
-        Add network fees
-      </Link>
+      <p role="status" className="text-sm font-semibold text-ink">
+        {headline}
+      </p>
+      <ul className="space-y-2">
+        {affected.map(({ fee, state }) => {
+          const { title, token } = ruleFees[fee];
+          const action = fee === 'watching' ? 'monitor rules' : 'run trades and transfers';
+          return (
+            <li
+              key={fee}
+              className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs text-ink"
+            >
+              <span>
+                {state === 'debt'
+                  ? `${title} are due`
+                  : `The ${title.toLowerCase()} balance is ${state === 'low' ? 'low' : 'empty'}`}{' '}
+                on {token.network.name}.
+              </span>
+              {canFund && (
+                <Link
+                  to={ruleFeeFundingRoute(fee)}
+                  state={{ fundingAgent: sponsor.agent }}
+                  className="app-link"
+                >
+                  Add test {token.symbol} to {action}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </aside>
   );
 }

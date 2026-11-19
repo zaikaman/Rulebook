@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { AxeResults } from 'axe-core';
 
 import { FIXTURE_API_URL } from '../e2e/fixtureConfig.js';
-import { installWallet } from '../e2e/wallet.js';
+import { installWallet, skipRuleFunding } from '../e2e/wallet.js';
 
 const require = createRequire(import.meta.url);
 const axeScript = require.resolve('axe-core/axe.min.js');
@@ -82,6 +82,10 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await expect(startSetup).toBeEnabled();
   await audit(page);
   await startSetup.click();
+  await expect(page.getByRole('button', { name: 'Add REACT' })).toBeEnabled();
+  await audit(page);
+  await skipRuleFunding(page);
+  await page.goto('/account');
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })
     .locator('a[href*="/address/"]')
@@ -90,6 +94,10 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   expect(agent).toBeTruthy();
 
   await page.goto('/create');
+  await page.getByRole('button', { name: 'Rule composer guide' }).click();
+  await expect(page.getByRole('dialog', { name: 'Choose a rule type' })).toBeVisible();
+  await audit(page, '.driver-popover');
+  await page.keyboard.press('Escape');
   await page.getByLabel('pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('buy').selectOption({ label: 'WETH' });
   await page.getByLabel('amount').selectOption({ label: '10' });
@@ -124,5 +132,14 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await page.goto('/rules');
   await page.getByRole('link', { name: 'Detail' }).click();
   await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  const funding = page.getByRole('link', { name: 'Add test REACT to monitor rules' });
+  await expect(funding).toBeVisible();
   await audit(page);
+  await page.getByRole('button', { name: /^Wallet / }).click();
+  await page
+    .getByRole('dialog', { name: 'Wallet details' })
+    .getByRole('button', { name: 'Disconnect' })
+    .click();
+  await expect(page.getByRole('complementary', { name: 'Rule fee status' })).toBeVisible();
+  await expect(funding).toHaveCount(0);
 });

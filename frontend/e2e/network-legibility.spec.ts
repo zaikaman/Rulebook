@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { getChain, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 
-import { installWallet, walletRequests } from './wallet.js';
+import { installWallet, skipRuleFunding, walletRequests } from './wallet.js';
 
 const OWNER = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
 const PARTIALLY_APPROVED_OWNER = '0x14dC79964da2C08b23698B3D3cc7Ca32193d9955';
@@ -27,13 +27,13 @@ test('shows the full setup review before requesting wallet actions on both testn
   expect(await walletRequests(page)).toEqual([]);
   await page.getByRole('link', { name: 'Account & Vault' }).click();
   expect(await walletRequests(page)).toEqual([]);
-  await expect(page.getByText('Step 2 of 4')).toBeVisible();
+  await expect(page.getByText('Step 2 of 5')).toBeVisible();
   await expect(page.getByRole('list', { name: 'Wallet token balances' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Create my account' })).toHaveCount(0);
   const addNetworks = page.getByRole('button', { name: 'Add test networks' });
   await addNetworks.click();
   await expect(page.getByRole('region', { name: 'Set up test networks' })).toBeHidden();
-  await expect(page.getByText('Step 4 of 4')).toBeVisible();
+  await expect(page.getByText('Step 4 of 5')).toBeVisible();
   const networkRequests = [
     { method: 'wallet_switchEthereumChain', chainId: UNSUPPORTED_CHAIN },
     { method: 'wallet_addEthereumChain', chainId: UNICHAIN_SEPOLIA_CHAIN_ID },
@@ -63,6 +63,8 @@ test('shows the full setup review before requesting wallet actions on both testn
     { method: 'eth_sendTransaction', chainId: LASNA_CHAIN_ID },
   ]);
 
+  await skipRuleFunding(page);
+  await page.goto('/account');
   for (const network of [lasna, unichain]) {
     await expect(page.getByRole('link', { name: `${network.name} explorer` })).toHaveAttribute(
       'href',

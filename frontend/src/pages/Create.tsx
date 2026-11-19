@@ -1,7 +1,6 @@
 import { ArrowRight02Icon, LockKeyIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  agentAbi,
   getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -9,35 +8,36 @@ import {
   type SlotKey,
   type TemplateId,
 } from '@rulebook/shared';
-import { useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router';
-import { useAccount, useReadContract } from 'wagmi';
 
 import { LiveCalldata } from '../composer/LiveCalldata.js';
 import { SentenceCanvas } from '../composer/SentenceCanvas.js';
 import { TemplatePicker } from '../composer/TemplatePicker.js';
 import { composerReducer, initialComposerState, toReadyDraft } from '../composer/reducer.js';
+import { useFirstRuleGuide } from '../composer/useFirstRuleGuide.js';
 import { slotIssues } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
 import { AppShell } from '../components/AppShell.js';
-import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
+import { AccountSetupGate } from '../components/AccountSetupGate.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
-import { useAccountSetup } from '../hooks/useAccountSetup.js';
-import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { appRoutes } from '../lib/routes.js';
 import { formatRuleSentence } from '../lib/rules.js';
-import { CreateAccount } from './CreateAccount.js';
 import '../styles/composer.css';
 
 /** The composer itself, split from the account lookup so tests can render it with an agent. */
 export function CreateRuleForm({
   agent,
   initialTemplate = 1,
+  onReview,
+  onCreatedChange,
 }: {
   readonly agent: Address;
   readonly initialTemplate?: TemplateId;
+  readonly onReview?: () => void;
+  readonly onCreatedChange?: (created: boolean) => void;
 }) {
   const [state, dispatch] = useReducer(
     composerReducer,
@@ -47,6 +47,8 @@ export function CreateRuleForm({
   const [makePublic, setMakePublic] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const { status, error, result, create, reset } = useCreateRule();
+  const created = !!result;
+  useEffect(() => onCreatedChange?.(created), [created, onCreatedChange]);
 
   const draft = useMemo(() => toReadyDraft(state), [state]);
   const sentence = useMemo(() => safeSentence(state.template, state.slots), [state]);
@@ -62,6 +64,7 @@ export function CreateRuleForm({
   function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     if (busy) return;
+    onReview?.();
     setSubmitted(true);
     const firstInvalid = Object.keys(issues)[0];
     if (firstInvalid) {
@@ -153,7 +156,12 @@ export function CreateRuleForm({
               </p>
             </div>
           ) : null}
-          <button type="submit" disabled={busy} className="rule-composer__submit">
+          <button
+            id="review-create-rule"
+            type="submit"
+            disabled={busy}
+            className="rule-composer__submit"
+          >
             {status === 'simulating'
               ? 'Simulating…'
               : status === 'signing'
@@ -187,26 +195,33 @@ function safeSentence(template: number, slots: Record<string, string | undefined
 
 /** `/create`: connect, find the owner's Agent, then compose. */
 export function Create() {
-  const { address } = useAccount();
-  const owner = address?.toLowerCase() as Address | undefined;
-  const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
-  const { agent, vault, linked } = setup.data ?? {};
+  return (
+    <AccountSetupGate>{({ agent }) => <Composer key={agent} agent={agent} />}</AccountSetupGate>
+  );
+}
 
-  if (!agent || !vault || !linked) {
-    return (
-      <AppShell focused>
-        <CreateAccount setup={setup} />
-      </AppShell>
-    );
-  }
-
+function Composer({ agent }: { agent: Address }) {
+  const guide = useFirstRuleGuide();
+  const [created, setCreated] = useState(false);
   return (
     <AppShell>
       <section className="app-page">
         <PageHeading
           title="Compose a rule"
           description="Fill in a sentence to tell Rulebook what to do and when."
-          focusOnMount={setup.resuming || setup.setupSucceeded}
+          focusOnMount
+          aside={
+            !created && (
+              <button
+                ref={guide.replayButton}
+                type="button"
+                className="app-button"
+                onClick={guide.start}
+              >
+                Rule composer guide
+              </button>
+            )
+          }
           breadcrumb={
             <>
               <Link to={appRoutes.rules}>Rules</Link>
@@ -215,66 +230,8 @@ export function Create() {
             </>
           }
         />
-        <FirstRule agent={agent} vault={vault} />
+        <CreateRuleForm agent={agent} onReview={guide.stop} onCreatedChange={setCreated} />
       </section>
     </AppShell>
-  );
-}
-
-function FirstRule({ agent, vault }: { agent: Address; vault: Address }) {
-  const rules = useReadContract({
-    address: agent,
-    abi: agentAbi,
-    functionName: 'getRuleIds',
-    chainId: LASNA_CHAIN_ID,
-  });
-  const credits = useExecutionCredit(agent, vault);
-  const [showFunding, setShowFunding] = useState(false);
-  const first = rules.data?.length === 0;
-  const needsMonitoring = credits.watching.data === 0n;
-  const needsExecution = credits.execution.data === 0n;
-  const suggested =
-    credits.watching.data === undefined || needsMonitoring
-      ? 'watching'
-      : credits.execution.data === undefined || needsExecution
-        ? 'execution'
-        : 'vault';
-  return (
-    <>
-      {first && (
-        <div className="app-panel app-panel-pad space-y-3">
-          <h2 className="app-panel-heading">Before your first rule runs</h2>
-          <p className="app-copy">
-            You can compose a rule now and fund it when you’re ready to run it.
-          </p>
-          {(needsMonitoring || needsExecution) && (
-            <ul className="list-disc space-y-1 pl-5 app-copy">
-              {needsMonitoring && <li>Add REACT on Reactive Lasna to monitor rules.</li>}
-              {needsExecution && <li>Add ETH on Unichain Sepolia to run trades and transfers.</li>}
-            </ul>
-          )}
-          <p className="app-copy">Add test USDC to your vault if your rule spends it.</p>
-          <button
-            type="button"
-            className="app-button"
-            aria-expanded={showFunding}
-            onClick={() => setShowFunding((shown) => !shown)}
-          >
-            {showFunding ? 'Hide funding' : 'Add funds'}
-          </button>
-        </div>
-      )}
-      {first && showFunding && (
-        <AccountFunding
-          agent={agent}
-          vault={vault}
-          suggested={suggested}
-          onConfirmed={() =>
-            void Promise.all([credits.watching.refetch(), credits.execution.refetch()])
-          }
-        />
-      )}
-      <CreateRuleForm agent={agent} />
-    </>
   );
 }

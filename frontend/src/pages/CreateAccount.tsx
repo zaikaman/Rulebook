@@ -1,5 +1,4 @@
 import {
-  ArrowLeft01Icon,
   ArrowRight02Icon,
   ArrowUpRight01Icon,
   CircleArrowReload01Icon,
@@ -16,7 +15,6 @@ import {
 } from '@rulebook/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import {
   BaseError,
   erc20Abi,
@@ -32,7 +30,7 @@ import { useAccount, useBalance, useConfig, useReadContract } from 'wagmi';
 import { getAccount } from 'wagmi/actions';
 
 import { WalletControl } from '../components/chrome/WalletControl.js';
-import { Wordmark } from '../components/chrome/Wordmark.js';
+import { AccountSetupFrame } from '../components/AccountSetupFrame.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { TxLink } from '../components/TxLink.js';
 import {
@@ -52,7 +50,6 @@ import {
   WalletAuthorizationError,
 } from '../lib/errors.js';
 import { shortAddress } from '../lib/listings.js';
-import { appRoutes } from '../lib/routes.js';
 import { estimateLasnaSetupFee, estimateUnichainSetupFee, roundUpFee } from '../lib/setupFees.js';
 import {
   allowSetupNetwork,
@@ -62,7 +59,6 @@ import {
 } from '../lib/setupNetworks.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
 import { lasnaChain, unichainSepoliaChain } from '../lib/wagmi.js';
-import '../styles/onboarding.css';
 
 type Balance = { value?: bigint; decimals: number; failed: boolean };
 type Token = (typeof testnetTokens)[keyof typeof testnetTokens];
@@ -260,7 +256,13 @@ function SetupReview({
   );
 }
 
-export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSetup> }) {
+export function CreateAccount({
+  setup,
+  onBegin,
+}: {
+  setup: ReturnType<typeof useAccountSetup>;
+  onBegin?: () => void;
+}) {
   const { address, connector, isReconnecting } = useAccount();
   const config = useConfig();
   const [mirrorOwner, setMirrorOwner] = useState<Address>();
@@ -274,7 +276,6 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
     done: boolean;
   }>();
   const walletLifetime = useRef<AbortController>(null);
-  const heading = useRef<HTMLHeadingElement>(null);
   const continueButton = useRef<HTMLButtonElement>(null);
   const connected = !!address;
   useEffect(() => {
@@ -489,12 +490,6 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
             (tokenChoice === undefined && (error || canAutoAdvance))
           ? 'create'
           : 'tokens';
-  const previousStage = useRef(stage);
-  useEffect(() => {
-    if (previousStage.current === stage) return;
-    previousStage.current = stage;
-    heading.current?.focus();
-  }, [stage]);
   useEffect(() => {
     if (accessRefreshed && !networkAccess && document.activeElement === document.body) {
       continueButton.current?.focus();
@@ -541,362 +536,323 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
   );
 
   return (
-    <div className="account-setup">
-      <header className="account-setup__toolbar">
-        <Link to={appRoutes.landing} className="account-setup__brand" aria-label="Rulebook home">
-          <Wordmark />
-        </Link>
-        {connected && (
-          <div className="account-setup__session">
-            <WalletControl />
-          </div>
-        )}
-      </header>
-
-      <div className="account-setup__stage">
-        <header className="account-setup__heading">
-          <div>
-            <h1
-              key={stage}
-              id="account-setup-title"
-              ref={heading}
-              tabIndex={-1}
-              aria-describedby="setup-step-count"
-            >
-              {current.title}
-            </h1>
-            <p>{current.description}</p>
-          </div>
-          <div className="account-setup__meta">
-            <span id="setup-step-count">
-              Step {current.number} of {Object.keys(setupStages).length}
+    <AccountSetupFrame
+      title={current.title}
+      description={current.description}
+      step={current.number}
+      connected={connected}
+    >
+      <section className="app-panel" aria-labelledby="account-setup-title">
+        {stage === 'wallet' && (
+          <div className="account-setup__section account-setup__wallet">
+            <span className="account-setup__wallet-icon" aria-hidden="true">
+              <HugeiconsIcon icon={Wallet01Icon} size={22} />
             </span>
-            <span className="account-setup__environment">
-              <span aria-hidden="true" />
-              Testnet
-            </span>
-          </div>
-        </header>
-
-        <section className="app-panel" aria-labelledby="account-setup-title">
-          {stage === 'wallet' && (
-            <div className="account-setup__section account-setup__wallet">
-              <span className="account-setup__wallet-icon" aria-hidden="true">
-                <HugeiconsIcon icon={Wallet01Icon} size={22} />
-              </span>
-              <div>
-                {connected ? (
-                  <p role="status">Checking your wallet’s networks…</p>
-                ) : isReconnecting ? (
-                  <p role="status">Reconnecting your wallet…</p>
-                ) : (
-                  <>
-                    <h2>Choose a wallet</h2>
-                    <p>Use the same wallet throughout setup.</p>
-                    <WalletControl setup />
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-          {stage === 'networks' && (
-            <div className="account-setup__section account-setup__stack">
-              {checkingNetworks ? (
+            <div>
+              {connected ? (
                 <p role="status">Checking your wallet’s networks…</p>
+              ) : isReconnecting ? (
+                <p role="status">Reconnecting your wallet…</p>
               ) : (
                 <>
-                  <p id="setup-network-instructions">
-                    {connector?.type === 'walletConnect'
-                      ? 'Add both test networks in your wallet, then disconnect and reconnect here. Allow Reactive Lasna and Unichain Sepolia when prompted.'
-                      : missingNetworks.length > 0
-                        ? `Allow ${missingNetworks.map((network) => network.name).join(' and ')} in your wallet. Your wallet will ask to add any missing networks.`
-                        : 'Allow Rulebook to use both test networks in your wallet.'}
-                  </p>
-                  <div className="account-setup__action">
-                    <button
-                      type="button"
-                      className="app-button app-button--primary"
-                      aria-describedby="setup-network-instructions"
-                      disabled={setup.resuming || walletAccess.isPending}
-                      onClick={() => {
-                        if (networkCheck.isError || connector?.type === 'walletConnect') {
-                          void networkCheck.refetch();
-                        } else {
-                          walletAccess.mutate('add-networks');
-                        }
-                      }}
-                    >
-                      {walletAccess.isPending
-                        ? 'Waiting for wallet…'
-                        : networkCheck.isError || connector?.type === 'walletConnect'
-                          ? 'Check wallet connection'
-                          : missingNetworks.length === 0
-                            ? 'Finish wallet access'
-                            : 'Add test networks'}
-                    </button>
-                  </div>
+                  <h2>Choose a wallet</h2>
+                  <p>Use the same wallet throughout setup.</p>
+                  <WalletControl setup />
                 </>
               )}
-              {networkAccess && walletAccess.isPending && (
-                <p role="status">
-                  Approve each request in your wallet. If asked, allow Rulebook on both networks.
-                </p>
-              )}
-              {networkCheck.isError && (
-                <p data-tone="warning" role="alert">
-                  Rulebook couldn’t check your wallet’s networks. Unlock your wallet and try again.
-                </p>
-              )}
-              {networkAccess && walletAccess.error && (
-                <p data-tone="warning" role="alert">
-                  {walletAccess.error.message}
-                </p>
-              )}
             </div>
-          )}
-          {stage === 'tokens' && (
-            <>
-              <div className="account-setup__section">
-                <header className="account-setup__token-header">
-                  <div>
-                    <h2>Wallet balances</h2>
-                    <p
-                      id="account-setup-next"
-                      role="status"
-                      data-tone={
-                        balanceError || missing.length > 0 || topUps.length > 0
-                          ? 'warning'
-                          : undefined
-                      }
-                    >
-                      {nextAction}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    className="app-button"
-                    onClick={() => {
-                      const options = { cancelRefetch: false };
-                      void Promise.all([
-                        react.refetch(options),
-                        eth.refetch(options),
-                        usdc.refetch(options),
-                        setup.refetch(options),
-                        ...(checkReactFee ? [reactFee.refetch(options)] : []),
-                        ...(checkEthFee ? [ethFee.refetch(options)] : []),
-                      ]);
-                    }}
-                  >
-                    <HugeiconsIcon
-                      icon={CircleArrowReload01Icon}
-                      size={16}
-                      className={refreshing ? 'motion-safe:animate-spin' : undefined}
-                      aria-hidden="true"
-                    />
-                    Check balances
-                  </button>
-                </header>
-                <span className="sr-only" role="status">
-                  {refreshing ? 'Checking wallet balances and fee estimates.' : ''}
-                </span>
-                {accountReadError}
-                {address && <FaucetAddress key={address} address={address} />}
-                <ul className="account-setup__tokens" aria-label="Wallet token balances">
-                  <TokenRow
-                    token={testnetTokens.react}
-                    purpose={
-                      hasAgent
-                        ? 'Pays to link your vault on Lasna.'
-                        : 'Pays to create your automation account and link your vault.'
-                    }
-                    required
-                    connected={connected}
-                    minimum={reactFee.data}
-                    estimating={reactFee.isFetching || checkingAccount}
-                    balance={{
-                      value: react.data?.value,
-                      decimals: react.data?.decimals ?? 18,
-                      failed: react.isError,
-                    }}
-                  />
-                  <TokenRow
-                    token={testnetTokens.eth}
-                    purpose={
-                      hasVault
-                        ? 'Your vault is created. Keep ETH for wallet transactions on Unichain.'
-                        : 'Pays to create your vault on Unichain.'
-                    }
-                    required={!hasVault}
-                    connected={connected}
-                    minimum={ethFee.data}
-                    estimating={ethFee.isFetching}
-                    balance={{
-                      value: eth.data?.value,
-                      decimals: eth.data?.decimals ?? 18,
-                      failed: eth.isError,
-                    }}
-                  />
-                  <TokenRow
-                    token={testnetTokens.usdc}
-                    purpose="Add it to your vault later if a rule spends USDC."
-                    required={false}
-                    connected={connected}
-                    balance={{ value: usdc.data, decimals: 6, failed: usdc.isError }}
-                  />
-                </ul>
-              </div>
-              {ready && (
-                <div className="account-setup__section account-setup__action">
+          </div>
+        )}
+        {stage === 'networks' && (
+          <div className="account-setup__section account-setup__stack">
+            {checkingNetworks ? (
+              <p role="status">Checking your wallet’s networks…</p>
+            ) : (
+              <>
+                <p id="setup-network-instructions">
+                  {connector?.type === 'walletConnect'
+                    ? 'Add both test networks in your wallet, then disconnect and reconnect here. Allow Reactive Lasna and Unichain Sepolia when prompted.'
+                    : missingNetworks.length > 0
+                      ? `Allow ${missingNetworks.map((network) => network.name).join(' and ')} in your wallet. Your wallet will ask to add any missing networks.`
+                      : 'Allow Rulebook to use both test networks in your wallet.'}
+                </p>
+                <div className="account-setup__action">
                   <button
                     type="button"
                     className="app-button app-button--primary"
-                    onClick={() => setTokenReview({ walletKey, choice: 'continue' })}
+                    aria-describedby="setup-network-instructions"
+                    disabled={setup.resuming || walletAccess.isPending}
+                    onClick={() => {
+                      if (networkCheck.isError || connector?.type === 'walletConnect') {
+                        void networkCheck.refetch();
+                      } else {
+                        walletAccess.mutate('add-networks');
+                      }
+                    }}
                   >
-                    Continue to account setup
-                    <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />
+                    {walletAccess.isPending
+                      ? 'Waiting for wallet…'
+                      : networkCheck.isError || connector?.type === 'walletConnect'
+                        ? 'Check wallet connection'
+                        : missingNetworks.length === 0
+                          ? 'Finish wallet access'
+                          : 'Add test networks'}
                   </button>
                 </div>
-              )}
-            </>
-          )}
-
-          {stage === 'create' && (
-            <div className="account-setup__section account-setup__stack">
-              {MIRROR_ENABLED && !checkingAccount && !setup.isError && !hasVault && (
-                <label className="app-field">
-                  Vault mode
-                  <select
-                    className="app-input"
-                    value={mirrorVault ? 'mirror' : 'standard'}
-                    disabled={setup.resuming}
-                    onChange={(event) =>
-                      setMirrorOwner(event.target.value === 'mirror' ? address : undefined)
+              </>
+            )}
+            {networkAccess && walletAccess.isPending && (
+              <p role="status">
+                Approve each request in your wallet. If asked, allow Rulebook on both networks.
+              </p>
+            )}
+            {networkCheck.isError && (
+              <p data-tone="warning" role="alert">
+                Rulebook couldn’t check your wallet’s networks. Unlock your wallet and try again.
+              </p>
+            )}
+            {networkAccess && walletAccess.error && (
+              <p data-tone="warning" role="alert">
+                {walletAccess.error.message}
+              </p>
+            )}
+          </div>
+        )}
+        {stage === 'tokens' && (
+          <>
+            <div className="account-setup__section">
+              <header className="account-setup__token-header">
+                <div>
+                  <h2>Wallet balances</h2>
+                  <p
+                    id="account-setup-next"
+                    role="status"
+                    data-tone={
+                      balanceError || missing.length > 0 || topUps.length > 0
+                        ? 'warning'
+                        : undefined
                     }
                   >
-                    <option value="standard">Standard vault</option>
-                    <option value="mirror">Mirror-only vault</option>
-                  </select>
-                  <span className="app-copy">Vault mode is permanent once created.</span>
-                </label>
-              )}
-              {accountReadError}
-              {!error &&
-                !setup.resuming &&
-                (balanceError || missing.length > 0 || topUps.length > 0) && (
-                  <p role="status" data-tone="warning">
-                    {nextAction} Select “Review test tokens” for details.
+                    {nextAction}
                   </p>
-                )}
-              {permissionError &&
-                !setup.resuming &&
-                (accessRefreshed ? (
-                  <p role="status">
-                    Wallet access refreshed. Select “{actionLabel}” to retry the remaining steps.
-                  </p>
-                ) : (
-                  <ErrorState
-                    message="Your wallet denied access on this network."
-                    chainId={permissionError.chainId}
-                  >
-                    <p className="mt-2">
-                      {connector?.type === 'injected'
-                        ? 'Refresh wallet access and allow this account on both testnets.'
-                        : 'Reconnect with the same wallet and allow both testnets.'}{' '}
-                      Then select “{actionLabel}”. Any confirmed steps are saved.
-                    </p>
-                    {connector?.type === 'injected' && (
-                      <>
-                        <button
-                          type="button"
-                          className="app-button mt-3"
-                          disabled={walletAccess.isPending}
-                          onClick={() => walletAccess.mutate('refresh-access')}
-                        >
-                          {!networkAccess && walletAccess.isPending
-                            ? 'Waiting for wallet…'
-                            : 'Refresh wallet access'}
-                        </button>
-                        <details className="mt-3 text-sm">
-                          <summary className="app-link w-fit cursor-pointer">
-                            Still blocked?
-                          </summary>
-                          <p className="mt-2">
-                            Disconnect this site in your wallet’s permissions, then reconnect with
-                            the same account and allow both testnets.
-                          </p>
-                        </details>
-                      </>
-                    )}
-                    {!networkAccess && walletAccess.error && (
-                      <p className="mt-2" role="alert">
-                        {walletAccess.error.message}
-                      </p>
-                    )}
-                  </ErrorState>
-                ))}
-              {error && !permissionError && !setup.resuming && (
-                <ErrorState
-                  message={setupErrorMessage}
-                  detail={setupErrorDetail}
-                  chainId={setupErrorChain}
-                >
-                  {transactionError && (
-                    <div className="mt-2">
-                      <TxLink
-                        chainId={transactionError.chainId}
-                        txHash={transactionError.txHash}
-                        label="View transaction"
-                      />
-                    </div>
-                  )}
-                </ErrorState>
-              )}
-              {walletSteps.length > 0 && (
-                <SetupReview steps={walletSteps} running={setup.resuming} mirror={mirrorVault} />
-              )}
-              <div className="account-setup__action account-setup__action--split">
-                {!setup.resuming && (
-                  <button
-                    className="app-button"
-                    type="button"
-                    disabled={walletAccess.isPending}
-                    onClick={() => setTokenReview({ walletKey, choice: 'review' })}
-                  >
-                    Review test tokens
-                  </button>
-                )}
+                </div>
                 <button
                   type="button"
-                  ref={continueButton}
-                  className="app-button app-button--primary"
-                  disabled={!ready || !networksReady || setup.resuming || walletAccess.isPending}
-                  aria-describedby={
-                    walletSteps.length > 0 ? 'setup-wallet-instructions' : undefined
-                  }
+                  className="app-button"
                   onClick={() => {
-                    if (!connector || !networksReady) return;
-                    walletAccess.reset();
-                    setup.resume({
-                      steps: walletSteps,
-                      connectorUid: connector.uid,
-                      mode: mirrorVault ? 'mirror' : undefined,
-                    });
+                    const options = { cancelRefetch: false };
+                    void Promise.all([
+                      react.refetch(options),
+                      eth.refetch(options),
+                      usdc.refetch(options),
+                      setup.refetch(options),
+                      ...(checkReactFee ? [reactFee.refetch(options)] : []),
+                      ...(checkEthFee ? [ethFee.refetch(options)] : []),
+                    ]);
                   }}
                 >
-                  {setup.resuming ? 'Setting up your account…' : actionLabel}
-                  {!setup.resuming && (
-                    <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />
-                  )}
+                  <HugeiconsIcon
+                    icon={CircleArrowReload01Icon}
+                    size={16}
+                    className={refreshing ? 'motion-safe:animate-spin' : undefined}
+                    aria-hidden="true"
+                  />
+                  Check balances
+                </button>
+              </header>
+              <span className="sr-only" role="status">
+                {refreshing ? 'Checking wallet balances and fee estimates.' : ''}
+              </span>
+              {accountReadError}
+              {address && <FaucetAddress key={address} address={address} />}
+              <ul className="account-setup__tokens" aria-label="Wallet token balances">
+                <TokenRow
+                  token={testnetTokens.react}
+                  purpose={
+                    hasAgent
+                      ? 'Pays to link your vault on Lasna.'
+                      : 'Pays to create your automation account and link your vault.'
+                  }
+                  required
+                  connected={connected}
+                  minimum={reactFee.data}
+                  estimating={reactFee.isFetching || checkingAccount}
+                  balance={{
+                    value: react.data?.value,
+                    decimals: react.data?.decimals ?? 18,
+                    failed: react.isError,
+                  }}
+                />
+                <TokenRow
+                  token={testnetTokens.eth}
+                  purpose={
+                    hasVault
+                      ? 'Your vault is created. Keep ETH for wallet transactions on Unichain.'
+                      : 'Pays to create your vault on Unichain.'
+                  }
+                  required={!hasVault}
+                  connected={connected}
+                  minimum={ethFee.data}
+                  estimating={ethFee.isFetching}
+                  balance={{
+                    value: eth.data?.value,
+                    decimals: eth.data?.decimals ?? 18,
+                    failed: eth.isError,
+                  }}
+                />
+                <TokenRow
+                  token={testnetTokens.usdc}
+                  purpose="Optional. You can deposit it during funding if a rule spends USDC."
+                  required={false}
+                  connected={connected}
+                  balance={{ value: usdc.data, decimals: 6, failed: usdc.isError }}
+                />
+              </ul>
+            </div>
+            {ready && (
+              <div className="account-setup__section account-setup__action">
+                <button
+                  type="button"
+                  className="app-button app-button--primary"
+                  onClick={() => setTokenReview({ walletKey, choice: 'continue' })}
+                >
+                  Continue to account setup
+                  <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />
                 </button>
               </div>
+            )}
+          </>
+        )}
+
+        {stage === 'create' && (
+          <div className="account-setup__section account-setup__stack">
+            {MIRROR_ENABLED && !checkingAccount && !setup.isError && !hasVault && (
+              <label className="app-field">
+                Vault mode
+                <select
+                  className="app-input"
+                  value={mirrorVault ? 'mirror' : 'standard'}
+                  disabled={setup.resuming}
+                  onChange={(event) =>
+                    setMirrorOwner(event.target.value === 'mirror' ? address : undefined)
+                  }
+                >
+                  <option value="standard">Standard vault</option>
+                  <option value="mirror">Mirror-only vault</option>
+                </select>
+                <span className="app-copy">Vault mode is permanent once created.</span>
+              </label>
+            )}
+            {accountReadError}
+            {!error &&
+              !setup.resuming &&
+              (balanceError || missing.length > 0 || topUps.length > 0) && (
+                <p role="status" data-tone="warning">
+                  {nextAction} Select “Review test tokens” for details.
+                </p>
+              )}
+            {permissionError &&
+              !setup.resuming &&
+              (accessRefreshed ? (
+                <p role="status">
+                  Wallet access refreshed. Select “{actionLabel}” to retry the remaining steps.
+                </p>
+              ) : (
+                <ErrorState
+                  message="Your wallet denied access on this network."
+                  chainId={permissionError.chainId}
+                >
+                  <p className="mt-2">
+                    {connector?.type === 'injected'
+                      ? 'Refresh wallet access and allow this account on both testnets.'
+                      : 'Reconnect with the same wallet and allow both testnets.'}{' '}
+                    Then select “{actionLabel}”. Any confirmed steps are saved.
+                  </p>
+                  {connector?.type === 'injected' && (
+                    <>
+                      <button
+                        type="button"
+                        className="app-button mt-3"
+                        disabled={walletAccess.isPending}
+                        onClick={() => walletAccess.mutate('refresh-access')}
+                      >
+                        {!networkAccess && walletAccess.isPending
+                          ? 'Waiting for wallet…'
+                          : 'Refresh wallet access'}
+                      </button>
+                      <details className="mt-3 text-sm">
+                        <summary className="app-link w-fit cursor-pointer">Still blocked?</summary>
+                        <p className="mt-2">
+                          Disconnect this site in your wallet’s permissions, then reconnect with the
+                          same account and allow both testnets.
+                        </p>
+                      </details>
+                    </>
+                  )}
+                  {!networkAccess && walletAccess.error && (
+                    <p className="mt-2" role="alert">
+                      {walletAccess.error.message}
+                    </p>
+                  )}
+                </ErrorState>
+              ))}
+            {error && !permissionError && !setup.resuming && (
+              <ErrorState
+                message={setupErrorMessage}
+                detail={setupErrorDetail}
+                chainId={setupErrorChain}
+              >
+                {transactionError && (
+                  <div className="mt-2">
+                    <TxLink
+                      chainId={transactionError.chainId}
+                      txHash={transactionError.txHash}
+                      label="View transaction"
+                    />
+                  </div>
+                )}
+              </ErrorState>
+            )}
+            {walletSteps.length > 0 && (
+              <SetupReview steps={walletSteps} running={setup.resuming} mirror={mirrorVault} />
+            )}
+            <div className="account-setup__action account-setup__action--split">
+              {!setup.resuming && (
+                <button
+                  className="app-button"
+                  type="button"
+                  disabled={walletAccess.isPending}
+                  onClick={() => setTokenReview({ walletKey, choice: 'review' })}
+                >
+                  Review test tokens
+                </button>
+              )}
+              <button
+                type="button"
+                ref={continueButton}
+                className="app-button app-button--primary"
+                disabled={!ready || !networksReady || setup.resuming || walletAccess.isPending}
+                aria-describedby={walletSteps.length > 0 ? 'setup-wallet-instructions' : undefined}
+                onClick={() => {
+                  if (!connector || !networksReady) return;
+                  onBegin?.();
+                  walletAccess.reset();
+                  setup.resume({
+                    steps: walletSteps,
+                    connectorUid: connector.uid,
+                    mode: mirrorVault ? 'mirror' : undefined,
+                  });
+                }}
+              >
+                {setup.resuming ? 'Setting up your account…' : actionLabel}
+                {!setup.resuming && (
+                  <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />
+                )}
+              </button>
             </div>
-          )}
-        </section>
-        <Link to={appRoutes.rules} className="account-setup__exit">
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
-          Back to rules
-        </Link>
-      </div>
-    </div>
+          </div>
+        )}
+      </section>
+    </AccountSetupFrame>
   );
 }
