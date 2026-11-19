@@ -1,8 +1,9 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { agentAbi, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { BaseError, zeroAddress } from 'viem';
+import { MemoryRouter } from 'react-router';
+import { BaseError, encodeEventTopics, numberToHex, zeroAddress } from 'viem';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 import { WalletReviewProvider } from '../src/components/WalletReviewProvider.js';
@@ -20,6 +21,8 @@ const VAULT = '0xcccccccccccccccccccccccccccccccccccccccc' as const;
 const mocks = vi.hoisted(() => ({
   getAccount: vi.fn(),
   getChainId: vi.fn(),
+  getAccounts: vi.fn(),
+  request: vi.fn(),
   switchChain: vi.fn(),
   sign: vi.fn(),
   error: vi.fn(),
@@ -30,12 +33,17 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('wagmi', () => ({
   useConfig: () => ({}),
-  useAccount: () => ({ address: OWNER }),
-  useBalance: () => ({}),
-  useConnect: () => ({ connectors: [] }),
+  useAccount: () => ({ address: OWNER, connector }),
+  useBalance: ({ chainId }: { chainId: number }) => ({
+    data: { value: chainId === LASNA_CHAIN_ID ? 10n ** 18n : 0n, decimals: 18 },
+  }),
+  useReadContract: () => ({ data: 0n }),
   useSwitchChain: () => ({ switchChainAsync: mocks.switchChain }),
   useSignTypedData: () => ({ signTypedDataAsync: mocks.sign }),
   useWriteContract: () => ({ writeContractAsync: mocks.writeContract }),
+}));
+vi.mock('../src/components/chrome/WalletControl.js', () => ({
+  WalletControl: () => null,
 }));
 vi.mock('wagmi/actions', () => ({ getAccount: mocks.getAccount }));
 vi.mock('../src/lib/contracts.js', async (importOriginal) => ({
@@ -45,24 +53,35 @@ vi.mock('../src/lib/contracts.js', async (importOriginal) => ({
 }));
 vi.mock('../src/lib/wagmi.js', () => ({
   lasnaPublicClient: {
+    chain: { id: LASNA_CHAIN_ID },
+    getGasPrice: async () => 1n,
     readContract: mocks.readContract,
     waitForTransactionReceipt: mocks.receipt,
   },
   unichainPublicClient: { readContract: mocks.readContract },
 }));
 
-const connector = { uid: 'wallet', getChainId: mocks.getChainId };
+const connector = {
+  uid: 'wallet',
+  type: 'injected',
+  getChainId: mocks.getChainId,
+  getAccounts: mocks.getAccounts,
+  getProvider: async () => ({ request: mocks.request }),
+};
 const account = (chainId: number, address = OWNER) => ({ chainId, address, connector });
 
-function WriteButton() {
+function WriteButton({ reviewedSetupConnector }: { reviewedSetupConnector?: string }) {
   const requestSignature = useChainGuard();
   return (
     <button
       type="button"
       onClick={() => {
-        void requestSignature(signatureDetails.linkVault(AGENT, VAULT), OWNER, mocks.sign).catch(
-          mocks.error,
-        );
+        void requestSignature(
+          signatureDetails.linkVault(AGENT, VAULT),
+          OWNER,
+          mocks.sign,
+          reviewedSetupConnector,
+        ).catch(mocks.error);
       }}
     >
       Link accounts
@@ -74,6 +93,18 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.getAccount.mockReturnValue(account(UNICHAIN_SEPOLIA_CHAIN_ID));
   mocks.getChainId.mockResolvedValue(UNICHAIN_SEPOLIA_CHAIN_ID);
+  mocks.getAccounts.mockResolvedValue([OWNER]);
+  mocks.request.mockResolvedValue([
+    {
+      parentCapability: 'endowment:permitted-chains',
+      caveats: [
+        {
+          type: 'restrictNetworkSwitching',
+          value: [numberToHex(LASNA_CHAIN_ID), numberToHex(UNICHAIN_SEPOLIA_CHAIN_ID)],
+        },
+      ],
+    },
+  ]);
   mocks.switchChain.mockImplementation(async () => {
     mocks.getAccount.mockReturnValue(account(LASNA_CHAIN_ID));
     mocks.getChainId.mockResolvedValue(LASNA_CHAIN_ID);
@@ -81,20 +112,31 @@ beforeEach(() => {
   });
 });
 
-async function start() {
+async function start(reviewedSetupConnector?: string) {
   const user = userEvent.setup();
   render(
     <WalletReviewProvider>
-      <WriteButton />
+      <WriteButton reviewedSetupConnector={reviewedSetupConnector} />
     </WalletReviewProvider>,
   );
   await user.click(screen.getByRole('button', { name: 'Link accounts' }));
   return user;
 }
 
+it('stops reviewed setup before switching or signing if the connector changed', async () => {
+  await start('previous-connector');
+  expect(mocks.error).toHaveBeenCalledWith(
+    expect.objectContaining({ message: expect.stringMatching(/wallet changed/i) }),
+  );
+  expect(mocks.switchChain).not.toHaveBeenCalled();
+  expect(mocks.sign).not.toHaveBeenCalled();
+});
+
 it('explains the switch and waits for separate switch and signature confirmations', async () => {
+  // An extension can miss a chainChanged event. The live connector must determine the prompt.
+  mocks.getAccount.mockReturnValue(account(LASNA_CHAIN_ID));
   const user = await start();
-  const prompt = within(screen.getByRole('dialog', { name: /switch to reactive lasna/i }));
+  const prompt = within(await screen.findByRole('dialog', { name: /switch to reactive lasna/i }));
   expect(prompt.getByText(/because it targets your automation account/i)).toBeVisible();
   expect(prompt.getByText(/link your funds account/i)).toBeVisible();
   expect(mocks.switchChain).not.toHaveBeenCalled();
@@ -112,6 +154,7 @@ it('explains the switch and waits for separate switch and signature confirmation
 
 it('cancels the switch with Escape and returns focus without contacting the wallet', async () => {
   const user = await start();
+  await screen.findByRole('dialog', { name: /switch to reactive lasna/i });
   await user.keyboard('{Escape}');
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Link accounts' })).toHaveFocus();
@@ -122,7 +165,7 @@ it('cancels the switch with Escape and returns focus without contacting the wall
 it('does not sign after a rejected switch', async () => {
   mocks.switchChain.mockRejectedValue(new Error('Switch rejected'));
   const user = await start();
-  await user.click(screen.getByRole('button', { name: 'Switch to Reactive Lasna' }));
+  await user.click(await screen.findByRole('button', { name: 'Switch to Reactive Lasna' }));
   expect(mocks.error).toHaveBeenCalledWith(new Error('Switch rejected'));
   expect(mocks.sign).not.toHaveBeenCalled();
 });
@@ -142,11 +185,25 @@ it('does not sign if the wallet account changes after opening the review', async
 
 it('does not sign if the wallet changes networks after opening the review', async () => {
   mocks.getAccount.mockReturnValue(account(LASNA_CHAIN_ID));
+  mocks.getChainId.mockResolvedValue(LASNA_CHAIN_ID);
   const user = await start();
   const review = within(await screen.findByRole('dialog', { name: /review.*reactive lasna/i }));
+  mocks.getChainId.mockResolvedValue(UNICHAIN_SEPOLIA_CHAIN_ID);
   await user.click(review.getByRole('button', { name: 'Continue to wallet' }));
   expect(mocks.error).toHaveBeenCalledWith(
     expect.objectContaining({ message: expect.stringMatching(/different network/i) }),
+  );
+  expect(mocks.sign).not.toHaveBeenCalled();
+});
+
+it('does not sign if the provider no longer grants access to the reviewed account', async () => {
+  mocks.getAccounts.mockResolvedValue([VAULT]);
+  const user = await start();
+  await user.click(await screen.findByRole('button', { name: 'Switch to Reactive Lasna' }));
+  const review = await screen.findByRole('dialog', { name: /review.*reactive lasna/i });
+  await user.click(within(review).getByRole('button', { name: 'Continue to wallet' }));
+  expect(mocks.error).toHaveBeenCalledWith(
+    expect.objectContaining({ name: 'WalletAuthorizationError', chainId: LASNA_CHAIN_ID }),
   );
   expect(mocks.sign).not.toHaveBeenCalled();
 });
@@ -179,7 +236,21 @@ it('guides recovery from a wallet permission error and retries only the account 
     .mockResolvedValueOnce(hash);
   mocks.receipt.mockImplementation(async () => {
     linked = true;
-    return { status: 'success' };
+    return {
+      status: 'success',
+      transactionHash: hash,
+      logs: [
+        {
+          address: AGENT,
+          data: '0x',
+          topics: encodeEventTopics({
+            abi: agentAbi,
+            eventName: 'VaultLinked',
+            args: { chainId: BigInt(UNICHAIN_SEPOLIA_CHAIN_ID), vault: VAULT },
+          }),
+        },
+      ],
+    };
   });
 
   function Setup() {
@@ -195,24 +266,32 @@ it('guides recovery from a wallet permission error and retries only the account 
   render(
     <QueryClientProvider client={new QueryClient()}>
       <WalletReviewProvider>
-        <Setup />
+        <MemoryRouter>
+          <Setup />
+        </MemoryRouter>
       </WalletReviewProvider>
     </QueryClientProvider>,
   );
 
   const resume = await screen.findByRole('button', { name: 'Continue account setup' });
   await user.click(resume);
-  await user.click(await screen.findByRole('button', { name: 'Continue to wallet' }));
 
   const alert = await screen.findByRole('alert');
-  expect(alert).toHaveTextContent(/disconnect this site.*reconnect with the same account/i);
+  expect(alert).toHaveTextContent(/wallet denied access/i);
   expect(alert).toHaveTextContent(/continue account setup/i);
   expect(alert).not.toHaveTextContent('Request Arguments');
   expect(within(alert).getByText('Reactive Lasna')).toBeVisible();
   expect(mocks.receipt).not.toHaveBeenCalled();
 
+  await user.click(within(alert).getByRole('button', { name: 'Refresh wallet access' }));
+  expect(await screen.findByText(/wallet access refreshed/i)).toBeVisible();
+  expect(mocks.request).toHaveBeenLastCalledWith({
+    method: 'wallet_requestPermissions',
+    params: [{ eth_accounts: {} }],
+  });
+  expect(mocks.writeContract).toHaveBeenCalledTimes(1);
+
   await user.click(resume);
-  await user.click(await screen.findByRole('button', { name: 'Continue to wallet' }));
   expect(await screen.findByText('Account ready')).toHaveAttribute('role', 'status');
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   expect(mocks.sign).not.toHaveBeenCalled();
@@ -221,6 +300,7 @@ it('guides recovery from a wallet permission error and retries only the account 
     2,
     expect.objectContaining({
       functionName: 'linkVault',
+      connector,
       address: AGENT,
       args: [BigInt(UNICHAIN_SEPOLIA_CHAIN_ID), VAULT],
       chainId: LASNA_CHAIN_ID,

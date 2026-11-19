@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { approveSetup, approveSignature, installWallet } from './wallet.js';
+import { approveSignature, installWallet } from './wallet.js';
 
 // A third anvil account, so the control story never shares state with onboarding or compose.
 const CONTROLLER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906' as const;
@@ -25,12 +25,11 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   await installWallet(page, CONTROLLER);
 
   await page.goto('/account');
-  await page.getByRole('button', { name: 'Connect wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible({
+  await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible({
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await approveSetup(page);
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })
     .locator('a[href*="/address/"]')

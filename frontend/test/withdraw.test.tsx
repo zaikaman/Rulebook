@@ -26,7 +26,11 @@ vi.mock('wagmi/actions', () => ({
   getAccount: () => ({
     address: USER,
     chainId: 1301,
-    connector: { uid: 'wallet', getChainId: async () => 1301 },
+    connector: {
+      uid: 'wallet',
+      getChainId: async () => 1301,
+      getAccounts: async () => [USER],
+    },
   }),
 }));
 
@@ -96,7 +100,7 @@ describe('WithdrawForm', () => {
     await user.click(button);
     expect(mocks.writeContractAsync).not.toHaveBeenCalled();
     expect(
-      screen.getByRole('dialog', { name: /review signature on unichain sepolia/i }),
+      await screen.findByRole('dialog', { name: /review signature on unichain sepolia/i }),
     ).toBeVisible();
     expect(screen.getByText('2 USDC')).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Continue to wallet' }));

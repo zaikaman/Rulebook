@@ -1,5 +1,6 @@
 import { AlertCircleIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
+import type { ReactNode } from 'react';
 import { NetworkBadge } from './NetworkBadge.js';
 
 export interface ErrorStateProps {
@@ -10,10 +11,11 @@ export interface ErrorStateProps {
   /** Chain the failure happened on, so the user knows which network to look at. */
   readonly chainId?: number;
   readonly onRetry?: () => void;
+  readonly children?: ReactNode;
 }
 
 /** Renders a failure with its network and its underlying chain reason (FR-051). */
-export function ErrorState({ message, detail, chainId, onRetry }: ErrorStateProps) {
+export function ErrorState({ message, detail, chainId, onRetry, children }: ErrorStateProps) {
   return (
     <div role="alert" className="app-alert" data-tone="error">
       <div className="flex flex-wrap items-center gap-2">
@@ -39,6 +41,7 @@ export function ErrorState({ message, detail, chainId, onRetry }: ErrorStateProp
           Try again
         </button>
       ) : null}
+      {children}
     </div>
   );
 }

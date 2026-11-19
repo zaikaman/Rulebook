@@ -1,6 +1,6 @@
 import type { Address } from '@rulebook/shared';
 import { useCallback, useRef, useState, type ReactNode } from 'react';
-import { useConfig, useSwitchChain } from 'wagmi';
+import { useConfig, useSwitchChain, type Connector } from 'wagmi';
 import { getAccount } from 'wagmi/actions';
 
 import { WalletReviewContext } from '../hooks/useChainGuard.js';
@@ -27,8 +27,9 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
     async <T,>(
       details: SignatureDetails,
       signer: Address | undefined,
-      sign: () => Promise<T>,
+      sign: (connector: Connector) => Promise<T>,
       signal: AbortSignal,
+      reviewedSetupConnector?: string,
     ): Promise<T> => {
       signal.throwIfAborted();
       if (pending.current) throw new Error('Finish the open wallet request first.');
@@ -37,11 +38,19 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
       if (!signer || !connector || account.address?.toLowerCase() !== signer.toLowerCase()) {
         throw new Error('Connect the wallet that owns this account.');
       }
+      // Account setup reviews its full plan on the page before asking the wallet to act.
+      const reviewedSetup = reviewedSetupConnector !== undefined;
+      if (reviewedSetup && connector.uid !== reviewedSetupConnector) {
+        throw new Error('Your wallet changed. Review setup again with the intended wallet.');
+      }
 
       function checkWallet() {
         signal.throwIfAborted();
         const current = getAccount(config);
-        if (current.connector?.uid !== connector?.uid || current.address !== account.address) {
+        if (
+          current.connector?.uid !== connector?.uid ||
+          current.address?.toLowerCase() !== account.address?.toLowerCase()
+        ) {
           throw new Error('Your wallet changed. Review the action again with the intended wallet.');
         }
       }
@@ -72,22 +81,31 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
 
       pending.current = true;
       try {
-        if (account.chainId !== details.chainId) {
-          await confirm('switch');
+        const startingChain = await connector.getChainId();
+        checkWallet();
+        if (startingChain !== details.chainId) {
+          if (!reviewedSetup) await confirm('switch');
           checkWallet();
-          if (getAccount(config).chainId !== details.chainId) {
+          const currentChain = await connector.getChainId();
+          checkWallet();
+          if (currentChain !== details.chainId) {
             await switchChainAsync({ chainId: details.chainId, connector });
           }
           checkWallet();
         }
-        await confirm('review');
+        if (!reviewedSetup) await confirm('review');
         checkWallet();
+        const authorizedAccounts = await connector.getAccounts();
+        checkWallet();
+        if (!authorizedAccounts.some((address) => address.toLowerCase() === signer.toLowerCase())) {
+          throw new WalletAuthorizationError(details.chainId);
+        }
         const chainId = await connector.getChainId();
         checkWallet();
         if (chainId !== details.chainId) {
           throw new Error('Your wallet is on a different network. Review the action again.');
         }
-        return await sign();
+        return await sign(connector);
       } catch (error) {
         if (isWalletUnauthorized(error)) {
           throw new WalletAuthorizationError(details.chainId, error);

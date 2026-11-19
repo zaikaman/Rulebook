@@ -1,9 +1,5 @@
 import type { CSSProperties } from 'react';
 import { landingImages } from './landing-images.js';
-import { CoverPhoto } from './screens/cover-photo.js';
-import { RuleComposerPreview } from './screens/rule-composer-preview.js';
-import { ScreenSurface } from './screens/screen-surface.js';
-import { screens } from './screens/screen-geometry.js';
 
 const edgeFade: CSSProperties = {
   maskImage:
@@ -15,24 +11,17 @@ const edgeFade: CSSProperties = {
 };
 
 export function HeroShowcase() {
+  const { src, width, height } = landingImages.heroLaptop;
+
   return (
-    <div
-      aria-hidden
-      className="animate-on-scroll [animation:fadeInUp_0.9s_ease-out_0.5s_both] relative mx-auto aspect-[16/10] w-full max-w-6xl"
-    >
-      <div className="absolute inset-0" style={edgeFade}>
-        <CoverPhoto
-          image={landingImages.heroLaptop}
-          loading="eager"
-          frameClassName=""
-          motionClassName=""
-          imageClassName=""
-        >
-          <ScreenSurface geometry={screens.heroLaptop}>
-            <RuleComposerPreview />
-          </ScreenSurface>
-        </CoverPhoto>
-      </div>
-    </div>
+    <img
+      src={src}
+      width={width}
+      height={height}
+      alt=""
+      decoding="async"
+      className="animate-on-scroll [animation:fadeInUp_0.9s_ease-out_0.5s_both] mx-auto block h-auto w-full max-w-6xl"
+      style={edgeFade}
+    />
   );
 }

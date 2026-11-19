@@ -28,15 +28,15 @@ export function AppRouter() {
             }
           />
 
+          <Route path="create" element={<Create />} />
+          <Route path="account" element={<Account />} />
           <Route element={<AppShell />}>
             <Route path="rules" element={<Home />} />
-            <Route path="create" element={<Create />} />
             <Route path="rules/:agent/:ruleId" element={<RuleDetail />} />
             <Route path="proof" element={<Proof />} />
             <Route path="proof/:reactiveTxHash" element={<Proof />} />
             <Route path="marketplace" element={<Marketplace />} />
             <Route path="leaderboard" element={<Leaderboard />} />
-            <Route path="account" element={<Account />} />
             <Route path="cost" element={<Cost />} />
             {/* Fallback inside app */}
             <Route path="*" element={<Home />} />

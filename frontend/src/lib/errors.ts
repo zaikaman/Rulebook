@@ -1,9 +1,27 @@
-import { BaseError, toFunctionSelector, UnauthorizedProviderError } from 'viem';
+import {
+  BaseError,
+  toFunctionSelector,
+  UnauthorizedProviderError,
+  UserRejectedRequestError,
+  type Hex,
+} from 'viem';
+
+export class SetupTransactionError extends Error {
+  constructor(
+    readonly chainId: number,
+    readonly txHash: Hex,
+    message: string,
+    cause?: unknown,
+  ) {
+    super(message, { cause });
+    this.name = 'SetupTransactionError';
+  }
+}
 
 export class WalletAuthorizationError extends Error {
   constructor(
     readonly chainId: number,
-    cause: unknown,
+    cause?: unknown,
   ) {
     super(
       'Your wallet blocked this request. Disconnect this site in your wallet’s permissions, then reconnect with the same account and allow the requested network.',
@@ -144,8 +162,12 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
 /** True when a wallet prompt was rejected by the user rather than failing for another reason. */
 export function isWalletRejection(error: unknown): boolean {
   if (error && typeof error === 'object') {
-    const name = (error as { name?: string }).name;
-    if (name === 'UserRejectedRequestError') return true;
+    if (
+      ('code' in error && error.code === UserRejectedRequestError.code) ||
+      ('name' in error && error.name === 'UserRejectedRequestError')
+    ) {
+      return true;
+    }
   }
   return error instanceof Error && /rejected|denied|cancelled|canceled/i.test(error.message);
 }

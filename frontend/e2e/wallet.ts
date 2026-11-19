@@ -1,6 +1,6 @@
 import { expect, type Page } from '@playwright/test';
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
-import type { Address } from 'viem';
+import { LASNA_CHAIN_ID, SUPPORTED_CHAIN_IDS, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { numberToHex, type Address } from 'viem';
 
 import { ANVIL_RPC_URL, USER_ADDRESS } from './fixtureConfig.js';
 
@@ -23,16 +23,49 @@ export async function installWallet(
   page: Page,
   user: Address = USER_ADDRESS,
   initialChainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+  options: {
+    blockFirstTypedSignature?: boolean;
+    rejectFirstCall?: string;
+    omitLasnaFromFirstGrant?: boolean;
+    approvedTestnets?: readonly number[];
+    installedTestnets?: readonly number[];
+  } = {},
 ): Promise<void> {
   await page.addInitScript(
-    ({ user, rpc, initialChainId }) => {
+    ({
+      user,
+      rpc,
+      initialChainId,
+      lasnaId,
+      unichainId,
+      approvedTestnets,
+      installedTestnets,
+      options,
+    }) => {
       let chainId = `0x${initialChainId.toString(16)}`;
+      let accessBlocked = options.blockFirstTypedSignature;
+      let typedSignatureDenied = false;
+      const installedChains = new Set<string>(installedTestnets);
+      const requestedChains = new Set<string>();
+      let grantedChains: string[] = approvedTestnets;
+      let omitLasna = options.omitLasnaFromFirstGrant;
+      let callToReject = options.rejectFirstCall;
       const walletRequests: WalletRequest[] = [];
       (window as WalletWindow).rulebookWalletRequests = walletRequests;
       const listeners = new Map<string, Array<(value: unknown) => void>>();
       const emit = (event: string, value: unknown): void => {
         for (const listener of listeners.get(event) ?? []) listener(value);
       };
+      const permissions = () => [
+        {
+          parentCapability: 'eth_accounts',
+          caveats: [{ type: 'restrictReturnedAccounts', value: [user] }],
+        },
+        {
+          parentCapability: 'endowment:permitted-chains',
+          caveats: [{ type: 'restrictNetworkSwitching', value: grantedChains }],
+        },
+      ];
 
       const ethereum = {
         isMetaMask: true,
@@ -58,16 +91,62 @@ export async function installWallet(
           if (method === 'wallet_switchEthereumChain') {
             const target = (params?.[0] as { chainId?: string } | undefined)?.chainId;
             if (target) {
+              if (!installedChains.has(target) && target !== chainId) {
+                throw Object.assign(new Error('The network has not been added.'), { code: 4902 });
+              }
+              if (!grantedChains.includes(target)) requestedChains.add(target);
               chainId = target;
               emit('chainChanged', chainId);
             }
             return null;
           }
-          if (method === 'wallet_addEthereumChain') return null;
-          if (method === 'wallet_getPermissions') return [{ parentCapability: 'eth_accounts' }];
+          if (method === 'wallet_addEthereumChain') {
+            const target = (params?.[0] as { chainId: string }).chainId;
+            walletRequests.push({ method, chainId: Number.parseInt(target, 16) });
+            installedChains.add(target);
+            requestedChains.add(target);
+            chainId = target;
+            emit('chainChanged', chainId);
+            return null;
+          }
+          if (method === 'wallet_getPermissions') return permissions();
+          if (method === 'wallet_requestPermissions' && requestedChains.size > 0) {
+            walletRequests.push({ method, chainId: Number.parseInt(chainId, 16) });
+            grantedChains = omitLasna
+              ? [unichainId]
+              : [unichainId, lasnaId].filter(
+                  (id) => grantedChains.includes(id) || requestedChains.has(id),
+                );
+            omitLasna = false;
+            return permissions();
+          }
+          if (method === 'wallet_requestPermissions' && typedSignatureDenied) {
+            accessBlocked = false;
+            return [{ parentCapability: 'eth_accounts' }];
+          }
+          if (
+            method === 'eth_sendTransaction' &&
+            requestedChains.has(chainId) &&
+            !grantedChains.includes(chainId)
+          ) {
+            throw Object.assign(new Error('The requested account has not been authorized.'), {
+              code: 4100,
+            });
+          }
+          if (method === 'eth_signTypedData_v4' && accessBlocked) {
+            typedSignatureDenied = true;
+            throw Object.assign(new Error('The requested account has not been authorized.'), {
+              code: 4100,
+            });
+          }
 
           const args = [...(params ?? [])];
           if (method === 'eth_sendTransaction' && args[0]) {
+            const call = args[0] as { data?: string };
+            if (callToReject && call.data?.startsWith(callToReject)) {
+              callToReject = undefined;
+              throw Object.assign(new Error('User rejected the request.'), { code: 4001 });
+            }
             args[0] = { ...(args[0] as Record<string, unknown>), from: user };
           }
           if (method === 'eth_signTypedData_v4' && typeof args[1] === 'string') {
@@ -104,7 +183,22 @@ export async function installWallet(
 
       Object.defineProperty(window, 'ethereum', { value: ethereum, configurable: true });
     },
-    { user, rpc: ANVIL_RPC_URL, initialChainId },
+    {
+      user,
+      rpc: ANVIL_RPC_URL,
+      initialChainId,
+      lasnaId: numberToHex(LASNA_CHAIN_ID),
+      unichainId: numberToHex(UNICHAIN_SEPOLIA_CHAIN_ID),
+      installedTestnets: (
+        options.installedTestnets ??
+        options.approvedTestnets ??
+        SUPPORTED_CHAIN_IDS
+      ).map((id) => numberToHex(id)),
+      approvedTestnets: (options.approvedTestnets ?? SUPPORTED_CHAIN_IDS).map((id) =>
+        numberToHex(id),
+      ),
+      options,
+    },
   );
 }
 
@@ -125,11 +219,4 @@ export async function approveSignature(
   const prompt = await review.elementHandle();
   await review.getByRole('button', { name: 'Continue to wallet' }).click();
   await prompt.waitForElementState('hidden', { timeout: 60_000 });
-}
-
-export async function approveSetup(page: Page) {
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
-  await approveSignature(page, 'Unichain Sepolia');
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
 }

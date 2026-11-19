@@ -15,6 +15,7 @@ import { useChainGuard } from '../hooks/useChainGuard.js';
 import { DEMO_USDC, LASNA_CONFIG, UNICHAIN_CONFIG } from '../lib/contracts.js';
 import { costModel } from '../lib/costModel.js';
 import { appRoutes } from '../lib/routes.js';
+import { testnetTokens } from '../lib/testnetTokens.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import { ErrorState } from './ErrorState.js';
 import { TxLink } from './TxLink.js';
@@ -28,36 +29,13 @@ export function TestnetFaucets() {
         and test USDC if your rule will buy or transfer.
       </p>
       <ul className="flex flex-wrap gap-2">
-        <li>
-          <a
-            className="app-button"
-            href="https://dev.reactive.network/reactive-mainnet#reactive-faucet"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Get Lasna REACT
-          </a>
-        </li>
-        <li>
-          <a
-            className="app-button"
-            href="https://console.optimism.io/faucet"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Get Unichain Sepolia ETH
-          </a>
-        </li>
-        <li>
-          <a
-            className="app-button"
-            href="https://faucet.circle.com/"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Get Unichain Sepolia USDC
-          </a>
-        </li>
+        {Object.values(testnetTokens).map(({ symbol, faucet, linkLabel }) => (
+          <li key={symbol}>
+            <a className="app-button" href={faucet} target="_blank" rel="noreferrer">
+              {linkLabel}
+            </a>
+          </li>
+        ))}
       </ul>
     </div>
   );
@@ -312,7 +290,10 @@ export function AccountFunding({
               inputMode="decimal"
               value={amount}
               disabled={deposit.isPending}
-              onChange={(event) => setAmount(event.target.value)}
+              onChange={(event) => {
+                setChoice(choice);
+                setAmount(event.target.value);
+              }}
             />
           </label>
         </div>

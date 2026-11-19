@@ -37,7 +37,7 @@ export const CHAIN_CONFIGS: ReadonlyMap<number, ChainConfig> = new Map([
       name: 'Reactive Lasna',
       role: 'automation',
       rpcUrl: 'https://lasna-rpc.rnk.dev/',
-      explorerUrl: 'https://reactscan.net',
+      explorerUrl: 'https://lasna.reactscan.net',
       isOrigin: true,
       isDestination: false,
       router: '0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF',

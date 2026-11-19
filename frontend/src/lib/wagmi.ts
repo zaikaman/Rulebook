@@ -1,36 +1,36 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
+import {
+  getChain,
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+} from '@rulebook/shared';
 import { createConfig, http } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
 import { createPublicClient, defineChain, type Hex } from 'viem';
 
+const lasna = getChain(LASNA_CHAIN_ID);
+const unichain = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+
 export const lasnaChain = defineChain({
-  id: LASNA_CHAIN_ID,
-  name: 'Reactive Lasna',
-  nativeCurrency: { name: 'Lasna REACT', symbol: 'REACT', decimals: 18 },
-  rpcUrls: {
-    default: {
-      http: [import.meta.env.VITE_LASNA_RPC_URL ?? 'https://lasna-rpc.rnk.dev/'],
-    },
-  },
-  blockExplorers: { default: { name: 'ReactsScan', url: 'https://reactscan.net' } },
+  id: lasna.chainId,
+  name: lasna.name,
+  nativeCurrency: { name: 'Lasna REACT', symbol: 'lREACT', decimals: 18 },
+  rpcUrls: { default: { http: [lasna.rpcUrl] } },
+  blockExplorers: { default: { name: 'Reactscan', url: lasna.explorerUrl } },
   testnet: true,
 });
 
 export const unichainSepoliaChain = defineChain({
-  id: UNICHAIN_SEPOLIA_CHAIN_ID,
-  name: 'Unichain Sepolia',
+  id: unichain.chainId,
+  name: unichain.name,
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: {
-    default: {
-      http: [import.meta.env.VITE_UNICHAIN_RPC_URL ?? 'https://sepolia.unichain.org'],
-    },
-  },
-  blockExplorers: { default: { name: 'Uniscan', url: 'https://sepolia.uniscan.xyz' } },
+  rpcUrls: { default: { http: [unichain.rpcUrl] } },
+  blockExplorers: { default: { name: 'Uniscan', url: unichain.explorerUrl } },
   testnet: true,
 });
 
-const lasnaRpcUrl = import.meta.env.VITE_LASNA_RPC_URL ?? 'https://lasna-rpc.rnk.dev/';
-const unichainRpcUrl = import.meta.env.VITE_UNICHAIN_RPC_URL ?? 'https://sepolia.unichain.org';
+const lasnaRpcUrl = import.meta.env.VITE_LASNA_RPC_URL ?? lasna.rpcUrl;
+const unichainRpcUrl = import.meta.env.VITE_UNICHAIN_RPC_URL ?? unichain.rpcUrl;
 
 /** Read-only clients used for setup-state and balance reads; they never sign. */
 export const lasnaPublicClient = createPublicClient({

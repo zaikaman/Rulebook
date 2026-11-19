@@ -10,7 +10,7 @@ import sharedBrief from '@/assets/landing/shared-brief.webp';
 import type { LandingImage } from './screens/cover-photo.js';
 
 export const landingImages = {
-  heroLaptop: { src: heroLaptop, width: 1400, height: 875 },
+  heroLaptop: { src: heroLaptop, width: 1586, height: 992 },
   executionPhone: { src: emailPhone, width: 1448, height: 1086 },
   assemble: { src: tileImport, width: 960, height: 960 },
   condition: { src: tileIntent, width: 960, height: 960 },

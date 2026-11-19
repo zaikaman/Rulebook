@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { approveSetup, approveSignature, installWallet } from './wallet.js';
+import { approveSignature, installWallet } from './wallet.js';
 
 // A fourth anvil account, so this story owns its own Agent even when every spec shares the
 // fixture backend. The rule it clones belongs to the seeded team catalog, never to this wallet.
@@ -16,12 +16,11 @@ test('clones a team listing into the cloner’s own account with its own limits'
 
   // A clone needs an Agent and a Vault, so finish onboarding first.
   await page.goto('/account');
-  await page.getByRole('button', { name: 'Connect wallet' }).click();
-  await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible({
+  await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible({
     timeout: 15_000,
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await approveSetup(page);
 
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })

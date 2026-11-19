@@ -19,9 +19,9 @@ import { TemplatePicker } from '../composer/TemplatePicker.js';
 import { composerReducer, initialComposerState, toReadyDraft } from '../composer/reducer.js';
 import { slotIssues } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
+import { AppShell } from '../components/AppShell.js';
 import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
-import { ErrorState } from '../components/ErrorState.js';
 import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
 import { useAccountSetup } from '../hooks/useAccountSetup.js';
@@ -192,35 +192,32 @@ export function Create() {
   const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
   const { agent, vault, linked } = setup.data ?? {};
 
-  return (
-    <section className="app-page">
-      <PageHeading
-        title="Compose a rule"
-        description="Fill in a sentence to tell Rulebook what to do and when."
-        breadcrumb={
-          <>
-            <Link to={appRoutes.rules}>Rules</Link>
-            <HugeiconsIcon icon={ArrowRight02Icon} size={12} aria-hidden="true" />
-            <span aria-current="page">Composer</span>
-          </>
-        }
-      />
-      {agent && vault && linked ? (
-        <FirstRule agent={agent} vault={vault} />
-      ) : setup.isLoading ? (
-        <div className="app-skeleton h-32 animate-pulse" role="status">
-          <span className="sr-only">Looking for your automation account…</span>
-        </div>
-      ) : setup.error ? (
-        <ErrorState
-          message="Your automation account could not be loaded."
-          detail={setup.error.message}
-          onRetry={() => void setup.refetch()}
-        />
-      ) : (
+  if (!agent || !vault || !linked) {
+    return (
+      <AppShell focused>
         <CreateAccount setup={setup} />
-      )}
-    </section>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell>
+      <section className="app-page">
+        <PageHeading
+          title="Compose a rule"
+          description="Fill in a sentence to tell Rulebook what to do and when."
+          focusOnMount={setup.resuming || setup.setupSucceeded}
+          breadcrumb={
+            <>
+              <Link to={appRoutes.rules}>Rules</Link>
+              <HugeiconsIcon icon={ArrowRight02Icon} size={12} aria-hidden="true" />
+              <span aria-current="page">Composer</span>
+            </>
+          }
+        />
+        <FirstRule agent={agent} vault={vault} />
+      </section>
+    </AppShell>
   );
 }
 
@@ -234,26 +231,29 @@ function FirstRule({ agent, vault }: { agent: Address; vault: Address }) {
   const credits = useExecutionCredit(agent, vault);
   const [showFunding, setShowFunding] = useState(false);
   const first = rules.data?.length === 0;
-  const suggested = !credits.watching.data
-    ? 'watching'
-    : !credits.execution.data
-      ? 'execution'
-      : 'vault';
+  const needsMonitoring = credits.watching.data === 0n;
+  const needsExecution = credits.execution.data === 0n;
+  const suggested =
+    credits.watching.data === undefined || needsMonitoring
+      ? 'watching'
+      : credits.execution.data === undefined || needsExecution
+        ? 'execution'
+        : 'vault';
   return (
     <>
       {first && (
         <div className="app-panel app-panel-pad space-y-3">
           <h2 className="app-panel-heading">Before your first rule runs</h2>
           <p className="app-copy">
-            Fund monitoring on Lasna and execution on Unichain Sepolia. Add USDC to your vault for
-            rules that spend USDC.
+            You can compose a rule now and fund it when you’re ready to run it.
           </p>
-          {credits.watching.data === 0n && (
-            <p className="app-copy">Add REACT to start monitoring your rules.</p>
+          {(needsMonitoring || needsExecution) && (
+            <ul className="list-disc space-y-1 pl-5 app-copy">
+              {needsMonitoring && <li>Add REACT on Reactive Lasna to monitor rules.</li>}
+              {needsExecution && <li>Add ETH on Unichain Sepolia to run trades and transfers.</li>}
+            </ul>
           )}
-          {credits.execution.data === 0n && (
-            <p className="app-copy">Add ETH to run trades and transfers.</p>
-          )}
+          <p className="app-copy">Add test USDC to your vault if your rule spends it.</p>
           <button
             type="button"
             className="app-button"

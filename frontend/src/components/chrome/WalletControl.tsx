@@ -31,7 +31,7 @@ function walletAvatar(address: Address): CSSProperties {
   };
 }
 
-export function WalletControl() {
+export function WalletControl({ setup = false }: { setup?: boolean }) {
   const { address, chainId, connector } = useAccount();
   const connection = useConnect();
   const disconnection = useDisconnect();
@@ -76,10 +76,14 @@ export function WalletControl() {
       : 'Couldn’t connect. Unlock your wallet and try again.');
 
   return (
-    <div className="wallet-control">
+    <div className={setup ? 'wallet-control account-setup__connect' : 'wallet-control'}>
       <button
         type="button"
-        className={`wallet-trigger${address ? '' : ' wallet-trigger--connect'}`}
+        className={
+          setup && !address
+            ? 'app-button app-button--primary'
+            : `wallet-trigger${address ? '' : ' wallet-trigger--connect'}`
+        }
         aria-haspopup={quickConnect ? undefined : 'dialog'}
         popoverTarget={quickConnect ? undefined : panelId}
         disabled={!address && connecting}
@@ -107,7 +111,9 @@ export function WalletControl() {
         ) : (
           <>
             <HugeiconsIcon icon={Wallet01Icon} size={18} aria-hidden="true" />
-            <span>{connecting ? 'Connecting…' : 'Connect wallet'}</span>
+            <span>
+              {connecting ? 'Connecting…' : setup ? 'Connect wallet to start' : 'Connect wallet'}
+            </span>
           </>
         )}
         {!quickConnect && <HugeiconsIcon icon={ArrowDown01Icon} size={16} aria-hidden="true" />}

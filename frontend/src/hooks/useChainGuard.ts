@@ -1,13 +1,15 @@
 import type { Address } from '@rulebook/shared';
 import { createContext, useCallback, useContext, useEffect, useRef } from 'react';
+import type { Connector } from 'wagmi';
 
 import type { SignatureDetails } from '../lib/signatures.js';
 
 type RequestSignature = <T>(
   details: SignatureDetails,
   signer: Address | undefined,
-  sign: () => Promise<T>,
+  sign: (connector: Connector) => Promise<T>,
   signal: AbortSignal,
+  reviewedSetupConnector?: string,
 ) => Promise<T>;
 
 export const WalletReviewContext = createContext<RequestSignature | null>(null);
@@ -15,7 +17,8 @@ export const WalletReviewContext = createContext<RequestSignature | null>(null);
 export function useChainGuard(): <T>(
   details: SignatureDetails,
   signer: Address | undefined,
-  sign: () => Promise<T>,
+  sign: (connector: Connector) => Promise<T>,
+  reviewedSetupConnector?: string,
 ) => Promise<T> {
   const requestSignature = useContext(WalletReviewContext);
   const controller = useRef<AbortController>(null);
@@ -26,11 +29,17 @@ export function useChainGuard(): <T>(
   }, []);
 
   return useCallback(
-    async (details, signer, sign) => {
+    async (details, signer, sign, reviewedSetupConnector) => {
       if (!requestSignature || !controller.current) {
         throw new Error('Wallet review is unavailable.');
       }
-      return requestSignature(details, signer, sign, controller.current.signal);
+      return requestSignature(
+        details,
+        signer,
+        sign,
+        controller.current.signal,
+        reviewedSetupConnector,
+      );
     },
     [requestSignature],
   );

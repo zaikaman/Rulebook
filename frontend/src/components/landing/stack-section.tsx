@@ -6,19 +6,16 @@ const services = [
   {
     name: 'Reactive Network',
     logo: reactiveLogo,
-    logoClassName: 'h-6',
     role: 'Your automation account watches for triggers and evaluates your rules on Lasna.',
   },
   {
     name: 'Uniswap V2',
     logo: uniswapLogo,
-    logoClassName: 'h-6',
     role: 'Your vault uses Uniswap pools to read prices and make swaps.',
   },
   {
     name: 'Unichain Sepolia',
     logo: unichainLogo,
-    logoClassName: 'h-6',
     role: 'Your vault lives on this testnet, where swaps, transfers, and withdrawals settle.',
   },
 ] as const;
@@ -31,17 +28,20 @@ export function StackSection() {
       </h2>
       <ul className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] grid divide-y divide-white/10 overflow-hidden rounded-3xl border border-white/10 bg-white/[0.02] md:grid-cols-3 md:divide-x md:divide-y-0">
         {services.map((service) => (
-          <li key={service.name} className="flex flex-col gap-4 p-6">
-            <span className="flex h-12 items-center">
+          <li key={service.name} className="flex flex-col gap-3 p-6">
+            <h3 className="flex items-center gap-3 text-sm font-medium text-white">
               <img
                 src={service.logo}
-                alt={service.name}
+                alt=""
+                width={28}
+                height={28}
                 loading="lazy"
                 decoding="async"
-                className={`w-auto ${service.logoClassName}`}
+                className="size-7 shrink-0 object-contain"
               />
-            </span>
-            <p className="text-xs font-light leading-relaxed text-neutral-400">{service.role}</p>
+              {service.name}
+            </h3>
+            <p className="text-sm leading-relaxed text-neutral-400">{service.role}</p>
           </li>
         ))}
       </ul>

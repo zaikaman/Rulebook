@@ -13,6 +13,7 @@ import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { DEMO_USDC, LASNA_CONFIG, UNICHAIN_CONFIG } from '../lib/contracts.js';
 import { shortAddress } from '../lib/listings.js';
 import { CreateAccount } from './CreateAccount.js';
+import { AppShell } from '../components/AppShell.js';
 
 function displayBalance(
   value: bigint | undefined,
@@ -78,52 +79,49 @@ export function Account() {
   const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
   const { agent, vault, linked } = setup.data ?? {};
 
-  return (
-    <section className="app-page">
-      <PageHeading
-        title="Your account"
-        description="Manage your vault funds and the network fees for your rules."
-        aside={
-          address && (
-            <span className="app-tag" title={address}>
-              Owner <code>{shortAddress(address)}</code>
-            </span>
-          )
-        }
-      />
-      {agent && vault && linked ? (
-        <FundedAccount agent={agent} vault={vault} />
-      ) : setup.isLoading ? (
-        <div className="app-skeleton h-36 animate-pulse" role="status">
-          <span className="sr-only">Looking up your accounts…</span>
-        </div>
-      ) : setup.error ? (
-        <ErrorState
-          message="Your accounts could not be loaded."
-          detail={setup.error.message}
-          onRetry={() => void setup.refetch()}
-        />
-      ) : (
+  if (!agent || !vault || !linked) {
+    return (
+      <AppShell focused>
         <CreateAccount setup={setup} />
-      )}
-      <section className="app-divider space-y-3 pt-5" aria-labelledby="account-networks">
-        <h2 id="account-networks" className="app-panel-heading">
-          Why two networks?
-        </h2>
-        <p className="app-copy">
-          Reactive Lasna watches for rule triggers. Your vault on Unichain Sepolia carries out
-          trades and withdrawals.
-        </p>
-        <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-          {[LASNA_CONFIG, UNICHAIN_CONFIG].map((network) => (
-            <li key={network.chainId}>
-              <a href={network.explorerUrl} target="_blank" rel="noreferrer" className="app-link">
-                {network.name} explorer
-              </a>
-            </li>
-          ))}
-        </ul>
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell>
+      <section className="app-page">
+        <PageHeading
+          title="Your account"
+          description="Manage your vault funds and the network fees for your rules."
+          focusOnMount={setup.resuming || setup.setupSucceeded}
+          aside={
+            address && (
+              <span className="app-tag" title={address}>
+                Owner <code>{shortAddress(address)}</code>
+              </span>
+            )
+          }
+        />
+        <FundedAccount agent={agent} vault={vault} />
+        <section className="app-divider space-y-3 pt-5" aria-labelledby="account-networks">
+          <h2 id="account-networks" className="app-panel-heading">
+            Why two networks?
+          </h2>
+          <p className="app-copy">
+            Reactive Lasna watches for rule triggers. Your vault on Unichain Sepolia carries out
+            trades and withdrawals.
+          </p>
+          <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+            {[LASNA_CONFIG, UNICHAIN_CONFIG].map((network) => (
+              <li key={network.chainId}>
+                <a href={network.explorerUrl} target="_blank" rel="noreferrer" className="app-link">
+                  {network.name} explorer
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
       </section>
-    </section>
+    </AppShell>
   );
 }

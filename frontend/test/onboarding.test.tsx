@@ -4,11 +4,13 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { useAccountSetup, type SetupWallet } from '../src/hooks/useAccountSetup.js';
+import { useAccountSetup, type SetupStep, type SetupWallet } from '../src/hooks/useAccountSetup.js';
 
 const OWNER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const AGENT = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
 const VAULT = '0xcccccccccccccccccccccccccccccccccccccccc' as const;
+const connectorUid = 'reviewed-wallet';
+const allSteps: readonly SetupStep[] = ['agent', 'vault', 'link'];
 
 function makeWallet(initial: { agent?: Address; vault?: Address; link?: Address } = {}) {
   const state = { ...initial };
@@ -40,14 +42,14 @@ describe('useAccountSetup', () => {
     const wallet = makeWallet();
     const { result } = renderSetup(wallet);
 
-    act(() => result.current.resume('mirror'));
+    act(() => result.current.resume({ steps: allSteps, connectorUid, mode: 'mirror' }));
 
     await waitFor(() =>
       expect(result.current.data).toEqual({ agent: AGENT, vault: VAULT, linked: true }),
     );
-    expect(wallet.createAgent).toHaveBeenCalledWith(OWNER);
-    expect(wallet.createVault).toHaveBeenCalledWith(OWNER, AGENT, 'mirror');
-    expect(wallet.linkVault).toHaveBeenCalledWith(AGENT, VAULT, 1301);
+    expect(wallet.createAgent).toHaveBeenCalledWith(OWNER, connectorUid);
+    expect(wallet.createVault).toHaveBeenCalledWith(OWNER, AGENT, connectorUid, 'mirror');
+    expect(wallet.linkVault).toHaveBeenCalledWith(OWNER, AGENT, VAULT, 1301, connectorUid);
     expect(wallet.createAgent).toHaveBeenCalledBefore(wallet.createVault);
     expect(wallet.createVault).toHaveBeenCalledBefore(wallet.linkVault);
   });
@@ -57,16 +59,30 @@ describe('useAccountSetup', () => {
     wallet.createVault.mockRejectedValueOnce(new Error('Request rejected.'));
     const { result } = renderSetup(wallet);
 
-    act(() => result.current.resume());
+    act(() => result.current.resume({ steps: allSteps, connectorUid }));
     await waitFor(() => expect(result.current.setupError?.message).toBe('Request rejected.'));
     expect(result.current.data?.agent).toBe(AGENT);
     expect(wallet.linkVault).not.toHaveBeenCalled();
 
-    act(() => result.current.resume());
+    act(() => result.current.resume({ steps: ['vault', 'link'], connectorUid }));
     await waitFor(() => expect(result.current.data?.linked).toBe(true));
     expect(wallet.createAgent).toHaveBeenCalledTimes(1);
     expect(wallet.createVault).toHaveBeenCalledTimes(2);
     expect(wallet.linkVault).toHaveBeenCalledTimes(1);
+  });
+
+  it('requests a fresh review if the wallet needs a step that was absent from the review', async () => {
+    const wallet = makeWallet({ agent: AGENT });
+    const { result } = renderSetup(wallet);
+    await waitFor(() => expect(result.current.data?.agent).toBe(AGENT));
+    wallet.getAgent.mockResolvedValue(null);
+
+    act(() => result.current.resume({ steps: ['vault', 'link'], connectorUid }));
+
+    await waitFor(() => expect(result.current.setupError?.message).toMatch(/steps changed/));
+    expect(wallet.createAgent).not.toHaveBeenCalled();
+    expect(wallet.createVault).not.toHaveBeenCalled();
+    expect(wallet.linkVault).not.toHaveBeenCalled();
   });
 
   it('opens a completed account without requesting another signature', async () => {

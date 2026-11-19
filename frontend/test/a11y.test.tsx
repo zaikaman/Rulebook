@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { AxeResults } from 'axe-core';
 
 import { FIXTURE_API_URL } from '../e2e/fixtureConfig.js';
-import { approveSetup, installWallet } from '../e2e/wallet.js';
+import { installWallet } from '../e2e/wallet.js';
 
 const require = createRequire(import.meta.url);
 const axeScript = require.resolve('axe-core/axe.min.js');
@@ -35,11 +35,11 @@ test('audits the public and workspace routes', async ({ page }) => {
   for (const [path, heading] of [
     ['/', 'Automate trades, transfers, and alerts'],
     ['/rules', 'Your rules'],
-    ['/create', 'Compose a rule'],
+    ['/create', 'Connect your wallet'],
     ['/proof', 'Execution proof'],
     ['/marketplace', 'Marketplace'],
     ['/leaderboard', 'Automation leaderboard'],
-    ['/account', 'Your account'],
+    ['/account', 'Connect your wallet'],
     ['/cost', 'Cost & custody model'],
   ] as const) {
     await test.step(path, async () => {
@@ -77,9 +77,11 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   test.setTimeout(150_000);
   await installWallet(page, owner);
   await page.goto('/account');
-  await page.getByRole('button', { name: 'Connect wallet' }).click();
-  await page.getByRole('button', { name: 'Create my account' }).click();
-  await approveSetup(page);
+  await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  const startSetup = page.getByRole('button', { name: 'Create my account' });
+  await expect(startSetup).toBeEnabled();
+  await audit(page);
+  await startSetup.click();
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })
     .locator('a[href*="/address/"]')
