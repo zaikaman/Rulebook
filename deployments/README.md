@@ -19,5 +19,10 @@ receipts in Foundry’s `contracts/broadcast/` directory. Keep the existing reco
 the confirmed transaction hash, block, timestamp and exact source commit for each new address.
 Keep private keys and credential-bearing RPC URLs outside these files.
 
+The `rule-execution-v2` validation deployment was built from the working tree on `main`.
+The records include the parent revision and hashes of the confirmed contract creation input
+and deployed runtime. An Agent created by the new factory is a clone of its fixed implementation.
+See the [validation receipts and migration steps](../docs/runbooks/rule-execution-v2.md).
+
 - [Reactive Lasna](./lasna.json)
 - [Unichain Sepolia](./unichain-sepolia.json)

@@ -13,7 +13,7 @@ it('renders the DCA schedule and exact amount in the token that pays for the pur
       chainId,
       slots: { schedule: '86400', amount_in: '10000001', token_in: usdc, token_out: weth },
     }),
-  ).toBe('Every day, buy 10.000001 USDC worth of WETH.');
+  ).toBe('Every day, spend 10.000001 USDC to buy WETH.');
 });
 
 it('keeps base units and the full address when the payment token is unknown', () => {
@@ -24,5 +24,5 @@ it('keeps base units and the full address when the payment token is unknown', ()
       chainId,
       slots: { schedule: '5400', amount_in: '10000000', token_in: token, token_out: weth },
     }),
-  ).toBe(`Every 90 minutes, buy 10000000 base units of WETH using ${token}.`);
+  ).toBe(`Every 90 minutes, spend 10000000 base units of ${token} to buy WETH.`);
 });

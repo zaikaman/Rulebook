@@ -10,6 +10,7 @@ type RequestSignature = <T>(
   sign: (connector: Connector) => Promise<T>,
   signal: AbortSignal,
   reviewedSetupConnector?: string,
+  beforeSign?: () => Promise<void>,
 ) => Promise<T>;
 
 export const WalletReviewContext = createContext<RequestSignature | null>(null);
@@ -19,6 +20,7 @@ export function useChainGuard(): <T>(
   signer: Address | undefined,
   sign: (connector: Connector) => Promise<T>,
   reviewedSetupConnector?: string,
+  beforeSign?: () => Promise<void>,
 ) => Promise<T> {
   const requestSignature = useContext(WalletReviewContext);
   const controller = useRef<AbortController>(null);
@@ -29,7 +31,7 @@ export function useChainGuard(): <T>(
   }, []);
 
   return useCallback(
-    async (details, signer, sign, reviewedSetupConnector) => {
+    async (details, signer, sign, reviewedSetupConnector, beforeSign) => {
       if (!requestSignature || !controller.current) {
         throw new Error('Wallet review is unavailable.');
       }
@@ -39,6 +41,7 @@ export function useChainGuard(): <T>(
         sign,
         controller.current.signal,
         reviewedSetupConnector,
+        beforeSign,
       );
     },
     [requestSignature],

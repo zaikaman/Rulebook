@@ -12,6 +12,8 @@ import {IRuleRegistry} from "../registry/IRuleRegistry.sol";
 import {CallbackPayload, ExecutionPayload, MirrorPayload} from "../shared/CallbackPayload.sol";
 import {CallbackConfiguration, IReactiveSystem} from "../shared/ReactiveTypes.sol";
 import {
+    AgentNotLinked,
+    CooldownActive,
     ExceedsPerRunCap,
     InvalidAmount,
     InvalidSecondary,
@@ -62,6 +64,7 @@ contract Agent is Ownable {
         uint256 chainId;
         address source;
         uint256 topic0;
+        uint256 topic1;
         uint256 topic2;
     }
 
@@ -73,6 +76,7 @@ contract Agent is Ownable {
     event RulePaused(address indexed agent, uint256 indexed ruleId, bool paused);
     /// @notice Emitted when a rule is cancelled.
     event RuleCancelled(address indexed agent, uint256 indexed ruleId);
+    event RuleLatchChanged(uint256 indexed ruleId, bool latched);
     /// @notice Emitted for every rule evaluated by `react()`, fired or not.
     event RuleEvaluated(
         uint256 indexed ruleId,
@@ -108,8 +112,9 @@ contract Agent is Ownable {
 
     /// @notice Topic0 of a Uniswap V2 pair's `Sync` event.
     bytes32 internal constant SYNC_TOPIC = keccak256("Sync(uint112,uint112)");
-    /// @notice Topic0 of the Cron10000 tick the price/schedule templates listen to.
-    bytes32 internal constant CRON_TOPIC = keccak256("Cron10000()");
+    bytes32 internal constant HOURLY_CRON_TOPIC = keccak256("Cron100(uint256)");
+    bytes32 internal constant DAILY_CRON_TOPIC = keccak256("Cron10000(uint256)");
+    bytes32 private constant GRID_SETTLED_TOPIC = keccak256("GridSettled(uint256,uint32)");
     /// @notice Topic0 of an ERC20 `Transfer`.
     bytes32 internal constant TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
     /// @notice Topic0 of the Vault's `Balances` event.
@@ -117,8 +122,6 @@ contract Agent is Ownable {
         keccak256("Balances(address,uint256,address,uint256)");
     bytes32 internal constant EXECUTED_TOPIC =
         keccak256("Executed(uint256,address,address,uint256,uint256,uint256)");
-    /// @notice Subscription key shared by every cron-gated rule in one account.
-    bytes32 internal constant CRON_KEY = keccak256("rulebook.topic.cron10000");
 
     /// @notice Hard ceiling for one rule's spend per run (FR-015, FR-027). The Vault's own
     /// `maxSpendPerRun` is the funds-side ceiling; the Agent cannot read it across chains, so
@@ -139,15 +142,15 @@ contract Agent is Ownable {
     /// @notice Rolling accounting window for the per-user monthly execution cap.
     uint64 public constant MONTHLY_WINDOW = 30 days;
 
-    /// @notice Callback gas requested for a swap: the Vault quotes, swaps and emits (≥ 400k).
-    uint64 public constant SWAP_CALLBACK_GAS = 400_000;
+    /// @notice Callback gas requested for a swap, including proxy overhead.
+    uint64 public constant SWAP_CALLBACK_GAS = 500_000;
     /// @notice Mirror swaps also check provenance, replay protection and the received amount.
-    uint64 public constant MIRROR_CALLBACK_GAS = 600_000;
-    /// @notice Callback gas requested for a transfer: one `transfer` plus the events (≥ 150k).
-    uint64 public constant TRANSFER_CALLBACK_GAS = 150_000;
-    /// @notice Tolerance baked into a swap's decision-time output floor. The Vault quotes from
-    /// live reserves at execution; this floor only catches a large move in between (T174).
+    uint64 public constant MIRROR_CALLBACK_GAS = 750_000;
+    /// @notice Callback gas requested for a transfer or pull, including proxy overhead.
+    uint64 public constant TRANSFER_CALLBACK_GAS = 300_000;
+    /// @notice Tolerance baked into a mirror's decision-time output floor.
     uint256 public constant DECISION_SLIPPAGE_BPS = 200;
+    uint64 private constant EXECUTION_LIFETIME = 10 minutes;
     /// @notice Default cron interval used when a stored schedule is zero, so a malformed rule
     /// cannot make the Agent run on every tick.
     uint256 public constant DEFAULT_SCHEDULE = 1 days;
@@ -174,12 +177,19 @@ contract Agent is Ownable {
 
     mapping(uint256 => RuleLib.Rule) private _rules;
     uint256[] private _order;
+    uint256[] private _activeOrder;
+    mapping(uint256 => uint256) private _position;
+    mapping(uint256 => uint256) private _nextDue;
+    mapping(uint256 => bytes32) private _lastDipObservation;
+    mapping(bytes32 => uint256) private _latestCronBlock;
     mapping(uint256 => address) private _vaults;
     mapping(address => uint256) private _cachedPrice;
     mapping(address => uint64) private _cachedPriceAt;
     mapping(address => uint256) private _cachedPriceBlock;
+    mapping(address => uint256) private _cachedPriceIndex;
     mapping(address => uint256) private _previousPrice;
     mapping(uint256 => uint256) private _highWater;
+    mapping(uint256 => uint256) private _pendingGridPrice;
     mapping(bytes32 => uint256) private _topicRefCount;
     mapping(uint256 => Subscription[2]) private _ruleSubscriptions;
     mapping(uint256 => MirrorConfig) private _mirrors;
@@ -197,8 +207,24 @@ contract Agent is Ownable {
         lastActivity = uint64(block.timestamp);
     }
 
+    /// @notice Initializes a factory clone in the same transaction that deploys it.
+    function initialize(address owner_) external {
+        if (msg.sender != factory || owner_ == address(0) || owner() != address(0)) {
+            revert InvalidTemplateParams();
+        }
+        _transferOwnership(owner_);
+        lastActivity = uint64(block.timestamp);
+    }
+
+    function _transferOwnership(address newOwner) internal override {
+        // The directory and linked vault bind this instance to its original owner.
+        if (owner() != address(0)) revert InvalidTemplateParams();
+        super._transferOwnership(newOwner);
+    }
+
     modifier onlyAgentOwner() {
         if (msg.sender != owner()) revert NotOwner();
+        lastActivity = uint64(block.timestamp);
         _;
     }
 
@@ -217,6 +243,15 @@ contract Agent is Ownable {
             revert RuleLimitReached(activeRules, RuleLib.MAX_ACTIVE_RULES);
         }
         RuleLib.validate(rule);
+        if (
+            (rule.template == 6 || rule.template == 8 || rule.template == 9 || rule.template == 13)
+                && _vaults[rule.chainId] == address(0)
+        ) {
+            revert AgentNotLinked();
+        }
+        if (RuleLib.isExpiryTemplate(rule.template) && rule.secondary <= block.timestamp) {
+            revert InvalidSecondary();
+        }
         if (rule.amountIn > MAX_SPEND_PER_RUN) {
             revert ExceedsPerRunCap(rule.amountIn, MAX_SPEND_PER_RUN);
         }
@@ -229,7 +264,9 @@ contract Agent is Ownable {
 
         ruleId = nextRuleId++;
         _rules[ruleId] = stored;
+        _position[ruleId] = _order.length;
         _order.push(ruleId);
+        _activeOrder.push(ruleId);
         activeRules += 1;
         lastActivity = uint64(block.timestamp);
 
@@ -248,21 +285,25 @@ contract Agent is Ownable {
         if (!_isActive(rule)) revert RuleNotActive(ruleId);
         rule.flags &= ~RuleLib.FLAG_ACTIVE;
         activeRules -= 1;
+        _removeActive(ruleId);
         _releaseMonthlyBudget(rule.amountIn);
-        _releaseSubscriptions(ruleId);
+        _releaseSubscriptions(ruleId, _pendingGridPrice[ruleId] != 0);
         emit RulePaused(address(this), ruleId, true);
     }
 
     /// @notice Resumes a paused rule and re-acquires its subscriptions.
     function resumeRule(uint256 ruleId) external onlyAgentOwner {
         RuleLib.Rule storage rule = _rules[ruleId];
-        if (_isCancelled(rule) || _isActive(rule)) revert RuleNotActive(ruleId);
+        if (ruleId >= nextRuleId || _isCancelled(rule) || _isActive(rule)) {
+            revert RuleNotActive(ruleId);
+        }
         if (activeRules >= RuleLib.MAX_ACTIVE_RULES) {
             revert RuleLimitReached(activeRules, RuleLib.MAX_ACTIVE_RULES);
         }
         _reserveMonthlyBudget(rule.amountIn);
         rule.flags |= RuleLib.FLAG_ACTIVE;
         activeRules += 1;
+        _insertActive(ruleId);
         _acquireSubscriptions(ruleId, rule);
         emit RulePaused(address(this), ruleId, false);
         _emitBudgetLowIfLow();
@@ -279,9 +320,11 @@ contract Agent is Ownable {
         if (ruleId >= nextRuleId || _isCancelled(rule)) revert RuleNotActive(ruleId);
         if (_isActive(rule)) {
             activeRules -= 1;
+            _removeActive(ruleId);
             _releaseMonthlyBudget(rule.amountIn);
         }
-        _releaseSubscriptions(ruleId);
+        _releaseSubscriptions(ruleId, false);
+        delete _pendingGridPrice[ruleId];
         MirrorConfig storage mirror = _mirrors[ruleId];
         if (mirror.leaderVault != address(0)) {
             delete _attachedMirrorSources[_mirrorSource(mirror.leaderVault, mirror.leaderRuleId)];
@@ -296,20 +339,53 @@ contract Agent is Ownable {
     /// @notice Clears the latched flag so a fired non-cron rule can fire again.
     function resetRule(uint256 ruleId) external onlyAgentOwner {
         RuleLib.Rule storage rule = _rules[ruleId];
-        if (_isCancelled(rule)) revert RuleNotActive(ruleId);
-        rule.flags &= ~RuleLib.FLAG_LATCHED;
+        if (ruleId >= nextRuleId || _isCancelled(rule)) revert RuleNotActive(ruleId);
+        if ((rule.flags & RuleLib.FLAG_LATCHED) == 0) return;
+        if (!RuleLib.isAlertTemplate(rule.template)) {
+            uint64 readyAt = rule.lastRun + EXECUTION_LIFETIME + 1;
+            if (block.timestamp < readyAt) revert CooldownActive(ruleId, readyAt);
+        }
+        if (_pendingGridPrice[ruleId] != 0 && !_isActive(rule)) {
+            _releaseSubscriptions(ruleId, false);
+        }
+        delete _pendingGridPrice[ruleId];
+        _setLatch(ruleId, rule, false);
     }
 
     /// @notice Replaces the evaluation order with a full permutation of the account's rule ids.
     function reorderRules(uint256[] calldata ids) external onlyAgentOwner {
         if (ids.length != _order.length) revert InvalidTemplateParams();
         bool[] memory seen = new bool[](nextRuleId);
+        delete _activeOrder;
         for (uint256 i = 0; i < ids.length; ++i) {
             uint256 id = ids[i];
             if (id >= nextRuleId || seen[id]) revert InvalidTemplateParams();
             seen[id] = true;
+            _position[id] = i;
+            if (_isActive(_rules[id])) _activeOrder.push(id);
         }
         _order = ids;
+    }
+
+    function _removeActive(uint256 ruleId) private {
+        uint256 last = _activeOrder.length - 1;
+        uint256 index;
+        while (_activeOrder[index] != ruleId) ++index;
+        for (; index < last; ++index) {
+            _activeOrder[index] = _activeOrder[index + 1];
+        }
+        _activeOrder.pop();
+    }
+
+    function _insertActive(uint256 ruleId) private {
+        uint256 index = _activeOrder.length;
+        _activeOrder.push(ruleId);
+        uint256 position = _position[ruleId];
+        while (index > 0 && _position[_activeOrder[index - 1]] > position) {
+            _activeOrder[index] = _activeOrder[index - 1];
+            --index;
+        }
+        _activeOrder[index] = ruleId;
     }
 
     /// @notice Links this account to its funds-side vault on `chainId`.
@@ -355,7 +431,9 @@ contract Agent is Ownable {
         source.runs = 0;
         _rules[ruleId] = source;
         nextRuleId++;
+        _position[ruleId] = _order.length;
         _order.push(ruleId);
+        _activeOrder.push(ruleId);
         activeRules++;
         lastActivity = uint64(block.timestamp);
         _acquireSubscriptions(ruleId, source);
@@ -420,13 +498,25 @@ contract Agent is Ownable {
     function react(IReactive.LogRecord calldata log) external {
         if (msg.sender != address(systemContract)) revert NotServiceProvider();
 
-        _observe(log);
+        if (log.chain_id == ChainConfig.LASNA && log._contract == ChainConfig.lasna().cronSource) {
+            bytes32 topic = bytes32(log.topic_0);
+            if (log.topic_1 != log.block_number || log.block_number <= _latestCronBlock[topic]) {
+                return;
+            }
+            _latestCronBlock[topic] = log.block_number;
+        }
+        if (bytes32(log.topic_0) == GRID_SETTLED_TOPIC) {
+            _settleGrid(log);
+            return;
+        }
+
+        bool freshPrice = _observe(log);
         _rollMonthlyWindow();
         uint256 startGas = gasleft();
-        uint256 length = _order.length;
+        uint256 length = _activeOrder.length;
         bool deferring;
         for (uint256 i = 0; i < length; ++i) {
-            uint256 ruleId = _order[i];
+            uint256 ruleId = _activeOrder[i];
             RuleLib.Rule storage rule = _rules[ruleId];
             bool mirror = (rule.flags & RuleLib.FLAG_MIRRORED) != 0;
             if (deferring || _mustDefer(startGas, mirror)) {
@@ -434,10 +524,11 @@ contract Agent is Ownable {
                 emit EvaluationDeferred(ruleId, gasleft());
                 continue;
             }
-            bool fired =
-                mirror ? _reactToMirror(ruleId, rule, log) : _evaluatesTrue(ruleId, rule, log);
+            bool fired = mirror
+                ? _reactToMirror(ruleId, rule, log)
+                : _evaluatesTrue(ruleId, rule, log, freshPrice);
             if (fired && !mirror) {
-                _recordExecution(rule);
+                _recordExecution(ruleId, rule);
                 if (RuleLib.isAlertTemplate(rule.template)) {
                     emit AlertRaised(ruleId, rule.template, _observedValue(rule, log));
                 } else {
@@ -448,6 +539,20 @@ contract Agent is Ownable {
                 ruleId, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), fired
             );
         }
+    }
+
+    function _settleGrid(IReactive.LogRecord calldata log) private {
+        uint256 ruleId = log.topic_1;
+        RuleLib.Rule storage rule = _rules[ruleId];
+        uint256 price = _pendingGridPrice[ruleId];
+        if (
+            price == 0 || _isCancelled(rule) || log.chain_id != rule.chainId
+                || log._contract != _vaults[rule.chainId] || log.topic_2 != rule.runs
+        ) return;
+        _highWater[ruleId] = price;
+        delete _pendingGridPrice[ruleId];
+        _setLatch(ruleId, rule, false);
+        if (!_isActive(rule)) _releaseSubscriptions(ruleId, false);
     }
 
     /// @dev Ignores every event except a matching leader swap and consumes the delivery once.
@@ -614,22 +719,30 @@ contract Agent is Ownable {
     function _evaluatesTrue(
         uint256 ruleId,
         RuleLib.Rule storage rule,
-        IReactive.LogRecord calldata log
+        IReactive.LogRecord calldata log,
+        bool freshPrice
     ) private returns (bool) {
-        if (!_isActive(rule) || (rule.flags & RuleLib.FLAG_LATCHED) != 0) return false;
+        if (!_isActive(rule) || (rule.flags & RuleLib.FLAG_LATCHED) != 0) {
+            return false;
+        }
         uint8 template = rule.template;
+        if (!RuleLib.isAlertTemplate(template) && _vaults[rule.chainId] == address(0)) {
+            return false;
+        }
+        if (rule.amountIn > MONTHLY_SPEND_CAP - monthlySpent) return false;
 
         if (RuleLib.isCronTemplate(template)) {
-            if (!_isCronTick(rule, log) || !_cronDue(rule)) return false;
+            if (!_isCronTick(rule, log) || block.timestamp < _nextDue[ruleId]) return false;
             if (template == 1 || template == 7) return true;
-            if (template == 2) return _dipped(rule);
+            if (template == 2) return _dipped(ruleId, rule);
             return _inactivityReached(rule);
         }
 
+        if (log.chain_id != rule.chainId) return false;
         if (template == 8 || template == 13) return _incomingTransferHits(rule, log);
         if (template == 9) return _balanceBelowFloor(rule, log);
 
-        if (!_isSyncFor(log, rule.pair)) return false;
+        if (!freshPrice || log._contract != rule.pair) return false;
         uint256 price = _cachedPrice[rule.pair];
         if (price == 0) return false;
 
@@ -643,11 +756,17 @@ contract Agent is Ownable {
     }
 
     /// @dev Dip boost: the last traded price is at least `secondary` below the prior observation.
-    function _dipped(RuleLib.Rule storage rule) private view returns (bool) {
+    function _dipped(uint256 ruleId, RuleLib.Rule storage rule) private view returns (bool) {
         uint256 previous = _previousPrice[rule.pair];
         uint256 price = _cachedPrice[rule.pair];
         if (previous == 0 || price == 0) return false;
+        if (_lastDipObservation[ruleId] == _observationKey(rule.pair)) return false;
+        if (block.timestamp - _cachedPriceAt[rule.pair] > _schedule(rule)) return false;
         return price * 10_000 <= previous * (10_000 - rule.secondary);
+    }
+
+    function _observationKey(address pair) private view returns (bytes32) {
+        return keccak256(abi.encode(_cachedPriceBlock[pair], _cachedPriceIndex[pair]));
     }
 
     /// @dev Stop loss, optionally trailing `secondary` bps below the highest observed price.
@@ -672,16 +791,12 @@ contract Agent is Ownable {
     /// moves the reference to the observed price.
     function _gridMoved(uint256 ruleId, RuleLib.Rule storage rule, uint256 price)
         private
+        view
         returns (bool)
     {
         uint256 referencePrice = _highWater[ruleId];
         if (referencePrice == 0) referencePrice = rule.threshold;
-        uint256 moved = price >= referencePrice
-            ? ((price - referencePrice) * 10_000) / referencePrice
-            : ((referencePrice - price) * 10_000) / referencePrice;
-        if (moved < rule.secondary) return false;
-        _highWater[ruleId] = price;
-        return true;
+        return PriceMath.movedBy(price, referencePrice, rule.secondary);
     }
 
     /// @dev Dead-man switch: no owner activity for `secondary` days.
@@ -715,8 +830,8 @@ contract Agent is Ownable {
         if (log.data.length < 128) return false;
         (address token0, uint256 balance0, address token1, uint256 balance1) =
             abi.decode(log.data, (address, uint256, address, uint256));
-        uint256 balance = token0 == rule.tokenIn ? balance0 : token1 == rule.tokenIn ? balance1 : 0;
-        return balance < rule.threshold;
+        if (token0 == rule.tokenIn) return balance0 < rule.threshold;
+        return token1 == rule.tokenIn && balance1 < rule.threshold;
     }
 
     /// @dev The value an alert reports: the observed price or the observed transfer amount.
@@ -731,60 +846,57 @@ contract Agent is Ownable {
         return _cachedPrice[rule.pair];
     }
 
-    /// @dev True when `log` is a Cron10000 tick for this rule's chain.
-    function _isCronTick(RuleLib.Rule storage rule, IReactive.LogRecord calldata log)
-        private
-        view
-        returns (bool)
-    {
-        return bytes32(log.topic_0) == CRON_TOPIC
-            && log._contract == ChainConfig.get(rule.chainId).cronSource;
-    }
-
-    /// @dev True when a `Sync` for `pair` arrived on this observation.
-    function _isSyncFor(IReactive.LogRecord calldata log, address pair)
+    /// @dev Scheduled rules subscribe on Lasna, independently of their callback destination.
+    function _isCronTick(RuleLib.Rule memory rule, IReactive.LogRecord calldata log)
         private
         pure
         returns (bool)
     {
-        return bytes32(log.topic_0) == SYNC_TOPIC && log._contract == pair;
+        return log.chain_id == ChainConfig.LASNA && bytes32(log.topic_0) == _cronTopic(rule)
+            && log._contract == ChainConfig.lasna().cronSource && log.topic_1 == log.block_number;
     }
 
-    /// @dev Cron gating (T169): a tick fires at most once per stored schedule interval.
-    /// Templates 2 and 10 store the schedule in `threshold`; 1 and 7 store it in `secondary`.
-    function _cronDue(RuleLib.Rule storage rule) private view returns (bool) {
-        uint8 template = rule.template;
-        uint256 schedule = template == 2 || template == 10 ? rule.threshold : rule.secondary;
-        if (schedule == 0) schedule = DEFAULT_SCHEDULE;
-        if (rule.lastRun == 0) return true;
-        return block.timestamp >= uint256(rule.lastRun) + schedule;
+    function _cronTopic(RuleLib.Rule memory rule) private pure returns (bytes32) {
+        return _schedule(rule) < 1 days ? HOURLY_CRON_TOPIC : DAILY_CRON_TOPIC;
+    }
+
+    function _schedule(RuleLib.Rule memory rule) private pure returns (uint256) {
+        uint256 value = rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
+        return value == 0 ? DEFAULT_SCHEDULE : value;
     }
 
     /// @dev Requests a callback to the linked vault through Reactive's proxy.
     function _requestCallback(uint256 ruleId, RuleLib.Rule storage rule) private {
         uint8 template = rule.template;
         bool swapping = RuleLib.isSwapTemplate(template);
-        uint256 extra;
-        if (swapping) {
-            uint256 price = _cachedPrice[rule.pair];
-            extra = price == 0
-                ? 0
-                : PriceMath.applySlippage(
-                    (rule.amountIn * price) / PriceMath.PRICE_SCALE, DECISION_SLIPPAGE_BPS
-                );
-        } else {
-            // Personal templates: template 9 pulls from the stored source wallet, 7/8/10 send to
-            // the stored recipient. `encode.ts` stores either in `pair`.
-            extra = uint256(uint160(rule.pair));
+        uint256 threshold = rule.threshold;
+        uint256 extra = swapping ? 0 : uint256(uint160(rule.pair));
+        uint64 expiry = uint64(block.timestamp) + EXECUTION_LIFETIME;
+        if (RuleLib.isExpiryTemplate(template) && rule.secondary < expiry) {
+            expiry = uint64(rule.secondary);
+        }
+        if (template == 2) {
+            threshold = PriceMath.applySlippage(_previousPrice[rule.pair], rule.secondary);
+            _lastDipObservation[ruleId] = _observationKey(rule.pair);
+        } else if (template == 5 && rule.secondary != 0) {
+            threshold =
+                Math.max(threshold, PriceMath.applySlippage(_highWater[ruleId], rule.secondary));
+        } else if (template == 6) {
+            if (_highWater[ruleId] != 0) threshold = _highWater[ruleId];
+            _pendingGridPrice[ruleId] = _cachedPrice[rule.pair];
+            extra = rule.secondary;
         }
 
         ExecutionPayload memory payload = ExecutionPayload({
             template: template,
             pair: rule.pair,
-            threshold: rule.threshold,
+            threshold: threshold,
             amountIn: rule.amountIn,
-            expiry: uint64(rule.secondary),
-            extra: extra
+            expiry: expiry,
+            extra: extra,
+            tokenIn: rule.tokenIn,
+            tokenOut: rule.tokenOut,
+            sequence: rule.runs
         });
 
         systemContract.requestCallbackV_1_0(
@@ -805,11 +917,24 @@ contract Agent is Ownable {
     }
 
     /// @dev Per-rule execution counter and the origin-side budget ledger (T156).
-    function _recordExecution(RuleLib.Rule storage rule) private {
+    function _recordExecution(uint256 ruleId, RuleLib.Rule storage rule) private {
         rule.runs += 1;
         rule.lastRun = uint64(block.timestamp);
-        if (!RuleLib.isCronTemplate(rule.template)) rule.flags |= RuleLib.FLAG_LATCHED;
+        if (RuleLib.isCronTemplate(rule.template)) {
+            uint256 schedule = _schedule(rule);
+            uint256 due = _nextDue[ruleId];
+            if (due == 0) due = block.timestamp;
+            _nextDue[ruleId] = due + ((block.timestamp - due) / schedule + 1) * schedule;
+        } else {
+            _setLatch(ruleId, rule, true);
+        }
         monthlySpent += rule.amountIn;
+    }
+
+    function _setLatch(uint256 ruleId, RuleLib.Rule storage rule, bool latched) private {
+        if (latched) rule.flags |= RuleLib.FLAG_LATCHED;
+        else rule.flags &= ~RuleLib.FLAG_LATCHED;
+        emit RuleLatchChanged(ruleId, latched);
     }
 
     /// @dev Reserves a rule's per-run amount against the monthly cap, or reverts with its own
@@ -853,52 +978,76 @@ contract Agent is Ownable {
     /// dead-man clock forward when the owner's own wallet moves tokens.
     /// @dev Only a strictly newer `Sync` may replace the cache; an older observation (a replay or
     /// a reorg) is ignored, and a quiet pair keeps its last value rather than zeroing (T168).
-    function _observe(IReactive.LogRecord calldata log) private {
+    function _observe(IReactive.LogRecord calldata log) private returns (bool) {
+        if (log.chain_id != ChainConfig.UNICHAIN_SEPOLIA) return false;
         bytes32 topic0 = bytes32(log.topic_0);
         if (topic0 == TRANSFER_TOPIC && address(uint160(log.topic_1)) == owner()) {
             lastActivity = uint64(block.timestamp);
         }
-        if (topic0 != SYNC_TOPIC) return;
-        if (log.data.length < 64) return;
-        if (log.block_number < _cachedPriceBlock[log._contract]) return;
-
-        (uint112 reserve0, uint112 reserve1) = abi.decode(log.data, (uint112, uint112));
-        if (reserve0 == 0 || reserve1 == 0) return;
-        uint256 price = PriceMath.priceFromReserves(reserve0, reserve1);
+        if (topic0 != SYNC_TOPIC || log.data.length != 64) return false;
         uint256 cached = _cachedPrice[log._contract];
+        uint256 observedBlock = _cachedPriceBlock[log._contract];
+        if (
+            cached != 0
+                && (log.block_number < observedBlock
+                    || (log.block_number == observedBlock
+                        && log.log_index <= _cachedPriceIndex[log._contract]))
+        ) return false;
+
+        (uint256 reserve0, uint256 reserve1) = abi.decode(log.data, (uint256, uint256));
+        if (
+            reserve0 == 0 || reserve1 == 0 || reserve0 > type(uint112).max
+                || reserve1 > type(uint112).max
+        ) return false;
+        uint256 price = PriceMath.usdcPerWeth(uint112(reserve0), uint112(reserve1));
+        if (price == 0) return false;
         if (cached != 0) _previousPrice[log._contract] = cached;
         _cachedPrice[log._contract] = price;
         _cachedPriceAt[log._contract] = uint64(block.timestamp);
         _cachedPriceBlock[log._contract] = log.block_number;
+        _cachedPriceIndex[log._contract] = log.log_index;
+        return true;
     }
 
     /// @dev Which system subscriptions a rule needs, at most two per template.
     /// @dev Subscription keys are shared, so two rules on the same pair (or the same cron tick)
     /// hold one system subscription between them (T167).
-    function _subscriptionsFor(RuleLib.Rule memory rule)
+    function _subscriptionsFor(uint256 ruleId, RuleLib.Rule memory rule)
         private
         view
         returns (Subscription[2] memory subs)
     {
-        ChainConfig.Config memory chain = ChainConfig.get(rule.chainId);
         address vault = _vaults[rule.chainId];
         uint256 slot;
         if (RuleLib.isCronTemplate(rule.template)) {
+            bytes32 topic = _cronTopic(rule);
             subs[slot++] = Subscription({
-                key: CRON_KEY,
-                chainId: rule.chainId,
-                source: chain.cronSource,
-                topic0: uint256(CRON_TOPIC),
-                topic2: 0
+                key: topic,
+                chainId: ChainConfig.LASNA,
+                source: ChainConfig.lasna().cronSource,
+                topic0: uint256(topic),
+                topic1: ANY_TOPIC,
+                topic2: ANY_TOPIC
             });
         }
-        if (RuleLib.isPriceTemplate(rule.template)) {
+        if (RuleLib.isPriceTemplate(rule.template) && rule.template != 1) {
             subs[slot++] = Subscription({
                 key: keccak256(abi.encode("sync", rule.pair)),
                 chainId: rule.chainId,
                 source: rule.pair,
                 topic0: uint256(SYNC_TOPIC),
-                topic2: 0
+                topic1: ANY_TOPIC,
+                topic2: ANY_TOPIC
+            });
+        }
+        if (rule.template == 6) {
+            subs[slot++] = Subscription({
+                key: keccak256(abi.encode(GRID_SETTLED_TOPIC, vault, ruleId)),
+                chainId: rule.chainId,
+                source: vault,
+                topic0: uint256(GRID_SETTLED_TOPIC),
+                topic1: ruleId,
+                topic2: ANY_TOPIC
             });
         }
         if (rule.template == 8 || rule.template == 13) {
@@ -907,6 +1056,7 @@ contract Agent is Ownable {
                 chainId: rule.chainId,
                 source: rule.tokenIn,
                 topic0: uint256(TRANSFER_TOPIC),
+                topic1: ANY_TOPIC,
                 topic2: uint256(uint160(vault))
             });
         }
@@ -916,7 +1066,8 @@ contract Agent is Ownable {
                 chainId: rule.chainId,
                 source: vault,
                 topic0: uint256(BALANCES_TOPIC),
-                topic2: 0
+                topic1: ANY_TOPIC,
+                topic2: ANY_TOPIC
             });
         }
         if (rule.template == 10) {
@@ -925,7 +1076,8 @@ contract Agent is Ownable {
                 chainId: rule.chainId,
                 source: rule.tokenIn,
                 topic0: uint256(TRANSFER_TOPIC),
-                topic2: uint256(uint160(vault))
+                topic1: uint256(uint160(owner())),
+                topic2: ANY_TOPIC
             });
         }
     }
@@ -935,23 +1087,23 @@ contract Agent is Ownable {
         MirrorConfig storage mirror = _mirrors[ruleId];
         Subscription[2] memory subs;
         if (mirror.leaderVault == address(0)) {
-            subs = _subscriptionsFor(rule);
+            subs = _subscriptionsFor(ruleId, rule);
         } else {
             subs[0] = Subscription({
                 key: _mirrorSource(mirror.leaderVault, mirror.leaderRuleId),
                 chainId: mirror.leaderChainId,
                 source: mirror.leaderVault,
                 topic0: uint256(EXECUTED_TOPIC),
+                topic1: mirror.leaderRuleId,
                 topic2: ANY_TOPIC
             });
         }
         for (uint256 i = 0; i < 2; ++i) {
             bytes32 key = subs[i].key;
             if (key == bytes32(0)) continue;
+            if (_ruleSubscriptions[ruleId][i].key == key) continue;
             if (_topicRefCount[key] == 0) {
-                _changeSubscription(
-                    subs[i], true, mirror.leaderVault != address(0), mirror.leaderRuleId
-                );
+                _changeSubscription(subs[i], true);
             }
             _topicRefCount[key] += 1;
             _ruleSubscriptions[ruleId][i] = subs[i];
@@ -959,16 +1111,15 @@ contract Agent is Ownable {
     }
 
     /// @dev Decrements each topic count and unsubscribes when the last reference is released.
-    function _releaseSubscriptions(uint256 ruleId) private {
+    function _releaseSubscriptions(uint256 ruleId, bool keepPendingGridSettlement) private {
         for (uint256 i = 0; i < 2; ++i) {
             Subscription memory sub = _ruleSubscriptions[ruleId][i];
             if (sub.key == bytes32(0)) continue;
+            if (keepPendingGridSettlement && sub.topic0 == uint256(GRID_SETTLED_TOPIC)) continue;
             uint256 count = _topicRefCount[sub.key];
             if (count <= 1) {
                 _topicRefCount[sub.key] = 0;
-                _changeSubscription(
-                    sub, false, sub.topic0 == uint256(EXECUTED_TOPIC), _mirrors[ruleId].leaderRuleId
-                );
+                _changeSubscription(sub, false);
             } else {
                 _topicRefCount[sub.key] = count - 1;
             }
@@ -977,16 +1128,14 @@ contract Agent is Ownable {
     }
 
     /// @dev The criteria must match byte-for-byte when unsubscribing.
-    function _changeSubscription(Subscription memory sub, bool add, bool mirror, uint256 leaderId)
-        private
-    {
-        uint256 topic1 = mirror ? leaderId : ANY_TOPIC;
-        uint256 topic2 = sub.topic0 == uint256(TRANSFER_TOPIC) ? sub.topic2 : ANY_TOPIC;
+    function _changeSubscription(Subscription memory sub, bool add) private {
         if (add) {
-            systemContract.subscribe(sub.chainId, sub.source, sub.topic0, topic1, topic2, ANY_TOPIC);
+            systemContract.subscribe(
+                sub.chainId, sub.source, sub.topic0, sub.topic1, sub.topic2, ANY_TOPIC
+            );
         } else {
             systemContract.unsubscribe(
-                sub.chainId, sub.source, sub.topic0, topic1, topic2, ANY_TOPIC
+                sub.chainId, sub.source, sub.topic0, sub.topic1, sub.topic2, ANY_TOPIC
             );
         }
     }

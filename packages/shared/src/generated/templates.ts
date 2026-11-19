@@ -41,7 +41,7 @@ export const TEMPLATES = [
     trigger: "cron",
     condition: "timestamp_gate",
     action: "swap",
-    sentence: "Every {schedule}, buy {amount_in} of {token_out} using {token_in}.",
+    sentence: "Every {schedule}, spend {amount_in} {token_in} to buy {token_out}.",
     caveat: null,
     slots: [
       {
@@ -89,7 +89,7 @@ export const TEMPLATES = [
     trigger: "cron",
     condition: "price_below_previous_by_percent",
     action: "swap",
-    sentence: "Every {schedule}, buy {amount_in} of {token_out} using {token_in} when the last traded price on {pair} is {secondary} below its previous observation.",
+    sentence: "Every {schedule}, spend {amount_in} {token_in} to buy {token_out} when the last traded price on {pair} is {secondary} below its previous observation.",
     caveat: "No moving averages, RSI, or other indicators. The Agent caches one price per pair from the latest Sync and compares against that.",
     slots: [
       {
@@ -155,7 +155,7 @@ export const TEMPLATES = [
     trigger: "pair_sync",
     condition: "price_below_threshold_before_expiry",
     action: "swap",
-    sentence: "Buy {amount_in} of {token_out} using {token_in} when the last traded price on {pair} is below {threshold}, until {secondary}.",
+    sentence: "Spend {amount_in} {token_in} to buy {token_out} when the last traded price on {pair} is below {threshold}, until {secondary}.",
     caveat: null,
     slots: [
       {

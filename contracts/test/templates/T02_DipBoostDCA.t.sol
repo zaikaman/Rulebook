@@ -28,7 +28,7 @@ contract T02_DipBoostDCATest is TemplateTestBase {
     function test_firesOnACronTickAfterADip() public {
         _react(_syncPrice(2e18));
         _react(_syncPrice(1e18)); // 50% below the previous observation
-        _react(_tick());
+        _react(_tick(HOURLY_CRON_TOPIC));
         assertEq(_runs(ruleId), 1);
         assertEq(_requestCount(), 1);
     }
@@ -36,7 +36,7 @@ contract T02_DipBoostDCATest is TemplateTestBase {
     function test_doesNotFireWithoutADip() public {
         _react(_syncPrice(2e18));
         _react(_syncPrice(2.05e18)); // the price rose
-        _react(_tick());
+        _react(_tick(HOURLY_CRON_TOPIC));
         assertEq(_runs(ruleId), 0);
         assertEq(_requestCount(), 0);
     }
@@ -44,9 +44,26 @@ contract T02_DipBoostDCATest is TemplateTestBase {
     function test_doesNotFireTwiceInTheSameWindow() public {
         _react(_syncPrice(2e18));
         _react(_syncPrice(1e18));
-        _react(_tick());
-        _react(_tick());
+        _react(_tick(HOURLY_CRON_TOPIC));
+        _react(_tick(HOURLY_CRON_TOPIC));
         assertEq(_runs(ruleId), 1);
         assertEq(_requestCount(), 1);
+    }
+
+    function test_requiresTwoRecentObservationsAndConsumesTheDipOnce() public {
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_runs(ruleId), 0);
+        _react(_syncPrice(2e18));
+        _react(_syncPrice(1e18));
+        _react(_tick(HOURLY_CRON_TOPIC));
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_runs(ruleId), 1);
+
+        _react(_syncPrice(2e18));
+        _react(_syncPrice(1e18));
+        vm.warp(vm.getBlockTimestamp() + 1 hours + 1);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_runs(ruleId), 1, "the next dip aged out instead of triggering a stale trade");
     }
 }

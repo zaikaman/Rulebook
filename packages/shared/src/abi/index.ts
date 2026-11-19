@@ -633,6 +633,11 @@ export const agentAbi = [
             "internalType": "uint256"
           },
           {
+            "name": "topic1",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
             "name": "topic2",
             "type": "uint256",
             "internalType": "uint256"
@@ -660,6 +665,19 @@ export const agentAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1220,6 +1238,25 @@ export const agentAbi = [
   },
   {
     "type": "event",
+    "name": "RuleLatchChanged",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "latched",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RulePaused",
     "inputs": [
       {
@@ -1261,6 +1298,27 @@ export const agentAbi = [
       }
     ],
     "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AgentNotLinked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CooldownActive",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "readyAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1483,6 +1541,19 @@ export const vaultAbi = [
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "EXECUTION_PAYLOAD_VERSION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -1919,6 +1990,25 @@ export const vaultAbi = [
   },
   {
     "type": "event",
+    "name": "GridSettled",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "sequence",
+        "type": "uint32",
+        "indexed": true,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "LimitsChanged",
     "inputs": [
       {
@@ -2189,6 +2279,22 @@ export const vaultAbi = [
   },
   {
     "type": "error",
+    "name": "StaleExecution",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sequence",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TokenMismatch",
     "inputs": [
       {
@@ -2291,6 +2397,19 @@ export const agentFactoryAbi = [
   },
   {
     "type": "function",
+    "name": "implementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "registry",
     "inputs": [],
     "outputs": [
@@ -2344,6 +2463,27 @@ export const agentFactoryAbi = [
     "type": "error",
     "name": "AgentAlreadyLinked",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

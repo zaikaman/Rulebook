@@ -1,6 +1,7 @@
 import {
   agentAbi,
   agentFactoryAbi,
+  getChain,
   ruleRegistryAbi,
   vaultAbi,
   vaultFactoryAbi,
@@ -12,7 +13,6 @@ import type { Repositories } from '../../db/repositories/index.js';
 
 const LA = 5_318_007;
 const UNI = 1301;
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 const uint = z.bigint();
 const address = z.string().regex(/^0x[a-fA-F0-9]{40}$/);
@@ -73,6 +73,12 @@ const LASNA_EVENTS: EventDescriptor[] = [
     signature: 'RuleCancelled(address,uint256)',
     abi: agentAbi,
     schema: z.object({ agent: address, ruleId: uint }),
+  },
+  {
+    name: 'RuleLatchChanged',
+    signature: 'RuleLatchChanged(uint256,bool)',
+    abi: agentAbi,
+    schema: z.object({ ruleId: uint, latched: bool }),
   },
   {
     name: 'VaultLinked',
@@ -419,6 +425,7 @@ export async function persistDecodedEvent(
     case 'RuleCreated': {
       const agent = asString(args.agent).toLowerCase();
       const ruleId = asString(args.ruleId);
+      const existing = await repositories.rules.get(agent, ruleId);
       const snapshot = options.readRule
         ? await options.readRule(event.chainId, agent, args.ruleId as bigint).catch(() => null)
         : null;
@@ -427,17 +434,17 @@ export async function persistDecodedEvent(
         rule_id: ruleId,
         template: asNumber(args.template),
         chain_id: snapshot?.chainId ?? UNI,
-        status: 'active',
-        latched: false,
-        pair: snapshot?.pair ?? null,
-        token_in: snapshot?.tokenIn ?? null,
-        token_out: snapshot?.tokenOut ?? null,
-        amount_in: snapshot?.amountIn ?? null,
-        threshold: snapshot?.threshold ?? null,
-        secondary: snapshot?.secondary ?? null,
-        last_run_at: null,
-        runs: 0,
-        is_public: Boolean(args.publicRule),
+        status: existing?.status ?? 'active',
+        latched: existing?.latched ?? false,
+        pair: snapshot?.pair ?? existing?.pair ?? null,
+        token_in: snapshot?.tokenIn ?? existing?.token_in ?? null,
+        token_out: snapshot?.tokenOut ?? existing?.token_out ?? null,
+        amount_in: snapshot?.amountIn ?? existing?.amount_in ?? null,
+        threshold: snapshot?.threshold ?? existing?.threshold ?? null,
+        secondary: snapshot?.secondary ?? existing?.secondary ?? null,
+        last_run_at: existing?.last_run_at ?? null,
+        runs: existing?.runs ?? 0,
+        is_public: existing?.is_public ?? Boolean(args.publicRule),
       });
       await repositories.agents.incrementRuleCount(agent);
       await repositories.ruleEvents.upsert({
@@ -530,31 +537,42 @@ export async function persistDecodedEvent(
       });
       return;
     }
+    case 'RuleLatchChanged': {
+      await repositories.rules.setLatched(
+        event.address,
+        asString(args.ruleId),
+        Boolean(args.latched),
+      );
+      return;
+    }
     case 'AlertRaised': {
       // An alert is an activity row, never an execution: nothing moved, so no `Executed`.
+      const ruleId = asString(args.ruleId);
       await repositories.ruleEvents.upsert({
         chain_id: event.chainId,
         tx_hash: event.txHash,
         log_index: event.logIndex,
         agent: event.address,
-        rule_id: asString(args.ruleId),
+        rule_id: ruleId,
         kind: 'alert',
         block_time: event.blockTime,
       });
+      await repositories.rules.refreshRuns(event.address, ruleId, true);
       return;
     }
     case 'Executed':
     case 'Mirrored': {
       const vault = await repositories.vaults.get(event.address);
-      if (event.name === 'Mirrored' && !vault?.mirror_mode) return;
+      if (!vault || vault.chain_id !== event.chainId) return;
+      if (event.name === 'Mirrored' && !vault.mirror_mode) return;
       const ruleId = asString(args.ruleId);
       await repositories.executions.upsert({
         chain_id: event.chainId,
         tx_hash: event.txHash,
         log_index: event.logIndex,
         vault: event.address,
-        agent: vault?.agent ?? ZERO_ADDRESS,
-        owner: vault?.owner ?? ZERO_ADDRESS,
+        agent: vault.agent,
+        owner: vault.owner,
         rule_id: ruleId,
         kind: event.name === 'Executed' ? 'executed' : 'mirrored',
         token_in: event.name === 'Executed' ? asString(args.tokenIn) : null,
@@ -566,17 +584,19 @@ export async function persistDecodedEvent(
         leader_tx: event.name === 'Mirrored' ? asString(args.leaderTx).toLowerCase() : null,
         status: 'confirmed',
       });
+      await repositories.rules.refreshRuns(vault.agent, ruleId, false);
       return;
     }
     case 'Sync': {
       const reserve0 = args.reserve0 as bigint;
       const reserve1 = args.reserve1 as bigint;
-      if (reserve0 === 0n) return;
+      if (reserve0 === 0n || reserve1 === 0n || event.address !== getChain(UNI).pair.toLowerCase())
+        return;
       await repositories.priceObservations.upsert({
         chain_id: event.chainId,
         pair: event.address,
         block_number: asNumber(event.blockNumber),
-        price: ((reserve1 * 10n ** 18n) / reserve0).toString(),
+        price: ((reserve0 * 10n ** 30n) / reserve1).toString(),
         observed_at: event.blockTime,
       });
       return;

@@ -31,7 +31,6 @@ describe('composer accessibility', () => {
     const user = userEvent.setup();
     render(<CreateRuleForm agent={AGENT} />);
 
-    // Every value control is a native select, so arrow keys and Enter work without a mouse.
     const controls = screen.getAllByRole('combobox');
     expect(controls.length).toBeGreaterThan(1);
     for (const control of controls) expect(control.tagName).toBe('SELECT');
@@ -39,11 +38,14 @@ describe('composer accessibility', () => {
     await user.tab();
     expect(screen.getByLabelText('Rule type')).toHaveFocus();
     await user.tab();
-    expect(screen.getByLabelText('schedule')).toHaveFocus();
-
-    // Choosing by keyboard updates the sentence and the calldata, not just the widget.
-    await user.selectOptions(screen.getByLabelText('amount'), '10000000');
-    expect(screen.getByLabelText('amount')).toHaveValue('10000000');
+    expect(screen.getByLabelText('Pay with')).toHaveFocus();
+    await user.tab();
+    expect(screen.getByLabelText('Receive')).toHaveFocus();
+    await user.tab();
+    const amount = screen.getByRole('textbox', { name: 'Amount to spend' });
+    expect(amount).toHaveFocus();
+    await user.keyboard('0.1');
+    expect(amount).toHaveValue('0.1');
   });
 
   it('has zero axe violations on the composer', async () => {

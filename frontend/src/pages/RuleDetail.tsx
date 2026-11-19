@@ -25,14 +25,18 @@ import { RuleActions } from '../components/RuleActions.js';
 import { RuleOrderList } from '../components/RuleOrderList.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
 import { useRuleControl } from '../hooks/useRuleControl.js';
-import { api } from '../lib/api.js';
+import { api, ApiError } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 import { lastRunLabel, ruleSentence } from '../lib/rules.js';
 import { signatureTokenAmount } from '../lib/signatures.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
+const INDEXER_RETRY_DELAY_MS = 5_000;
+const INDEXER_RETRY_LIMIT = 12;
 /** Templates whose condition reads a cached pair price. */
-const PRICE_TEMPLATES = new Set([1, 2, 3, 4, 5, 6, 11, 12]);
+const PRICE_TEMPLATES = new Set([2, 3, 4, 5, 6, 11, 12]);
+
+class RuleIndexingError extends Error {}
 
 /** The Agent's cached last traded price, labelled with the observation time (FR-020). */
 function CachedPrice({ agent, pair }: { readonly agent: Address; readonly pair: Address }) {
@@ -59,11 +63,39 @@ function statusOf(status: 'active' | 'paused' | 'cancelled', latched: boolean): 
 export function RuleDetail() {
   const { agent, ruleId } = useParams();
   const { address } = useAccount();
+  const orderQuery = useReadContract({
+    address: (agent as Address | undefined) ?? ZERO,
+    abi: agentAbi,
+    functionName: 'getRuleIds',
+    chainId: LASNA_CHAIN_ID,
+    query: { enabled: Boolean(agent) },
+  });
   const detailQuery = useQuery({
     queryKey: ['rule', agent, ruleId],
-    queryFn: () => api.ruleDetail(agent as string, ruleId as string),
+    queryFn: async () => {
+      try {
+        return await api.ruleDetail(agent as string, ruleId as string);
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.status !== 404 || error.code !== 'not_found') {
+          throw error;
+        }
+
+        // The receipt can arrive before the indexer. A cached order can also predate the receipt.
+        const containsRule = (ids: readonly bigint[] | undefined) =>
+          ids?.some((id) => id.toString() === ruleId);
+        if (
+          !containsRule(orderQuery.data) &&
+          !containsRule((await orderQuery.refetch({ cancelRefetch: false })).data)
+        ) {
+          throw error;
+        }
+        throw new RuleIndexingError('Rule confirmed on Reactive Lasna.');
+      }
+    },
     enabled: Boolean(agent && ruleId),
-    retry: false,
+    retry: (failureCount, error) =>
+      error instanceof RuleIndexingError && failureCount < INDEXER_RETRY_LIMIT,
+    retryDelay: INDEXER_RETRY_DELAY_MS,
   });
 
   const rulesQuery = useQuery({
@@ -72,13 +104,6 @@ export function RuleDetail() {
     enabled: Boolean(agent),
   });
 
-  const orderQuery = useReadContract({
-    address: (agent as Address | undefined) ?? ZERO,
-    abi: agentAbi,
-    functionName: 'getRuleIds',
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(agent) },
-  });
   const ownerQuery = useReadContract({
     address: (agent as Address | undefined) ?? ZERO,
     abi: agentAbi,
@@ -103,6 +128,30 @@ export function RuleDetail() {
       <span aria-current="page">Detail</span>
     </>
   );
+
+  if (!detailQuery.data && detailQuery.failureReason instanceof RuleIndexingError) {
+    return (
+      <section className="app-page">
+        <PageHeading title="Rule details" breadcrumb={breadcrumb} />
+        <div className="app-panel app-panel-pad space-y-3">
+          <div role="status" className="space-y-2">
+            <h2 className="app-panel-heading">Syncing rule details</h2>
+            <p className="app-copy">
+              Your rule is confirmed on Reactive Lasna.{' '}
+              {detailQuery.isError
+                ? 'Its details are taking longer than usual to sync.'
+                : 'This page will update automatically.'}
+            </p>
+          </div>
+          {detailQuery.isError ? (
+            <button type="button" onClick={() => void detailQuery.refetch()} className="app-button">
+              Check again
+            </button>
+          ) : null}
+        </div>
+      </section>
+    );
+  }
 
   if (detailQuery.isLoading) {
     return (
@@ -274,6 +323,7 @@ export function RuleDetail() {
                 onPause={() => control.pause(currentRuleId)}
                 onResume={() => control.resume(currentRuleId)}
                 onCancel={() => control.cancel(currentRuleId)}
+                onRearm={() => control.rearm(currentRuleId)}
               />
             )}
           </section>

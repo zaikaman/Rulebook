@@ -136,6 +136,7 @@ contract RuleLibTest is Test {
 
     function test_validateEnforcesInactivityDayBounds() public {
         RuleLib.Rule memory rule = _rule(10);
+        rule.threshold = 1 days;
         rule.secondary = 0;
         vm.expectRevert(InvalidSecondary.selector);
         harness.validate(rule);

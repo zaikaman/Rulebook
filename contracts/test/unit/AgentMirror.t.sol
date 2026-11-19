@@ -167,7 +167,7 @@ contract AgentMirrorTest is Test {
         _deliver(_log(2));
         assertEq(system.requestCount(), 1);
         assertEq(system.requestAt(0).recipient, FOLLOWER_VAULT);
-        assertEq(system.requestAt(0).gasLimit, 600_000);
+        assertEq(system.requestAt(0).gasLimit, follower.MIRROR_CALLBACK_GAS());
         assertEq(follower.getRule(0).runs, 1);
         vm.warp(block.timestamp + 1 hours);
         _deliver(_log(1));

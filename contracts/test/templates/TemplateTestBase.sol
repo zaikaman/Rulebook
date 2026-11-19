@@ -22,7 +22,8 @@ abstract contract TemplateTestBase is Test {
     uint256 internal constant CHAIN = 1301;
 
     bytes32 internal constant SYNC_TOPIC = keccak256("Sync(uint112,uint112)");
-    bytes32 internal constant CRON_TOPIC = keccak256("Cron10000()");
+    bytes32 internal constant HOURLY_CRON_TOPIC = keccak256("Cron100(uint256)");
+    bytes32 internal constant DAILY_CRON_TOPIC = keccak256("Cron10000(uint256)");
     bytes32 internal constant TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
     bytes32 internal constant BALANCES_TOPIC =
         keccak256("Balances(address,uint256,address,uint256)");
@@ -44,6 +45,7 @@ abstract contract TemplateTestBase is Test {
         agent = new Agent(
             USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this)
         );
+        _linkVault();
     }
 
     /// @notice Links the funds-side vault so transfer/balance templates can filter on it.
@@ -77,13 +79,19 @@ abstract contract TemplateTestBase is Test {
 
     /// @notice Sets the pair reserves so one base token costs `priceE18` quote tokens.
     function _syncPrice(uint256 priceE18) internal returns (IReactive.LogRecord memory log) {
-        pair.setReserves(uint112(1e18), uint112(priceE18));
-        log = _log(address(pair), SYNC_TOPIC, abi.encode(uint112(1e18), uint112(priceE18)));
+        uint112 quote = uint112(priceE18 / 1e12);
+        pair.setReserves(quote, uint112(1e18));
+        log = _log(address(pair), SYNC_TOPIC, abi.encode(quote, uint112(1e18)));
     }
 
-    /// @notice A Cron10000 tick delivered from the configured cron source.
     function _tick() internal returns (IReactive.LogRecord memory log) {
-        log = _log(_cronSource(), CRON_TOPIC, "");
+        return _tick(DAILY_CRON_TOPIC);
+    }
+
+    function _tick(bytes32 topic) internal returns (IReactive.LogRecord memory log) {
+        log = _log(ChainConfig.lasna().cronSource, topic, "");
+        log.chain_id = ChainConfig.LASNA;
+        log.topic_1 = log.block_number;
     }
 
     function _transferLog(address token, address from, address to, uint256 amount)
@@ -108,10 +116,6 @@ abstract contract TemplateTestBase is Test {
 
     function _requestCount() internal view returns (uint256) {
         return system.requestCount();
-    }
-
-    function _cronSource() internal pure returns (address) {
-        return ChainConfig.get(CHAIN).cronSource;
     }
 
     function _log(address source, bytes32 topic0, bytes memory data)

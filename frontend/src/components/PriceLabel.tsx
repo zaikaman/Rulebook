@@ -31,6 +31,11 @@ export interface PriceLabelProps {
  */
 export function PriceLabel({ price, observedAt, chainId }: PriceLabelProps) {
   const chain = getChain(chainId);
+  if (!price || !observedAt) {
+    return (
+      <p className="text-xs text-ink-muted">Waiting for the first pool price on {chain.name}.</p>
+    );
+  }
   return (
     <p data-price-basis="last-traded" className="text-xs text-ink-muted">
       Last traded price <span className="font-mono text-ink">{formatPrice(price)}</span>{' '}

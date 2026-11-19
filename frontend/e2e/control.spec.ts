@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { approveSignature, installWallet, skipRuleFunding } from './wallet.js';
+import { approveSignature, fundFixtureVault, installWallet, skipRuleFunding } from './wallet.js';
 
 // A third anvil account, so the control story never shares state with onboarding or compose.
 const CONTROLLER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906' as const;
@@ -9,10 +9,10 @@ const CONTROLLER = '0x90F79bf6EB2c4f870365E785982E1f101E93b906' as const;
 async function createRule(page: Page, amountLabel: string): Promise<void> {
   await page.goto('/create');
   await expect(page.getByRole('heading', { name: 'Compose a rule' })).toBeVisible();
-  await page.getByLabel('pay with').selectOption({ label: 'USDC' });
-  await page.getByLabel('buy').selectOption({ label: 'WETH' });
-  await page.getByLabel('amount').selectOption({ label: amountLabel });
-  await page.getByLabel('schedule').selectOption({ label: 'every day' });
+  await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
+  await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
+  await page.getByLabel('Amount to spend').fill(amountLabel);
+  await page.getByLabel('Schedule').selectOption({ label: 'Every day' });
   await page.getByRole('button', { name: 'Review and create rule' }).click();
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible({
@@ -31,6 +31,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   });
   await page.getByRole('button', { name: 'Create my account' }).click();
   await skipRuleFunding(page);
+  await fundFixtureVault(CONTROLLER, 20_000_000n);
   await page.goto('/account');
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })

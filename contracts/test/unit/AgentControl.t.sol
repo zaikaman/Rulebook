@@ -95,7 +95,7 @@ contract AgentControlTest is Test {
 
     function test_cancelEmitsRuleCancelledAndReleasesTheTopic() public {
         uint256 ruleId = _addRule();
-        assertEq(system.subscribeCount(), 2, "cron and Sync, one each");
+        assertEq(system.subscribeCount(), 1, "one clock");
         assertEq(system.unsubscribeCount(), 0);
 
         vm.expectEmit(true, true, false, true, address(agent));
@@ -103,20 +103,20 @@ contract AgentControlTest is Test {
         vm.prank(USER);
         agent.cancelRule(ruleId);
 
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
         assertEq(agent.activeRuleCount(), 0);
     }
 
     function test_pausingTheLastRuleOnATopicUnsubscribesExactlyOnce() public {
         uint256 first = _addRule();
         uint256 second = _addRule();
-        assertEq(system.subscribeCount(), 2, "two shared topics");
+        assertEq(system.subscribeCount(), 1, "one shared topic");
 
         vm.startPrank(USER);
         agent.pauseRule(first);
         assertEq(system.unsubscribeCount(), 0);
         agent.pauseRule(second);
-        assertEq(system.unsubscribeCount(), 2, "each topic released exactly once");
+        assertEq(system.unsubscribeCount(), 1, "the topic is released exactly once");
         vm.stopPrank();
     }
 
@@ -127,12 +127,12 @@ contract AgentControlTest is Test {
         vm.startPrank(USER);
         agent.pauseRule(first);
         agent.pauseRule(second);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
 
         agent.resumeRule(first);
-        assertEq(system.subscribeCount(), 4);
+        assertEq(system.subscribeCount(), 2);
         agent.resumeRule(second);
-        assertEq(system.subscribeCount(), 4, "one topic, one subscription");
+        assertEq(system.subscribeCount(), 2, "one topic, one subscription");
         vm.stopPrank();
     }
 
@@ -140,9 +140,9 @@ contract AgentControlTest is Test {
         uint256 ruleId = _addRule();
         vm.startPrank(USER);
         agent.pauseRule(ruleId);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
         agent.cancelRule(ruleId);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
         vm.stopPrank();
     }
 
@@ -345,6 +345,22 @@ contract AgentControlTest is Test {
         vm.expectRevert(abi.encodeWithSelector(RuleNotActive.selector, ruleId));
         agent.pauseRule(ruleId);
         vm.stopPrank();
+    }
+
+    function test_cancelledRulesDoNotConsumeTheLiveEvaluationBudget() public {
+        for (uint256 i = 0; i < 40; ++i) {
+            uint256 retired = _addRule();
+            vm.prank(USER);
+            agent.cancelRule(retired);
+        }
+        uint256 active = _addRule();
+        IReactive.LogRecord memory log = _plainLog();
+        vm.expectEmit(true, true, false, true, address(agent));
+        emit Agent.RuleEvaluated(
+            active, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false
+        );
+        vm.prank(address(system));
+        agent.react{gas: 140_000}(log);
     }
 
     function _addRuleWithAmount(uint256 amount) internal returns (uint256 ruleId) {

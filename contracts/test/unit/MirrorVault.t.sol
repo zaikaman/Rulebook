@@ -42,6 +42,7 @@ contract MirrorVaultTest is Test {
         pair = new MockPair(address(tokenIn), address(tokenOut));
         pair.setReserves(100e6, 100e18);
         router = new MockRouter();
+        router.setPair(address(pair));
         mirror = new MirrorVault(
             IPayable(payable(PROXY)),
             address(this),

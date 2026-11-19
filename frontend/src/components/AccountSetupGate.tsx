@@ -1,6 +1,7 @@
 import type { Address } from '@rulebook/shared';
 import { useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router';
+import { BaseError } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { useAccountSetup } from '../hooks/useAccountSetup.js';
@@ -9,7 +10,9 @@ import type { RuleFee } from '../lib/funding.js';
 import { appRoutes } from '../lib/routes.js';
 import { CreateAccount } from '../pages/CreateAccount.js';
 import { AppShell } from './AppShell.js';
+import { ErrorState } from './ErrorState.js';
 import { RuleFundingSetup } from './RuleFundingSetup.js';
+import { PageHeading } from './chrome/PageHeading.js';
 
 function readFundingProgress(key: string) {
   try {
@@ -20,14 +23,16 @@ function readFundingProgress(key: string) {
 }
 
 export function AccountSetupGate({
+  title,
   fundingFee,
   children,
 }: {
+  title: string;
   fundingFee?: RuleFee;
   children: (accounts: { agent: Address; vault: Address }) => ReactNode;
 }) {
-  const { address } = useAccount();
-  const owner = address?.toLowerCase() as Address | undefined;
+  const { address, isReconnecting } = useAccount();
+  const owner = isReconnecting ? undefined : (address?.toLowerCase() as Address | undefined);
   const setup = useAccountSetup({ owner, wallet: useSetupWallet() });
   const { agent, vault, linked } = setup.data ?? {};
   const navigate = useNavigate();
@@ -43,6 +48,28 @@ export function AccountSetupGate({
     } catch {
       // The current route can still complete setup when storage is unavailable.
     }
+  }
+
+  if (isReconnecting || (owner && !setup.data)) {
+    const error = setup.error;
+    return (
+      <AppShell>
+        <section className="app-page">
+          <PageHeading title={title} />
+          {error ? (
+            <ErrorState
+              message="Your account status could not be loaded."
+              detail={error instanceof BaseError ? error.shortMessage : error.message}
+              onRetry={() => void setup.refetch()}
+            />
+          ) : (
+            <p className="app-copy" role="status">
+              {isReconnecting ? 'Reconnecting your wallet…' : 'Checking for an existing account…'}
+            </p>
+          )}
+        </section>
+      </AppShell>
+    );
   }
 
   if (!owner || !agent || !vault || !linked) {

@@ -1,5 +1,6 @@
 import {
   BaseError,
+  LimitExceededRpcError,
   toFunctionSelector,
   UnauthorizedProviderError,
   UserRejectedRequestError,
@@ -40,6 +41,19 @@ export function isWalletUnauthorized(error: unknown): boolean {
       candidate.code === UnauthorizedProviderError.code);
 
   return error instanceof BaseError ? Boolean(error.walk(matches)) : matches(error);
+}
+
+/** Wallets can wrap broadcast throttling in a generic RPC error, which viem may label a revert. */
+export function isRpcRateLimit(error: unknown, depth = 0): boolean {
+  if (typeof error === 'string') return /\b(?:rate[ -]limit|too many requests)/i.test(error);
+  if (depth > 6 || typeof error !== 'object' || error === null) return false;
+  const detail = error as Record<string, unknown>;
+  if (detail.code === LimitExceededRpcError.code || detail.code === 429 || detail.status === 429) {
+    return true;
+  }
+  return ['message', 'details', 'cause', 'data', 'originalError', 'error'].some((key) =>
+    isRpcRateLimit(detail[key], depth + 1),
+  );
 }
 
 /**
@@ -139,6 +153,10 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   {
     signature: 'DuplicateLeaderExecution(bytes32)',
     message: 'This leader execution was already mirrored.',
+  },
+  {
+    signature: 'StaleExecution(uint256,uint32)',
+    message: 'The vault already processed this execution or a newer one.',
   },
   {
     signature: 'TokenMismatch(address,address)',

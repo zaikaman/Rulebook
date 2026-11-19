@@ -3,7 +3,13 @@ import type { SlotKey, TemplateId } from '@rulebook/shared';
 /** One value per slot key; a missing key is an unfilled slot. */
 export type SlotValues = Partial<Record<SlotKey, string>>;
 
-/** The composer's whole state: one template, one chain, and the values chosen so far. */
+export interface VaultTerms {
+  readonly tokenIn: string;
+  readonly tokenOut: string;
+  readonly ceiling: bigint;
+}
+
+/** Amount fields hold the user's decimal text until validation converts it to base units. */
 export interface ComposerState {
   readonly template: TemplateId;
   readonly chainId: number;
@@ -19,8 +25,7 @@ export type ComposerAction =
 export const READY_DRAFT: unique symbol = Symbol('rulebook.ready-draft');
 
 /**
- * A draft that passed `canSign`. The brand is unforgeable outside this module, so an encoder
- * that takes a `ReadyDraft` cannot be handed an incomplete money rule.
+ * A checked draft. All numeric slots contain whole numbers in their respective on-chain units.
  */
 export type ReadyDraft = {
   readonly template: TemplateId;

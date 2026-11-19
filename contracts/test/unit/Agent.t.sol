@@ -11,6 +11,7 @@ import {RuleRegistry} from "../../src/registry/RuleRegistry.sol";
 import {IRuleRegistry} from "../../src/registry/IRuleRegistry.sol";
 import {IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
 import {
+    AgentNotLinked,
     ExceedsPerRunCap,
     InvalidSecondary,
     InvalidTemplateParams,
@@ -102,6 +103,38 @@ contract AgentTest is Test {
         agent.addRule(_rule(), false);
     }
 
+    function test_cloneCannotBeInitializedAgainOrTransferItsOwner() public {
+        AgentFactory factory = new AgentFactory(IReactiveSystem(address(system)), registry);
+        Agent clone = Agent(factory.deploy(USER));
+        vm.prank(address(factory));
+        vm.expectRevert(InvalidTemplateParams.selector);
+        clone.initialize(STRANGER);
+        vm.prank(USER);
+        vm.expectRevert(InvalidTemplateParams.selector);
+        clone.transferOwnership(STRANGER);
+        assertEq(clone.owner(), USER);
+    }
+
+    function test_rejectsVaultEventRulesWithoutALink() public {
+        RuleLib.Rule memory rule = _rule();
+        rule.template = 9;
+        rule.threshold = 1e6;
+        vm.prank(USER);
+        vm.expectRevert(AgentNotLinked.selector);
+        agent.addRule(rule, false);
+    }
+
+    function test_refusesToCreateAnExpiredLimitBuy() public {
+        vm.warp(10_000);
+        RuleLib.Rule memory rule = _rule();
+        rule.template = 3;
+        rule.threshold = 1000e18;
+        rule.secondary = 9_999;
+        vm.prank(USER);
+        vm.expectRevert(InvalidSecondary.selector);
+        agent.addRule(rule, false);
+    }
+
     function test_addRuleStopsAtFiveActiveRules() public {
         for (uint256 i = 0; i < 5; ++i) {
             _addRule();
@@ -150,12 +183,12 @@ contract AgentTest is Test {
     }
 
     function test_pauseReleasesTheLastSubscriptionOnce() public {
-        // A DCA rule needs two topics: the Cron10000 tick and the pair's `Sync` (T167).
+        // Plain DCA only needs the scheduled tick. The vault quotes live at execution.
         uint256 ruleId = _addRule();
-        assertEq(system.subscribeCount(), 2);
+        assertEq(system.subscribeCount(), 1);
         vm.prank(USER);
         agent.pauseRule(ruleId);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
     }
 
     function test_reorderRejectsUnknownId() public {
@@ -225,7 +258,7 @@ contract AgentTest is Test {
         uint256 first = _addRule();
         uint256 second = _addRule();
         uint256 third = _addRule();
-        assertEq(system.subscribeCount(), 2, "three rules, two shared topics");
+        assertEq(system.subscribeCount(), 1, "three rules share one clock");
         vm.startPrank(USER);
         agent.pauseRule(third);
         agent.cancelRule(third);
@@ -233,7 +266,7 @@ contract AgentTest is Test {
         agent.cancelRule(first);
         vm.stopPrank();
 
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
         assertEq(agent.activeRuleCount(), 0);
 
         vm.prank(USER);
@@ -307,7 +340,7 @@ contract AgentTest is Test {
         log.chain_id = 1301;
         log._contract = address(pair);
         log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
-        log.data = abi.encode(uint112(1_000), uint112(2_000));
+        log.data = abi.encode(uint112(2e6), uint112(1e18));
         log.tx_hash = uint256(keccak256("tx"));
         log.log_index = 3;
 
@@ -365,7 +398,7 @@ contract AgentTest is Test {
         log.chain_id = 1301;
         log._contract = address(pair);
         log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
-        log.data = abi.encode(uint112(1_000), uint112(2_000));
+        log.data = abi.encode(uint112(2e6), uint112(1e18));
         log.tx_hash = uint256(keccak256("origin-tx"));
         log.log_index = 9;
     }
@@ -426,13 +459,13 @@ contract AgentTest is Test {
     function test_addRuleSubscribesOnceForIdenticalTopics() public {
         uint256 first = _addRule();
         uint256 second = _addRule();
-        assertEq(system.subscribeCount(), 2, "one cron subscription and one Sync subscription");
+        assertEq(system.subscribeCount(), 1, "one shared cron subscription");
 
         vm.startPrank(USER);
         agent.pauseRule(first);
         assertEq(system.unsubscribeCount(), 0);
         agent.pauseRule(second);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 1);
         vm.stopPrank();
     }
 
@@ -489,22 +522,22 @@ contract AgentTest is Test {
     }
 
     function test_newerSyncReplacesTheCachedPrice() public {
-        _reactAsSystem(_syncLogAt(10, 1_000, 2_000));
-        _reactAsSystem(_syncLogAt(11, 1_000, 3_000));
+        _reactAsSystem(_syncLogAt(10, 2e6, 1e18));
+        _reactAsSystem(_syncLogAt(11, 3e6, 1e18));
         (uint256 price,) = agent.getCachedPrice(address(pair));
         assertEq(price, 3e18);
     }
 
     function test_olderSyncIsIgnored() public {
-        _reactAsSystem(_syncLogAt(20, 1_000, 2_000));
-        _reactAsSystem(_syncLogAt(19, 1_000, 5_000));
+        _reactAsSystem(_syncLogAt(20, 2e6, 1e18));
+        _reactAsSystem(_syncLogAt(19, 5e6, 1e18));
         (uint256 price,) = agent.getCachedPrice(address(pair));
         assertEq(price, 2e18, "an older observation must not overwrite a newer one");
     }
 
     function test_quietPairKeepsItsStaleValueAndObservationTime() public {
         vm.warp(1_700_000_000);
-        _reactAsSystem(_syncLogAt(30, 1_000, 2_000));
+        _reactAsSystem(_syncLogAt(30, 2e6, 1e18));
         (uint256 price, uint64 observedAt) = agent.getCachedPrice(address(pair));
         assertEq(price, 2e18);
         assertEq(observedAt, uint64(block.timestamp));

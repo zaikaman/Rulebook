@@ -93,6 +93,38 @@
       "transactionUrl": "https://lasna.reactscan.net/tx/0x40679f220bb3d5258ccc64c1de06d30152cd1682a7df5cd54ebe01cb1fc868eb",
       "blockNumber": "8662645",
       "confirmedAt": "2026-11-18T15:39:23Z"
+    },
+    {
+      "name": "RuleRegistry",
+      "address": "0xeDd74530baeA610fe6805eEb8F2ef4f8F6119343",
+      "chainId": 5318007,
+      "status": "validation",
+      "release": "rule-execution-v2",
+      "workingTreeParent": "ffb8e04",
+      "creationBytecodeHash": "0xcb962ae2546bf9945253c6b88a6828b6bac136b06e4ec43296258f6f51d06621",
+      "runtimeBytecodeHash": "0x71c82b36eb71eacfad0bcc75ff7670def8d576dc5046af4ef0b79af6fb0d902e",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0xeDd74530baeA610fe6805eEb8F2ef4f8F6119343",
+      "transactionHash": "0xca24a7f30164129febea8f881b46814d3ffe8bf43a08c914bc6161c715a359ac",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0xca24a7f30164129febea8f881b46814d3ffe8bf43a08c914bc6161c715a359ac",
+      "blockNumber": 8731473,
+      "confirmedAt": "2026-11-19T11:54:29.000Z"
+    },
+    {
+      "name": "AgentFactory",
+      "address": "0x136f07FF44011a322ccC751ba2430434041378Ab",
+      "chainId": 5318007,
+      "status": "validation",
+      "release": "rule-execution-v2",
+      "workingTreeParent": "ffb8e04",
+      "creationBytecodeHash": "0x908738e65ae2d920e0d9df18a11961bb1cabb1c07b05356e9a424656e9eabfb5",
+      "runtimeBytecodeHash": "0x1367a1cdc94789b9e8bf26f25ce9357141b381a23a4e1309017b4c3a74b14d1e",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x136f07FF44011a322ccC751ba2430434041378Ab",
+      "transactionHash": "0xb7cfeaa513a2f336e8b5ad74d136963188235a0eb3ae4ece934572b63375817c",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0xb7cfeaa513a2f336e8b5ad74d136963188235a0eb3ae4ece934572b63375817c",
+      "blockNumber": 8731875,
+      "confirmedAt": "2026-11-19T12:01:38.000Z"
     }
   ],
   "reactiveServices": [

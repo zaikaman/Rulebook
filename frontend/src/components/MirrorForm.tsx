@@ -16,6 +16,8 @@ import { useAccount } from 'wagmi';
 import { useRuleControl } from '../hooks/useRuleControl.js';
 import { useSetupWallet } from '../hooks/useSetupWallet.js';
 import { api } from '../lib/api.js';
+import { RuleFundingError } from '../lib/ruleFunding.js';
+import { appRoutes } from '../lib/routes.js';
 import { knownToken } from '../lib/signatures.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import { ErrorState } from './ErrorState.js';
@@ -128,21 +130,16 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
         abi: agentAbi,
         functionName: 'nextRuleId',
       });
-      await control.attachMirror(
-        ruleId,
-        {
-          leaderChainId: BigInt(UNICHAIN_SEPOLIA_CHAIN_ID),
-          leaderVault: source.vault,
-          leaderRuleId: source.listing.rule_id,
-          leaderAgent: source.listing.agent,
-          tokenIn: source.tokenIn,
-          scaleBps,
-          hourlyCap,
-          perRunCap,
-        },
-        UNICHAIN_SEPOLIA_CHAIN_ID,
-        source.tokenIn,
-      );
+      await control.attachMirror(ruleId, {
+        leaderChainId: BigInt(UNICHAIN_SEPOLIA_CHAIN_ID),
+        leaderVault: source.vault,
+        leaderRuleId: source.listing.rule_id,
+        leaderAgent: source.listing.agent,
+        tokenIn: source.tokenIn,
+        scaleBps,
+        hourlyCap,
+        perRunCap,
+      });
       return { agent: currentAccount.agent, ruleId };
     },
   });
@@ -260,7 +257,18 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
               message="The mirror could not be attached."
               detail={mutation.error.message}
               chainId={LASNA_CHAIN_ID}
-            />
+            >
+              {mutation.error instanceof RuleFundingError && mutation.error.needsDeposit && (
+                <Link
+                  to={appRoutes.account}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="app-link mt-3 block"
+                >
+                  Fund your vault (opens in a new tab)
+                </Link>
+              )}
+            </ErrorState>
           ) : null}
           {mutation.data ? (
             <p role="status" className="app-copy">

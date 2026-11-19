@@ -50,11 +50,11 @@ export function useFirstRuleGuide() {
           },
         },
         {
-          element: '.rule-composer__canvas',
+          element: '.rule-composer__settings',
           popover: {
-            title: 'Fill in the sentence',
+            title: 'Set up your rule',
             description:
-              'Select each blank to pick a value or enter your own where available. Read the sentence back to check what the rule will do.',
+              'Choose the tokens and type the amount you want the vault to spend each run. The preview shows what the rule will do.',
             side: 'bottom',
             align: 'start',
           },
@@ -64,7 +64,7 @@ export function useFirstRuleGuide() {
           popover: {
             title: 'Review and sign',
             description:
-              'Once your sentence is complete, select Review and create rule. Check the details, then approve the request in your wallet on Reactive Lasna.',
+              'Select Review and create rule when your settings are complete. Check the details, then approve the request in your wallet on Reactive Lasna.',
             side: 'top',
             align: 'start',
           },

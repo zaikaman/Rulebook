@@ -48,4 +48,4 @@ The repository records explorer receipts, measured fees, and validation coverage
 
 ## Accessibility & Inclusion
 
-Preserve keyboard operation for the composer, including selecting values without dragging. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Accessibility tests](frontend/test/a11y.test.tsx), [composer keyboard tests](frontend/test/composer.a11y.test.tsx)
+Preserve keyboard operation for choosing rule settings and entering amounts. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Accessibility tests](frontend/test/a11y.test.tsx), [composer keyboard tests](frontend/test/composer.a11y.test.tsx)

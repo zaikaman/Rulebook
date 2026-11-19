@@ -13,6 +13,9 @@ function configuredAddress(value: string | undefined): Address | undefined {
 /** Deployment addresses are configuration, never hard-coded chain constants. */
 export const AGENT_FACTORY_ADDRESS = configuredAddress(import.meta.env.VITE_AGENT_FACTORY_ADDRESS);
 export const VAULT_FACTORY_ADDRESS = configuredAddress(import.meta.env.VITE_VAULT_FACTORY_ADDRESS);
+export const PREVIOUS_VAULT_FACTORY_ADDRESS = configuredAddress(
+  import.meta.env.VITE_PREVIOUS_VAULT_FACTORY_ADDRESS,
+);
 
 export const LASNA_CONFIG = getChain(LASNA_CHAIN_ID);
 export const UNICHAIN_CONFIG = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);

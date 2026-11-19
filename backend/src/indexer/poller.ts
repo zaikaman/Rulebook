@@ -59,6 +59,7 @@ export class IndexerPoller {
         : fromBlock + BigInt(this.rangeSize) - 1n;
 
     const logs = await client.getLogs({ fromBlock, toBlock });
+    const blockTimes = new Map<bigint, string>();
     let processed = 0;
     for (const log of logs) {
       const raw: RawLog = {
@@ -72,9 +73,19 @@ export class IndexerPoller {
       };
       const outcome = decodeLog(raw);
       if (outcome.ok) {
-        await persistDecodedEvent(this.options.repositories, outcome.event, {
-          readRule: (chainId, agent, ruleId) => this.readRule(chainId, agent, ruleId),
-        });
+        let blockTime = blockTimes.get(raw.blockNumber);
+        if (!blockTime) {
+          const block = await client.getBlock({ blockNumber: raw.blockNumber });
+          blockTime = new Date(Number(block.timestamp) * 1000).toISOString();
+          blockTimes.set(raw.blockNumber, blockTime);
+        }
+        await persistDecodedEvent(
+          this.options.repositories,
+          { ...outcome.event, blockTime },
+          {
+            readRule: (chainId, agent, ruleId) => this.readRule(chainId, agent, ruleId),
+          },
+        );
         processed += 1;
       } else if (outcome.known || (raw.topics[0] && isKnownTopic(chainId, raw.topics[0]))) {
         await recordDeadLetter(this.options.repositories, raw, outcome.reason);

@@ -26,11 +26,12 @@ import {
     NotOwner,
     NotServiceProvider,
     SlippageExceeded,
+    StaleExecution,
     TokenMismatch,
     TransferFailed,
     UnknownTemplate
 } from "../shared/Errors.sol";
-import {IUniswapV2Pair, IUniswapV2Router02} from "../shared/UniswapV2.sol";
+import {IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router02} from "../shared/UniswapV2.sol";
 
 /// @title Vault
 /// @notice One user's funds-side account on Unichain Sepolia. Holds principal, enforces limits,
@@ -50,6 +51,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     );
     /// @notice Emitted only by mirror vaults; never emitted alongside `Executed`.
     event Mirrored(uint256 indexed ruleId, address indexed leader, bytes32 leaderTx);
+    event GridSettled(uint256 indexed ruleId, uint32 indexed sequence);
     /// @notice Principal withdrawn or spent from the vault.
     event Withdrawn(address indexed token, uint256 amount, address indexed to);
     /// @notice Token principal added to the vault through `deposit`.
@@ -67,6 +69,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     uint16 public constant DEFAULT_SLIPPAGE_BPS = 50;
     /// @notice Largest tolerance the owner may set: 10%. A wider floor is not a floor.
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
+    uint8 public constant EXECUTION_PAYLOAD_VERSION = 2;
 
     /// @notice The user who owns this vault and its principal.
     address public immutable owner;
@@ -92,6 +95,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
 
     mapping(address => uint256) private _principal;
     mapping(bytes32 => bool) private _mirroredExecutions;
+    mapping(uint256 => uint32) private _executedSequence;
 
     constructor(
         IPayable callbackProxy,
@@ -195,6 +199,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (ruleId > type(uint32).max) revert InvalidTemplateParams();
 
         ExecutionPayload memory payload = CallbackPayload.decode(data);
+        if (payload.template > type(uint8).max) revert InvalidTemplateParams();
         uint8 template = uint8(payload.template);
         if (template < 1 || template > RuleLib.TEMPLATE_COUNT) revert UnknownTemplate(template);
         if (RuleLib.isAlertTemplate(template)) revert AlertOnlyTemplate(template);
@@ -202,9 +207,23 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (payload.amountIn > maxSpendPerRun) {
             revert ExceedsPerRunCap(payload.amountIn, maxSpendPerRun);
         }
+        if (payload.expiry == 0 || block.timestamp > payload.expiry) {
+            revert Expired(ruleId, payload.expiry);
+        }
+        if (payload.tokenIn != allowedTokenIn) {
+            revert TokenMismatch(allowedTokenIn, payload.tokenIn);
+        }
+        if (payload.sequence <= _executedSequence[ruleId]) {
+            revert StaleExecution(ruleId, payload.sequence);
+        }
+        _executedSequence[ruleId] = payload.sequence;
 
         if (RuleLib.isSwapTemplate(template)) {
+            if (payload.tokenOut != allowedTokenOut) {
+                revert TokenMismatch(allowedTokenOut, payload.tokenOut);
+            }
             _swap(ruleId, payload);
+            if (template == 6) emit GridSettled(ruleId, payload.sequence);
         } else if (template == 9) {
             _pullFromSource(ruleId, payload);
         } else {
@@ -244,7 +263,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (_mirroredExecutions[key]) revert DuplicateLeaderExecution(key);
         _mirroredExecutions[key] = true;
 
-        (uint256 reserveIn, uint256 reserveOut) = _liveReserves(payload.pair);
+        (uint256 reserveIn, uint256 reserveOut,) = _liveReserves(payload.pair);
         uint256 expected = PriceMath.expectedOut(payload.amountIn, reserveIn, reserveOut);
         if (expected < payload.minOut) revert SlippageExceeded(payload.minOut, expected);
         uint256 liveMinimum = PriceMath.applySlippage(expected, slippageBps);
@@ -262,25 +281,16 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     /// reserves, take the floor the Agent decided on, then swap.
     function _swap(uint256 ruleId, ExecutionPayload memory payload) private {
         if (payload.pair == address(0)) revert InvalidTemplateParams();
-        if (payload.template == 3 || payload.template == 4) {
-            if (payload.expiry != 0 && block.timestamp > payload.expiry) {
-                revert Expired(ruleId, payload.expiry);
-            }
-            if (payload.threshold == 0) revert InvalidThreshold();
-        }
-
-        (uint256 reserveIn, uint256 reserveOut) = _liveReserves(payload.pair);
-        uint256 price = PriceMath.priceFromReserves(reserveIn, reserveOut);
-        if (!_conditionStillHolds(payload.template, price, payload.threshold)) {
+        if (payload.template != 1 && payload.threshold == 0) revert InvalidThreshold();
+        (uint256 reserveIn, uint256 reserveOut, uint256 price) = _liveReserves(payload.pair);
+        if (!_conditionStillHolds(payload, price)) {
             revert ConditionNotMet();
         }
 
         uint256 expected = PriceMath.expectedOut(payload.amountIn, reserveIn, reserveOut);
-        if (payload.extra != 0 && expected < payload.extra) {
-            revert SlippageExceeded(payload.extra, expected);
-        }
         // The minimum comes from live reserves, never from the Agent's cached price.
         uint256 minOut = PriceMath.applySlippage(expected, slippageBps);
+        if (minOut == 0) revert InvalidAmount();
 
         uint256 received = _trade(payload.amountIn, minOut);
         emit Executed(
@@ -331,6 +341,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         address source = address(uint160(payload.extra));
         if (source == address(0)) revert InvalidTemplateParams();
         address token = allowedTokenIn;
+        if (IERC20(token).balanceOf(address(this)) >= payload.threshold) revert ConditionNotMet();
         try IERC20(token).transferFrom(source, address(this), payload.amountIn) returns (bool ok) {
             if (!ok) revert TransferFailed();
         } catch {
@@ -347,8 +358,12 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     function _liveReserves(address pair)
         private
         view
-        returns (uint256 reserveIn, uint256 reserveOut)
+        returns (uint256 reserveIn, uint256 reserveOut, uint256 price)
     {
+        address factory = IUniswapV2Router02(router).factory();
+        if (IUniswapV2Factory(factory).getPair(allowedTokenIn, allowedTokenOut) != pair) {
+            revert InvalidTemplateParams();
+        }
         address token0 = IUniswapV2Pair(pair).token0();
         address token1 = IUniswapV2Pair(pair).token1();
         bool forward = token0 == allowedTokenIn && token1 == allowedTokenOut;
@@ -359,17 +374,18 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (raw0 == 0 || raw1 == 0) revert InvalidAmount();
         reserveIn = forward ? raw0 : raw1;
         reserveOut = forward ? raw1 : raw0;
+        price = PriceMath.usdcPerWeth(raw0, raw1);
     }
 
-    /// @dev The price condition the funds-side re-checks. Templates 1, 2 and 6 are decided by
-    /// time or by a reference the Agent owns, so the quote floor protects those instead.
-    function _conditionStillHolds(uint16 template, uint256 price, uint256 threshold)
+    function _conditionStillHolds(ExecutionPayload memory payload, uint256 price)
         private
         pure
         returns (bool)
     {
-        if (template == 3 || template == 5) return price <= threshold;
-        if (template == 4) return price >= threshold;
+        uint16 template = payload.template;
+        if (template == 2 || template == 3 || template == 5) return price <= payload.threshold;
+        if (template == 4) return price >= payload.threshold;
+        if (template == 6) return PriceMath.movedBy(price, payload.threshold, payload.extra);
         return true;
     }
 

@@ -43,6 +43,7 @@ contract MirrorLoopTest is Test {
         pair = new MockPair(address(tokenIn), address(tokenOut));
         pair.setReserves(1000e6, 1000e18);
         router = new MockRouter();
+        router.setPair(address(pair));
         tokenOut.mint(address(router), 20e18);
         leaderVault = new Vault(
             IPayable(payable(PROXY)),

@@ -22,6 +22,7 @@ import {
     NotOwner,
     NotServiceProvider,
     SlippageExceeded,
+    StaleExecution,
     TokenMismatch,
     TransferFailed,
     UnknownTemplate
@@ -93,8 +94,11 @@ contract VaultTest is Test {
             address(0),
             uint256(0),
             uint256(5e6),
-            uint64(0),
-            uint256(uint160(address(0xB0B)))
+            uint64(block.timestamp + 10 minutes),
+            uint256(uint160(address(0xB0B))),
+            address(usdc),
+            address(0),
+            uint32(1)
         );
         vm.prank(address(proxy));
         vault.execute(address(agentRegistry), 1, validPayload);
@@ -260,14 +264,32 @@ contract VaultTest is Test {
         vm.expectRevert(InvalidCallbackPayload.selector);
         vault.execute(address(agentRegistry), 1, "");
 
-        bytes memory unknownTemplate =
-            abi.encode(uint16(14), address(usdc), uint256(0), uint256(1), uint64(0), uint256(0));
+        bytes memory unknownTemplate = abi.encode(
+            uint16(14),
+            address(usdc),
+            uint256(0),
+            uint256(1),
+            uint64(0),
+            uint256(0),
+            address(usdc),
+            address(0),
+            uint32(1)
+        );
         vm.prank(address(proxy));
         vm.expectRevert(abi.encodeWithSelector(UnknownTemplate.selector, 14));
         vault.execute(address(agentRegistry), 1, unknownTemplate);
 
-        bytes memory alertPayload =
-            abi.encode(uint16(11), address(usdc), uint256(1), uint256(0), uint64(0), uint256(0));
+        bytes memory alertPayload = abi.encode(
+            uint16(11),
+            address(usdc),
+            uint256(1),
+            uint256(0),
+            uint64(0),
+            uint256(0),
+            address(usdc),
+            address(0),
+            uint32(1)
+        );
         vm.prank(address(proxy));
         vm.expectRevert(abi.encodeWithSelector(AlertOnlyTemplate.selector, 11));
         vault.execute(address(agentRegistry), 1, alertPayload);
@@ -277,8 +299,11 @@ contract VaultTest is Test {
             address(0),
             uint256(0),
             uint256(1),
-            uint64(0),
-            uint256(uint160(address(0xB0B)))
+            uint64(block.timestamp + 10 minutes),
+            uint256(uint160(address(0xB0B))),
+            address(usdc),
+            address(0),
+            uint32(1)
         );
         vm.prank(address(proxy));
         vm.expectRevert(abi.encodeWithSelector(InsufficientPrincipal.selector, 1, 0));
@@ -320,6 +345,7 @@ contract VaultExecutionTest is Test {
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
         router = new MockRouter();
+        router.setPair(address(pair));
         vault = new Vault(
             IPayable(payable(address(proxy))),
             USER,
@@ -345,8 +371,18 @@ contract VaultExecutionTest is Test {
         uint256 amountIn,
         uint64 expiry,
         uint256 extra
-    ) internal pure returns (bytes memory) {
-        return abi.encode(template, pair_, threshold, amountIn, expiry, extra);
+    ) internal view returns (bytes memory) {
+        return abi.encode(
+            template,
+            pair_,
+            threshold,
+            amountIn,
+            expiry == 0 ? uint64(block.timestamp + 10 minutes) : expiry,
+            extra,
+            address(usdc),
+            address(weth),
+            uint32(1)
+        );
     }
 
     function _execute(uint256 ruleId, bytes memory data) internal {
@@ -355,7 +391,7 @@ contract VaultExecutionTest is Test {
     }
 
     function _setPrice(uint256 priceWad) internal {
-        pair.setReserves(uint112(1e18), uint112(priceWad));
+        pair.setReserves(uint112(priceWad / 1e6), uint112(1e24));
     }
 
     // --- T170: the transfer path -----------------------------------------------------------
@@ -378,7 +414,7 @@ contract VaultExecutionTest is Test {
         vm.prank(SOURCE);
         usdc.approve(address(vault), 100e6);
 
-        bytes memory data = _payload(9, address(0), 40e6, 10e6, 0, uint256(uint160(SOURCE)));
+        bytes memory data = _payload(9, address(0), 60e6, 10e6, 0, uint256(uint160(SOURCE)));
         vm.expectEmit(true, false, false, true, address(vault));
         emit Vault.Deposited(address(usdc), 10e6, SOURCE);
         _execute(9, data);
@@ -388,7 +424,7 @@ contract VaultExecutionTest is Test {
     }
 
     function test_pullWithoutAllowanceSurfacesAsTransferFailed() public {
-        bytes memory data = _payload(9, address(0), 40e6, 10e6, 0, uint256(uint160(SOURCE)));
+        bytes memory data = _payload(9, address(0), 60e6, 10e6, 0, uint256(uint160(SOURCE)));
         vm.prank(address(proxy));
         vm.expectRevert(TransferFailed.selector);
         vault.execute(AGENT, 9, data);
@@ -415,7 +451,7 @@ contract VaultExecutionTest is Test {
 
     function test_amountOutMinComesFromLiveReserves() public {
         _setPrice(2e18);
-        uint256 expected = PriceMath.expectedOut(10e6, 1e18, 2e18);
+        uint256 expected = PriceMath.expectedOut(10e6, 2e12, 1e24);
         uint256 liveMin = PriceMath.applySlippage(expected, vault.slippageBps());
 
         _execute(1, _payload(1, address(pair), 0, 10e6, 0, 0));
@@ -428,15 +464,9 @@ contract VaultExecutionTest is Test {
 
     function test_aReserveMoveBetweenDecisionAndExecutionReverts() public {
         _setPrice(2e18);
-        uint256 decisionFloor = PriceMath.expectedOut(10e6, 1e18, 2e18);
-        _setPrice(0.5e18);
-        uint256 liveExpected = PriceMath.expectedOut(10e6, 1e18, 0.5e18);
-
-        bytes memory data = _payload(1, address(pair), 0, 10e6, 0, decisionFloor);
+        bytes memory data = _payload(2, address(pair), 1e18, 10e6, 0, 0);
         vm.prank(address(proxy));
-        vm.expectRevert(
-            abi.encodeWithSelector(SlippageExceeded.selector, decisionFloor, liveExpected)
-        );
+        vm.expectRevert(ConditionNotMet.selector);
         vault.execute(AGENT, 1, data);
     }
 
@@ -549,6 +579,55 @@ contract VaultExecutionTest is Test {
             abi.encode(false)
         );
         vm.expectRevert(TransferFailed.selector);
-        _execute(9, _payload(9, address(0), 0, 5e6, 0, uint256(uint160(SOURCE))));
+        _execute(9, _payload(9, address(0), 60e6, 5e6, 0, uint256(uint160(SOURCE))));
+    }
+
+    function test_refusesABalanceFloorAfterTheVaultRecovers() public {
+        bytes memory data = _payload(9, address(0), 50e6, 10e6, 0, uint256(uint160(SOURCE)));
+        vm.expectRevert(ConditionNotMet.selector);
+        _execute(9, data);
+    }
+
+    function test_refusesDuplicateCallbacksAfterTheFirstSuccessfulTransfer() public {
+        bytes memory data = _payload(7, address(0), 0, 5e6, 0, uint256(uint160(RECIPIENT)));
+        _execute(7, data);
+        vm.expectRevert(abi.encodeWithSelector(StaleExecution.selector, 7, 1));
+        _execute(7, data);
+        assertEq(usdc.balanceOf(RECIPIENT), 5e6);
+    }
+
+    function test_refusesAChangedSpendToken() public {
+        bytes memory data = _payload(7, address(0), 0, 5e6, 0, uint256(uint160(RECIPIENT)));
+        vm.prank(USER);
+        vault.setLimits(CAP, address(weth), address(usdc));
+        vm.expectRevert(
+            abi.encodeWithSelector(TokenMismatch.selector, address(weth), address(usdc))
+        );
+        _execute(7, data);
+    }
+
+    function test_refusesAChangedOutputToken() public {
+        bytes memory data = _payload(1, address(pair), 0, 5e6, 0, 0);
+        vm.prank(USER);
+        vault.setLimits(CAP, address(usdc), STRANGER);
+        vm.expectRevert(abi.encodeWithSelector(TokenMismatch.selector, STRANGER, address(weth)));
+        _execute(1, data);
+    }
+
+    function test_checksTheGridBandAtSettlementAndEmitsItsSequence() public {
+        bytes memory data = _payload(6, address(pair), 2e18, 5e6, 0, 1_000);
+        _setPrice(2.05e18);
+        vm.expectRevert(ConditionNotMet.selector);
+        _execute(6, data);
+        _setPrice(2.5e18);
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit Vault.GridSettled(6, 1);
+        _execute(6, data);
+    }
+
+    function test_doesNotSwapWhenTheMinimumOutputRoundsToZero() public {
+        pair.setReserves(1e24, 1);
+        vm.expectRevert(InvalidAmount.selector);
+        _execute(1, _payload(1, address(pair), 0, 1, 0, 0));
     }
 }

@@ -16,14 +16,19 @@ import {
   parseUnits,
   zeroAddress,
   type Hex,
+  type TransactionReceipt,
 } from 'viem';
-import { useAccount, useBalance, useReadContract, useWriteContract } from 'wagmi';
+import { writeContract } from 'viem/actions';
+import { useAccount, useBalance, useConfig, useReadContract } from 'wagmi';
+import { getConnectorClient } from 'wagmi/actions';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { DEMO_USDC, LASNA_CONFIG, UNICHAIN_CONFIG } from '../lib/contracts.js';
 import { costModel } from '../lib/costModel.js';
+import { isRpcRateLimit } from '../lib/errors.js';
 import { ruleFees, type RuleFee } from '../lib/funding.js';
 import { appRoutes } from '../lib/routes.js';
+import type { SignatureDetails } from '../lib/signatures.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import { ErrorState } from './ErrorState.js';
@@ -73,7 +78,14 @@ type FundingTransaction = {
   hash: Hex;
   chainId: number;
   kind: 'approval' | 'deposit';
+  awaitingFeeBalance?: true;
 };
+
+class FundingRateLimitError extends Error {
+  constructor(cause: unknown) {
+    super('Your wallet’s network provider is rate limiting transactions.', { cause });
+  }
+}
 
 function readPendingFunding(key: string, chainId: number): FundingTransaction | undefined {
   try {
@@ -83,7 +95,14 @@ function readPendingFunding(key: string, chainId: number): FundingTransaction | 
       isHash(saved.hash) &&
       (saved.kind === 'approval' || saved.kind === 'deposit')
     ) {
-      return { hash: saved.hash, chainId, kind: saved.kind };
+      return {
+        hash: saved.hash,
+        chainId,
+        kind: saved.kind,
+        ...(saved.kind === 'deposit' && saved.awaitingFeeBalance === true
+          ? { awaitingFeeBalance: true }
+          : {}),
+      };
     }
   } catch {
     // Funding still works in the current view when storage is unavailable.
@@ -111,14 +130,21 @@ export function AccountFunding({
   agent,
   vault,
   onConfirmed,
+  onFeeConfirmed,
   guided,
-  onBusyChange,
+  onProgressChange,
 }: {
   agent: Address;
   vault: Address;
   onConfirmed?: () => void | Promise<void>;
-  guided?: { choice: FundingChoice; suggestedAmount?: string; debt?: bigint };
-  onBusyChange?: (busy: boolean) => void;
+  onFeeConfirmed?: (block: Pick<TransactionReceipt, 'blockHash' | 'blockNumber'>) => Promise<void>;
+  guided?: {
+    choice: FundingChoice;
+    suggestedAmount?: string;
+    debt?: bigint;
+    onRefresh: () => Promise<void>;
+  };
+  onProgressChange?: (choice: FundingChoice, busy: boolean, checkingFee: boolean) => void;
 }) {
   const section = useRef<HTMLElement>(null);
   const { hash } = useLocation();
@@ -160,7 +186,7 @@ export function AccountFunding({
   const selected = options[choice];
   const isVault = choice === 'vault';
   const { address } = useAccount();
-  const { writeContractAsync } = useWriteContract();
+  const config = useConfig();
   const requestSignature = useChainGuard();
   const [enteredAmount, setAmount] = useState<string>();
   const [localSubmission, setLocalSubmission] = useState<{ key: string; tx: FundingTransaction }>();
@@ -172,6 +198,7 @@ export function AccountFunding({
       ? localSubmission.tx
       : readPendingFunding(pendingKey, selected.chainId)
     : undefined;
+  const updatingFeeBalance = Boolean(onFeeConfirmed && submitted?.awaitingFeeBalance);
   function rememberSubmission(key: string, tx?: FundingTransaction) {
     setLocalSubmission(tx ? { key, tx } : undefined);
     try {
@@ -208,6 +235,7 @@ export function AccountFunding({
   const estimate = fundingEstimate(choice, parsed - (guided?.debt ?? 0n));
 
   const deposit = useMutation({
+    retry: false,
     mutationFn: async (retry?: FundingTransaction): Promise<FundingTransaction> => {
       if (!address || !pendingKey) throw new Error('Connect the wallet that started this deposit.');
       const key = pendingKey;
@@ -220,11 +248,22 @@ export function AccountFunding({
             replaced = reason !== 'repriced';
           },
         });
-        rememberSubmission(key);
         if (replaced || receipt.status !== 'success') {
+          rememberSubmission(key);
           throw new Error('The transaction was cancelled, replaced, or reverted.');
         }
-        return { ...transaction, hash: receipt.transactionHash };
+        const confirmed = {
+          hash: receipt.transactionHash,
+          chainId: transaction.chainId,
+          kind: transaction.kind,
+        };
+        if (transaction.kind === 'deposit' && onFeeConfirmed) {
+          // Keep the submission locked and recoverable until the confirmed balance is available.
+          rememberSubmission(key, { ...confirmed, awaitingFeeBalance: true });
+          await onFeeConfirmed(receipt);
+        }
+        rememberSubmission(key);
+        return confirmed;
       };
       if (retry) return confirm(retry);
       const broadcast = readPendingFunding(key, selected.chainId);
@@ -236,6 +275,41 @@ export function AccountFunding({
         throw new Error(
           'Enter an amount your wallet can cover. Leave enough for the transaction fee.',
         );
+      const requestFundingSignature = (
+        details: SignatureDetails,
+        send: (client: Awaited<ReturnType<typeof getConnectorClient>>) => Promise<Hex>,
+      ) =>
+        requestSignature(details, address, async (connector) => {
+          const client = await getConnectorClient(config, {
+            account: address,
+            chainId: details.chainId,
+            connector,
+          });
+          try {
+            return await send({
+              ...client,
+              request: async (args, options) => {
+                try {
+                  return await client.request(args as never, options);
+                } catch (error) {
+                  // Viem can try another wallet method on generic invalid-input RPC codes.
+                  // Surface a throttle before that fallback can submit the transfer again.
+                  if (
+                    (args.method === 'eth_sendTransaction' ||
+                      args.method === 'wallet_sendTransaction') &&
+                    isRpcRateLimit(error)
+                  ) {
+                    throw new FundingRateLimitError(error);
+                  }
+                  throw error;
+                }
+              },
+            });
+          } catch (error) {
+            if (isRpcRateLimit(error)) throw new FundingRateLimitError(error);
+            throw error;
+          }
+        });
       const display = `${formatUnits(parsed, selected.decimals)} test ${selected.symbol}`;
       let hash: Hex;
       if (isVault) {
@@ -246,7 +320,7 @@ export function AccountFunding({
           args: [address, vault],
         });
         if (allowance < parsed) {
-          const approval = await requestSignature(
+          const approval = await requestFundingSignature(
             {
               chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
               target: DEMO_USDC,
@@ -254,13 +328,10 @@ export function AccountFunding({
               effect: 'Approve this exact deposit into your vault.',
               amount: display,
             },
-            address,
-            (connector) =>
-              writeContractAsync({
-                connector,
+            (client) =>
+              writeContract(client, {
                 account: address,
                 address: DEMO_USDC,
-                chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
                 abi: erc20Abi,
                 functionName: 'approve',
                 args: [vault, parsed],
@@ -268,7 +339,7 @@ export function AccountFunding({
           );
           await confirm({ chainId: selected.chainId, hash: approval, kind: 'approval' });
         }
-        hash = await requestSignature(
+        hash = await requestFundingSignature(
           {
             chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
             target: vault,
@@ -276,20 +347,17 @@ export function AccountFunding({
             effect: 'Add funds your rules can use for trades or transfers.',
             amount: display,
           },
-          address,
-          (connector) =>
-            writeContractAsync({
-              connector,
+          (client) =>
+            writeContract(client, {
               account: address,
               address: vault,
-              chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
               abi: vaultAbi,
               functionName: 'deposit',
               args: [DEMO_USDC, parsed],
             }),
         );
       } else {
-        hash = await requestSignature(
+        hash = await requestFundingSignature(
           {
             chainId: selected.chainId,
             target: selected.target,
@@ -298,13 +366,10 @@ export function AccountFunding({
             amount: display,
             amountLabel: 'Fee top-up',
           },
-          address,
-          (connector) =>
-            writeContractAsync({
-              connector,
+          (client) =>
+            writeContract(client, {
               account: address,
               address: selected.target,
-              chainId: selected.chainId,
               abi: executionCreditAbi,
               functionName: 'depositTo',
               args: [selected.beneficiary],
@@ -317,7 +382,8 @@ export function AccountFunding({
     },
     onSuccess: async ({ kind }) => {
       if (kind === 'approval') return;
-      await Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()]);
+      if (onFeeConfirmed) void balance.refetch();
+      else await Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()]);
       setAmount(guided ? undefined : '');
       void queryClient.invalidateQueries({
         predicate: ({ queryKey: [type, account] }) =>
@@ -329,8 +395,8 @@ export function AccountFunding({
   });
   const locked = deposit.isPending || !!submitted;
   useEffect(() => {
-    onBusyChange?.(deposit.isPending);
-  }, [deposit.isPending, onBusyChange]);
+    onProgressChange?.(choice, deposit.isPending, updatingFeeBalance);
+  }, [choice, deposit.isPending, onProgressChange, updatingFeeBalance]);
 
   const fundingToken = isVault ? testnetTokens.usdc : ruleFees[choice].token;
   const heading = guided ? (isVault ? 'Vault USDC' : ruleFees[choice].title) : 'Fund your account';
@@ -374,7 +440,27 @@ export function AccountFunding({
           </p>
         )}
       </header>
+      {updatingFeeBalance && submitted && (
+        <div className="space-y-3">
+          <p role="status" className="app-copy">
+            {deposit.isPending
+              ? 'Deposit confirmed. Updating your fee balance…'
+              : 'Deposit confirmed. The fee balance is taking longer to update.'}{' '}
+            <TxLink chainId={submitted.chainId} txHash={submitted.hash} label="View transaction" />
+          </p>
+          {!deposit.isPending && (
+            <button
+              type="button"
+              className="app-button app-button--primary"
+              onClick={() => deposit.mutate(submitted)}
+            >
+              Check fee balance
+            </button>
+          )}
+        </div>
+      )}
       <form
+        hidden={updatingFeeBalance}
         className="space-y-3"
         onSubmit={(event) => {
           event.preventDefault();
@@ -450,10 +536,42 @@ export function AccountFunding({
         )}
         {!guided && submit}
       </form>
-      {deposit.error && !submitted && (
-        <ErrorState message="The deposit could not be completed." detail={deposit.error.message} />
-      )}
-      {submitted && (
+      {deposit.error &&
+        !submitted &&
+        (deposit.error instanceof FundingRateLimitError ? (
+          <ErrorState message={deposit.error.message} chainId={selected.chainId}>
+            <p className="mt-2 app-copy">
+              Check your wallet activity for this transaction before trying again. If the limit
+              persists, switch to another RPC provider for this network in your wallet settings.
+            </p>
+            {selected.chainId === UNICHAIN_SEPOLIA_CHAIN_ID && (
+              <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                <a
+                  className="app-link"
+                  href="https://support.metamask.com/configure/networks/how-to-add-a-custom-network-rpc/#adding-or-editing-rpc-urls"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Change RPC in MetaMask
+                </a>
+                <a
+                  className="app-link"
+                  href="https://developers.uniswap.org/docs/unichain/tools/node-providers"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Unichain RPC providers
+                </a>
+              </p>
+            )}
+          </ErrorState>
+        ) : (
+          <ErrorState
+            message="The deposit could not be completed."
+            detail={deposit.error.message}
+          />
+        ))}
+      {submitted && !updatingFeeBalance && (
         <div className="space-y-2">
           <p role="status" className="app-copy">
             {deposit.isPending
@@ -480,7 +598,7 @@ export function AccountFunding({
           />
         </p>
       )}
-      {guided ? (
+      {guided && !updatingFeeBalance && (
         <p className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <a className="app-link" href={fundingToken.faucet} target="_blank" rel="noreferrer">
             {fundingToken.linkLabel}
@@ -491,13 +609,14 @@ export function AccountFunding({
             className="app-link"
             disabled={locked}
             onClick={() =>
-              void Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()])
+              void Promise.all([balance.refetch(), isVault && token.refetch(), guided.onRefresh()])
             }
           >
             Check balances
           </button>
         </p>
-      ) : (
+      )}
+      {!guided && (
         <details className="space-y-3">
           <summary className="app-link cursor-pointer text-sm">Need more test tokens?</summary>
           <TestnetFaucets />

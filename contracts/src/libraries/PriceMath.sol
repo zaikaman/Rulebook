@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {InvalidAmount, InvalidSecondary} from "../shared/Errors.sol";
 
 /// @title PriceMath
@@ -9,6 +10,7 @@ import {InvalidAmount, InvalidSecondary} from "../shared/Errors.sol";
 library PriceMath {
     /// @notice Scale applied to every price produced or consumed by a rule.
     uint256 internal constant PRICE_SCALE = 1e18;
+    uint256 private constant USDC_PER_WETH_SCALE = 1e30;
 
     /// @notice Basis-point denominator.
     uint256 internal constant BPS = 10_000;
@@ -28,6 +30,21 @@ library PriceMath {
     {
         if (reserveBase == 0 || reserveQuote == 0) revert InvalidAmount();
         price = (reserveQuote * PRICE_SCALE) / reserveBase;
+    }
+
+    /// @notice USDC per WETH at 1e18 precision, accounting for 6 vs. 18 decimals.
+    function usdcPerWeth(uint112 usdcReserve, uint112 wethReserve) internal pure returns (uint256) {
+        if (usdcReserve == 0 || wethReserve == 0) revert InvalidAmount();
+        return (uint256(usdcReserve) * USDC_PER_WETH_SCALE) / wethReserve;
+    }
+
+    function movedBy(uint256 price, uint256 referencePrice, uint256 bps)
+        internal
+        pure
+        returns (bool)
+    {
+        uint256 delta = price >= referencePrice ? price - referencePrice : referencePrice - price;
+        return delta >= Math.mulDiv(referencePrice, bps, BPS, Math.Rounding.Ceil);
     }
 
     /// @notice Constant-product output for `amountIn`, including the 0.30% pool fee.

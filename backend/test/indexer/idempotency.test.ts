@@ -109,7 +109,7 @@ function ruleDelistedLog(index = 0): RawLog {
   };
 }
 
-function executedLog(): RawLog {
+function executedLog(timestamp = 1_700_000_000n): RawLog {
   return {
     chainId: 1301,
     address: VAULT,
@@ -130,7 +130,7 @@ function executedLog(): RawLog {
         '0x4200000000000000000000000000000000000006',
         10_000_000n,
         9_900_000n,
-        1_700_000_000n,
+        timestamp,
       ],
     ),
     blockNumber: 200n,
@@ -218,20 +218,49 @@ describe('indexer idempotency', () => {
   it('replaying the same Executed log twice writes one execution row', async () => {
     const store = new InMemoryStore();
     const repositories = createRepositories(store);
+    const deployment = decodeLog(vaultDeployedLog());
     const outcome = decodeLog(executedLog());
-    expect(outcome.ok).toBe(true);
-    if (!outcome.ok) return;
+    if (!deployment.ok || !outcome.ok) throw new Error('fixture must decode');
 
+    await persistDecodedEvent(repositories, deployment.event);
     await persistDecodedEvent(repositories, outcome.event);
     await persistDecodedEvent(repositories, outcome.event);
     expect(await store.count('executions')).toBe(1);
   });
 
+  it('ignores an execution log outside the registered vault address', async () => {
+    const repositories = createRepositories(new InMemoryStore());
+    const deployment = decodeLog(vaultDeployedLog());
+    const outcome = decodeLog({ ...executedLog(), address: AGENT });
+    if (!deployment.ok || !outcome.ok) throw new Error('fixture must decode');
+    await persistDecodedEvent(repositories, deployment.event);
+    await persistDecodedEvent(repositories, outcome.event);
+    expect(await repositories.executions.listAll()).toEqual([]);
+  });
+
+  it('counts only confirmed vault execution once across event and creation replays', async () => {
+    const store = new InMemoryStore();
+    const repositories = createRepositories(store);
+    const created = ruleCreatedLog(1);
+    const execution = executedLog((1n << 256n) - 1n);
+    for (const raw of [vaultDeployedLog(), created, execution, created, execution]) {
+      const decoded = decodeLog(raw);
+      if (!decoded.ok) throw new Error('fixture must decode');
+      await persistDecodedEvent(repositories, decoded.event);
+    }
+    expect(await repositories.rules.get(AGENT, '1')).toMatchObject({
+      runs: 1,
+      last_run_at: execution.blockTime,
+    });
+  });
+
   it('repairing a reorg removes the row whose transaction no longer exists', async () => {
     const store = new InMemoryStore();
     const repositories = createRepositories(store);
+    const deployment = decodeLog(vaultDeployedLog());
     const outcome = decodeLog(executedLog());
-    if (!outcome.ok) throw new Error('fixture must decode');
+    if (!deployment.ok || !outcome.ok) throw new Error('fixture must decode');
+    await persistDecodedEvent(repositories, deployment.event);
     await persistDecodedEvent(repositories, outcome.event);
     expect(await store.count('executions')).toBe(1);
 

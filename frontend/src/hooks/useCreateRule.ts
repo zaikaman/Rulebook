@@ -11,17 +11,19 @@ import { useAccount, useSendTransaction } from 'wagmi';
 import type { ReadyDraft } from '../composer/types.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
+import { assertRuleFunding, RuleFundingError } from '../lib/ruleFunding.js';
 import { formatRuleSentence } from '../lib/rules.js';
 import { signatureDetails } from '../lib/signatures.js';
 import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
 import { useChainGuard } from './useChainGuard.js';
 
-export type CreateFailureKind = 'simulation' | 'wallet' | 'chain';
+export type CreateFailureKind = 'funding' | 'simulation' | 'wallet' | 'chain';
 
 export interface CreateRuleError {
   readonly kind: CreateFailureKind;
   readonly message: string;
   readonly selector: string | null;
+  readonly needsDeposit?: boolean;
 }
 
 export type CreateRuleStatus =
@@ -36,6 +38,15 @@ export interface CreateRuleState {
   readonly status: CreateRuleStatus;
   readonly error: CreateRuleError | null;
   readonly result: CreateRuleResult | null;
+}
+
+function fundingFailure(error: RuleFundingError): CreateRuleError {
+  return {
+    kind: 'funding',
+    message: error.message,
+    selector: null,
+    needsDeposit: error.needsDeposit,
+  };
 }
 
 /**
@@ -70,14 +81,18 @@ export function useCreateRule() {
       try {
         params = ruleParamsFromDraft(draft);
         data = encodeAddRuleParams(agent, params, { makePublic });
+        await assertRuleFunding(agent, params);
       } catch (error) {
         setState({
           status: 'failed',
-          error: {
-            kind: 'simulation',
-            message: error instanceof Error ? error.message : 'This rule cannot be encoded.',
-            selector: null,
-          },
+          error:
+            error instanceof RuleFundingError
+              ? fundingFailure(error)
+              : {
+                  kind: 'simulation',
+                  message: error instanceof Error ? error.message : 'This rule cannot be encoded.',
+                  selector: null,
+                },
           result: null,
         });
         return null;
@@ -113,32 +128,38 @@ export function useCreateRule() {
         hash = await requestSignature(
           signatureDetails.create(agent, params, formatRuleSentence(draft), makePublic),
           address,
-          () =>
+          (connector) =>
             sendTransactionAsync({
+              connector,
               to: agent,
               data,
               account: address,
               chainId: LASNA_CHAIN_ID,
               gas,
             }),
+          undefined,
+          () => assertRuleFunding(agent, params),
         );
       } catch (error) {
         setState({
           status: 'failed',
-          error: isWalletRejection(error)
-            ? {
-                kind: 'wallet',
-                message: 'You rejected the signature, so the rule was not created.',
-                selector: null,
-              }
-            : {
-                kind: 'wallet',
-                message:
-                  error instanceof Error
-                    ? error.message
-                    : 'The wallet could not send the transaction.',
-                selector: null,
-              },
+          error:
+            error instanceof RuleFundingError
+              ? fundingFailure(error)
+              : isWalletRejection(error)
+                ? {
+                    kind: 'wallet',
+                    message: 'You rejected the signature, so the rule was not created.',
+                    selector: null,
+                  }
+                : {
+                    kind: 'wallet',
+                    message:
+                      error instanceof Error
+                        ? error.message
+                        : 'The wallet could not send the transaction.',
+                    selector: null,
+                  },
           result: null,
         });
         return null;

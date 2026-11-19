@@ -9,8 +9,11 @@ import {InvalidCallbackPayload} from "./Errors.sol";
 /// @param pair Uniswap V2 pair used for the price re-check and the execution-time quote.
 /// @param threshold Rule threshold snapshot: the price the Agent decided against, or 0.
 /// @param amountIn Per-run spend in `tokenIn` base units.
-/// @param expiry Unix seconds after which the execution must not happen (0 = no expiry).
-/// @param extra Per-template extra: swap decision floor, transfer recipient, or pull source.
+/// @param expiry Unix seconds after which the execution must not happen.
+/// @param extra Per-template extra: grid band, transfer recipient, or pull source.
+/// @param tokenIn Token authorized by the rule, independent of future vault configuration.
+/// @param tokenOut Output token for swaps.
+/// @param sequence Monotonic execution attempt within the rule.
 struct ExecutionPayload {
     uint16 template;
     address pair;
@@ -18,6 +21,9 @@ struct ExecutionPayload {
     uint256 amountIn;
     uint64 expiry;
     uint256 extra;
+    address tokenIn;
+    address tokenOut;
+    uint32 sequence;
 }
 
 /// @notice A proportional swap with an independent output floor and leader provenance.
@@ -72,32 +78,13 @@ library CallbackPayload {
         pure
         returns (bytes memory)
     {
-        return abi.encodeWithSelector(
-            EXECUTE_SELECTOR,
-            address(0),
-            ruleId,
-            abi.encode(
-                payload.template,
-                payload.pair,
-                payload.threshold,
-                payload.amountIn,
-                payload.expiry,
-                payload.extra
-            )
-        );
+        return abi.encodeWithSelector(EXECUTE_SELECTOR, address(0), ruleId, abi.encode(payload));
     }
 
-    /// @notice Decodes the inner `execute` argument back into its six fields.
+    /// @notice Decodes the inner `execute` argument back into its exact fields.
     /// @dev A wrong length is a mismatched caller, not a user error: it reverts.
     function decode(bytes calldata data) internal pure returns (ExecutionPayload memory payload) {
-        if (data.length < 192) revert InvalidCallbackPayload();
-        (
-            payload.template,
-            payload.pair,
-            payload.threshold,
-            payload.amountIn,
-            payload.expiry,
-            payload.extra
-        ) = abi.decode(data, (uint16, address, uint256, uint256, uint64, uint256));
+        if (data.length != 288) revert InvalidCallbackPayload();
+        return abi.decode(data, (ExecutionPayload));
     }
 }

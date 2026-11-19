@@ -9,10 +9,7 @@ export interface RuleActionsProps {
   readonly onPause: () => Promise<unknown>;
   readonly onResume: () => Promise<unknown>;
   readonly onCancel: () => Promise<unknown>;
-}
-
-function isBaseStatus(status: RuleStatus): status is 'active' | 'paused' | 'cancelled' {
-  return status === 'active' || status === 'paused' || status === 'cancelled';
+  readonly onRearm?: () => Promise<unknown>;
 }
 
 function reasonFor(error: unknown): string {
@@ -26,7 +23,14 @@ function reasonFor(error: unknown): string {
  * restores the previous status and names the chain's reason, so the user never sees a control
  * that lies about what the Agent accepted. Cancel asks once before it is submitted.
  */
-export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: RuleActionsProps) {
+export function RuleActions({
+  ruleId,
+  status,
+  onPause,
+  onResume,
+  onCancel,
+  onRearm,
+}: RuleActionsProps) {
   const [display, setDisplay] = useState<RuleStatus>(status);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -57,7 +61,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
         <StatusPill status={display} />
         <span className="font-mono text-xs text-ink-muted">#{ruleId.toString()}</span>
 
-        {isBaseStatus(display) && display === 'paused' ? (
+        {display === 'paused' ? (
           <button
             type="button"
             className="app-button"
@@ -68,7 +72,7 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
           </button>
         ) : null}
 
-        {isBaseStatus(display) && display === 'active' ? (
+        {display === 'active' || display === 'latched' ? (
           <button
             type="button"
             className="app-button"
@@ -79,13 +83,18 @@ export function RuleActions({ ruleId, status, onPause, onResume, onCancel }: Rul
           </button>
         ) : null}
 
-        {display === 'latched' ? (
-          <span className="text-xs text-ink-muted">
-            This rule fired and is waiting for a reset before it can fire again.
-          </span>
-        ) : null}
+        {display === 'latched' && onRearm && (
+          <button
+            type="button"
+            className="app-button"
+            disabled={pending}
+            onClick={() => void run('active', onRearm)}
+          >
+            Rearm rule
+          </button>
+        )}
 
-        {display !== 'cancelled' && isBaseStatus(display) ? (
+        {display !== 'cancelled' ? (
           confirmingCancel ? (
             <span className="flex flex-wrap items-center gap-2">
               <button

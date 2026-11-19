@@ -4,38 +4,47 @@ import {
   getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  vaultAbi,
   type Address,
   type SlotKey,
   type TemplateId,
 } from '@rulebook/shared';
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router';
 
 import { LiveCalldata } from '../composer/LiveCalldata.js';
-import { SentenceCanvas } from '../composer/SentenceCanvas.js';
+import { RuleFields } from '../composer/RuleFields.js';
 import { TemplatePicker } from '../composer/TemplatePicker.js';
-import { composerReducer, initialComposerState, toReadyDraft } from '../composer/reducer.js';
+import { composerReducer, initialComposerState } from '../composer/reducer.js';
+import type { VaultTerms } from '../composer/types.js';
 import { useFirstRuleGuide } from '../composer/useFirstRuleGuide.js';
-import { slotIssues } from '../composer/validation.js';
+import { validateComposer } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
 import { AppShell } from '../components/AppShell.js';
 import { AccountSetupGate } from '../components/AccountSetupGate.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
-import { ScheduleLabel } from '../components/ScheduleLabel.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
 import { appRoutes } from '../lib/routes.js';
 import { formatRuleSentence } from '../lib/rules.js';
+import { unichainPublicClient } from '../lib/wagmi.js';
 import '../styles/composer.css';
 
 /** The composer itself, split from the account lookup so tests can render it with an agent. */
 export function CreateRuleForm({
   agent,
   initialTemplate = 1,
+  vaultTerms,
+  vaultPending = false,
+  refreshVault,
   onReview,
   onCreatedChange,
 }: {
   readonly agent: Address;
   readonly initialTemplate?: TemplateId;
+  readonly vaultTerms?: VaultTerms | undefined;
+  readonly vaultPending?: boolean;
+  readonly refreshVault?: (() => Promise<VaultTerms>) | undefined;
   readonly onReview?: () => void;
   readonly onCreatedChange?: (created: boolean) => void;
 }) {
@@ -44,38 +53,50 @@ export function CreateRuleForm({
     initialComposerState(UNICHAIN_SEPOLIA_CHAIN_ID, initialTemplate),
   );
   const [submitted, setSubmitted] = useState(false);
+  const [touched, setTouched] = useState<ReadonlySet<SlotKey>>(() => new Set());
   const [makePublic, setMakePublic] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const submittedSentence = useRef('');
   const { status, error, result, create, reset } = useCreateRule();
   const created = !!result;
   useEffect(() => onCreatedChange?.(created), [created, onCreatedChange]);
 
-  const draft = useMemo(() => toReadyDraft(state), [state]);
-  const sentence = useMemo(() => safeSentence(state.template, state.slots), [state]);
-  const issues = useMemo(() => slotIssues(state), [state]);
-  const required = getTemplate(state.template)?.slots.filter((slot) => slot.required) ?? [];
+  const { draft, issues } = useMemo(() => validateComposer(state, vaultTerms), [state, vaultTerms]);
+  const sentence = draft ? formatRuleSentence(draft) : '';
+  const template = getTemplate(state.template);
+  const required = template?.slots.filter((slot) => slot.required) ?? [];
   const complete = required.filter((slot) => !issues[slot.key]).length;
   const busy = status === 'simulating' || status === 'signing' || status === 'confirming';
+  const needsVault = template?.action !== 'alert';
+  const waitingForVault = needsVault && vaultPending;
+  const vaultUnavailable = needsVault && !!refreshVault && !vaultTerms;
+  const ready = !waitingForVault && !vaultUnavailable ? draft : null;
+  const shownIssues = submitted
+    ? issues
+    : Object.fromEntries(Object.entries(issues).filter(([key]) => touched.has(key as SlotKey)));
 
   const setSlot = (key: SlotKey, value: string): void => {
-    dispatch({ type: 'setSlot', key, value });
+    dispatch(value ? { type: 'setSlot', key, value } : { type: 'clearSlot', key });
   };
 
   function handleSubmit(event: React.FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    if (busy) return;
+    if (busy || waitingForVault || vaultUnavailable) return;
     onReview?.();
     setSubmitted(true);
-    const firstInvalid = Object.keys(issues)[0];
-    if (firstInvalid) {
-      const control = formRef.current?.querySelector<HTMLElement>(
-        `[data-slot="${firstInvalid}"] select`,
+    if (!ready) {
+      const controls = formRef.current?.querySelectorAll<HTMLElement>(
+        '[data-slot] input, [data-slot] select',
       );
-      control?.focus();
+      const firstInvalid = Array.from(controls ?? []).find((control) => {
+        const key = control.closest<HTMLElement>('[data-slot]')?.dataset.slot;
+        return key && issues[key];
+      });
+      firstInvalid?.focus();
       return;
     }
-    if (!draft) return;
-    void create(agent, draft, makePublic);
+    submittedSentence.current = sentence;
+    void create(agent, ready, makePublic);
   }
 
   if (result) {
@@ -83,11 +104,12 @@ export function CreateRuleForm({
       <CreateSuccess
         agent={agent}
         ruleId={result.ruleId}
-        sentence={sentence}
+        sentence={submittedSentence.current}
         txHash={result.txHash}
         onCreateAnother={() => {
           dispatch({ type: 'reset' });
           setSubmitted(false);
+          setTouched(new Set());
           setMakePublic(false);
           reset();
         }}
@@ -97,29 +119,31 @@ export function CreateRuleForm({
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} className="rule-composer rule-composer__layout">
-      <div className="rule-composer__editor">
+      <fieldset disabled={busy} className="rule-composer__editor" aria-label="Rule settings">
         <TemplatePicker
           chainId={LASNA_CHAIN_ID}
           selected={state.template}
           onSelect={(template) => {
             dispatch({ type: 'selectTemplate', template });
             setSubmitted(false);
+            setTouched(new Set());
           }}
         />
-        <SentenceCanvas
-          template={state.template}
-          issues={submitted ? issues : {}}
-          slots={state.slots}
+        <RuleFields
+          state={state}
+          issues={issues}
+          shownIssues={shownIssues}
+          vault={vaultTerms}
           setSlot={setSlot}
-        >
-          {state.slots.schedule ? <ScheduleLabel seconds={state.slots.schedule} /> : null}
-        </SentenceCanvas>
-      </div>
+          onTouch={(key) => setTouched((current) => new Set(current).add(key))}
+        />
+      </fieldset>
 
       <div className="rule-composer__review">
         <LiveCalldata
           agent={agent}
-          draft={draft}
+          draft={ready}
+          sentence={sentence}
           makePublic={makePublic}
           complete={complete}
           required={required.length}
@@ -129,6 +153,7 @@ export function CreateRuleForm({
             <input
               id="publish-rule"
               type="checkbox"
+              disabled={busy}
               checked={makePublic}
               onChange={(event) => setMakePublic(event.target.checked)}
               aria-describedby="publish-rule-description"
@@ -141,6 +166,25 @@ export function CreateRuleForm({
               </p>
             </div>
           </div>
+          {waitingForVault && (
+            <p role="status" className="rule-composer__hint">
+              Checking vault limits…
+            </p>
+          )}
+          {!waitingForVault && vaultUnavailable && (
+            <div role="alert" className="rule-composer__error">
+              <p>
+                Vault limits are unavailable. Try again before creating a rule that moves funds.
+              </p>
+              <button
+                type="button"
+                className="rule-composer__secondary"
+                onClick={() => void refreshVault?.().catch(() => undefined)}
+              >
+                Retry vault check
+              </button>
+            </div>
+          )}
           {error ? (
             <div role="alert" className="rule-composer__error">
               <p>{error.message}</p>
@@ -148,18 +192,25 @@ export function CreateRuleForm({
                 <p className="font-mono text-[11px] text-ink-muted">selector {error.selector}</p>
               ) : null}
               <p className="text-xs text-ink-muted">
-                {error.kind === 'simulation'
-                  ? 'Nothing was sent. The simulation is free and runs before you sign.'
-                  : error.kind === 'wallet'
-                    ? 'The transaction was not created.'
-                    : 'Wait for the Lasna receipt before assuming the rule exists.'}
+                {error.kind === 'funding'
+                  ? 'No transaction was sent.'
+                  : error.kind === 'simulation'
+                    ? 'Nothing was sent. The simulation is free and runs before you sign.'
+                    : error.kind === 'wallet'
+                      ? 'The transaction was not created.'
+                      : 'Wait for the Lasna receipt before assuming the rule exists.'}
               </p>
+              {error.needsDeposit && (
+                <Link to={appRoutes.account} target="_blank" rel="noreferrer" className="app-link">
+                  Fund your vault (opens in a new tab)
+                </Link>
+              )}
             </div>
           ) : null}
           <button
             id="review-create-rule"
             type="submit"
-            disabled={busy}
+            disabled={busy || waitingForVault || vaultUnavailable}
             className="rule-composer__submit"
           >
             {status === 'simulating'
@@ -181,34 +232,38 @@ export function CreateRuleForm({
   );
 }
 
-function safeSentence(template: number, slots: Record<string, string | undefined>): string {
-  try {
-    return formatRuleSentence({
-      template,
-      chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-      slots: slots as Record<string, string>,
-    });
-  } catch {
-    return '';
-  }
-}
-
 /** `/create`: connect, find the owner's Agent, then compose. */
 export function Create() {
   return (
-    <AccountSetupGate>{({ agent }) => <Composer key={agent} agent={agent} />}</AccountSetupGate>
+    <AccountSetupGate title="Compose a rule">
+      {({ agent, vault }) => <Composer key={agent} agent={agent} vault={vault} />}
+    </AccountSetupGate>
   );
 }
 
-function Composer({ agent }: { agent: Address }) {
+function Composer({ agent, vault }: { agent: Address; vault: Address }) {
   const guide = useFirstRuleGuide();
   const [created, setCreated] = useState(false);
+  const terms = useQuery({
+    queryKey: ['composer-vault-terms', vault],
+    queryFn: async (): Promise<VaultTerms> => {
+      const contract = { address: vault, abi: vaultAbi } as const;
+      const [tokenIn, tokenOut, ceiling] = await Promise.all([
+        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenIn' }),
+        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenOut' }),
+        unichainPublicClient.readContract({ ...contract, functionName: 'maxSpendPerRun' }),
+      ]);
+      return { tokenIn, tokenOut, ceiling };
+    },
+    retry: false,
+    refetchOnWindowFocus: 'always',
+  });
   return (
     <AppShell>
       <section className="app-page">
         <PageHeading
           title="Compose a rule"
-          description="Fill in a sentence to tell Rulebook what to do and when."
+          description="Choose what your rule does and review its terms before you sign."
           focusOnMount
           aside={
             !created && (
@@ -230,7 +285,18 @@ function Composer({ agent }: { agent: Address }) {
             </>
           }
         />
-        <CreateRuleForm agent={agent} onReview={guide.stop} onCreatedChange={setCreated} />
+        <CreateRuleForm
+          agent={agent}
+          vaultTerms={terms.data}
+          vaultPending={!terms.data && terms.isFetching}
+          refreshVault={async () => {
+            const refreshed = await terms.refetch({ throwOnError: true });
+            if (!refreshed.data) throw new Error('Vault settings are unavailable.');
+            return refreshed.data;
+          }}
+          onReview={guide.stop}
+          onCreatedChange={setCreated}
+        />
       </section>
     </AppShell>
   );

@@ -65,14 +65,24 @@ export function CloneButton({ listing }: CloneButtonProps) {
       ) : null}
 
       {clone.error ? (
-        <p role="alert" className="app-alert text-xs leading-relaxed" data-tone="error">
+        <div role="alert" className="app-alert text-xs leading-relaxed" data-tone="error">
           {clone.error.message}
           {clone.error.selector ? (
             <span className="block font-mono text-xs text-ink-muted">
               selector {clone.error.selector}
             </span>
           ) : null}
-        </p>
+          {clone.error.needsDeposit && (
+            <Link
+              to={appRoutes.account}
+              target="_blank"
+              rel="noreferrer"
+              className="app-link block"
+            >
+              Fund your vault (opens in a new tab)
+            </Link>
+          )}
+        </div>
       ) : null}
 
       {clone.result ? (

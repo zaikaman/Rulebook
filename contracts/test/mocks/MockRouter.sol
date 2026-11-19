@@ -15,6 +15,19 @@ contract MockRouter {
 
     Swap public lastSwap;
     uint256 public swapCount;
+    address private _pair;
+
+    function setPair(address pair) external {
+        _pair = pair;
+    }
+
+    function factory() external view returns (address) {
+        return address(this);
+    }
+
+    function getPair(address, address) external view returns (address) {
+        return _pair;
+    }
 
     function swapExactTokensForTokens(
         uint256 amountIn,

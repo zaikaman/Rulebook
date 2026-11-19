@@ -11,7 +11,7 @@ import {IReactiveSystem} from "../src/shared/ReactiveTypes.sol";
 import {VaultFactory} from "../src/vault/VaultFactory.sol";
 
 /// @title Deploy
-/// @notice Deploys both factories and the registry on the configured chain and writes a draft
+/// @notice Deploys the contracts used on the selected network and writes a draft
 /// address record for comparison with the confirmed Foundry broadcast receipts.
 contract Deploy is Script {
     struct Record {
@@ -27,22 +27,36 @@ contract Deploy is Script {
         string memory commitSha = vm.envOr("COMMIT_SHA", string("local"));
 
         vm.startBroadcast(privateKey);
-        RuleRegistry registry = new RuleRegistry();
-        AgentFactory agentFactory =
-            new AgentFactory(IReactiveSystem(config.systemContract), registry);
-        VaultFactory vaultFactory = new VaultFactory(IPayable(payable(config.callbackProxy)));
+        Record[] memory records;
+        if (chainId == ChainConfig.LASNA) {
+            address configuredRegistry = vm.envOr("DEPLOYED_RULE_REGISTRY", address(0));
+            RuleRegistry registry;
+            if (configuredRegistry == address(0)) {
+                registry = new RuleRegistry();
+                records = new Record[](2);
+                records[0] = Record("RuleRegistry", address(registry));
+            } else {
+                registry = RuleRegistry(configuredRegistry);
+                // Check that the prerequisite deployment is present on this chain.
+                registry.listingCount();
+                records = new Record[](1);
+            }
+            AgentFactory agentFactory =
+                new AgentFactory(IReactiveSystem(config.systemContract), registry);
+            records[records.length - 1] = Record("AgentFactory", address(agentFactory));
+        } else {
+            VaultFactory vaultFactory = new VaultFactory(IPayable(payable(config.callbackProxy)));
+            records = new Record[](1);
+            records[0] = Record("VaultFactory", address(vaultFactory));
+        }
         vm.stopBroadcast();
 
-        Record[] memory records = new Record[](3);
-        records[0] = Record("RuleRegistry", address(registry));
-        records[1] = Record("AgentFactory", address(agentFactory));
-        records[2] = Record("VaultFactory", address(vaultFactory));
-
-        string memory explorer =
-            chainId == 5318007 ? "https://reactscan.net" : "https://sepolia.uniscan.xyz";
+        string memory explorer = chainId == ChainConfig.LASNA
+            ? "https://lasna.reactscan.net"
+            : "https://sepolia.uniscan.xyz";
         string memory path = string.concat(
             "../deployments/",
-            chainId == 5318007 ? "lasna.pending.json" : "unichain-sepolia.pending.json"
+            chainId == ChainConfig.LASNA ? "lasna.pending.json" : "unichain-sepolia.pending.json"
         );
         vm.writeFile(path, _render(chainId, explorer, commitSha, deployer, records));
 

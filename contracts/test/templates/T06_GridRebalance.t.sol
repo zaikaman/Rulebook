@@ -2,6 +2,8 @@
 pragma solidity 0.8.29;
 
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
+import {IReactive} from "@reactive/interfaces/IReactive.sol";
+import {CooldownActive} from "../../src/shared/Errors.sol";
 
 import {TemplateTestBase} from "./TemplateTestBase.sol";
 
@@ -33,14 +35,66 @@ contract T06_GridRebalanceTest is TemplateTestBase {
 
     function test_resetsTheReferenceAfterAFill() public {
         _react(_syncPrice(2.3e18));
+        assertEq(agent.getHighWater(ruleId), 0, "requesting a swap must not move the grid");
+        IReactive.LogRecord memory settlement =
+            _log(VAULT, keccak256("GridSettled(uint256,uint32)"), "");
+        settlement.topic_1 = ruleId;
+        settlement.topic_2 = 2;
+        _react(settlement);
+        assertEq(agent.getHighWater(ruleId), 0, "different execution sequence");
+        settlement.topic_2 = 1;
+        _react(settlement);
         _react(_syncPrice(2.4e18)); // 4% above the new 2.3 reference
         assertEq(_runs(ruleId), 1);
         assertEq(agent.getHighWater(ruleId), 2.3e18);
+        _react(_syncPrice(3e18));
+        assertEq(_runs(ruleId), 2, "a new move can trigger a second swap");
     }
 
     function test_doesNotFireInsideTheBand() public {
         _react(_syncPrice(2.05e18));
         assertEq(_runs(ruleId), 0);
         assertEq(_requestCount(), 0);
+    }
+
+    function test_recordsAnInFlightSettlementWhilePaused() public {
+        _react(_syncPrice(2.3e18));
+        vm.prank(USER);
+        agent.pauseRule(ruleId);
+        assertEq(system.unsubscribeCount(), 1);
+        IReactive.LogRecord memory settlement =
+            _log(VAULT, keccak256("GridSettled(uint256,uint32)"), "");
+        settlement.topic_1 = ruleId;
+        settlement.topic_2 = 1;
+        _react(settlement);
+        assertEq(system.unsubscribeCount(), 2);
+        assertEq(agent.getHighWater(ruleId), 2.3e18);
+        vm.prank(USER);
+        agent.resumeRule(ruleId);
+        _react(_syncPrice(3e18));
+        assertEq(_runs(ruleId), 2);
+    }
+
+    function test_rearmWaitsUntilTheOldCallbackExpires() public {
+        _react(_syncPrice(2.3e18));
+        vm.prank(USER);
+        agent.pauseRule(ruleId);
+        vm.prank(USER);
+        vm.expectPartialRevert(CooldownActive.selector);
+        agent.resetRule(ruleId);
+        vm.warp(vm.getBlockTimestamp() + 10 minutes + 1);
+        vm.prank(USER);
+        agent.resetRule(ruleId);
+        assertEq(system.unsubscribeCount(), 2);
+        assertEq(agent.getHighWater(ruleId), 0);
+    }
+
+    function test_resumingBeforeSettlementDoesNotDuplicateTheReceiptFeed() public {
+        _react(_syncPrice(2.3e18));
+        vm.startPrank(USER);
+        agent.pauseRule(ruleId);
+        agent.resumeRule(ruleId);
+        vm.stopPrank();
+        assertEq(system.subscribeCount(), 3);
     }
 }

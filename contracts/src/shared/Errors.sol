@@ -32,10 +32,11 @@ error CallbackSenderMismatch(address expected, address actual);
 error MirrorDepthNotAllowed();
 error MirrorBurstExceeded();
 error DuplicateLeaderExecution(bytes32 key);
+error StaleExecution(uint256 ruleId, uint32 sequence);
 error TokenMismatch(address expected, address actual);
 // Alert templates move no funds; the Vault refuses them before any transfer (FR-023).
 error AlertOnlyTemplate(uint8 template);
-// The callback data did not match the six-word execution payload layout.
+// The callback data did not match the execution payload layout.
 error InvalidCallbackPayload();
 // The Agent has no registry address, so it cannot publish a public rule (FR-038).
 error RegistryNotConfigured();

@@ -93,6 +93,22 @@
       "transactionUrl": "https://sepolia.uniscan.xyz/tx/0x1c9e468a84f7a7608aa606146ec7b3d33f4ad017a5fdd22f21c8306e18f674f8",
       "blockNumber": "68163940",
       "confirmedAt": "2026-11-18T15:39:28Z"
+    },
+    {
+      "name": "VaultFactory",
+      "address": "0x95FdF71DB58Fa1724319BF09c6872C3998d29777",
+      "chainId": 1301,
+      "status": "validation",
+      "release": "rule-execution-v2",
+      "workingTreeParent": "ffb8e04",
+      "creationBytecodeHash": "0x312313405c07cdbfc5be0b8998fe4773b1e9e015cce5e4c47509344e532d2062",
+      "runtimeBytecodeHash": "0xd0ad9d67a77149a48295f8f50a4a9e63a0388e4961781abee5cb50db3888142c",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://sepolia.uniscan.xyz/address/0x95FdF71DB58Fa1724319BF09c6872C3998d29777",
+      "transactionHash": "0xaccea7be225bb3343394f32fe39e1a92882f61488052be70b3de54b73b8e03a5",
+      "transactionUrl": "https://sepolia.uniscan.xyz/tx/0xaccea7be225bb3343394f32fe39e1a92882f61488052be70b3de54b73b8e03a5",
+      "blockNumber": 68236843,
+      "confirmedAt": "2026-11-19T11:54:31.000Z"
     }
   ],
   "reactiveServices": [

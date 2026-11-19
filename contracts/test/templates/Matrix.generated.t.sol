@@ -14,12 +14,12 @@ library TemplateMatrix {
 
     /// @notice Declared cases for `template`, or 0 when it has no suite.
     function caseCount(uint8 template) internal pure returns (uint8) {
-        if (template == 1) return 3;
-        if (template == 2) return 3;
+        if (template == 1) return 6;
+        if (template == 2) return 4;
         if (template == 3) return 3;
         if (template == 4) return 3;
         if (template == 5) return 3;
-        if (template == 6) return 3;
+        if (template == 6) return 6;
         if (template == 7) return 3;
         if (template == 8) return 3;
         if (template == 9) return 3;

@@ -1,8 +1,8 @@
 # The composer
 
-Every rule is built the same way: choose a template, fill its blanks with value chips, read the
-sentence, inspect the exact transaction, then sign once on Reactive Lasna. There is no code
-field, no prompt field, and no free-text input anywhere in the flow.
+Choose a template and set its values, then read the resulting sentence and inspect the
+transaction before signing on Reactive Lasna. Enter token amounts in standard units, such as
+`0.1` USDC, and choose a schedule from the available options.
 
 ## The sentence model
 
@@ -10,10 +10,10 @@ A template is a sentence with named blanks. `packages/shared/manifest/templates.
 source of truth:
 
 ```json
-"Every {schedule}, buy {amount_in} of {token_out} using {token_in}."
+"Every {schedule}, spend {amount_in} {token_in} to buy {token_out}."
 ```
 
-The composer renders that string, replacing each `{key}` with a slot chip. Slot definitions carry
+The composer renders that string using the values from its settings. Slot definitions carry
 the kind (`schedule`, `amount`, `token`, `price`, `percent`, `duration`, `address`), whether the
 slot is required, and its `min`/`max`/`unit`. Those same values generate the Solidity catalog, the
 documentation table, and the fixtures, so a manifest edit cannot silently drift from the contract.
@@ -23,15 +23,21 @@ condition, and action are fixed by the template, and the only decisions are the 
 blanks. That is what keeps a rule readable as one sentence and auditable as eight packed words
 on chain.
 
-## Why it cannot accept free text
+## Token amounts and receive estimates
 
 `encodeAddRule` rejects any slot key the template does not declare, any value that is not an
 address for a token/address slot, any value that is not a whole number for a numeric slot, any
 value outside the slot's manifest bounds, and any pair whose input and output tokens are equal.
-The UI can only produce values from the manifest's chip sets, and the server route
-`POST /v1/encode/preview` calls the same encoder, so client and server calldata are byte-identical.
+The composer converts decimal amounts exactly into integer base units using the selected token's
+precision. It checks the template limit, vault spend cap, and vault token configuration before
+preparing a rule that moves funds. The server route `POST /v1/encode/preview` calls the same
+encoder with base-unit values, so both produce the same calldata.
 
-## Chip → calldata
+Swap rules spend a fixed amount per run. To start from a receive target, get a quote from the
+configured pool and apply the quoted spend if it fits the per-run cap. The amount received at
+execution depends on the pool at that time.
+
+## Settings and calldata
 
 `Rule` has eight packed words. Several slot keys share a field because a template never needs both
 meanings at once:
@@ -52,7 +58,7 @@ sentence its owner signed.
 
 ## Worked example 1 — template 1, DCA
 
-Sentence: `Every {schedule}, buy {amount_in} of {token_out} using {token_in}.`
+Sentence: `Every {schedule}, spend {amount_in} {token_in} to buy {token_out}.`
 
 Choices: `schedule` = `86400` (every day), `amount_in` = `10000000` (10 USDC),
 `token_in` = USDC, `token_out` = WETH.

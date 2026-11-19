@@ -30,6 +30,7 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
       sign: (connector: Connector) => Promise<T>,
       signal: AbortSignal,
       reviewedSetupConnector?: string,
+      beforeSign?: () => Promise<void>,
     ): Promise<T> => {
       signal.throwIfAborted();
       if (pending.current) throw new Error('Finish the open wallet request first.');
@@ -95,6 +96,10 @@ export function WalletReviewProvider({ children }: { readonly children: ReactNod
         }
         if (!reviewedSetup) await confirm('review');
         checkWallet();
+        if (beforeSign) {
+          await beforeSign();
+          checkWallet();
+        }
         const authorizedAccounts = await connector.getAccounts();
         checkWallet();
         if (!authorizedAccounts.some((address) => address.toLowerCase() === signer.toLowerCase())) {

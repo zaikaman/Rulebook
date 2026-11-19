@@ -34,7 +34,13 @@ export function formatRuleSentence(draft: RuleDraft): string {
   const slots = { ...draft.slots };
 
   for (const slot of template.slots) {
-    const value = slots[slot.key];
+    const value =
+      slots[slot.key] ??
+      (slot.key === 'pair'
+        ? chain?.pair
+        : slot.kind === 'percent' && !slot.required
+          ? '0'
+          : undefined);
     if (!value) continue;
     if (slot.kind === 'token') {
       slots[slot.key] = knownToken(draft.chainId, value)?.symbol ?? value;
@@ -45,7 +51,7 @@ export function formatRuleSentence(draft: RuleDraft): string {
     } else if (slot.kind === 'amount') {
       slots[slot.key] = spendToken
         ? formatUnits(BigInt(value), spendToken.decimals)
-        : `${value} base units`;
+        : `${value} base units${template.sentence.includes(`{${slot.key}} {token_in}`) ? ' of' : ''}`;
     } else if (slot.kind === 'price' || slot.kind === 'percent') {
       slots[slot.key] =
         slot.kind === 'price'
@@ -59,14 +65,7 @@ export function formatRuleSentence(draft: RuleDraft): string {
     }
   }
 
-  const sentence = readableSentence({ ...draft, slots });
-  if (spendToken && slots.amount_in && slots.token_out) {
-    return sentence.replace(
-      `${slots.amount_in} of ${slots.token_out} using ${spendToken.symbol}`,
-      `${slots.amount_in} ${spendToken.symbol} worth of ${slots.token_out}`,
-    );
-  }
-  return sentence;
+  return readableSentence({ ...draft, slots });
 }
 
 /** A stored rule rendered as a sentence, with a labelled fallback for unreadable records. */

@@ -20,6 +20,7 @@ import { cloneGuard, ruleParamsFromStoredRule, type CloneGuardResult } from '../
 import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
+import { assertRuleFunding, RuleFundingError } from '../lib/ruleFunding.js';
 import { ruleSentence } from '../lib/rules.js';
 import { signatureDetails } from '../lib/signatures.js';
 import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
@@ -30,12 +31,13 @@ const SUPPORTED_TEMPLATES = supportedTemplatesFor(UNICHAIN_SEPOLIA_CHAIN_ID);
 
 export type CloneStatus = 'idle' | 'simulating' | 'signing' | 'confirming' | 'confirmed' | 'failed';
 
-export type CloneFailureKind = 'guard' | 'simulation' | 'wallet' | 'chain';
+export type CloneFailureKind = 'guard' | 'funding' | 'simulation' | 'wallet' | 'chain';
 
 export interface CloneRuleError {
   readonly kind: CloneFailureKind;
   readonly message: string;
   readonly selector: string | null;
+  readonly needsDeposit?: boolean;
 }
 
 export interface CloneRuleResult {
@@ -66,6 +68,15 @@ interface CloneParams {
 }
 
 const IDLE: CloneRuleState = { status: 'idle', error: null, result: null };
+
+function fundingFailure(error: RuleFundingError): CloneRuleError {
+  return {
+    kind: 'funding',
+    message: error.message,
+    selector: null,
+    needsDeposit: error.needsDeposit,
+  };
+}
 
 /**
  * The one-click clone: rebuild the author's exact parameters, prove them against the hash the
@@ -198,14 +209,18 @@ export function useCloneRule(listing: Listing, enabled = true): CloneParams {
     let data: `0x${string}`;
     try {
       data = encodeAddRuleParams(agent, params, { makePublic: false });
+      await assertRuleFunding(agent, params);
     } catch (error) {
       setState({
         status: 'failed',
-        error: {
-          kind: 'simulation',
-          message: error instanceof Error ? error.message : 'This rule cannot be encoded.',
-          selector: null,
-        },
+        error:
+          error instanceof RuleFundingError
+            ? fundingFailure(error)
+            : {
+                kind: 'simulation',
+                message: error instanceof Error ? error.message : 'This rule cannot be encoded.',
+                selector: null,
+              },
         result: null,
       });
       return null;
@@ -241,26 +256,38 @@ export function useCloneRule(listing: Listing, enabled = true): CloneParams {
       hash = await requestSignature(
         signatureDetails.clone(agent, params, sentence ?? ''),
         address,
-        () =>
-          sendTransactionAsync({ to: agent, data, account: address, chainId: LASNA_CHAIN_ID, gas }),
+        (connector) =>
+          sendTransactionAsync({
+            connector,
+            to: agent,
+            data,
+            account: address,
+            chainId: LASNA_CHAIN_ID,
+            gas,
+          }),
+        undefined,
+        () => assertRuleFunding(agent, params),
       );
     } catch (error) {
       setState({
         status: 'failed',
-        error: isWalletRejection(error)
-          ? {
-              kind: 'wallet',
-              message: 'You rejected the signature, so the rule was not cloned.',
-              selector: null,
-            }
-          : {
-              kind: 'wallet',
-              message:
-                error instanceof Error
-                  ? error.message
-                  : 'The wallet could not send the transaction.',
-              selector: null,
-            },
+        error:
+          error instanceof RuleFundingError
+            ? fundingFailure(error)
+            : isWalletRejection(error)
+              ? {
+                  kind: 'wallet',
+                  message: 'You rejected the signature, so the rule was not cloned.',
+                  selector: null,
+                }
+              : {
+                  kind: 'wallet',
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : 'The wallet could not send the transaction.',
+                  selector: null,
+                },
         result: null,
       });
       return null;

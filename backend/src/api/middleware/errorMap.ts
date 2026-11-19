@@ -140,6 +140,11 @@ const DESCRIPTORS: ReadonlyArray<{
     human: 'This leader execution was already mirrored once.',
   },
   {
+    signature: 'StaleExecution(uint256,uint32)',
+    code: 'stale_execution',
+    human: 'The vault already processed this execution or a newer one.',
+  },
+  {
     signature: 'TokenMismatch(address,address)',
     code: 'token_mismatch',
     human: 'The token does not match the allowlisted pair.',

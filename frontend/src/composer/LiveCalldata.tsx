@@ -1,6 +1,12 @@
 import { Copy01Icon, FileValidationIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { encodeAddRule, LASNA_CHAIN_ID, type Address, type DraftError } from '@rulebook/shared';
+import {
+  encodeAddRule,
+  getTemplate,
+  LASNA_CHAIN_ID,
+  type Address,
+  type DraftError,
+} from '@rulebook/shared';
 import { useEffect, useMemo, useState } from 'react';
 
 import { NetworkBadge } from '../components/NetworkBadge.js';
@@ -26,12 +32,14 @@ function encodeSafely(
 export function LiveCalldata({
   agent,
   draft,
+  sentence,
   makePublic = false,
   complete,
   required,
 }: {
   readonly agent: Address;
   readonly draft: ReadyDraft | null;
+  readonly sentence: string;
   readonly makePublic?: boolean;
   readonly complete: number;
   readonly required: number;
@@ -98,7 +106,14 @@ export function LiveCalldata({
           </p>
         ) : data ? (
           <>
-            <p>This call adds the rule to your Agent. Your vault balance stays the same.</p>
+            <p className="rule-composer__sentence" data-testid="composer-sentence">
+              {sentence}
+            </p>
+            {draft && getTemplate(draft.template)?.action === 'swap' && (
+              <p>
+                The spend is fixed per run. The amount received depends on the pool at execution.
+              </p>
+            )}
             <details className="rule-composer__details">
               <summary>Calldata</summary>
               <code data-testid="live-calldata" className="rule-composer__calldata">
@@ -116,8 +131,8 @@ export function LiveCalldata({
         ) : (
           <p>
             {complete === required
-              ? 'Check the values in your sentence to see the transaction.'
-              : 'Fill the required blanks to see the transaction you’ll sign.'}
+              ? 'The preview will appear once the rule passes its checks.'
+              : 'Complete the rule settings to preview what you’ll sign.'}
           </p>
         )}
       </div>
@@ -128,6 +143,14 @@ export function LiveCalldata({
             <NetworkBadge chainId={LASNA_CHAIN_ID} />
           </dd>
         </div>
+        {draft && getTemplate(draft.template)?.action !== 'alert' && (
+          <div>
+            <dt>Funds network</dt>
+            <dd>
+              <NetworkBadge chainId={draft.chainId} />
+            </dd>
+          </div>
+        )}
         {data && (
           <div>
             <dt>Agent</dt>

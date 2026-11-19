@@ -13,6 +13,7 @@ interface IUniswapV2Pair {
 
 /// @notice The subset of Uniswap V2 Router02 the Vault calls.
 interface IUniswapV2Router02 {
+    function factory() external view returns (address);
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256 amountOutMin,
@@ -20,4 +21,8 @@ interface IUniswapV2Router02 {
         address to,
         uint256 deadline
     ) external returns (uint256[] memory amounts);
+}
+
+interface IUniswapV2Factory {
+    function getPair(address tokenA, address tokenB) external view returns (address);
 }

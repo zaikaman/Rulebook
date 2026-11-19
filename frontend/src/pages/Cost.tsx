@@ -1,12 +1,27 @@
-import { Coins01Icon, SecurityCheckIcon } from '@hugeicons/core-free-icons';
-import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  ArrowRight02Icon,
+  Calendar03Icon,
+  FlashIcon,
+  SecurityCheckIcon,
+  Wallet01Icon,
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon, type IconSvgElement } from '@hugeicons/react';
+import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { Link } from 'react-router';
 
+import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
-import { costModel } from '../lib/costModel.js';
+import { costModel, type AnnualScenario, type FeeFigure, type RateRow } from '../lib/costModel.js';
 import { appRoutes } from '../lib/routes.js';
 
-const COSTS = [
+interface Responsibility {
+  readonly activity: string;
+  readonly payer: string;
+  readonly role?: 'automation' | 'funds';
+  readonly detail: string;
+}
+
+const RESPONSIBILITIES: readonly Responsibility[] = [
   {
     activity: 'Account deployment',
     payer: 'Your wallet',
@@ -14,13 +29,15 @@ const COSTS = [
   },
   {
     activity: 'Rule evaluation',
-    payer: 'Your Lasna fee balance',
-    detail: 'Uses test REACT to watch for events and check your rules.',
+    payer: `Your ${costModel.networks.automation.reserve}`,
+    role: 'automation',
+    detail: 'Pays for every wake-up that checks whether a rule should run.',
   },
   {
     activity: 'Automated execution',
-    payer: 'Your Unichain Sepolia fee balance',
-    detail: 'Uses test ETH when your vault carries out an authorized action.',
+    payer: `Your ${costModel.networks.funds.reserve}`,
+    role: 'funds',
+    detail: 'Pays the callback fee when your vault carries out an authorized action.',
   },
   {
     activity: 'Trading principal',
@@ -30,35 +47,102 @@ const COSTS = [
   {
     activity: 'Direct wallet transactions',
     payer: 'Your wallet',
-    detail: 'Your wallet shows the network fee for transactions it submits, such as withdrawals.',
+    detail: 'Transactions your wallet submits, such as withdrawals, show their fee in your wallet.',
   },
-] as const;
+];
 
-function CostTable({
-  caption,
-  valueLabel,
+const numberFormat = new Intl.NumberFormat('en-US');
+
+const measuredLabel = new Intl.DateTimeFormat('en-GB', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'UTC',
+}).format(new Date(`${costModel.measuredOn}T00:00:00Z`));
+
+const annualMax = Math.max(
+  ...costModel.annual.schedule.map((scenario) => scenario.reactPerYear),
+  ...costModel.annual.price.map((scenario) => scenario.reactPerYear),
+);
+
+function Figure({ figure }: { readonly figure: FeeFigure }) {
+  return (
+    <span className="app-cost-figure">
+      <span className="app-cost-figure-amount">{figure.amount}</span>{' '}
+      <span className="app-cost-figure-unit">{figure.unit}</span>
+    </span>
+  );
+}
+
+function FeeLane({
+  chainId,
+  role,
+  icon,
+  title,
+  copy,
+}: {
+  readonly chainId: number;
+  readonly role: 'automation' | 'funds';
+  readonly icon: IconSvgElement;
+  readonly title: string;
+  readonly copy: string;
+}) {
+  const network = costModel.networks[role];
+
+  return (
+    <article className="app-cost-lane" data-chain-role={role}>
+      <header className="app-cost-lane-head">
+        <span className="app-icon app-cost-lane-icon">
+          <HugeiconsIcon icon={icon} size={19} aria-hidden="true" />
+        </span>
+        <div className="app-cost-lane-identity">
+          <h3 className="app-cost-lane-title">{title}</h3>
+          <NetworkBadge chainId={chainId} />
+        </div>
+      </header>
+      <p className="app-cost-lane-copy">{copy}</p>
+      <dl className="app-cost-lane-meta">
+        <div>
+          <dt>Observed base fee</dt>
+          <dd>
+            <Figure figure={network.baseFee} />
+          </dd>
+        </div>
+        <div>
+          <dt>Fee currency</dt>
+          <dd className="app-cost-lane-token">{network.feeToken}</dd>
+        </div>
+      </dl>
+    </article>
+  );
+}
+
+function RateTable({
+  networkName,
   rows,
 }: {
-  caption: string;
-  valueLabel: string;
-  rows: readonly (readonly [string, string])[];
+  readonly networkName: string;
+  readonly rows: readonly RateRow[];
 }) {
   return (
-    <table className="app-divider mt-4 w-full text-left text-sm">
-      <caption className="mb-2 text-left font-semibold text-ink">{caption}</caption>
-      <thead className="sr-only">
+    <table className="app-cost-rate-table">
+      <caption className="sr-only">{networkName} call costs</caption>
+      <thead>
         <tr>
-          <th scope="col">Item</th>
-          <th scope="col">{valueLabel}</th>
+          <th scope="col">Operation</th>
+          <th scope="col">Estimated cost</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map(([label, value]) => (
-          <tr key={label} className="border-b border-white/10">
-            <th scope="row" className="py-2 pr-3 font-medium text-ink">
-              {label}
+        {rows.map((row) => (
+          <tr key={`${row.operation}-${row.trigger}`}>
+            <th scope="row">
+              <span className="app-cost-rate-operation">{row.operation}</span>
+              <span className="app-cost-rate-trigger">{row.trigger}</span>
             </th>
-            <td className="py-2 text-right tabular-nums text-ink-muted">{value}</td>
+            <td>
+              <Figure figure={row.cost} />
+            </td>
           </tr>
         ))}
       </tbody>
@@ -66,67 +150,170 @@ function CostTable({
   );
 }
 
+function ScenarioList({
+  title,
+  scenarios,
+}: {
+  readonly title: string;
+  readonly scenarios: readonly AnnualScenario[];
+}) {
+  const ordered = scenarios.slice().sort((left, right) => left.reactPerYear - right.reactPerYear);
+
+  return (
+    <section className="app-cost-group" aria-label={title}>
+      <h3 className="app-cost-group-label">{title}</h3>
+      <ul className="app-cost-scenarios">
+        {ordered.map((scenario) => (
+          <li key={`${scenario.label}-${scenario.detail}`} className="app-cost-scenario">
+            <span className="app-cost-scenario-label">{scenario.label}</span>
+            <span className="app-cost-scenario-detail">{scenario.detail}</span>
+            <span className="app-cost-scenario-value">
+              {numberFormat.format(scenario.reactPerYear)}
+              <span> REACT / yr</span>
+            </span>
+            <span className="app-cost-bar" aria-hidden="true">
+              <span style={{ width: `${(scenario.reactPerYear / annualMax) * 100}%` }} />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function Cost() {
   return (
-    <section className="app-page">
+    <section className="app-page app-cost">
       <PageHeading
         title="Cost & custody model"
-        description="See how network fees are paid and how your wallet keeps control of your funds."
+        description="See what it costs to run a rule and where your funds are held."
+        aside={
+          <span className="app-cost-measured">
+            <HugeiconsIcon icon={Calendar03Icon} size={14} aria-hidden="true" />
+            Base fees measured <time dateTime={costModel.measuredOn}>{measuredLabel}</time>
+          </span>
+        }
       />
 
-      <section className="app-panel" aria-labelledby="cost-breakdown">
-        <div className="app-panel-header app-panel-pad">
-          <span className="app-icon">
-            <HugeiconsIcon icon={Coins01Icon} size={21} aria-hidden="true" />
-          </span>
-          <h2 id="cost-breakdown" className="app-panel-heading">
-            Who pays for what
+      <section className="app-panel app-cost-flow" aria-labelledby="cost-flow">
+        <div className="app-cost-panel-head">
+          <h2 id="cost-flow" className="app-panel-heading">
+            Two chains, two fees
           </h2>
         </div>
-        <dl className="app-divider app-cost-list">
-          {COSTS.map(({ activity, payer, detail }) => (
-            <div key={activity} className="app-panel-pad">
-              <dt>{activity}</dt>
-              <dd className="app-tag">{payer}</dd>
-              <dd className="app-copy">{detail}</dd>
+        <div className="app-cost-lanes">
+          <FeeLane
+            chainId={LASNA_CHAIN_ID}
+            role="automation"
+            icon={FlashIcon}
+            title="Evaluates your rules"
+            copy="Wakes on a schedule or a price event, then checks whether any rule should run."
+          />
+          <FeeLane
+            chainId={UNICHAIN_SEPOLIA_CHAIN_ID}
+            role="funds"
+            icon={Wallet01Icon}
+            title="Carries out approved actions"
+            copy="Receives the callback and executes the swap or transfer that a rule allows."
+          />
+        </div>
+      </section>
+
+      <section className="app-panel app-cost-duty" aria-labelledby="cost-duty">
+        <div className="app-cost-panel-head">
+          <h2 id="cost-duty" className="app-panel-heading">
+            Who pays for what
+          </h2>
+          <p className="app-copy">
+            Fees come from the balance on the network that does the work. Trading principal is held
+            separately.
+          </p>
+        </div>
+        <div className="app-cost-duty-labels" aria-hidden="true">
+          <span>Activity</span>
+          <span>Paid by</span>
+          <span>What it covers</span>
+        </div>
+        <dl className="app-cost-duty-list">
+          {RESPONSIBILITIES.map(({ activity, payer, role, detail }) => (
+            <div key={activity} className="app-cost-duty-row">
+              <dt className="app-cost-duty-activity">{activity}</dt>
+              <dd className="app-cost-duty-payer" data-chain-role={role}>
+                {role ? <span className="app-cost-payer-dot" aria-hidden="true" /> : null}
+                {payer}
+              </dd>
+              <dd className="app-cost-duty-detail">{detail}</dd>
             </div>
           ))}
         </dl>
       </section>
 
-      <section className="app-panel app-panel-pad" aria-labelledby="measured-costs">
-        <h2 id="measured-costs" className="app-panel-heading">
-          Estimated execution costs
-        </h2>
-        <p className="app-copy">
-          Base fees measured on <time dateTime={costModel.measuredOn}>{costModel.measuredOn}</time>.
-          Estimates vary with gas prices and event volume.
-        </p>
-        <CostTable caption="Observed base fees" valueLabel="Base fee" rows={costModel.baseFees} />
-        <CostTable caption="Per call" valueLabel="Estimated cost" rows={costModel.calls} />
-        <CostTable caption="Annual estimate" valueLabel="REACT per year" rows={costModel.annual} />
-        <p className="app-copy mt-4">
-          Weekly and daily rules on the same cron schedule wake up for the same ticks. Price rules
-          cost more when their pools emit more events.
-        </p>
+      <section className="app-panel app-cost-rates" aria-labelledby="cost-rates">
+        <div className="app-cost-panel-head">
+          <h2 id="cost-rates" className="app-panel-heading">
+            What a call costs
+          </h2>
+          <p className="app-copy">
+            These estimates use the measured base fees and change with gas prices. A Lasna wake-up
+            can incur a fee even when no rule runs.
+          </p>
+        </div>
+        <div className="app-cost-rate-groups">
+          <div className="app-cost-rate-group">
+            <div className="app-cost-rate-head">
+              <NetworkBadge chainId={LASNA_CHAIN_ID} />
+              <p>Paid from your {costModel.networks.automation.reserve}</p>
+            </div>
+            <RateTable networkName="Reactive Lasna" rows={costModel.rates.automation} />
+          </div>
+          <div className="app-cost-rate-group">
+            <div className="app-cost-rate-head">
+              <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+              <p>Paid from your {costModel.networks.funds.reserve}</p>
+            </div>
+            <RateTable networkName="Unichain Sepolia" rows={costModel.rates.funds} />
+          </div>
+        </div>
       </section>
 
-      <section className="app-panel app-panel-pad app-custody" aria-labelledby="cost-custody">
-        <span className="app-icon">
-          <HugeiconsIcon icon={SecurityCheckIcon} size={21} aria-hidden="true" />
+      <aside className="app-panel app-cost-custody" aria-labelledby="cost-custody">
+        <span className="app-icon app-cost-custody-icon">
+          <HugeiconsIcon icon={SecurityCheckIcon} size={20} aria-hidden="true" />
         </span>
-        <div className="space-y-2">
+        <div className="app-cost-custody-copy">
           <h2 id="cost-custody" className="app-panel-heading">
             Your wallet owns the vault
           </h2>
           <p className="app-copy">
-            Your vault on Unichain Sepolia settles actions permitted by your rules. Only your wallet
-            can withdraw your funds directly.
+            Only your wallet can withdraw the funds you deposit. Rules can act only inside the
+            limits you set.
           </p>
-          <Link to={appRoutes.account} className="app-link inline-block text-sm">
-            View your vault
-          </Link>
         </div>
+        <Link to={appRoutes.account} className="app-cost-custody-link">
+          View your vault
+          <HugeiconsIcon icon={ArrowRight02Icon} size={15} aria-hidden="true" />
+        </Link>
+      </aside>
+
+      <section className="app-panel app-cost-annual" aria-labelledby="cost-annual">
+        <div className="app-cost-panel-head">
+          <h2 id="cost-annual" className="app-panel-heading">
+            Planning a year
+          </h2>
+          <p className="app-copy">
+            Estimated Lasna monitoring costs in REACT per year. Faster schedule checks are shown for
+            comparison. Both groups use the same scale.
+          </p>
+        </div>
+        <div className="app-cost-annual-groups">
+          <ScenarioList title="Scheduled rules" scenarios={costModel.annual.schedule} />
+          <ScenarioList title="Price-triggered rules" scenarios={costModel.annual.price} />
+        </div>
+        <p className="app-cost-insight">
+          Weekly and daily rules on the same tick interval cost about the same because the Agent
+          wakes on every tick. Price rule estimates use the rate for events that trigger no action.
+          These estimates exclude Unichain callback fees and one-time setup.
+        </p>
       </section>
     </section>
   );

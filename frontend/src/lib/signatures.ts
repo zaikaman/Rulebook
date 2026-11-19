@@ -16,7 +16,8 @@ export interface SignatureDetails {
   readonly amountLabel?: string;
 }
 
-export type ControlFunction = 'pauseRule' | 'resumeRule' | 'cancelRule' | 'detachMirror';
+export type ControlFunction =
+  'pauseRule' | 'resumeRule' | 'cancelRule' | 'resetRule' | 'detachMirror';
 type RuleSpend = Pick<RuleParams, 'chainId' | 'tokenIn' | 'amountIn'>;
 type MirrorTerms = {
   readonly leaderVault: Address;
@@ -52,9 +53,12 @@ function automation(target: Address, effect: string, amount = noSpend): Signatur
 }
 
 const controlEffect: Record<ControlFunction, (id: bigint) => string> = {
-  pauseRule: (id) => `Pause rule #${id} until you resume it.`,
+  pauseRule: (id) =>
+    `Pause rule #${id} to stop new triggers. An execution already sent to your vault can still finish.`,
   resumeRule: (id) => `Resume rule #${id} so it can run again.`,
-  cancelRule: (id) => `Permanently cancel rule #${id} to stop future runs.`,
+  cancelRule: (id) =>
+    `Permanently cancel rule #${id}. An execution already sent to your vault can still finish.`,
+  resetRule: (id) => `Rearm rule #${id} so a new qualifying event can trigger it.`,
   detachMirror: (id) => `Detach mirror #${id} to stop following future leader trades.`,
 };
 

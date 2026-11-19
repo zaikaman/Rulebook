@@ -239,6 +239,11 @@ export function createRepositories(store: Store) {
           'agent,rule_id',
         );
       },
+      async setLatched(agent: string, ruleId: string, latched: boolean): Promise<void> {
+        const existing = await this.get(agent, ruleId);
+        if (!existing || existing.status === 'cancelled') return;
+        await store.upsert('rules', [withIndexedAt({ ...existing, latched })], 'agent,rule_id');
+      },
       async updateStatus(
         agent: string,
         ruleId: string,
@@ -259,16 +264,24 @@ export function createRepositories(store: Store) {
           'agent,rule_id',
         );
       },
-      async recordRun(agent: string, ruleId: string, blockTime: string): Promise<void> {
+      async refreshRuns(agent: string, ruleId: string, alert: boolean): Promise<void> {
         const existing = await this.get(agent, ruleId);
         if (!existing) return;
+        const table = alert ? 'rule_events' : 'executions';
+        const filters: Readonly<Record<string, StoreValue>> = alert
+          ? { agent, rule_id: ruleId, kind: 'alert' }
+          : { agent, rule_id: ruleId, status: 'confirmed' };
+        const [runs, [latest]] = await Promise.all([
+          store.count(table, filters),
+          store.select(table, filters, { limit: 1, orderBy: { column: 'block_time' } }),
+        ]);
         await store.upsert(
           'rules',
           [
             withIndexedAt({
               ...existing,
-              runs: existing.runs + 1,
-              last_run_at: blockTime,
+              runs,
+              last_run_at: typeof latest?.block_time === 'string' ? latest.block_time : null,
             }),
           ],
           'agent,rule_id',

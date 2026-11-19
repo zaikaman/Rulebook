@@ -104,6 +104,22 @@ library RuleLib {
         if (isBpsSecondaryTemplate(rule.template) && rule.secondary > 10_000) {
             revert InvalidSecondary();
         }
+        if ((rule.template == 2 || rule.template == 6) && rule.secondary == 0) {
+            revert InvalidSecondary();
+        }
+        if (rule.template == 12 && rule.secondary <= rule.threshold) revert InvalidSecondary();
+        bool personal = rule.template >= 7 && rule.template <= 10;
+        if (personal && rule.pair == address(0)) revert InvalidTemplateParams();
+        if ((personal || rule.template == 13) && rule.tokenIn == address(0)) {
+            revert InvalidTemplateParams();
+        }
+        if (isCronTemplate(rule.template)) {
+            uint256 schedule =
+                rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
+            if (schedule != 0 && (schedule < 1 hours || schedule > 30 days)) {
+                revert InvalidSecondary();
+            }
+        }
         if (isExpiryTemplate(rule.template) && rule.secondary == 0) revert InvalidSecondary();
         if (rule.template == 10 && (rule.secondary < 1 || rule.secondary > 365)) {
             revert InvalidSecondary();

@@ -10,6 +10,8 @@ import { createPublicClient, defineChain, type Hex } from 'viem';
 
 const lasna = getChain(LASNA_CHAIN_ID);
 const unichain = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+const unichainWalletRpcUrl =
+  import.meta.env.VITE_UNICHAIN_WALLET_RPC_URL?.trim() || unichain.rpcUrl;
 
 export const lasnaChain = defineChain({
   id: lasna.chainId,
@@ -24,7 +26,7 @@ export const unichainSepoliaChain = defineChain({
   id: unichain.chainId,
   name: unichain.name,
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
-  rpcUrls: { default: { http: [unichain.rpcUrl] } },
+  rpcUrls: { default: { http: [unichainWalletRpcUrl] } },
   blockExplorers: { default: { name: 'Uniscan', url: unichain.explorerUrl } },
   testnet: true,
 });

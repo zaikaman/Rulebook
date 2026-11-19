@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+
 import {Agent} from "./Agent.sol";
 import {IRuleRegistry} from "../registry/IRuleRegistry.sol";
 import {IReactiveSystem} from "../shared/ReactiveTypes.sol";
@@ -17,6 +19,7 @@ contract AgentFactory {
     IReactiveSystem public immutable systemContract;
     /// @notice Registry every deployed Agent publishes public rules to.
     IRuleRegistry public immutable registry;
+    address public immutable implementation;
     /// @notice Total agents deployed, also used as the deployment index.
     uint256 public agentCount;
 
@@ -25,6 +28,7 @@ contract AgentFactory {
     constructor(IReactiveSystem system_, IRuleRegistry registry_) {
         systemContract = system_;
         registry = registry_;
+        implementation = address(new Agent(address(this), system_, registry_, address(this)));
     }
 
     /// @notice Deploys the Agent for `owner_`.
@@ -32,7 +36,8 @@ contract AgentFactory {
     function deploy(address owner_) external returns (address agent) {
         if (owner_ == address(0)) revert InvalidTemplateParams();
         if (_agentOf[owner_] != address(0)) revert AgentAlreadyLinked();
-        agent = address(new Agent(owner_, systemContract, registry, address(this)));
+        agent = Clones.clone(implementation);
+        Agent(agent).initialize(owner_);
         _agentOf[owner_] = agent;
         agentCount += 1;
         emit AgentDeployed(owner_, agent, agentCount);

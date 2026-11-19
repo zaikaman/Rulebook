@@ -19,7 +19,7 @@ const steps = [
     icon: Book02Icon,
     image: landingImages.condition,
     title: 'Choose a template',
-    body: 'Fill in the sentence with the amount, schedule, or price limit you want to use.',
+    body: 'Set the amount, schedule, or price limit and review what the rule will do.',
   },
   {
     icon: SecurityCheckIcon,

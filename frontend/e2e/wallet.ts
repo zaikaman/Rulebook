@@ -1,8 +1,29 @@
 import { expect, type Page } from '@playwright/test';
-import { LASNA_CHAIN_ID, SUPPORTED_CHAIN_IDS, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
-import { numberToHex, type Address } from 'viem';
+import {
+  getChain,
+  LASNA_CHAIN_ID,
+  SUPPORTED_CHAIN_IDS,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  vaultAbi,
+  vaultFactoryAbi,
+} from '@rulebook/shared';
+import {
+  createPublicClient,
+  createWalletClient,
+  erc20Abi,
+  http,
+  numberToHex,
+  parseAbi,
+  zeroAddress,
+  type Address,
+} from 'viem';
 
-import { ANVIL_RPC_URL, USER_ADDRESS } from './fixtureConfig.js';
+import {
+  ANVIL_RPC_URL,
+  SPONSOR_ADDRESS,
+  USER_ADDRESS,
+  VAULT_FACTORY_ADDRESS,
+} from './fixtureConfig.js';
 
 type WalletRequest = { readonly method: string; readonly chainId: number };
 type WalletWindow = Window & { rulebookWalletRequests?: WalletRequest[] };
@@ -224,4 +245,47 @@ export async function approveSignature(
 export async function skipRuleFunding(page: Page) {
   await page.getByRole('button', { name: 'Compose and fund later' }).click();
   await page.getByRole('button', { name: 'Skip guide' }).click();
+}
+
+export async function fundFixtureVault(owner: Address, amount: bigint) {
+  const transport = http(ANVIL_RPC_URL);
+  const client = createPublicClient({ transport });
+  const wallet = createWalletClient({ transport });
+  const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
+  const vault = await client.readContract({
+    address: VAULT_FACTORY_ADDRESS,
+    abi: vaultFactoryAbi,
+    functionName: 'vaultOf',
+    args: [owner],
+  });
+  if (vault === zeroAddress) throw new Error('Fixture vault has not been deployed.');
+
+  const mint = await wallet.writeContract({
+    address: token,
+    abi: parseAbi(['function mint(address to, uint256 amount)']),
+    functionName: 'mint',
+    args: [owner, amount],
+    account: SPONSOR_ADDRESS,
+    chain: null,
+  });
+  const approval = await wallet.writeContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'approve',
+    args: [vault, amount],
+    account: owner,
+    chain: null,
+  });
+  const deposit = await wallet.writeContract({
+    address: vault,
+    abi: vaultAbi,
+    functionName: 'deposit',
+    args: [token, amount],
+    account: owner,
+    chain: null,
+  });
+  for (const hash of [mint, approval, deposit]) {
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error('Fixture vault funding reverted.');
+  }
 }

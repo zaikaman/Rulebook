@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { FIXTURE_API_URL } from './fixtureConfig.js';
-import { approveSignature, installWallet, skipRuleFunding } from './wallet.js';
+import { approveSignature, fundFixtureVault, installWallet, skipRuleFunding } from './wallet.js';
 
 // A fourth anvil account, so this story owns its own Agent even when every spec shares the
 // fixture backend. The rule it clones belongs to the seeded team catalog, never to this wallet.
@@ -48,6 +48,9 @@ test('clones a team listing into the cloner’s own account with its own limits'
 
   const confirm = preview.getByRole('button', { name: 'Confirm clone' });
   await expect(confirm).toBeEnabled({ timeout: 30_000 });
+  await confirm.click();
+  await expect(preview.getByRole('alert')).toContainText('Your vault has 0 USDC available.');
+  await fundFixtureVault(CLONER, 100_000_000n);
   await confirm.click();
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
 

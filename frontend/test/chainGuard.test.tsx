@@ -1,4 +1,4 @@
-import { agentAbi, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { agentAbi, getChain, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -55,10 +55,11 @@ vi.mock('../src/lib/wagmi.js', () => ({
   lasnaPublicClient: {
     chain: { id: LASNA_CHAIN_ID },
     getGasPrice: async () => 1n,
+    estimateContractGas: async () => 100_000n,
     readContract: mocks.readContract,
     waitForTransactionReceipt: mocks.receipt,
   },
-  unichainPublicClient: { readContract: mocks.readContract },
+  unichainPublicClient: { readContract: mocks.readContract, getBlockNumber: async () => 10n },
 }));
 
 const connector = {
@@ -314,6 +315,34 @@ it('uses the reviewed cap and signer for the mirror write adapter', async () => 
   mocks.getChainId.mockResolvedValue(LASNA_CHAIN_ID);
   mocks.writeContract.mockResolvedValue('0x1234');
   mocks.receipt.mockResolvedValue({ status: 'success' });
+  const weth = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).weth;
+  mocks.readContract.mockImplementation(async ({ functionName }) => {
+    switch (functionName) {
+      case 'getRule':
+        return { amountIn: 2_000_000n, tokenIn: DEMO_USDC, tokenOut: weth };
+      case 'getVault':
+        return VAULT;
+      case 'EXECUTION_PAYLOAD_VERSION':
+        return 2;
+      case 'agent':
+        return AGENT;
+      case 'paused':
+        return false;
+      case 'mirrorMode':
+        return true;
+      case 'allowedTokenIn':
+        return DEMO_USDC;
+      case 'allowedTokenOut':
+        return weth;
+      case 'maxSpendPerRun':
+        return 10_000_000n;
+      case 'balanceOf':
+      case 'principalOf':
+        return 1_000_000n;
+      default:
+        throw new Error(`Unexpected contract read ${functionName}`);
+    }
+  });
   const terms = {
     leaderChainId: BigInt(UNICHAIN_SEPOLIA_CHAIN_ID),
     leaderAgent: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const,
@@ -330,7 +359,7 @@ it('uses the reviewed cap and signer for the mirror write adapter', async () => 
       <button
         type="button"
         onClick={() => {
-          void attachMirror(7n, terms, UNICHAIN_SEPOLIA_CHAIN_ID, DEMO_USDC).catch(mocks.error);
+          void attachMirror(7n, terms).catch(mocks.error);
         }}
       >
         Attach mirror
@@ -346,13 +375,14 @@ it('uses the reviewed cap and signer for the mirror write adapter', async () => 
     </QueryClientProvider>,
   );
   await user.click(screen.getByRole('button', { name: 'Attach mirror' }));
-  const review = within(screen.getByRole('dialog', { name: /review.*reactive lasna/i }));
+  const review = within(await screen.findByRole('dialog', { name: /review.*reactive lasna/i }));
   expect(review.getByText(/up to 4 usdc per run/i)).toBeVisible();
   expect(mocks.writeContract).not.toHaveBeenCalled();
   await user.click(review.getByRole('button', { name: 'Continue to wallet' }));
   expect(mocks.writeContract).toHaveBeenCalledWith(
     expect.objectContaining({
       account: OWNER,
+      connector,
       address: AGENT,
       chainId: LASNA_CHAIN_ID,
       functionName: 'addMirror',

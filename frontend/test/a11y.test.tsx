@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { AxeResults } from 'axe-core';
 
 import { FIXTURE_API_URL } from '../e2e/fixtureConfig.js';
-import { installWallet, skipRuleFunding } from '../e2e/wallet.js';
+import { fundFixtureVault, installWallet, skipRuleFunding } from '../e2e/wallet.js';
 
 const require = createRequire(import.meta.url);
 const axeScript = require.resolve('axe-core/axe.min.js');
@@ -85,6 +85,7 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await expect(page.getByRole('button', { name: 'Add REACT' })).toBeEnabled();
   await audit(page);
   await skipRuleFunding(page);
+  await fundFixtureVault(owner, 10_000_000n);
   await page.goto('/account');
   const agentHref = await page
     .getByRole('region', { name: 'Reactive Lasna balances' })
@@ -98,10 +99,10 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await expect(page.getByRole('dialog', { name: 'Choose a rule type' })).toBeVisible();
   await audit(page, '.driver-popover');
   await page.keyboard.press('Escape');
-  await page.getByLabel('pay with').selectOption({ label: 'USDC' });
-  await page.getByLabel('buy').selectOption({ label: 'WETH' });
-  await page.getByLabel('amount').selectOption({ label: '10' });
-  await page.getByLabel('schedule').selectOption({ label: 'every day' });
+  await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
+  await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
+  await page.getByLabel('Amount to spend').fill('10');
+  await page.getByLabel('Schedule').selectOption({ label: 'Every day' });
   await audit(page);
 
   await page.getByRole('button', { name: 'Review and create rule' }).click();
