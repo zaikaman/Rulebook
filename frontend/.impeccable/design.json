@@ -1,0 +1,664 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T04:35:03.005Z",
+  "title": "Design System: Rulebook",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Action blue",
+        "tonalRamp": [
+          "oklch(0.15 0.034 248)",
+          "oklch(0.24 0.055 248)",
+          "oklch(0.35 0.080 248)",
+          "oklch(0.47 0.108 248)",
+          "oklch(0.6 0.108 248)",
+          "oklch(0.72 0.076 248)",
+          "oklch(0.84 0.043 248)",
+          "oklch(0.95 0.014 248)"
+        ]
+      },
+      "primary-ink": {
+        "role": "primary",
+        "displayName": "Action ink",
+        "tonalRamp": [
+          "oklch(0.15 0.014 254)",
+          "oklch(0.24 0.022 254)",
+          "oklch(0.35 0.033 254)",
+          "oklch(0.47 0.044 254)",
+          "oklch(0.6 0.044 254)",
+          "oklch(0.72 0.031 254)",
+          "oklch(0.84 0.018 254)",
+          "oklch(0.95 0.006 254)"
+        ]
+      },
+      "primary-hover": {
+        "role": "primary",
+        "displayName": "Action blue hover",
+        "tonalRamp": [
+          "oklch(0.15 0.027 248)",
+          "oklch(0.24 0.044 248)",
+          "oklch(0.35 0.064 248)",
+          "oklch(0.47 0.086 248)",
+          "oklch(0.6 0.086 248)",
+          "oklch(0.72 0.060 248)",
+          "oklch(0.84 0.034 248)",
+          "oklch(0.95 0.011 248)"
+        ]
+      },
+      "primary-tint": {
+        "role": "primary",
+        "displayName": "Blue selection tint",
+        "tonalRamp": [
+          "oklch(0.15 0.017 249)",
+          "oklch(0.24 0.028 249)",
+          "oklch(0.35 0.040 249)",
+          "oklch(0.47 0.054 249)",
+          "oklch(0.6 0.054 249)",
+          "oklch(0.72 0.038 249)",
+          "oklch(0.84 0.022 249)",
+          "oklch(0.95 0.007 249)"
+        ]
+      },
+      "automation": {
+        "role": "secondary",
+        "displayName": "Automation lavender",
+        "tonalRamp": [
+          "oklch(0.15 0.026 290)",
+          "oklch(0.24 0.042 290)",
+          "oklch(0.35 0.062 290)",
+          "oklch(0.47 0.083 290)",
+          "oklch(0.6 0.083 290)",
+          "oklch(0.72 0.058 290)",
+          "oklch(0.84 0.033 290)",
+          "oklch(0.95 0.010 290)"
+        ]
+      },
+      "automation-tint": {
+        "role": "secondary",
+        "displayName": "Automation badge fill",
+        "tonalRamp": [
+          "oklch(0.15 0.015 290)",
+          "oklch(0.24 0.024 290)",
+          "oklch(0.35 0.035 290)",
+          "oklch(0.47 0.047 290)",
+          "oklch(0.6 0.047 290)",
+          "oklch(0.72 0.033 290)",
+          "oklch(0.84 0.019 290)",
+          "oklch(0.95 0.006 290)"
+        ]
+      },
+      "automation-line": {
+        "role": "secondary",
+        "displayName": "Automation badge border",
+        "tonalRamp": [
+          "oklch(0.15 0.022 290)",
+          "oklch(0.24 0.035 290)",
+          "oklch(0.35 0.051 290)",
+          "oklch(0.47 0.069 290)",
+          "oklch(0.6 0.069 290)",
+          "oklch(0.72 0.048 290)",
+          "oklch(0.84 0.028 290)",
+          "oklch(0.95 0.009 290)"
+        ]
+      },
+      "funds": {
+        "role": "tertiary",
+        "displayName": "Funds mint",
+        "tonalRamp": [
+          "oklch(0.15 0.034 175)",
+          "oklch(0.24 0.054 175)",
+          "oklch(0.35 0.079 175)",
+          "oklch(0.47 0.106 175)",
+          "oklch(0.6 0.106 175)",
+          "oklch(0.72 0.074 175)",
+          "oklch(0.84 0.042 175)",
+          "oklch(0.95 0.013 175)"
+        ]
+      },
+      "funds-tint": {
+        "role": "tertiary",
+        "displayName": "Funds badge fill",
+        "tonalRamp": [
+          "oklch(0.15 0.012 175)",
+          "oklch(0.24 0.019 175)",
+          "oklch(0.35 0.028 175)",
+          "oklch(0.47 0.038 175)",
+          "oklch(0.6 0.038 175)",
+          "oklch(0.72 0.027 175)",
+          "oklch(0.84 0.015 175)",
+          "oklch(0.95 0.005 175)"
+        ]
+      },
+      "funds-line": {
+        "role": "tertiary",
+        "displayName": "Funds badge border",
+        "tonalRamp": [
+          "oklch(0.15 0.019 175)",
+          "oklch(0.24 0.031 175)",
+          "oklch(0.35 0.045 175)",
+          "oklch(0.47 0.061 175)",
+          "oklch(0.6 0.061 175)",
+          "oklch(0.72 0.043 175)",
+          "oklch(0.84 0.024 175)",
+          "oklch(0.95 0.008 175)"
+        ]
+      },
+      "status-active": {
+        "role": "semantic",
+        "displayName": "Active green",
+        "tonalRamp": [
+          "oklch(0.15 0.036 151)",
+          "oklch(0.24 0.058 151)",
+          "oklch(0.35 0.084 151)",
+          "oklch(0.47 0.113 151)",
+          "oklch(0.6 0.113 151)",
+          "oklch(0.72 0.079 151)",
+          "oklch(0.84 0.045 151)",
+          "oklch(0.95 0.014 151)"
+        ]
+      },
+      "status-paused": {
+        "role": "semantic",
+        "displayName": "Paused amber",
+        "tonalRamp": [
+          "oklch(0.15 0.036 79)",
+          "oklch(0.24 0.058 79)",
+          "oklch(0.35 0.084 79)",
+          "oklch(0.47 0.113 79)",
+          "oklch(0.6 0.113 79)",
+          "oklch(0.72 0.079 79)",
+          "oklch(0.84 0.045 79)",
+          "oklch(0.95 0.014 79)"
+        ]
+      },
+      "status-cancelled": {
+        "role": "semantic",
+        "displayName": "Cancelled grey",
+        "tonalRamp": [
+          "oklch(0.15 0.008 252)",
+          "oklch(0.24 0.013 252)",
+          "oklch(0.35 0.019 252)",
+          "oklch(0.47 0.025 252)",
+          "oklch(0.6 0.025 252)",
+          "oklch(0.72 0.018 252)",
+          "oklch(0.84 0.010 252)",
+          "oklch(0.95 0.003 252)"
+        ]
+      },
+      "status-latched": {
+        "role": "semantic",
+        "displayName": "Fired blue",
+        "tonalRamp": [
+          "oklch(0.15 0.032 230)",
+          "oklch(0.24 0.051 230)",
+          "oklch(0.35 0.074 230)",
+          "oklch(0.47 0.099 230)",
+          "oklch(0.6 0.099 230)",
+          "oklch(0.72 0.069 230)",
+          "oklch(0.84 0.040 230)",
+          "oklch(0.95 0.012 230)"
+        ]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "Error and silent coral",
+        "tonalRamp": [
+          "oklch(0.15 0.037 20)",
+          "oklch(0.24 0.059 20)",
+          "oklch(0.35 0.086 20)",
+          "oklch(0.47 0.115 20)",
+          "oklch(0.6 0.115 20)",
+          "oklch(0.72 0.081 20)",
+          "oklch(0.84 0.046 20)",
+          "oklch(0.95 0.014 20)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Workspace surface",
+        "tonalRamp": [
+          "oklch(0.15 0.002 252)",
+          "oklch(0.24 0.003 252)",
+          "oklch(0.35 0.004 252)",
+          "oklch(0.47 0.006 252)",
+          "oklch(0.6 0.006 252)",
+          "oklch(0.72 0.004 252)",
+          "oklch(0.84 0.002 252)",
+          "oklch(0.95 0.001 252)"
+        ]
+      },
+      "surface-raised": {
+        "role": "neutral",
+        "displayName": "Cool charcoal panel",
+        "tonalRamp": [
+          "oklch(0.15 0.003 252)",
+          "oklch(0.24 0.005 252)",
+          "oklch(0.35 0.007 252)",
+          "oklch(0.47 0.010 252)",
+          "oklch(0.6 0.010 252)",
+          "oklch(0.72 0.007 252)",
+          "oklch(0.84 0.004 252)",
+          "oklch(0.95 0.001 252)"
+        ]
+      },
+      "surface-inset": {
+        "role": "neutral",
+        "displayName": "Inset charcoal",
+        "tonalRamp": [
+          "oklch(0.15 0.005 252)",
+          "oklch(0.24 0.008 252)",
+          "oklch(0.35 0.012 252)",
+          "oklch(0.47 0.016 252)",
+          "oklch(0.6 0.016 252)",
+          "oklch(0.72 0.011 252)",
+          "oklch(0.84 0.006 252)",
+          "oklch(0.95 0.002 252)"
+        ]
+      },
+      "control": {
+        "role": "neutral",
+        "displayName": "Control charcoal",
+        "tonalRamp": [
+          "oklch(0.15 0.005 252)",
+          "oklch(0.24 0.008 252)",
+          "oklch(0.35 0.011 252)",
+          "oklch(0.47 0.015 252)",
+          "oklch(0.6 0.015 252)",
+          "oklch(0.72 0.011 252)",
+          "oklch(0.84 0.006 252)",
+          "oklch(0.95 0.002 252)"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Panel border",
+        "tonalRamp": [
+          "oklch(0.15 0.005 252)",
+          "oklch(0.24 0.009 252)",
+          "oklch(0.35 0.013 252)",
+          "oklch(0.47 0.017 252)",
+          "oklch(0.6 0.017 252)",
+          "oklch(0.72 0.012 252)",
+          "oklch(0.84 0.007 252)",
+          "oklch(0.95 0.002 252)"
+        ]
+      },
+      "control-border": {
+        "role": "neutral",
+        "displayName": "Control border",
+        "tonalRamp": [
+          "oklch(0.15 0.009 252)",
+          "oklch(0.24 0.014 252)",
+          "oklch(0.35 0.021 252)",
+          "oklch(0.47 0.028 252)",
+          "oklch(0.6 0.028 252)",
+          "oklch(0.72 0.020 252)",
+          "oklch(0.84 0.011 252)",
+          "oklch(0.95 0.004 252)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Workspace text",
+        "tonalRamp": [
+          "oklch(0.15 0.003 252)",
+          "oklch(0.24 0.005 252)",
+          "oklch(0.35 0.007 252)",
+          "oklch(0.47 0.009 252)",
+          "oklch(0.6 0.009 252)",
+          "oklch(0.72 0.006 252)",
+          "oklch(0.84 0.004 252)",
+          "oklch(0.95 0.001 252)"
+        ]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Workspace secondary text",
+        "tonalRamp": [
+          "oklch(0.15 0.007 252)",
+          "oklch(0.24 0.011 252)",
+          "oklch(0.35 0.016 252)",
+          "oklch(0.47 0.021 252)",
+          "oklch(0.6 0.021 252)",
+          "oklch(0.72 0.015 252)",
+          "oklch(0.84 0.008 252)",
+          "oklch(0.95 0.003 252)"
+        ]
+      },
+      "slot-open": {
+        "role": "primary",
+        "displayName": "Empty slot fill",
+        "tonalRamp": [
+          "oklch(0.15 0.009 249)",
+          "oklch(0.24 0.014 249)",
+          "oklch(0.35 0.021 249)",
+          "oklch(0.47 0.028 249)",
+          "oklch(0.6 0.028 249)",
+          "oklch(0.72 0.020 249)",
+          "oklch(0.84 0.011 249)",
+          "oklch(0.95 0.004 249)"
+        ]
+      },
+      "slot-open-line": {
+        "role": "primary",
+        "displayName": "Empty slot border",
+        "tonalRamp": [
+          "oklch(0.15 0.021 249)",
+          "oklch(0.24 0.033 249)",
+          "oklch(0.35 0.048 249)",
+          "oklch(0.47 0.065 249)",
+          "oklch(0.6 0.065 249)",
+          "oklch(0.72 0.046 249)",
+          "oklch(0.84 0.026 249)",
+          "oklch(0.95 0.008 249)"
+        ]
+      },
+      "landing-canvas": {
+        "role": "neutral",
+        "displayName": "Near-black landing canvas",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "workspace-frame": {
+        "role": "neutral",
+        "displayName": "Near-black workspace frame",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "landing-ink": {
+        "role": "neutral",
+        "displayName": "Landing white",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "landing-copy": {
+        "role": "neutral",
+        "displayName": "Landing light grey",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "landing-action-hover": {
+        "role": "neutral",
+        "displayName": "Landing action hover",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "landing-action-ink": {
+        "role": "neutral",
+        "displayName": "Landing action ink",
+        "tonalRamp": [
+          "oklch(0.15 0.000 0)",
+          "oklch(0.24 0.000 0)",
+          "oklch(0.35 0.000 0)",
+          "oklch(0.47 0.000 0)",
+          "oklch(0.6 0.000 0)",
+          "oklch(0.72 0.000 0)",
+          "oklch(0.84 0.000 0)",
+          "oklch(0.95 0.000 0)"
+        ]
+      },
+      "landing-blue": {
+        "role": "primary",
+        "displayName": "Landing blue",
+        "tonalRamp": [
+          "oklch(0.15 0.067 260)",
+          "oklch(0.24 0.107 260)",
+          "oklch(0.35 0.156 260)",
+          "oklch(0.47 0.210 260)",
+          "oklch(0.6 0.210 260)",
+          "oklch(0.72 0.147 260)",
+          "oklch(0.84 0.084 260)",
+          "oklch(0.95 0.026 260)"
+        ]
+      },
+      "landing-violet": {
+        "role": "secondary",
+        "displayName": "Landing violet",
+        "tonalRamp": [
+          "oklch(0.15 0.073 288)",
+          "oklch(0.24 0.117 288)",
+          "oklch(0.35 0.171 288)",
+          "oklch(0.47 0.230 288)",
+          "oklch(0.6 0.230 288)",
+          "oklch(0.72 0.161 288)",
+          "oklch(0.84 0.092 288)",
+          "oklch(0.95 0.029 288)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Landing display",
+        "purpose": "Main landing headline."
+      },
+      "workspace-headline": {
+        "displayName": "Workspace title",
+        "purpose": "Page-level title and task anchor."
+      },
+      "panel-title": {
+        "displayName": "Panel heading",
+        "purpose": "Section headings inside workspace panels."
+      },
+      "sentence": {
+        "displayName": "Rule sentence",
+        "purpose": "Editable sentence with inline slots."
+      },
+      "body": {
+        "displayName": "Workspace copy",
+        "purpose": "Explanations and supporting copy."
+      },
+      "landing-lede": {
+        "displayName": "Landing lede",
+        "purpose": "Supporting text beneath the landing headline."
+      },
+      "label": {
+        "displayName": "Overline",
+        "purpose": "Compact section labels such as the sentence editor label."
+      },
+      "transaction-metadata": {
+        "displayName": "Transaction metadata",
+        "purpose": "Hashes, blocks, and timestamps."
+      }
+    },
+    "shadows": [
+      {
+        "name": "wallet-popover",
+        "value": "0 0.875rem 2.5rem oklch(0.115 0.013 252 / 68%)",
+        "purpose": "Separates wallet options from navigation."
+      },
+      {
+        "name": "overlay",
+        "value": "0 25px 50px -12px rgb(0 0 0 / 0.25)",
+        "purpose": "Lifts the wallet review dialog and translucent landing navigation."
+      },
+      {
+        "name": "workspace-frame",
+        "value": "0 25px 50px -12px rgb(0 0 0 / 0.5)",
+        "purpose": "Defines the outer workspace frame."
+      }
+    ],
+    "motion": [
+      {
+        "name": "workspace-control",
+        "value": "160ms ease-out",
+        "purpose": "Button, wallet, and composer control state changes."
+      },
+      {
+        "name": "composer-progress",
+        "value": "180ms ease-out",
+        "purpose": "Progress segment fill."
+      },
+      {
+        "name": "landing-entrance",
+        "value": "600–900ms ease-out",
+        "purpose": "Staggered fade-in with upward movement and reduced-motion fallback."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "preset-columns",
+        "value": "30rem"
+      },
+      {
+        "name": "compact-panels",
+        "value": "40rem"
+      },
+      {
+        "name": "landing-section-links",
+        "value": "48rem"
+      },
+      {
+        "name": "workspace-sidebar",
+        "value": "64rem"
+      },
+      {
+        "name": "wide-workspace",
+        "value": "70rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary workspace button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Move the current workspace task forward.",
+      "html": "<button type=\"button\" class=\"ds-button\">Open proof</button>",
+      "css": ".ds-button { display: inline-flex; min-block-size: 2.75rem; align-items: center; justify-content: center; gap: .5rem; border: 1px solid transparent; border-radius: .625rem; padding: .4375rem .875rem; background: var(--rb-accent, oklch(0.789 0.108 248)); color: var(--rb-accent-ink, oklch(0.204 0.044 254)); font: 720 .8125rem/1.25 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); text-align: center; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }\n.ds-button:not(:disabled):hover { border-color: transparent; background: oklch(0.841 0.086 248); }\n.ds-button:disabled { opacity: .62; cursor: default; }\n.ds-button:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    },
+    {
+      "name": "Secondary workspace button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "An adjacent utility or alternate action.",
+      "html": "<button type=\"button\" class=\"ds-button\">Get Lasna REACT</button>",
+      "css": ".ds-button { display: inline-flex; min-block-size: 2.5rem; align-items: center; justify-content: center; gap: .5rem; border: 1px solid var(--rb-control-border, oklch(0.42 0.028 252)); border-radius: .625rem; padding: .4375rem .875rem; background: var(--rb-control, oklch(0.242 0.015 252)); color: var(--rb-ink, oklch(0.957 0.009 252)); font: 620 .8125rem/1.25 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); text-align: center; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }\n.ds-button:not(:disabled):hover { border-color: var(--rb-accent, oklch(0.789 0.108 248)); background: var(--rb-accent-tint, oklch(0.286 0.054 249)); }\n.ds-button:disabled { opacity: .62; cursor: default; }\n.ds-button:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    },
+    {
+      "name": "Destructive workspace button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Uses coral text for a destructive rule action.",
+      "html": "<button type=\"button\" class=\"ds-button\">Cancel rule</button>",
+      "css": ".ds-button { display: inline-flex; min-block-size: 2.5rem; align-items: center; justify-content: center; gap: .5rem; border: 1px solid var(--rb-control-border, oklch(0.42 0.028 252)); border-radius: .625rem; padding: .4375rem .875rem; background: var(--rb-control, oklch(0.242 0.015 252)); color: var(--rb-danger, oklch(0.784 0.115 20)); font: 620 .8125rem/1.25 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); text-align: center; cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }\n.ds-button:not(:disabled):hover { border-color: var(--rb-accent, oklch(0.789 0.108 248)); background: var(--rb-accent-tint, oklch(0.286 0.054 249)); }\n.ds-button:disabled { opacity: .62; cursor: default; }\n.ds-button:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    },
+    {
+      "name": "Landing action",
+      "kind": "button",
+      "refersTo": "landing-cta",
+      "description": "The light pill for the landing page’s main action.",
+      "html": "<a class=\"ds-landing-cta\" href=\"/create\"><span>Create your first rule</span><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M18.5 12L4.99997 12\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\"/><path d=\"M13 18C13 18 19 13.5811 19 12C19 10.4188 13 6 13 6\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\"/></svg></a>",
+      "css": ".ds-landing-cta { display: inline-flex; align-items: center; gap: .5rem; border-radius: 9999px; padding: .75rem 2rem; background: #ffffff; color: #000000; font: 500 .875rem/1.25rem var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); text-decoration: none; transition: background-color 150ms cubic-bezier(.4,0,.2,1); }\n.ds-landing-cta svg { flex: none; transition: transform 150ms cubic-bezier(.4,0,.2,1); }\n.ds-landing-cta:hover { background: #e5e5e5; }\n.ds-landing-cta:hover svg { transform: translateX(.125rem); }\n.ds-landing-cta:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; border-radius: 9999px; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    },
+    {
+      "name": "Transaction hash field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A labeled workspace field with monospaced identifiers.",
+      "html": "<label class=\"ds-field\">Reactive transaction hash<input class=\"ds-field-input\" placeholder=\"0x…\" spellcheck=\"false\" autocapitalize=\"off\"></label>",
+      "css": ".ds-field { display: grid; gap: .375rem; min-inline-size: 0; color: var(--rb-ink, oklch(0.957 0.009 252)); font: 560 .8125rem/1.5 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); }\n.ds-field-input { box-sizing: border-box; min-inline-size: 0; min-block-size: 2.625rem; border: 1px solid var(--rb-control-border, oklch(0.42 0.028 252)); border-radius: .5rem; padding: .5rem .75rem; background: var(--rb-control, oklch(0.242 0.015 252)); color: var(--rb-ink, oklch(0.957 0.009 252)); font: 400 .875rem/1.5 var(--font-geist-mono, \"Geist Mono Variable\", ui-monospace, SFMono-Regular, monospace); }\n.ds-field-input::placeholder { color: var(--rb-ink-muted, oklch(0.739 0.021 252)); }\n.ds-field-input:hover { border-color: var(--rb-accent, oklch(0.789 0.108 248)); }\n.ds-field-input[aria-invalid=\"true\"] { border-color: var(--rb-danger, oklch(0.784 0.115 20)); }\n.ds-field-input:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }"
+    },
+    {
+      "name": "Workspace panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Raised charcoal, a one-pixel border, and direct heading and body copy.",
+      "html": "<section class=\"ds-panel\"><h3>Get test tokens</h3><p>Use your connected wallet address.</p></section>",
+      "css": ".ds-panel { min-inline-size: 0; border: 1px solid var(--rb-border, oklch(0.31 0.017 252)); border-radius: 1rem; padding: 1.125rem; background: var(--rb-surface-raised, oklch(0.189 0.01 252)); color: var(--rb-ink, oklch(0.957 0.009 252)); }\n.ds-panel h3 { margin: 0; font: 700 1.0625rem/1.5 var(--font-manrope, \"Manrope Variable\", ui-sans-serif, system-ui, sans-serif); letter-spacing: -.022em; }\n.ds-panel p { margin: .625rem 0 0; color: var(--rb-ink-muted, oklch(0.739 0.021 252)); font: 400 .875rem/1.55 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); }\n@media (min-width: 70rem) { .ds-panel { padding: 1.5rem; } }"
+    },
+    {
+      "name": "Active workspace navigation",
+      "kind": "nav",
+      "refersTo": "workspace-nav-active",
+      "description": "The current workspace section has a raised fill and a blue line icon.",
+      "html": "<a class=\"ds-nav-item\" aria-current=\"page\" href=\"/rules\"><svg aria-hidden=\"true\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\"><path d=\"M15.5 7H8.5M12.499 11H8.49902\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\"/><path d=\"M20 22H6C4.89543 22 4 21.1046 4 20M4 20C4 18.8954 4.89543 18 6 18H20V6C20 4.11438 20 3.17157 19.4142 2.58579C18.8284 2 17.8856 2 16 2H10C7.17157 2 5.75736 2 4.87868 2.87868C4 3.75736 4 5.17157 4 8V20Z\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\"/><path d=\"M19.5 18C19.5 18 18.5 18.7628 18.5 20C18.5 21.2372 19.5 22 19.5 22\" stroke=\"currentColor\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-width=\"1.5\"/></svg><span>Rules</span></a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: .75rem; border: 1px solid transparent; border-radius: .75rem; padding: .5rem .75rem; color: var(--rb-ink-muted, oklch(0.739 0.021 252)); font: 500 .875rem/1.25rem var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); text-decoration: none; transition: color 150ms cubic-bezier(.4,0,.2,1), background-color 150ms cubic-bezier(.4,0,.2,1); }\n.ds-nav-item:is(:hover, [aria-current]) { background: var(--rb-surface-raised, oklch(0.189 0.01 252)); color: var(--rb-ink, oklch(0.957 0.009 252)); }\n.ds-nav-item[aria-current] { border-color: var(--rb-border, oklch(0.31 0.017 252)); }\n.ds-nav-item[aria-current] svg { color: var(--rb-accent, oklch(0.789 0.108 248)); }\n.ds-nav-item:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    },
+    {
+      "name": "Network badges",
+      "kind": "chip",
+      "refersTo": "network-badge-automation",
+      "description": "Named automation and funds networks use paired foreground, fill, and border colors.",
+      "html": "<div class=\"ds-network-group\"><span class=\"ds-network\" data-role=\"automation\">Reactive Lasna</span><span class=\"ds-network\" data-role=\"funds\">Unichain Sepolia</span></div>",
+      "css": ".ds-network-group { display: flex; flex-wrap: wrap; gap: .5rem; }\n.ds-network { display: inline-flex; align-items: center; border: 1px solid var(--ds-line); border-radius: 999px; padding: .125rem .5rem; background: var(--ds-fill); color: var(--ds-ink); font: 560 .75rem/1.35 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); }\n.ds-network[data-role=\"automation\"] { --ds-line: var(--rb-automation-line, oklch(0.436 0.069 290)); --ds-fill: var(--rb-automation-tint, oklch(0.259 0.047 290)); --ds-ink: var(--rb-automation, oklch(0.835 0.083 290)); }\n.ds-network[data-role=\"funds\"] { --ds-line: var(--rb-funds-line, oklch(0.437 0.061 175)); --ds-fill: var(--rb-funds-tint, oklch(0.255 0.038 175)); --ds-ink: var(--rb-funds, oklch(0.817 0.106 175)); }"
+    },
+    {
+      "name": "Rule status tags",
+      "kind": "chip",
+      "refersTo": "status-active",
+      "description": "The state word and leading dot stay visible together.",
+      "html": "<div class=\"ds-status-group\"><span class=\"ds-status\" data-status=\"active\">Active</span><span class=\"ds-status\" data-status=\"paused\">Paused</span><span class=\"ds-status\" data-status=\"silent\">Silent — no execution credit</span></div>",
+      "css": ".ds-status-group { display: flex; flex-wrap: wrap; gap: .5rem; }\n.ds-status { display: inline-flex; align-items: center; gap: .3125rem; border: 1px solid color-mix(in oklch, var(--ds-status) 31%, var(--rb-control, oklch(0.242 0.015 252))); border-radius: .375rem; padding: .15rem .5rem; background: color-mix(in oklch, var(--ds-status) 10%, var(--rb-control, oklch(0.242 0.015 252))); color: var(--ds-status); font: 550 .75rem/1.3 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); }\n.ds-status::before { content: \"\"; flex: none; width: .375rem; height: .375rem; border-radius: 50%; background: currentColor; }\n.ds-status[data-status=\"active\"] { --ds-status: var(--rb-status-active, oklch(0.812 0.113 151)); }\n.ds-status[data-status=\"paused\"] { --ds-status: var(--rb-status-paused, oklch(0.831 0.113 79)); }\n.ds-status[data-status=\"silent\"] { --ds-status: var(--rb-danger, oklch(0.784 0.115 20)); }"
+    },
+    {
+      "name": "Sentence slots",
+      "kind": "custom",
+      "refersTo": "sentence-slot-empty",
+      "description": "Empty slots use a dashed border. Filled slots use a solid, blue-tinted surface.",
+      "html": "<div class=\"ds-slot-group\"><label class=\"ds-slot\"><select aria-label=\"Schedule\"><option value=\"\">schedule</option><option>every day</option></select></label><label class=\"ds-slot\" data-filled=\"true\"><select aria-label=\"Amount\"><option selected>10</option><option>20</option></select></label></div>",
+      "css": ".ds-slot-group { display: flex; flex-wrap: wrap; gap: .5rem; }\n.ds-slot { position: relative; display: inline-block; max-inline-size: 100%; border-radius: .5rem; color: var(--rb-accent, oklch(0.789 0.108 248)); }\n.ds-slot::after { content: \"\"; position: absolute; inset-inline-end: .875rem; inset-block-start: calc(50% - .25rem); inline-size: .375rem; block-size: .375rem; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); pointer-events: none; }\n.ds-slot select { appearance: none; display: block; inline-size: 100%; min-block-size: 2.5rem; field-sizing: content; border: 1px dashed oklch(0.494 0.065 249); border-radius: inherit; padding: .4375rem 1.875rem .4375rem .6875rem; background: oklch(0.255 0.028 249); color: inherit; font: 580 .875rem/1.25 var(--font-geist-sans, \"Geist Variable\", ui-sans-serif, system-ui, sans-serif); cursor: pointer; transition: background-color 160ms ease-out, border-color 160ms ease-out; }\n.ds-slot[data-filled=\"true\"] select, .ds-slot:has(select option:not([value=\"\"]):checked) select { border-style: solid; border-color: oklch(.487 .066 249); background: var(--rb-accent-tint, oklch(0.286 0.054 249)); color: var(--rb-ink, oklch(0.957 0.009 252)); }\n.ds-slot select:hover { border-color: var(--rb-accent, oklch(0.789 0.108 248)); background: var(--rb-accent-tint, oklch(0.286 0.054 249)); }\n.ds-slot select[aria-invalid=\"true\"] { border-color: var(--rb-danger, oklch(0.784 0.115 20)); }\n.ds-slot option { background: var(--rb-surface-raised, oklch(0.189 0.01 252)); color: var(--rb-ink, oklch(0.957 0.009 252)); }\n.ds-slot select:focus-visible { outline: 2px solid var(--rb-accent, oklch(0.789 0.108 248)); outline-offset: 2px; border-radius: .4375rem; }\n@media (prefers-reduced-motion: reduce) { .ds-button, .ds-landing-cta, .ds-landing-cta svg, .ds-nav-item, .ds-slot select { transition: none; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Clear and precise",
+    "overview": "The workspace uses layered panels, compact controls, and lift for overlays. Clear labels, subdued dividers, and distinct network colors help users scan a rule, confirm the network, and follow a transaction.\n\nThe landing page uses the same type families and dark ground, with atmospheric photography, a fine grid, and blue-violet light behind the content. Product imagery shows the rule sentence and execution details in context.",
+    "keyCharacteristics": [
+      "Near-black framing, cool charcoal panels, and crisp light text.",
+      "Compact, bordered controls with clear focus and selection states.",
+      "Automation lavender and funds mint, always paired with network names.",
+      "Low-light device photography and light action pills on the landing page."
+    ],
+    "rules": [],
+    "dos": [
+      "Do keep network names and status labels beside their colors.",
+      "Do show the empty, filled, focus, and invalid states of sentence slots.",
+      "Do use bordered, tonal workspace panels and reserve pronounced content shadows for wallet overlays.",
+      "Do keep transaction identifiers readable at narrow widths."
+    ],
+    "donts": [
+      "Don't reuse the active green for fired, paused, cancelled, or unfunded rules.",
+      "Don't carry landing-page photo treatments into transaction and account panels."
+    ]
+  }
+}

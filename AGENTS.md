@@ -1,0 +1,7 @@
+- Do not commit yourself unless the user asks for it.
+- You're only allowed to work on the main branch, nowhere else.
+- Do not write mock or fake code, or hardcode anything, everything must be production-ready and real, if you don't know what to do or pick, just go with the most production-ready option possible.
+- When you're working with UI tasks, it's recommended to use the impeccable skill.
+- When you're done with your tasks, remember to run npm run verify to make sure everything is clean, and only run this when it's actually necessary, like large refactors, big code work, don't run it when you only updated docs for example.
+- Do not use emojis anywhere, docs, frontend code, no where.
+- Upon completing your work, spawn a subagent to do a full and thorough quality pass through it for any remaining bugs, issues or QoL improvements, but only if the change is large or high-risk, do not spawn it for simple work that you're sure is good enough.
