@@ -62,9 +62,12 @@ export type RuleEventRow = {
   origin_log_index?: number | null;
   fired?: boolean | null;
   indexed_at: string;
+  telegram_template?: number;
+  telegram_observed?: string;
 };
 
 export type ExecutionRow = {
+  telegram_notify?: boolean;
   chain_id: number;
   tx_hash: string;
   log_index: number;

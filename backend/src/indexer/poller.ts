@@ -23,6 +23,8 @@ export interface PollerOptions {
   readonly confirmationDepth: Readonly<Record<number, number>>;
   readonly rangeSize?: number;
   readonly pollIntervalMs?: number;
+  /** Live polling stages Telegram notifications with the corresponding confirmed event. */
+  readonly stageTelegramNotifications?: boolean;
 }
 
 /**
@@ -84,6 +86,7 @@ export class IndexerPoller {
           { ...outcome.event, blockTime },
           {
             readRule: (chainId, agent, ruleId) => this.readRule(chainId, agent, ruleId),
+            stageTelegramNotifications: this.options.stageTelegramNotifications,
           },
         );
         processed += 1;

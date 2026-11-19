@@ -6,6 +6,7 @@ export * from './chains.js';
 export * from './encode.js';
 export * from './generated/templates.js';
 export * from './schemas.js';
+export * from './telegram.js';
 export {
   agentAbi,
   agentFactoryAbi,

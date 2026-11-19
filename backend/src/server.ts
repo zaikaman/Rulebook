@@ -16,6 +16,8 @@ import { CursorStore } from './indexer/cursors.js';
 import { IndexerPoller } from './indexer/poller.js';
 import { registerRoutes } from './api/routes/index.js';
 import { PublicAccountChain } from './sponsor/accountChain.js';
+import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
+import { TelegramWorker } from './telegram/worker.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -31,6 +33,8 @@ export function buildServer(
   const app = Fastify({
     logger: options.logger ?? true,
     genReqId: () => randomUUID(),
+    // The Heroku router adds the client address as the last forwarded hop.
+    trustProxy: process.env.DYNO ? (_address, hop) => hop === 0 : false,
   });
   const routePaths: string[] = [];
 
@@ -78,10 +82,21 @@ export async function startServer(): Promise<void> {
   const repositories = createRepositories(store);
   const cursors = new CursorStore(store);
   const clients = createChainClients(config);
+  const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
+  const telegram =
+    config.telegram && telegramDb
+      ? new TelegramService(
+          config.telegram,
+          telegramDb,
+          telegramOwnership(clients, config.telegram.factories),
+          repositories,
+        )
+      : undefined;
   const { app } = buildServer({
     config,
     repositories,
     cursors,
+    telegram,
     accountChain: new PublicAccountChain(clients),
     proofSource: createProofSource(clients),
     sponsorSource: new PublicSponsorSource(clients),
@@ -94,12 +109,16 @@ export async function startServer(): Promise<void> {
 
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
 
+  const worker =
+    telegram && telegramDb ? new TelegramWorker(telegramDb, telegram, app.log) : undefined;
+  const workerRun = worker?.run();
+  let poller: IndexerPoller | undefined;
   if (config.INDEXER_ENABLED) {
     const startBlocks = {
       [lasnaChain.id]: config.INDEXER_START_BLOCK_LASNA,
       [unichainSepoliaChain.id]: config.INDEXER_START_BLOCK_UNICHAIN,
     };
-    const poller = new IndexerPoller({
+    poller = new IndexerPoller({
       repositories,
       store,
       cursors,
@@ -108,14 +127,16 @@ export async function startServer(): Promise<void> {
       confirmationDepth: { [lasnaChain.id]: 20, [unichainSepoliaChain.id]: 12 },
       // Unichain Sepolia rejects eth_getLogs ranges wider than 1000 blocks.
       rangeSize: 1_000,
+      stageTelegramNotifications: telegram !== undefined,
     });
     void poller.run(Object.keys(startBlocks).map(Number));
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.once(signal, () => {
-        poller.stop();
-        void app.close().then(() => process.exit(0));
-      });
-    }
+  }
+  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+    process.once(signal, () => {
+      poller?.stop();
+      worker?.stop();
+      void Promise.all([app.close(), workerRun]).then(() => process.exit(0));
+    });
   }
 }
 

@@ -110,6 +110,7 @@ the evidence to inspect the origin, evaluation and destination receipts. [Submis
 - [Top up execution reserves](./docs/runbooks/top-up-reserves.md)
 - [Pause or cancel an automation](./docs/runbooks/pause-cancel-a-rule.md)
 - [Rebuild the read model](./docs/runbooks/reindex-from-chain.md)
+- [Set up Telegram notifications](./docs/runbooks/telegram-notifications.md)
 
 ## Known limitations and what comes next
 

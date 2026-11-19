@@ -224,8 +224,14 @@ describe('indexer idempotency', () => {
 
     await persistDecodedEvent(repositories, deployment.event);
     await persistDecodedEvent(repositories, outcome.event);
-    await persistDecodedEvent(repositories, outcome.event);
+    expect(await repositories.executions.listAll()).not.toContainEqual(
+      expect.objectContaining({ telegram_notify: true }),
+    );
+    await persistDecodedEvent(repositories, outcome.event, { stageTelegramNotifications: true });
     expect(await store.count('executions')).toBe(1);
+    expect(await repositories.executions.listAll()).toEqual([
+      expect.objectContaining({ status: 'confirmed', telegram_notify: true }),
+    ]);
   });
 
   it('ignores an execution log outside the registered vault address', async () => {

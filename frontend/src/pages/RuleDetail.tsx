@@ -2,6 +2,7 @@ import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   agentAbi,
+  alertTemplateSchema,
   getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -24,6 +25,7 @@ import { TxLink } from '../components/TxLink.js';
 import { RuleActions } from '../components/RuleActions.js';
 import { RuleOrderList } from '../components/RuleOrderList.js';
 import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
+import { TelegramNotifications } from '../components/TelegramNotifications.js';
 import { useRuleControl } from '../hooks/useRuleControl.js';
 import { api, ApiError } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
@@ -286,26 +288,36 @@ export function RuleDetail() {
             />
           </section>
 
-          <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
-            <h2 className="app-panel-heading">Alerts</h2>
-            {alerts.length === 0 ? (
-              <p className="app-copy">
-                No alerts yet. An alert records activity and never moves funds.
-              </p>
-            ) : (
-              <ul className="space-y-1 text-xs text-ink-muted">
-                {alerts.map((alert) => (
-                  <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
-                    <span>alerted</span>
-                    <span>
-                      {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)} UTC
-                    </span>
-                    <TxLink chainId={LASNA_CHAIN_ID} txHash={alert.tx_hash} />
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          {isOwner && address && rule.status !== 'cancelled' && (
+            <TelegramNotifications
+              agent={agentAddress}
+              owner={address}
+              ruleId={currentRuleId.toString()}
+            />
+          )}
+          {(alerts.length > 0 || alertTemplateSchema.safeParse(rule.template).success) && (
+            <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
+              <h2 className="app-panel-heading">Alerts</h2>
+              {alerts.length === 0 ? (
+                <p className="app-copy">
+                  No alerts yet. An alert records activity and never moves funds.
+                </p>
+              ) : (
+                <ul className="space-y-1 text-xs text-ink-muted">
+                  {alerts.map((alert) => (
+                    <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
+                      <span>alerted</span>
+                      <span>
+                        {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)}{' '}
+                        UTC
+                      </span>
+                      <TxLink chainId={LASNA_CHAIN_ID} txHash={alert.tx_hash} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
         </div>
         <div className="app-page">
           <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">

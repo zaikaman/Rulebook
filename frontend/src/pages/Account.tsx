@@ -10,6 +10,7 @@ import { AddressLink } from '../components/AddressLink.js';
 import { BalanceTrio } from '../components/BalanceTrio.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { TelegramNotifications } from '../components/TelegramNotifications.js';
 import { WithdrawForm } from '../components/WithdrawForm.js';
 import {
   DEMO_USDC,
@@ -224,6 +225,7 @@ export function Account() {
               }
             />
             <FundedAccount key={agent} agent={agent} vault={vault} />
+            {address && <TelegramNotifications agent={agent} owner={address} />}
             {previous.data &&
               previous.data !== zeroAddress &&
               !isAddressEqual(previous.data, vault) && (

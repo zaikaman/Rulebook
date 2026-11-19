@@ -1,6 +1,7 @@
 import {
   agentAbi,
   agentFactoryAbi,
+  alertTemplateSchema,
   getChain,
   ruleRegistryAbi,
   vaultAbi,
@@ -338,6 +339,7 @@ export type RuleReader = (
 
 export interface PersistOptions {
   readonly readRule?: RuleReader;
+  readonly stageTelegramNotifications?: boolean;
 }
 
 /**
@@ -548,6 +550,7 @@ export async function persistDecodedEvent(
     case 'AlertRaised': {
       // An alert is an activity row, never an execution: nothing moved, so no `Executed`.
       const ruleId = asString(args.ruleId);
+      const template = alertTemplateSchema.safeParse(args.template);
       await repositories.ruleEvents.upsert({
         chain_id: event.chainId,
         tx_hash: event.txHash,
@@ -556,6 +559,12 @@ export async function persistDecodedEvent(
         rule_id: ruleId,
         kind: 'alert',
         block_time: event.blockTime,
+        ...(options.stageTelegramNotifications && template.success
+          ? {
+              telegram_template: template.data,
+              telegram_observed: asString(args.observed),
+            }
+          : {}),
       });
       await repositories.rules.refreshRuns(event.address, ruleId, true);
       return;
@@ -583,6 +592,7 @@ export async function persistDecodedEvent(
         block_time: event.blockTime,
         leader_tx: event.name === 'Mirrored' ? asString(args.leaderTx).toLowerCase() : null,
         status: 'confirmed',
+        ...(options.stageTelegramNotifications ? { telegram_notify: true } : {}),
       });
       await repositories.rules.refreshRuns(vault.agent, ruleId, false);
       return;

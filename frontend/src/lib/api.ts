@@ -10,12 +10,20 @@ import {
   ruleDetailResponseSchema,
   rulesResponseSchema,
   sponsorStatusSchema,
+  telegramAvailabilitySchema,
+  telegramChallengeSchema,
+  telegramPairingSchema,
+  telegramSessionSchema,
+  telegramSettingsSchema,
   type Account,
   type Health,
   type LeaderboardResponse,
   type Proof,
   type Rule,
   type SponsorStatus,
+  type TelegramChallenge,
+  type TelegramDefault,
+  type TelegramPreference,
 } from '@rulebook/shared';
 import type { z } from 'zod';
 
@@ -123,12 +131,93 @@ export class ApiClient {
     return this.request(`/v1/sponsor/${agent}`, sponsorStatusSchema);
   }
 
+  telegramAvailability() {
+    return this.request('/v1/telegram/availability', telegramAvailabilitySchema);
+  }
+
+  telegramChallenge(agent: string, owner: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/challenge`,
+      telegramChallengeSchema,
+      telegramRequest('POST', undefined, { owner }),
+    );
+  }
+
+  telegramSession(agent: string, owner: string, challenge: TelegramChallenge, signature: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/session`,
+      telegramSessionSchema,
+      telegramRequest('POST', undefined, { owner, challenge, signature }),
+    );
+  }
+
+  telegramSettings(agent: string, token: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram`,
+      telegramSettingsSchema,
+      telegramRequest('GET', token),
+    );
+  }
+
+  telegramPair(agent: string, token: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/pairing`,
+      telegramPairingSchema,
+      telegramRequest('POST', token),
+    );
+  }
+
+  telegramConfirm(agent: string, token: string, pairingId: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/pairing/confirm`,
+      telegramSettingsSchema,
+      telegramRequest('POST', token, { pairingId }),
+    );
+  }
+
+  telegramPreferences(
+    agent: string,
+    token: string,
+    preference:
+      | { enabled?: boolean; defaultMode?: TelegramDefault }
+      | { ruleId: string; preference: TelegramPreference },
+  ) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/preferences`,
+      telegramSettingsSchema,
+      telegramRequest('PATCH', token, preference),
+    );
+  }
+
+  telegramDisconnect(agent: string, token: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/connection`,
+      telegramSettingsSchema,
+      telegramRequest('DELETE', token),
+    );
+  }
+
+  telegramTest(agent: string, token: string) {
+    return this.request(
+      `/v1/accounts/${agent}/telegram/test`,
+      telegramSettingsSchema,
+      telegramRequest('POST', token),
+    );
+  }
+
   proof(reactiveTxHash: string): Promise<Proof> {
     return this.request(
       `/v1/proofs/${encodeURIComponent(reactiveTxHash)}?include=mirrors`,
       proofSchema,
     );
   }
+}
+
+function telegramRequest(method: string, token?: string, body?: object): RequestInit {
+  const headers: Record<string, string> = {};
+  if (token) headers.authorization = `Bearer ${token}`;
+  if (body) headers['content-type'] = 'application/json';
+  return { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' };
 }
 
 const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';

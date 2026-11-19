@@ -1,3 +1,4 @@
+import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance } from 'fastify';
 
 import type { ServerDeps } from '../../deps.js';
@@ -10,6 +11,7 @@ import { registerMarketplaceRoutes } from './marketplace.js';
 import { registerProofRoutes } from './proofs.js';
 import { registerRuleRoutes } from './rules.js';
 import { registerSponsorRoutes } from './sponsor.js';
+import { registerTelegramRoutes } from './telegram.js';
 
 /** Registers the complete route set declared in contracts/http-api.yaml. */
 export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
@@ -22,4 +24,8 @@ export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
   registerMarketplaceRoutes(app, deps);
   registerSponsorRoutes(app, deps);
   registerEncodeRoutes(app);
+  void app.register(async (telegram) => {
+    await telegram.register(rateLimit, { global: false });
+    registerTelegramRoutes(telegram, deps);
+  });
 }

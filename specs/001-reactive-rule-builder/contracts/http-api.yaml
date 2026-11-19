@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: Rulebook Read API
+  title: Rulebook API
   version: 0.1.0
-  description: Read-only API for the Rulebook index and on-chain account data.
+  description: Public chain data and wallet-authorized Telegram notifications.
 servers:
   - url: https://api.rulebook.example
     description: Production (Heroku)
@@ -18,6 +18,7 @@ tags:
   - name: proofs
   - name: marketplace
   - name: sponsor
+  - name: telegram
 
 components:
   securitySchemes:
@@ -25,7 +26,15 @@ components:
       type: apiKey
       in: header
       name: X-Read-Only
-      description: Placeholder for symmetry; the API is public and unauthenticated.
+      description: Public read endpoints use no credentials.
+    TelegramSession:
+      type: http
+      scheme: bearer
+      description: Short-lived wallet-verified session scoped to a single Agent.
+    TelegramWebhook:
+      type: apiKey
+      in: header
+      name: X-Telegram-Bot-Api-Secret-Token
 
   parameters:
     AgentAddress:
@@ -380,6 +389,230 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/telegram/availability:
+    get:
+      tags: [telegram]
+      summary: Check whether Telegram is configured
+      responses:
+        '200':
+          description: Availability
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [available]
+                properties:
+                  available: { type: boolean }
+
+  /v1/telegram/webhook:
+    post:
+      tags: [telegram]
+      summary: Receive Telegram private chat updates
+      security: [{ TelegramWebhook: [] }]
+      responses:
+        '200': { description: Update acknowledged }
+        '403': { description: Invalid webhook secret }
+        '503': { description: Telegram unavailable }
+
+  /v1/accounts/{agent}/telegram/challenge:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    post:
+      tags: [telegram]
+      summary: Issue an expiring wallet challenge
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner]
+              properties:
+                owner: { type: string }
+      responses:
+        '200':
+          description: Signable challenge and server proof
+          content:
+            application/json:
+              schema: &telegramChallenge
+                type: object
+                required: [nonce, expiresAt, origin, proof]
+                properties:
+                  nonce: { type: string }
+                  expiresAt: { type: integer, description: Unix seconds }
+                  origin: { type: string, format: uri }
+                  proof: { type: string }
+        '503': { description: Telegram unavailable }
+
+  /v1/accounts/{agent}/telegram/session:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    post:
+      tags: [telegram]
+      summary: Exchange an Agent owner's EIP-712 signature for a session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [owner, challenge, signature]
+              properties:
+                owner: { type: string }
+                challenge: *telegramChallenge
+                signature: { type: string }
+      responses:
+        '200':
+          description: Agent-scoped session
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiresAt]
+                properties:
+                  token: { type: string }
+                  expiresAt: { type: integer, description: Unix seconds }
+        '401': { description: Wrong wallet or invalid, expired, or consumed challenge }
+        '429': { description: Too many verification requests }
+        '503': { description: Telegram or ownership check unavailable }
+
+  /v1/accounts/{agent}/telegram:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    get:
+      tags: [telegram]
+      summary: Read private Telegram preferences and connection status
+      security: [{ TelegramSession: [] }]
+      responses:
+        '200': &telegramSettingsResponse
+          description: Private Telegram settings
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  [
+                    connection,
+                    profile,
+                    configured,
+                    enabled,
+                    defaultMode,
+                    pendingPairing,
+                    testDelivery,
+                    rules,
+                  ]
+                properties:
+                  connection: { enum: [connected, disconnected, blocked] }
+                  profile: { type: [string, 'null'] }
+                  configured: { type: boolean }
+                  enabled: { type: boolean }
+                  defaultMode: { enum: [all, selected] }
+                  pendingPairing:
+                    type: [object, 'null']
+                    required: [id, profile]
+                    properties:
+                      id: { type: string }
+                      profile: { type: string }
+                  testDelivery: { enum: [pending, sent, failed, null] }
+                  rules:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, template, preference]
+                      properties:
+                        id: { type: string }
+                        template: { type: integer, minimum: 1, maximum: 13 }
+                        preference: { enum: [inherit, send, mute] }
+        '401': { description: Session required }
+        '503': { description: Telegram unavailable }
+
+  /v1/accounts/{agent}/telegram/pairing:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    post:
+      tags: [telegram]
+      summary: Start pairing a private Telegram chat
+      security: [{ TelegramSession: [] }]
+      responses:
+        '200':
+          description: Expiring bot deep link
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, expiresAt]
+                properties:
+                  url: { type: string, format: uri }
+                  expiresAt: { type: integer, description: Unix seconds }
+        '401': { description: Session required }
+        '409': { description: Chat already connected }
+
+  /v1/accounts/{agent}/telegram/pairing/confirm:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    post:
+      tags: [telegram]
+      summary: Confirm the Telegram profile shown in Rulebook
+      security: [{ TelegramSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pairingId]
+              properties:
+                pairingId: { type: string }
+      responses:
+        '200': *telegramSettingsResponse
+        '401': { description: Session required }
+        '409': { description: Pairing expired or incomplete }
+
+  /v1/accounts/{agent}/telegram/preferences:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    patch:
+      tags: [telegram]
+      summary: Change the account default or one rule override
+      security: [{ TelegramSession: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - type: object
+                  minProperties: 1
+                  additionalProperties: false
+                  properties:
+                    enabled: { type: boolean }
+                    defaultMode: { enum: [all, selected] }
+                - type: object
+                  additionalProperties: false
+                  required: [ruleId, preference]
+                  properties:
+                    ruleId: { type: string, pattern: '^[0-9]+$' }
+                    preference: { enum: [inherit, send, mute] }
+      responses:
+        '200': *telegramSettingsResponse
+        '401': { description: Session required }
+        '409': { description: Preferences unavailable for the account or rule }
+
+  /v1/accounts/{agent}/telegram/connection:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    delete:
+      tags: [telegram]
+      summary: Disconnect Telegram and retain delivery preferences
+      security: [{ TelegramSession: [] }]
+      responses:
+        '200': *telegramSettingsResponse
+        '401': { description: Session required }
+
+  /v1/accounts/{agent}/telegram/test:
+    parameters: [{ $ref: '#/components/parameters/AgentAddress' }]
+    post:
+      tags: [telegram]
+      summary: Queue a private test message
+      security: [{ TelegramSession: [] }]
+      responses:
+        '200': *telegramSettingsResponse
+        '401': { description: Session required }
+        '409': { description: No connected chat or test message cooldown active }
 
   /v1/accounts/{agent}/rules:
     get:

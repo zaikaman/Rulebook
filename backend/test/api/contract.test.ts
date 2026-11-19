@@ -79,7 +79,8 @@ describe('API contract', () => {
   const built = buildServer(makeDeps(), { logger: false });
   const { app } = built;
 
-  it('registers exactly the routes declared in http-api.yaml', () => {
+  it('registers exactly the routes declared in http-api.yaml', async () => {
+    await app.ready();
     const actual = [...new Set(built.routePaths)].sort();
     const expected = declaredRoutes().sort();
     expect(expected.length).toBeGreaterThan(0);

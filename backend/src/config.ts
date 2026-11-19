@@ -1,3 +1,5 @@
+import { addressSchema, type Address } from '@rulebook/shared';
+import { zeroAddress } from 'viem';
 import { z } from 'zod';
 
 /**
@@ -18,7 +20,29 @@ const envSchema = z.object({
   INDEXER_START_BLOCK_LASNA: z.coerce.number().int().nonnegative().default(0),
   INDEXER_START_BLOCK_UNICHAIN: z.coerce.number().int().nonnegative().default(0),
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
+  TELEGRAM_BOT_TOKEN: z
+    .string()
+    .regex(/^\d+:[A-Za-z0-9_-]+$/)
+    .optional(),
+  TELEGRAM_BOT_USERNAME: z
+    .string()
+    .regex(/^[A-Za-z0-9_]{5,32}$/)
+    .optional(),
+  TELEGRAM_WEBHOOK_SECRET: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{32,256}$/)
+    .optional(),
+  TELEGRAM_APP_ORIGIN: z.string().url().optional(),
+  TELEGRAM_AGENT_FACTORIES: z.string().optional(),
 });
+
+export interface TelegramConfig {
+  readonly botToken: string;
+  readonly botUsername: string;
+  readonly webhookSecret: string;
+  readonly appOrigin: string;
+  readonly factories: readonly Address[];
+}
 
 export interface AppConfig {
   readonly PORT: number;
@@ -31,6 +55,7 @@ export interface AppConfig {
   readonly INDEXER_START_BLOCK_LASNA: number;
   readonly INDEXER_START_BLOCK_UNICHAIN: number;
   readonly corsOrigins: readonly string[];
+  readonly telegram?: TelegramConfig;
 }
 
 /** Error thrown when the environment is incomplete or malformed. */
@@ -50,10 +75,54 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
   const data = parsed.data;
+  const {
+    TELEGRAM_BOT_TOKEN: botToken,
+    TELEGRAM_BOT_USERNAME: botUsername,
+    TELEGRAM_WEBHOOK_SECRET: webhookSecret,
+    TELEGRAM_APP_ORIGIN: appOrigin,
+    TELEGRAM_AGENT_FACTORIES: factoryList,
+    ...base
+  } = data;
+  const corsOrigins = base.CORS_ORIGINS.split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  let telegram: TelegramConfig | undefined;
+  if (botToken || botUsername || webhookSecret || appOrigin || factoryList) {
+    if (!botToken || !botUsername || !webhookSecret || !appOrigin || !factoryList) {
+      throw new ConfigError(['Set all TELEGRAM_* configuration values together']);
+    }
+    const factories = z
+      .array(addressSchema.refine((address) => address !== zeroAddress))
+      .nonempty()
+      .safeParse(factoryList.split(',').map((address) => address.trim()));
+    if (!factories.success)
+      throw new ConfigError([
+        'TELEGRAM_AGENT_FACTORIES must list the trusted Lasna AgentFactory addresses',
+      ]);
+    const url = new URL(appOrigin);
+    if (
+      url.origin !== appOrigin ||
+      !corsOrigins.includes(appOrigin) ||
+      (url.protocol !== 'https:' &&
+        (base.NODE_ENV === 'production' ||
+          url.protocol !== 'http:' ||
+          url.hostname !== 'localhost'))
+    ) {
+      throw new ConfigError([
+        'TELEGRAM_APP_ORIGIN must be an allowed HTTPS origin (localhost HTTP is accepted for development)',
+      ]);
+    }
+    telegram = {
+      botToken,
+      botUsername,
+      webhookSecret,
+      appOrigin,
+      factories: [...new Set(factories.data)],
+    };
+  }
   return {
-    ...data,
-    corsOrigins: data.CORS_ORIGINS.split(',')
-      .map((origin) => origin.trim())
-      .filter(Boolean),
+    ...base,
+    corsOrigins,
+    telegram,
   };
 }
