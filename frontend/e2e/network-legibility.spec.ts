@@ -15,7 +15,13 @@ test('names the network before each wallet request, starting on an unsupported n
   await installWallet(page, OWNER, UNSUPPORTED_CHAIN);
   await page.goto('/rules');
   await page.getByRole('button', { name: 'Connect wallet' }).click();
-  await expect(page.getByText(`Unsupported network (${UNSUPPORTED_CHAIN})`)).toBeVisible();
+  const wallet = page.getByRole('button', { name: /Wrong network/ });
+  await wallet.click();
+  const details = page.getByRole('dialog', { name: 'Wallet details' });
+  await expect(details.getByText(`Unsupported network (${UNSUPPORTED_CHAIN})`)).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(details).toBeHidden();
+  await expect(wallet).toBeFocused();
   await expect(page.getByRole('heading', { name: 'Your rules' })).toBeVisible();
   expect(await walletRequests(page)).toEqual([]);
   await page.getByRole('link', { name: 'Account & Vault' }).click();
@@ -52,4 +58,34 @@ test('names the network before each wallet request, starting on an unsupported n
       network.explorerUrl,
     );
   }
+});
+
+test('manages the wallet from the mobile navigation', async ({ page, context }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await installWallet(page, OWNER, UNSUPPORTED_CHAIN);
+  await page.goto('/rules');
+  await page.getByRole('button', { name: 'Connect wallet' }).click();
+  const wallet = page.getByRole('button', { name: /Wrong network/ });
+  await expect(wallet).toBeVisible();
+  expect((await wallet.boundingBox())?.height).toBeLessThanOrEqual(54);
+  await wallet.click();
+
+  const details = page.getByRole('dialog', { name: 'Wallet details' });
+  await expect(details).toBeInViewport({ ratio: 1 });
+  await details.getByRole('button', { name: unichain.name }).click();
+  await expect(details.getByRole('button', { name: unichain.name })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
+  await expect(walletRequests(page)).resolves.toEqual([
+    { method: 'wallet_switchEthereumChain', chainId: UNSUPPORTED_CHAIN },
+  ]);
+  await details.getByRole('button', { name: 'Copy address' }).click();
+  await expect(details.getByRole('button', { name: 'Address copied' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(OWNER);
+
+  await details.getByRole('button', { name: 'Disconnect' }).click();
+  await expect(page.getByRole('button', { name: 'Connect wallet' })).toBeVisible();
+  await expect(details).toBeHidden();
 });

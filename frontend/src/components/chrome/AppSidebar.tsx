@@ -9,19 +9,13 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
-import { useAccount, useConnect, useDisconnect } from 'wagmi';
 
 import { appRoutes } from '@/lib/routes';
-import { NetworkBadge } from '../NetworkBadge.js';
 import { SidebarSection } from './SidebarSection.js';
+import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
 
 export function AppSidebar() {
-  const { address, isConnected, chainId } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
-  const { disconnect } = useDisconnect();
-  const injectedConnector = connectors.find((connector) => connector.id === 'injected');
-
   return (
     <aside className="hidden lg:flex flex-col w-72 shrink-0 h-full p-8 border-r border-white/5 bg-[#070707] overflow-y-auto no-scrollbar">
       <Link
@@ -69,37 +63,7 @@ export function AppSidebar() {
       </nav>
 
       <div className="app-divider mt-auto space-y-4 pt-6">
-        <div className="app-panel p-3 text-xs">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <span className="text-[10px] uppercase font-medium tracking-wider text-neutral-400">
-              Wallet
-            </span>
-            {chainId !== undefined ? <NetworkBadge chainId={chainId} /> : null}
-          </div>
-          {isConnected ? (
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-mono text-xs text-white">
-                {address?.slice(0, 6)}…{address?.slice(-4)}
-              </span>
-              <button
-                type="button"
-                onClick={() => disconnect()}
-                className="app-button min-h-8 px-2.5 text-xs"
-              >
-                Disconnect
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              disabled={isPending || !injectedConnector}
-              onClick={() => injectedConnector && connect({ connector: injectedConnector })}
-              className="app-button app-button--primary w-full"
-            >
-              {isPending ? 'Connecting…' : 'Connect wallet'}
-            </button>
-          )}
-        </div>
+        <WalletControl />
 
         <Link
           to={appRoutes.landing}

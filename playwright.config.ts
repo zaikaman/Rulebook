@@ -41,6 +41,7 @@ export default defineConfig({
       timeout: 120_000,
       env: {
         VITE_API_BASE_URL: FIXTURE_API_URL,
+        VITE_WALLETCONNECT_PROJECT_ID: '',
         VITE_LASNA_RPC_URL: ANVIL_RPC_URL,
         VITE_UNICHAIN_RPC_URL: ANVIL_RPC_URL,
         VITE_AGENT_FACTORY_ADDRESS: AGENT_FACTORY_ADDRESS,

@@ -1,9 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
-import { useAccount, useConnect } from 'wagmi';
 
 import { cx } from '@/lib/cx';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
+import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
 
 const items = [
@@ -18,9 +18,6 @@ const items = [
 
 export function AppMobileNav() {
   const { pathname } = useLocation();
-  const { address, isConnected } = useAccount();
-  const { connect, connectors, isPending } = useConnect();
-  const injectedConnector = connectors.find((connector) => connector.id === 'injected');
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -36,26 +33,11 @@ export function AppMobileNav() {
 
   return (
     <div className="lg:hidden sticky top-0 z-30 flex flex-col border-b border-border bg-surface">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <div className="app-mobile-header flex items-center justify-between gap-2 border-b border-border py-3">
         <Link to={appRoutes.landing}>
           <Wordmark />
         </Link>
-        <div>
-          {isConnected ? (
-            <span className="app-tag font-mono" title={address}>
-              {address?.slice(0, 5)}…{address?.slice(-3)}
-            </span>
-          ) : (
-            <button
-              type="button"
-              disabled={!injectedConnector || isPending}
-              onClick={() => injectedConnector && connect({ connector: injectedConnector })}
-              className="app-button app-button--primary"
-            >
-              {isPending ? 'Connecting…' : 'Connect wallet'}
-            </button>
-          )}
-        </div>
+        <WalletControl />
       </div>
       <nav
         ref={navRef}
