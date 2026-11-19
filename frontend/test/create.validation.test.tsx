@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { agentAbi, getChain } from '@rulebook/shared';
 import { ContractFunctionZeroDataError, decodeFunctionData, zeroAddress } from 'viem';
@@ -85,7 +85,7 @@ function reportVault({
 async function fillTrade(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(screen.getByLabelText('Pay with'), 'USDC');
   await user.selectOptions(screen.getByLabelText('Receive'), 'WETH');
-  await user.selectOptions(screen.getByLabelText('Schedule'), 'Every day');
+  await user.type(screen.getByLabelText('Schedule'), '1');
 }
 
 describe('CreateRuleForm validation', () => {
@@ -123,6 +123,30 @@ describe('CreateRuleForm validation', () => {
     const decoded = decodeFunctionData({ abi: agentAbi, data: calldata });
     expect(decoded.functionName).toBe('addRule');
     expect(decoded.args?.[0]).toMatchObject({ amountIn: 100_001n, tokenIn: chain.usdc });
+  });
+
+  it('accepts a typed limit price and expiry for a price rule', async () => {
+    const user = userEvent.setup();
+    render(<CreateRuleForm agent={AGENT} initialTemplate={3} />);
+
+    await user.selectOptions(screen.getByLabelText('Pay with'), 'USDC');
+    await user.selectOptions(screen.getByLabelText('Receive'), 'WETH');
+    await user.type(screen.getByLabelText('Amount to spend'), '1');
+    await user.type(screen.getByLabelText('Limit price'), '1400');
+    fireEvent.change(screen.getByLabelText('Expires'), {
+      target: { value: '2099-01-01T00:00' },
+    });
+
+    expect(screen.getByTestId('composer-sentence')).toHaveTextContent('below 1400');
+    const decoded = decodeFunctionData({
+      abi: agentAbi,
+      data: screen.getByTestId('live-calldata').textContent as `0x${string}`,
+    });
+    expect(decoded.args?.[0]).toMatchObject({
+      amountIn: 1_000_000n,
+      threshold: 1_400n * 10n ** 18n,
+      secondary: BigInt(new Date('2099-01-01T00:00').getTime() / 1_000),
+    });
   });
 
   it('rejects spend above the live vault cap and applies only a quote within that cap', async () => {

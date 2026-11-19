@@ -1,8 +1,9 @@
 # The composer
 
 Choose a template and set its values, then read the resulting sentence and inspect the
-transaction before signing on Reactive Lasna. Enter token amounts in standard units, such as
-`0.1` USDC, and choose a schedule from the available options.
+transaction before signing on Reactive Lasna. Enter values in standard units: token amounts such
+as `0.1` USDC, prices such as `2500` USDC/WETH, percentages such as `2.5`, repeat intervals such
+as `1 day`, and expiries as a local date and time.
 
 ## The sentence model
 

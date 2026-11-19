@@ -322,7 +322,7 @@ test('guides a new wallet through setup and self-funding from the composer', asy
   await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
   await page.getByLabel('Amount to spend').fill('10');
-  await page.getByLabel('Schedule').selectOption({ label: 'Every day' });
+  await page.getByLabel('Schedule').fill('1');
   await guide.getByRole('button', { name: 'Next' }).click();
   await expect(guide).toHaveAccessibleName('Review and sign');
   await page.getByRole('button', { name: 'Review and create rule' }).click();

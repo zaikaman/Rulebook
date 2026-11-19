@@ -12,7 +12,7 @@ async function createRule(page: Page, amountLabel: string): Promise<void> {
   await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
   await page.getByLabel('Amount to spend').fill(amountLabel);
-  await page.getByLabel('Schedule').selectOption({ label: 'Every day' });
+  await page.getByLabel('Schedule').fill('1');
   await page.getByRole('button', { name: 'Review and create rule' }).click();
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible({

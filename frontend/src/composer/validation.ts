@@ -3,17 +3,17 @@ import { isAddress, zeroAddress } from 'viem';
 
 import { knownToken } from '../lib/signatures.js';
 import { amountCeiling, parseDecimalAmount, tokenAmount } from './amounts.js';
+import { isExpirySlot, slotBoundMessage, textToCanonical } from './numericFields.js';
 import { READY_DRAFT, type ComposerState, type ReadyDraft, type VaultTerms } from './types.js';
 
-function issueFor(slot: TemplateSlot, value: string): string | null {
-  if (slot.kind === 'token' || slot.kind === 'address') {
-    return isAddress(value) && value !== zeroAddress ? null : 'Enter a valid, non-zero address.';
-  }
-  if (!/^\d+$/.test(value)) return 'Choose a value from the list.';
-  const parsed = BigInt(value);
-  if (slot.min !== null && parsed < BigInt(slot.min)) return 'This value is below the minimum.';
-  if (slot.max !== null && parsed > BigInt(slot.max)) return 'This value is above the maximum.';
-  return null;
+function addressIssue(value: string): string | null {
+  return isAddress(value) && value !== zeroAddress ? null : 'Enter a valid, non-zero address.';
+}
+
+function emptyIssue(slot: TemplateSlot): string {
+  if (slot.kind === 'amount') return 'Enter an amount.';
+  if (slot.kind === 'token' || slot.kind === 'address') return 'Choose a value.';
+  return 'Enter a value.';
 }
 
 /** Validate human-scale input and build the same canonical draft for preview and signing. */
@@ -44,9 +44,7 @@ export function validateComposer(
     const value = slots[slot.key]?.trim();
     if (!value) {
       delete slots[slot.key];
-      if (slot.required) {
-        issues[slot.key] = slot.kind === 'amount' ? 'Enter an amount.' : 'Choose or enter a value.';
-      }
+      if (slot.required) issues[slot.key] = emptyIssue(slot);
       continue;
     }
     if (slot.kind === 'amount') {
@@ -65,10 +63,30 @@ export function validateComposer(
         continue;
       }
       slots[slot.key] = parsed.amount.toString();
-    } else {
+    } else if (slot.kind === 'token' || slot.kind === 'address') {
       slots[slot.key] = value;
-      const message = issueFor(slot, value);
+      const message = addressIssue(value);
       if (message) issues[slot.key] = message;
+    } else {
+      const parsed = textToCanonical(slot, value);
+      if ('error' in parsed) {
+        issues[slot.key] = parsed.error;
+        continue;
+      }
+      const numeric = BigInt(parsed.value);
+      if (slot.min !== null && numeric < BigInt(slot.min)) {
+        issues[slot.key] = slotBoundMessage(slot, slot.min, 'min');
+        continue;
+      }
+      if (slot.max !== null && numeric > BigInt(slot.max)) {
+        issues[slot.key] = slotBoundMessage(slot, slot.max, 'max');
+        continue;
+      }
+      if (isExpirySlot(slot) && numeric <= BigInt(Math.floor(Date.now() / 1_000))) {
+        issues[slot.key] = 'Choose an expiry in the future.';
+        continue;
+      }
+      slots[slot.key] = parsed.value;
     }
   }
 
