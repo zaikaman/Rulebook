@@ -1,7 +1,7 @@
 export type RuleStatus =
   'active' | 'paused' | 'cancelled' | 'latched' | 'silent' | 'waiting-funds' | 'replaced';
 
-const LABELS: Record<RuleStatus, string> = {
+export const STATUS_LABELS: Record<RuleStatus, string> = {
   active: 'Active',
   paused: 'Paused',
   cancelled: 'Cancelled',
@@ -18,7 +18,7 @@ const LABELS: Record<RuleStatus, string> = {
 export function StatusPill({ status }: { readonly status: RuleStatus }) {
   return (
     <span data-status={status} className="app-tag app-status">
-      {LABELS[status]}
+      {STATUS_LABELS[status]}
     </span>
   );
 }

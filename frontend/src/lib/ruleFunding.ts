@@ -62,23 +62,7 @@ async function assertFunding(
     const contract = { address: vault, abi: vaultAbi, blockNumber } as const;
     const read = unichainPublicClient.readContract;
     // The version ties the vault to the same callback envelope as the current Agent release.
-    const version = await read({ ...contract, functionName: 'EXECUTION_PAYLOAD_VERSION' }).catch(
-      (error: unknown) => {
-        if (
-          error instanceof BaseError &&
-          error.walk(
-            (cause) =>
-              cause instanceof ContractFunctionRevertedError ||
-              cause instanceof ContractFunctionZeroDataError,
-          )
-        ) {
-          throw new RuleFundingError(
-            'This vault uses an older contract. Migrate to a vault that can execute rules before adding funds.',
-          );
-        }
-        throw error;
-      },
-    );
+    const version = await read({ ...contract, functionName: 'EXECUTION_PAYLOAD_VERSION' });
     if (version !== 2) {
       throw new RuleFundingError(
         'This vault uses an incompatible execution contract. Use a vault for the current release.',

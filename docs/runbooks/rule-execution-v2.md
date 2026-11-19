@@ -6,18 +6,12 @@ Hourly rules share the native Lasna `Cron100(uint256)` subscription. Daily and l
 
 ## Configure a rollout
 
-The local app at `localhost:5173` uses the v2 testnet factories and preserves access to the previous vault factory. The hosted app has a separate deployment and configuration.
+The local app at `localhost:5173` uses the v2 testnet factories. The hosted app has a separate deployment and configuration.
 
-Use the deployment records to set `VITE_AGENT_FACTORY_ADDRESS` and `VITE_VAULT_FACTORY_ADDRESS` for the new release. Carry the previous `VITE_VAULT_FACTORY_ADDRESS` into `VITE_PREVIOUS_VAULT_FACTORY_ADDRESS` before the cutover. Deploy the matching application and indexer code together. The indexer may keep its current cursors if it has already indexed the new deployment blocks.
-
-Existing owners can withdraw USDC and WETH from `/account?vault=<previous-vault-address>` with the same wallet. This route checks the old factory's ownership record and the vault's owner. Existing Agents and Vaults are bound to their original addresses. Owners must authorize the new account and recreate any rules they wish to carry over. Retire the old rules before starting equivalent rules in the new account. Allow any in-flight callbacks to expire or settle before moving balances if the old vault is execution-capable.
+Use the deployment records to set `VITE_AGENT_FACTORY_ADDRESS` and `VITE_VAULT_FACTORY_ADDRESS` for the new release. Deploy the matching application and indexer code together. The indexer may keep its current cursors if it has already indexed the new deployment blocks.
 
 For the rule lifecycle release, apply backend migration `0011_rule_replacements.sql` before
-cutting over. Deploy the matching Agent and Vault factories together. Keep the old factory in
-`VITE_PREVIOUS_AGENT_FACTORY_ADDRESS` so owners can still manage their old rules and open their
-history from **Your rules**.
-List any earlier Vault factories under `VITE_PREVIOUS_VAULT_FACTORY_ADDRESSES`, separated by commas,
-to keep their withdrawal links available.
+cutting over. Deploy the matching Agent and Vault factories together.
 
 ## Verify the live release
 

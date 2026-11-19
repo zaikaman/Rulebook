@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render as renderComponent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { agentAbi, getChain } from '@rulebook/shared';
-import { ContractFunctionZeroDataError, decodeFunctionData, zeroAddress } from 'viem';
+import { decodeFunctionData, zeroAddress } from 'viem';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -55,18 +55,15 @@ function reportVault({
   cap = 100_000_000n,
   balances,
   allowance = 0n,
-  legacy = false,
 }: {
   cap?: bigint;
   balances: bigint[];
   allowance?: bigint;
-  legacy?: boolean;
 }) {
   mocks.linkedVault.mockResolvedValue(VAULT);
   mocks.readContract.mockImplementation(async ({ functionName }) => {
     switch (functionName) {
       case 'EXECUTION_PAYLOAD_VERSION':
-        if (legacy) throw new ContractFunctionZeroDataError({ functionName });
         return 2;
       case 'agent':
         return AGENT;
@@ -253,20 +250,6 @@ describe('CreateRuleForm validation', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Deposit at least 0.5 USDC');
     expect(mocks.requestSignature).toHaveBeenCalledOnce();
     expect(mocks.sendTransactionAsync).not.toHaveBeenCalled();
-  });
-
-  it('blocks old vault releases before asking the user to deposit', async () => {
-    const user = userEvent.setup();
-    reportVault({ balances: [0n], legacy: true });
-    render(<CreateRuleForm agent={AGENT} />);
-    await fillTrade(user);
-    await user.type(screen.getByLabelText('Amount to spend'), '1');
-    await user.click(screen.getByRole('button', { name: 'Review and create rule' }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This vault uses an older contract.',
-    );
-    expect(mocks.requestSignature).not.toHaveBeenCalled();
   });
 });
 

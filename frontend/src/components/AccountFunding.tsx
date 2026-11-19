@@ -467,7 +467,7 @@ export function AccountFunding({
           if (parsed > 0n && sufficient && !locked) deposit.mutate(undefined);
         }}
       >
-        <div className="flex flex-wrap items-end gap-3">
+        <div className={guided ? 'flex flex-wrap items-end gap-3' : 'app-form-grid'}>
           {!guided && (
             <label className="app-field">
               Fund with
@@ -534,7 +534,7 @@ export function AccountFunding({
             </Link>
           </p>
         )}
-        {!guided && submit}
+        {!guided && <div className="app-form-actions">{submit}</div>}
       </form>
       {deposit.error &&
         !submitted &&

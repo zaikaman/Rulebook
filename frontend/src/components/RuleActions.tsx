@@ -1,15 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { describeError } from '../lib/errors.js';
-import { StatusPill, type RuleStatus } from './StatusPill.js';
+import { STATUS_LABELS, type RuleStatus } from './StatusPill.js';
 
 export interface RuleActionsProps {
-  readonly ruleId: bigint;
   readonly status: RuleStatus;
   readonly onPause: () => Promise<unknown>;
   readonly onResume: () => Promise<unknown>;
   readonly onCancel: () => Promise<unknown>;
   readonly onRearm?: () => Promise<unknown>;
+  /**
+   * Reports the state this control is showing, including the optimistic value and the value it
+   * rolls back to when the chain refuses. The page owns the single status indicator.
+   */
+  readonly onStatusChange?: (status: RuleStatus) => void;
+  /** Non-destructive actions that belong to the same group, such as editing the rule. */
+  readonly children?: ReactNode;
 }
 
 function reasonFor(error: unknown): string {
@@ -19,17 +25,18 @@ function reasonFor(error: unknown): string {
 }
 
 /**
- * Pause, resume, and cancel for one rule. The pill updates immediately; a rejected transaction
- * restores the previous status and names the chain's reason, so the user never sees a control
- * that lies about what the Agent accepted. Cancel asks once before it is submitted.
+ * Pause, resume, and cancel for one rule. The reported status changes immediately; a rejected
+ * transaction restores the previous state and names the chain's reason, so the user never sees
+ * a control that lies about what the Agent accepted. Cancel asks once before it is submitted.
  */
 export function RuleActions({
-  ruleId,
   status,
   onPause,
   onResume,
   onCancel,
   onRearm,
+  onStatusChange,
+  children,
 }: RuleActionsProps) {
   const [display, setDisplay] = useState<RuleStatus>(status);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +46,10 @@ export function RuleActions({
   useEffect(() => {
     setDisplay(status);
   }, [status]);
+
+  useEffect(() => {
+    onStatusChange?.(display);
+  }, [display, onStatusChange]);
 
   const run = async (next: RuleStatus, action: () => Promise<unknown>): Promise<void> => {
     const previous = display;
@@ -56,50 +67,55 @@ export function RuleActions({
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusPill status={display} />
-        <span className="font-mono text-xs text-ink-muted">#{ruleId.toString()}</span>
+    <div className="app-rule-actions">
+      <p role="status" aria-live="polite" className="sr-only">
+        {pending
+          ? 'Waiting for the rule change to confirm.'
+          : `Rule status: ${STATUS_LABELS[display]}.`}
+      </p>
 
-        {display === 'paused' ? (
-          <button
-            type="button"
-            className="app-button"
-            disabled={pending}
-            onClick={() => void run('active', onResume)}
-          >
-            Resume
-          </button>
-        ) : null}
+      {display === 'paused' ? (
+        <button
+          type="button"
+          className="app-button"
+          disabled={pending}
+          onClick={() => void run('active', onResume)}
+        >
+          Resume rule
+        </button>
+      ) : null}
 
-        {display === 'active' || display === 'latched' || display === 'waiting-funds' ? (
-          <button
-            type="button"
-            className="app-button"
-            disabled={pending}
-            onClick={() => void run('paused', onPause)}
-          >
-            Pause
-          </button>
-        ) : null}
+      {display === 'latched' && onRearm ? (
+        <button
+          type="button"
+          className="app-button"
+          disabled={pending}
+          onClick={() => void run('active', onRearm)}
+        >
+          Rearm rule
+        </button>
+      ) : null}
 
-        {display === 'latched' && onRearm && (
-          <button
-            type="button"
-            className="app-button"
-            disabled={pending}
-            onClick={() => void run('active', onRearm)}
-          >
-            Rearm rule
-          </button>
-        )}
+      {display === 'active' || display === 'latched' || display === 'waiting-funds' ? (
+        <button
+          type="button"
+          className="app-button"
+          disabled={pending}
+          onClick={() => void run('paused', onPause)}
+        >
+          Pause rule
+        </button>
+      ) : null}
 
-        {display !== 'cancelled' ? (
-          confirmingCancel ? (
-            <span className="flex flex-wrap items-center gap-2">
+      {children}
+
+      {display !== 'cancelled' ? (
+        <div className="app-rule-actions-danger">
+          {confirmingCancel ? (
+            <>
               <button
                 type="button"
-                className="app-button app-button--danger"
+                className="app-button app-button--danger-solid"
                 disabled={pending}
                 onClick={() => {
                   setConfirmingCancel(false);
@@ -116,7 +132,7 @@ export function RuleActions({
               >
                 Keep rule
               </button>
-            </span>
+            </>
           ) : (
             <button
               type="button"
@@ -126,9 +142,9 @@ export function RuleActions({
             >
               Cancel rule
             </button>
-          )
-        ) : null}
-      </div>
+          )}
+        </div>
+      ) : null}
 
       {error ? (
         <div role="alert" className="app-alert text-sm" data-tone="error">

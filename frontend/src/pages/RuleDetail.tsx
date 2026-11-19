@@ -10,6 +10,7 @@ import {
   type Address,
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
@@ -24,7 +25,7 @@ import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PriceLabel } from '../components/PriceLabel.js';
 import { TxLink } from '../components/TxLink.js';
 import { RuleActions } from '../components/RuleActions.js';
-import { StatusPill } from '../components/StatusPill.js';
+import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
 import { composerForRule } from '../composer/replaceRule.js';
 import { TelegramNotifications } from '../components/TelegramNotifications.js';
 import { useRuleControl } from '../hooks/useRuleControl.js';
@@ -66,6 +67,7 @@ export function RuleDetail() {
   const { agent, ruleId } = useParams();
   const { address } = useAccount();
   const [search] = useSearchParams();
+  const [reportedStatus, setReportedStatus] = useState<RuleStatus>();
   const navigate = useNavigate();
   const agentAddress = (agent as Address | undefined) ?? ZERO;
   const id = ruleId && /^\d{1,78}$/.test(ruleId) ? BigInt(ruleId) : null;
@@ -131,13 +133,6 @@ export function RuleDetail() {
     query: { enabled: !!funds && isOwner && !!AGENT_FACTORY_ADDRESS },
   });
   const control = useRuleControl(agent ? agentAddress : null);
-  const editCapability = useReadContract({
-    address: agentAddress,
-    abi: agentAbi,
-    functionName: 'getEvaluationOrder',
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: isOwner && !!storedRule && !terminal, retry: false, staleTime: Infinity },
-  });
   const replacement = useQuery({
     queryKey: ['rule-replacement', agent?.toLowerCase(), ruleId],
     queryFn: () =>
@@ -151,11 +146,7 @@ export function RuleDetail() {
     retry: false,
   });
   const editable =
-    isOwner &&
-    editCapability.isSuccess &&
-    !!liveRule &&
-    !terminal &&
-    (liveRule.flags & RULE_FLAGS.mirrored) === 0;
+    isOwner && !!liveRule && !terminal && (liveRule.flags & RULE_FLAGS.mirrored) === 0;
 
   const breadcrumb = (
     <>
@@ -226,6 +217,7 @@ export function RuleDetail() {
     : funds
       ? 'waiting-funds'
       : (lifecycle ?? ruleLifecycle(rule));
+  const shownStatus = reportedStatus ?? status;
 
   if (editing && editable && liveRule) {
     return (
@@ -258,13 +250,103 @@ export function RuleDetail() {
     );
   }
 
+  const shownExecutions = mirror
+    ? executions.filter((execution) => execution.kind === 'mirrored')
+    : executions;
+  const networks = [...new Set(shownExecutions.map((execution) => execution.chain_id))];
+  const onlyNetwork = networks.length === 1 ? networks[0] : undefined;
+
   return (
-    <section className="app-page">
-      <PageHeading
-        title={`Rule #${currentRuleId.toString()}`}
-        breadcrumb={breadcrumb}
-        aside={<StatusPill status={status} />}
-      />
+    <section className="app-page app-rule-page">
+      <header className="app-rule-header">
+        <nav aria-label="Breadcrumb" className="app-breadcrumb">
+          {breadcrumb}
+        </nav>
+        <div className="app-rule-identity">
+          <h1>Rule #{currentRuleId.toString()}</h1>
+          <StatusPill status={shownStatus} />
+        </div>
+        <p className="app-rule-lede">
+          {mirror ? (
+            <>
+              {mirror.detached_at ? 'Detached from ' : 'Copies '}
+              <Link
+                className="app-link"
+                to={`/rules/${mirror.leader_agent}/${mirror.leader_rule_id}`}
+              >
+                leader rule #{mirror.leader_rule_id.toString()}
+              </Link>
+            </>
+          ) : (
+            <>“{ruleSentence(rule)}”</>
+          )}
+        </p>
+        {mirror ? (
+          <p className="app-rule-note">
+            {mirror.scale_bps} bps ({mirror.scale_bps / 100}%) · {mirror.hourly_cap} trades per hour
+            ·{' '}
+            {rule.token_in
+              ? signatureTokenAmount(rule.chain_id, rule.token_in, mirror.per_run_cap)
+              : `${mirror.per_run_cap} base units`}{' '}
+            per run
+          </p>
+        ) : null}
+        {!mirror && rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
+          <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
+        ) : null}
+        <dl className="app-rule-facts">
+          <div>
+            <dt>Per run</dt>
+            <dd>
+              {rule.amount_in === undefined
+                ? '—'
+                : rule.token_in
+                  ? signatureTokenAmount(rule.chain_id, rule.token_in, rule.amount_in)
+                  : `${rule.amount_in} base units`}
+            </dd>
+          </div>
+          <div>
+            <dt>Rule type</dt>
+            <dd>{getTemplate(rule.template)?.name ?? rule.template}</dd>
+          </div>
+          <div>
+            <dt>Runs</dt>
+            <dd className="app-number">{rule.runs}</dd>
+          </div>
+          <div>
+            <dt>Last run</dt>
+            <dd>{lastRunLabel(rule)}</dd>
+          </div>
+          <div>
+            <dt>Funds network</dt>
+            <dd>
+              <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+            </dd>
+          </div>
+          <div>
+            <dt>Automation account</dt>
+            <dd>
+              <AddressLink chainId={LASNA_CHAIN_ID} address={agentAddress} />
+            </dd>
+          </div>
+        </dl>
+        {successor ? (
+          <p className="app-rule-history">
+            Replaced by{' '}
+            <Link to={`/rules/${agentAddress}/${successor}`} className="app-link">
+              rule #{successor.toString()}
+            </Link>
+          </p>
+        ) : null}
+        {rule.replaces !== undefined && (
+          <p className="app-rule-history">
+            Replaces{' '}
+            <Link to={`/rules/${agentAddress}/${rule.replaces}`} className="app-link">
+              rule #{rule.replaces.toString()}
+            </Link>
+          </p>
+        )}
+      </header>
 
       {funds && (
         <div className="app-alert" data-tone="warning" role="status">
@@ -283,130 +365,30 @@ export function RuleDetail() {
         </div>
       )}
 
-      <section className="app-panel">
-        <div className="app-panel-pad app-rule-summary space-y-2">
-          <h2 className="app-overline">{mirror ? 'Mirror relationship' : 'Rule sentence'}</h2>
-          <p className="break-words font-heading text-xl font-semibold text-ink">
-            {mirror ? (
-              <>
-                {mirror.detached_at ? 'Detached from ' : 'Copies '}
-                <Link
-                  className="app-link"
-                  to={`/rules/${mirror.leader_agent}/${mirror.leader_rule_id}`}
-                >
-                  leader rule #{mirror.leader_rule_id.toString()}
-                </Link>
-              </>
-            ) : (
-              <>“{ruleSentence(rule)}”</>
-            )}
-          </p>
-          {mirror ? (
-            <p className="app-copy">
-              {mirror.scale_bps} bps ({mirror.scale_bps / 100}%) · {mirror.hourly_cap} trades per
-              hour ·{' '}
-              {rule.token_in
-                ? signatureTokenAmount(rule.chain_id, rule.token_in, mirror.per_run_cap)
-                : `${mirror.per_run_cap} base units`}{' '}
-              per run
-            </p>
-          ) : null}
-          {!mirror && rule.pair && PRICE_TEMPLATES.has(rule.template) ? (
-            <CachedPrice agent={agentAddress} pair={rule.pair as Address} />
-          ) : null}
-        </div>
-        <dl className="app-divider app-panel-pad grid gap-x-4 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Automation account</dt>
-            <dd>
-              <AddressLink chainId={LASNA_CHAIN_ID} address={agentAddress} />
-            </dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Funds network</dt>
-            <dd className="text-ink">
-              <NetworkBadge chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
-            </dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Rule type</dt>
-            <dd className="text-ink">{getTemplate(rule.template)?.name ?? rule.template}</dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Per-run amount</dt>
-            <dd className="break-words text-ink">
-              {rule.amount_in === undefined
-                ? '—'
-                : rule.token_in
-                  ? signatureTokenAmount(rule.chain_id, rule.token_in, rule.amount_in)
-                  : `${rule.amount_in} base units`}
-            </dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Runs</dt>
-            <dd className="app-number">{rule.runs}</dd>
-          </div>
-          <div>
-            <dt className="mb-1 text-xs text-ink-muted">Last run</dt>
-            <dd>{lastRunLabel(rule)}</dd>
-          </div>
-        </dl>
-      </section>
-
-      {successor ? (
-        <p className="app-copy">
-          Replaced by{' '}
-          <Link to={`/rules/${agentAddress}/${successor}`} className="app-link">
-            rule #{successor.toString()}
-          </Link>
-          .
-        </p>
-      ) : null}
-      {rule.replaces !== undefined && (
-        <p className="app-copy">
-          Replaces{' '}
-          <Link to={`/rules/${agentAddress}/${rule.replaces}`} className="app-link">
-            rule #{rule.replaces.toString()}
-          </Link>
-          .
-        </p>
-      )}
-
       <BudgetAtRiskBanner sponsor={sponsor} canFund={isOwner} />
-      <div className="app-detail-layout">
-        <div className="app-page">
-          <section aria-label="Execution history" className="app-panel">
-            <h2 className="app-panel-heading app-panel-pad">
-              {mirror ? 'Mirrored executions' : 'Executions'}
-            </h2>
-            <ExecutionTable
-              executions={
-                mirror
-                  ? executions.filter((execution) => execution.kind === 'mirrored')
-                  : executions
-              }
-            />
-          </section>
 
-          {isOwner && address && !terminal && (
-            <TelegramNotifications
-              agent={agentAddress}
-              owner={address}
-              ruleId={currentRuleId.toString()}
-            />
-          )}
+      <div className="app-rule-layout">
+        <section aria-label="Rule record" className="app-panel app-rule-record">
+          <div className="app-record-head">
+            <h2 className="app-panel-heading">{mirror ? 'Mirrored executions' : 'Executions'}</h2>
+            {onlyNetwork !== undefined ? <NetworkBadge chainId={onlyNetwork} /> : null}
+          </div>
+          <ExecutionTable executions={shownExecutions} showNetwork={onlyNetwork === undefined} />
+
           {(alerts.length > 0 || alertTemplateSchema.safeParse(rule.template).success) && (
-            <section aria-label="Alerts" className="app-panel app-panel-pad space-y-3">
-              <h2 className="app-panel-heading">Alerts</h2>
+            <section aria-label="Alerts" className="app-record-section">
+              <div className="app-record-head">
+                <h2 className="app-panel-heading">Alerts</h2>
+              </div>
               {alerts.length === 0 ? (
-                <p className="app-copy">
+                <p className="app-panel-pad text-sm text-ink-muted">
                   No alerts yet. An alert records activity and never moves funds.
                 </p>
               ) : (
-                <ul className="space-y-1 text-xs text-ink-muted">
+                <ul className="app-rule-alerts">
                   {alerts.map((alert) => (
-                    <li key={alert.tx_hash} className="flex flex-wrap items-center gap-2">
-                      <span>alerted</span>
+                    <li key={alert.tx_hash}>
+                      <span className="app-tag">Alert</span>
                       <span>
                         {new Date(alert.block_time).toISOString().replace('T', ' ').slice(0, 16)}{' '}
                         UTC
@@ -418,44 +400,56 @@ export function RuleDetail() {
               )}
             </section>
           )}
-        </div>
-        <div className="app-page">
-          <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">
-            <h2 className="app-panel-heading">Control</h2>
-            {terminal ? (
-              <p className="app-copy">This rule is retired. You can still view its executions.</p>
-            ) : !isOwner ? (
-              <p className="app-copy">Connect the owner wallet to manage this rule.</p>
-            ) : mirror && !mirror.detached_at ? (
-              <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
-            ) : (
-              <>
-                <RuleActions
-                  ruleId={currentRuleId}
-                  status={status}
-                  onPause={() => control.pause(currentRuleId)}
-                  onResume={() => control.resume(currentRuleId)}
-                  onCancel={() => control.cancel(currentRuleId)}
-                  onRearm={() => control.rearm(currentRuleId)}
-                />
-                {editable && (
-                  <Link className="app-button" to="?edit=1">
-                    Edit rule
-                  </Link>
-                )}
-                {editCapability.isError && (
-                  <p className="app-copy">Editing requires a newer automation account.</p>
-                )}
-              </>
-            )}
-          </section>
+        </section>
 
-          {budget ? (
-            <section aria-label="Execution budget">
-              <BudgetMeter budget={budget} />
-            </section>
-          ) : null}
-        </div>
+        <aside className="app-rule-rail">
+          <section aria-label="Rule actions" className="app-panel app-rule-control">
+            <div className="app-rule-control-block">
+              <h2 className="app-panel-heading">Control</h2>
+              {terminal ? (
+                <p className="app-copy">This rule is retired. You can still view its executions.</p>
+              ) : !isOwner ? (
+                <p className="app-copy">Connect the owner wallet to manage this rule.</p>
+              ) : mirror && !mirror.detached_at ? (
+                <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
+              ) : (
+                <>
+                  <RuleActions
+                    status={status}
+                    onPause={() => control.pause(currentRuleId)}
+                    onResume={() => control.resume(currentRuleId)}
+                    onCancel={() => control.cancel(currentRuleId)}
+                    onRearm={() => control.rearm(currentRuleId)}
+                    onStatusChange={setReportedStatus}
+                  >
+                    {' '}
+                    {editable && (
+                      <Link className="app-button" to="?edit=1">
+                        Edit rule
+                      </Link>
+                    )}
+                  </RuleActions>
+                </>
+              )}
+            </div>
+
+            {budget ? (
+              <div className="app-rule-control-block">
+                <BudgetMeter budget={budget} />
+              </div>
+            ) : null}
+          </section>
+        </aside>
+
+        {isOwner && address && !terminal && (
+          <div className="app-rule-delivery">
+            <TelegramNotifications
+              agent={agentAddress}
+              owner={address}
+              ruleId={currentRuleId.toString()}
+            />
+          </div>
+        )}
       </div>
     </section>
   );

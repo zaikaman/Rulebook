@@ -178,14 +178,16 @@ export function WithdrawForm({
         />
       ) : null}
 
-      <button
-        type="button"
-        disabled={!canSubmit}
-        onClick={() => void submit()}
-        className="app-button app-button--primary justify-self-start"
-      >
-        {submitting || receipt.isLoading ? 'Confirming on Unichain…' : 'Withdraw'}
-      </button>
+      <div className="app-form-actions">
+        <button
+          type="button"
+          disabled={!canSubmit}
+          onClick={() => void submit()}
+          className="app-button app-button--primary"
+        >
+          {submitting || receipt.isLoading ? 'Confirming on Unichain…' : 'Withdraw'}
+        </button>
+      </div>
 
       {hash && receipt.isLoading ? (
         <TxLink chainId={UNICHAIN_SEPOLIA_CHAIN_ID} txHash={hash} label="Pending on Unichain" />

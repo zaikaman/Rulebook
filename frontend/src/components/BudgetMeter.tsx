@@ -1,23 +1,44 @@
 import type { RuleBudget } from '@rulebook/shared';
 
-const COPY: Record<RuleBudget['state'], { label: string; detail: string }> = {
+const STATE: Record<RuleBudget['state'], { label: string; detail: string }> = {
   healthy: {
-    label: 'Execution credit is healthy',
-    detail: 'Your account has funds for upcoming rule checks.',
+    label: 'Healthy',
+    detail: 'Enough credit for the rule’s upcoming checks.',
   },
   low: {
-    label: 'Execution credit is low',
-    detail: 'Top up soon or the rule will go silent before its next window.',
+    label: 'Low',
+    detail: 'Top up soon or the rule goes silent before its next window.',
   },
   exhausted: {
-    label: 'Silent — execution credit is exhausted',
+    label: 'Exhausted',
     detail: 'The rule cannot run until the account is topped up. It is not active.',
   },
   debt: {
-    label: 'Silent — the account owes reaction fees',
+    label: 'Fees owed',
     detail: 'A debt blocks callbacks. Top up to clear it before the rule can run again.',
   },
 };
+
+const TONE: Record<RuleBudget['state'], 'success' | 'warning' | 'error'> = {
+  healthy: 'success',
+  low: 'warning',
+  exhausted: 'error',
+  debt: 'error',
+};
+
+/**
+ * Wei as an ETH figure with at most four decimals. Values too small to show keep an explicit
+ * lower bound so an almost-empty credit never reads as zero.
+ */
+export function ethAmount(wei: bigint): string {
+  if (wei === 0n) return '0';
+  const step = 10n ** 14n;
+  const rounded = (wei + step / 2n) / step;
+  if (rounded === 0n) return '<0.0001';
+  const whole = rounded / 10_000n;
+  const fraction = (rounded % 10_000n).toString().padStart(4, '0').replace(/0+$/, '');
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
 
 function asPercent(value: bigint, scale: bigint): number {
   if (scale === 0n) return 0;
@@ -32,24 +53,22 @@ function asPercent(value: bigint, scale: bigint): number {
  * consequence instead of showing a reassuring "active" pill.
  */
 export function BudgetMeter({ budget }: { readonly budget: RuleBudget }) {
-  const copy = COPY[budget.state];
-  const warning = budget.threshold;
-  const width = asPercent(budget.remaining, warning * 2n);
-  const markerPosition = 50;
+  const state = STATE[budget.state];
+  const remaining = ethAmount(budget.remaining);
+  const threshold = ethAmount(budget.threshold);
+  const width = asPercent(budget.remaining, budget.threshold * 2n);
 
   return (
     <div
       data-testid="budget-meter"
       data-state={budget.state}
-      data-tone={
-        budget.state === 'healthy' ? 'success' : budget.state === 'low' ? 'warning' : 'error'
-      }
-      className="app-alert space-y-3"
+      data-tone={TONE[budget.state]}
+      className="app-credit"
     >
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-sm font-medium">{copy.label}</span>
-        <span className="break-all font-mono text-xs">
-          {budget.remaining.toString()} wei remaining
+      <div className="app-credit-head">
+        <h3 className="app-credit-label">Execution credit</h3>
+        <span className="app-credit-value" title={`${budget.remaining.toString()} wei`}>
+          {remaining} <span>ETH</span>
         </span>
       </div>
 
@@ -59,21 +78,22 @@ export function BudgetMeter({ budget }: { readonly budget: RuleBudget }) {
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={width}
-        className="relative h-2 overflow-hidden rounded-full bg-surface"
+        aria-valuetext={`${remaining} ETH remaining, ${state.label.toLowerCase()}. Warning below ${threshold} ETH.`}
+        className="app-credit-track"
       >
-        <div className="h-full rounded-full bg-current opacity-70" style={{ width: `${width}%` }} />
+        <span className="app-credit-fill" style={{ width: `${width}%` }} />
         <span
           aria-hidden="true"
           data-testid="budget-threshold-marker"
-          className="absolute top-0 h-full w-px bg-ink"
-          style={{ left: `${markerPosition}%` }}
+          className="app-credit-tick"
         />
       </div>
 
-      <div className="flex flex-wrap justify-between gap-2 text-xs">
-        <span className="break-all">Warning below {budget.threshold.toString()} wei</span>
-        <span>{copy.detail}</span>
+      <div className="app-credit-foot">
+        <span className="app-credit-state">{state.label}</span>
+        <span>Warning below {threshold} ETH</span>
       </div>
+      <p className="app-credit-detail">{state.detail}</p>
     </div>
   );
 }

@@ -22,11 +22,12 @@ it('shows only three independently labelled figures, grouped by network and owne
   const funds = within(screen.getByRole('region', { name: 'Unichain Sepolia balances' }));
   expect(funds.getByText('Principal (your funds)')).toBeVisible();
   expect(funds.getByText('Execution fees')).toBeVisible();
-  expect(funds.getByText('10 USDC')).toBeVisible();
-  expect(funds.getByText('0.01 ETH')).toBeVisible();
+  // Each figure renders its amount and unit as separate type, so assert the full value text.
+  expect(funds.getByText('10', { selector: 'dd' })).toHaveTextContent(/^10 USDC$/);
+  expect(funds.getByText('0.01', { selector: 'dd' })).toHaveTextContent(/^0.01 ETH$/);
   const watching = within(screen.getByRole('region', { name: 'Reactive Lasna balances' }));
   expect(watching.getByText('Monitoring fees')).toBeVisible();
-  expect(watching.getByText('0.2 REACT')).toBeVisible();
+  expect(watching.getByText('0.2', { selector: 'dd' })).toHaveTextContent(/^0.2 REACT$/);
   expect(screen.getAllByRole('definition')).toHaveLength(3);
   expect(screen.queryByText(/total/i)).not.toBeInTheDocument();
 });

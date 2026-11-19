@@ -8,7 +8,7 @@ import {
   type Rule,
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useSearchParams } from 'react-router';
+import { Link } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
 import { BudgetAtRiskBanner } from '../components/BudgetAtRiskBanner.js';
@@ -21,7 +21,7 @@ import { useEvaluationOrder } from '../hooks/useEvaluationOrder.js';
 import { useRuleControl } from '../hooks/useRuleControl.js';
 import { useRuleFunds } from '../hooks/useRuleFunds.js';
 import { api } from '../lib/api.js';
-import { AGENT_FACTORY_ADDRESS, PREVIOUS_AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
+import { AGENT_FACTORY_ADDRESS } from '../lib/contracts.js';
 import { appRoutes } from '../lib/routes.js';
 import { lastRunLabel, ruleLifecycle, ruleSentence, RULE_FLAGS } from '../lib/rules.js';
 
@@ -87,7 +87,6 @@ function RuleRow({
 /** `/rules`: account rules, evaluation priority, and retired rules. */
 export function Home() {
   const { address } = useAccount();
-  const [search] = useSearchParams();
   const owner = (address?.toLowerCase() as Address | undefined) ?? ZERO;
 
   const agentQuery = useReadContract({
@@ -98,25 +97,7 @@ export function Home() {
     chainId: LASNA_CHAIN_ID,
     query: { enabled: Boolean(address && AGENT_FACTORY_ADDRESS) },
   });
-  const previousQuery = useReadContract({
-    address: PREVIOUS_AGENT_FACTORY_ADDRESS ?? ZERO,
-    abi: agentFactoryAbi,
-    functionName: 'agentOf',
-    args: [owner],
-    chainId: LASNA_CHAIN_ID,
-    query: {
-      enabled: Boolean(
-        address &&
-        PREVIOUS_AGENT_FACTORY_ADDRESS &&
-        PREVIOUS_AGENT_FACTORY_ADDRESS !== AGENT_FACTORY_ADDRESS,
-      ),
-    },
-  });
-  const current = agentQuery.data && agentQuery.data !== ZERO ? agentQuery.data : null;
-  const previous = previousQuery.data && previousQuery.data !== ZERO ? previousQuery.data : null;
-  const requestedPrevious = search.get('account') === 'previous';
-  const viewingPrevious = !!previous && (requestedPrevious || !current);
-  const agent = viewingPrevious ? previous : current;
+  const agent = agentQuery.data && agentQuery.data !== ZERO ? agentQuery.data : null;
 
   const rulesQuery = useQuery({
     // Distinct from RuleDetail's `['rules', agent]`: this query caches the feed envelope, not
@@ -152,11 +133,7 @@ export function Home() {
     );
   }
 
-  if (
-    agentQuery.isLoading ||
-    ((!current || requestedPrevious) && previousQuery.isLoading) ||
-    (agent && rulesQuery.isLoading)
-  ) {
+  if (agentQuery.isLoading || (agent && rulesQuery.isLoading)) {
     return (
       <section aria-busy="true" className="app-page">
         <PageHeading
@@ -175,8 +152,7 @@ export function Home() {
     );
   }
 
-  const accountError =
-    agentQuery.error ?? (!current || requestedPrevious ? previousQuery.error : null);
+  const accountError = agentQuery.error;
   if ((!agent && accountError) || rulesQuery.error) {
     const error = accountError ?? rulesQuery.error;
     return (
@@ -190,13 +166,7 @@ export function Home() {
           }
           detail={error instanceof Error ? error.message : null}
           chainId={LASNA_CHAIN_ID}
-          onRetry={() =>
-            void (agentQuery.error
-              ? agentQuery.refetch()
-              : accountError
-                ? previousQuery.refetch()
-                : rulesQuery.refetch())
-          }
+          onRetry={() => void (accountError ? agentQuery.refetch() : rulesQuery.refetch())}
         />
       </section>
     );
@@ -252,17 +222,9 @@ export function Home() {
     <section className="app-page">
       <PageHeading
         title="Your rules"
-        description={
-          viewingPrevious
-            ? 'Manage the rules on your previous automation account.'
-            : 'Manage the automations owned by your wallet.'
-        }
+        description="Manage the automations owned by your wallet."
         aside={
-          viewingPrevious ? (
-            <Link to={current ? appRoutes.rules : appRoutes.account} className="app-button">
-              {current ? 'Current automation account' : 'Set up current account'}
-            </Link>
-          ) : hasRules ? (
+          hasRules ? (
             <Link to={appRoutes.create} className="app-button app-button--primary">
               <HugeiconsIcon icon={Add01Icon} size={17} aria-hidden="true" />
               Compose a rule
@@ -271,11 +233,6 @@ export function Home() {
         }
       />
 
-      {current && previous && !viewingPrevious && (
-        <Link to="?account=previous" className="app-link self-start">
-          Previous automation account
-        </Link>
-      )}
       {hasRules && <BudgetAtRiskBanner sponsor={sponsorQuery.data} />}
 
       {!hasRules ? (
