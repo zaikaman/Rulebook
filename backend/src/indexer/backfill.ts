@@ -16,6 +16,7 @@ import { IndexerPoller } from './poller.js';
 const DERIVED_TABLES = {
   executions: 'tx_hash',
   rule_events: 'tx_hash',
+  rule_replacements: 'agent',
   rules: 'agent',
   vaults: 'address',
   agents: 'address',

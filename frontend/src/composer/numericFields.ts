@@ -8,7 +8,7 @@ const PRICE_DECIMALS = 18;
 /** Percent slots store basis points, so two decimal places cover a hundredth of a percent. */
 const PERCENT_DECIMALS = 2;
 
-export type ScheduleUnit = 'hour' | 'day' | 'week';
+export type ScheduleUnit = 'second' | 'hour' | 'day' | 'week';
 
 export const SCHEDULE_UNIT_OPTIONS: readonly {
   readonly value: ScheduleUnit;
@@ -17,12 +17,14 @@ export const SCHEDULE_UNIT_OPTIONS: readonly {
   { value: 'hour', label: 'hours' },
   { value: 'day', label: 'days' },
   { value: 'week', label: 'weeks' },
+  { value: 'second', label: 'seconds' },
 ];
 
 const SCHEDULE_SECONDS: Readonly<Record<ScheduleUnit, bigint>> = {
-  hour: 3_600n,
-  day: 86_400n,
   week: 604_800n,
+  day: 86_400n,
+  hour: 3_600n,
+  second: 1n,
 };
 
 export type SlotParse = { readonly value: string } | { readonly error: string };
@@ -65,7 +67,7 @@ export function parseScheduleText(text: string): {
   readonly count: string;
   readonly unit: ScheduleUnit;
 } {
-  const match = /^(.*?)\s*(hours?|days?|weeks?)$/i.exec(text.trim());
+  const match = /^(.*?)\s*(seconds?|hours?|days?|weeks?)$/i.exec(text.trim());
   const unit = (match?.[2] ?? 'days').toLowerCase().replace(/s$/, '') as ScheduleUnit;
   return { count: match?.[1]?.trim() ?? text.trim(), unit };
 }
@@ -77,21 +79,23 @@ export function scheduleText(count: string, unit: ScheduleUnit): string {
 }
 
 /** A local `datetime-local` value, which is what an expiry field edits. */
-export function dateTimeInputValue(timestamp: number): string {
+export function dateTimeInputValue(timestamp: number, exact = false): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
     date.getHours(),
-  )}:${pad(date.getMinutes())}`;
+  )}:${pad(date.getMinutes())}${exact ? `:${pad(date.getSeconds())}` : ''}`;
 }
 
 function scheduleSeconds(text: string): SlotParse {
-  const match = /^(\d+(?:\.\d{1,2})?)\s+(hours?|days?|weeks?)$/i.exec(text);
+  const match = /^(\d+(?:\.\d{1,2})?)\s+(seconds?|hours?|days?|weeks?)$/i.exec(text);
   const unit = (match?.[2] ?? '').toLowerCase().replace(/s$/, '') as ScheduleUnit;
   if (!match?.[1] || !SCHEDULE_SECONDS[unit]) {
     return { error: 'Enter how often the rule repeats, such as 1 day.' };
   }
   const count = parseUnits(match[1], 2);
+  if (unit === 'second' && count % 100n !== 0n)
+    return { error: 'Enter a whole number of seconds.' };
   return { value: ((count * SCHEDULE_SECONDS[unit]) / 100n).toString() };
 }
 
@@ -133,7 +137,7 @@ export function textToCanonical(slot: TemplateSlot, text: string): SlotParse {
   return { value: amount.toString() };
 }
 
-function scheduleLabel(seconds: bigint): string {
+export function scheduleInputText(seconds: bigint): string {
   for (const [unit, length] of Object.entries(SCHEDULE_SECONDS)) {
     if (seconds % length !== 0n) continue;
     const count = seconds / length;
@@ -150,8 +154,8 @@ export function slotBoundMessage(slot: TemplateSlot, bound: string, edge: 'min' 
   }
   if (slot.kind === 'schedule') {
     return edge === 'min'
-      ? `Repeat at least every ${scheduleLabel(amount)}.`
-      : `Repeat at most every ${scheduleLabel(amount)}.`;
+      ? `Repeat at least every ${scheduleInputText(amount)}.`
+      : `Repeat at most every ${scheduleInputText(amount)}.`;
   }
   if (slot.kind === 'duration') {
     return `Enter ${amount} ${amount === 1n ? 'day' : 'days'} ${edge === 'min' ? 'or more' : 'or less'}.`;

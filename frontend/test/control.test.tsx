@@ -65,12 +65,12 @@ describe('RuleActions', () => {
 describe('RuleOrderList', () => {
   const labels = { '1': 'Price alert', '2': 'DCA', '3': 'Stop loss' };
 
-  it('marks the first rule as the one that runs first', () => {
+  it('marks the first rule as the one checked first', () => {
     render(<RuleOrderList ids={[1n, 2n, 3n]} labels={labels} onReorder={noop} />);
 
     const rows = screen.getAllByRole('listitem');
     expect(rows[0]).toHaveAttribute('data-testid', 'rule-order-1');
-    expect(rows[0]).toHaveTextContent('Runs first');
+    expect(rows[0]).toHaveTextContent('Evaluated first');
   });
 
   it('rolls the visual order back and shows the error when the reorder reverts', async () => {
@@ -81,7 +81,7 @@ describe('RuleOrderList', () => {
     await user.click(screen.getByRole('button', { name: 'Move rule DCA up' }));
 
     expect(onReorder).toHaveBeenCalledWith([2n, 1n, 3n]);
-    expect(await screen.findByRole('alert')).toHaveTextContent('previous order is still in effect');
+    expect(await screen.findByRole('alert')).toHaveTextContent('InvalidTemplateParams');
 
     const rows = screen.getAllByRole('listitem');
     expect(rows[0]).toHaveAttribute('data-testid', 'rule-order-1');

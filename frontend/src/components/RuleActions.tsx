@@ -72,7 +72,7 @@ export function RuleActions({
           </button>
         ) : null}
 
-        {display === 'active' || display === 'latched' ? (
+        {display === 'active' || display === 'latched' || display === 'waiting-funds' ? (
           <button
             type="button"
             className="app-button"

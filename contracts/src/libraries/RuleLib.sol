@@ -28,6 +28,7 @@ library RuleLib {
     uint8 internal constant TEMPLATE_COUNT = 13;
     /// @notice Maximum active rules per Agent.
     uint256 internal constant MAX_ACTIVE_RULES = 5;
+    uint256 internal constant DEFAULT_SCHEDULE = 1 days;
 
     struct Rule {
         uint8 template;
@@ -45,9 +46,7 @@ library RuleLib {
 
     /// @notice Packs a rule into its canonical eight-slot representation.
     function pack(Rule memory rule) internal pure returns (bytes32[8] memory slots) {
-        slots[0] = bytes32(
-            uint256(rule.template) | (uint256(rule.chainId) << 8) | (uint256(rule.flags) << 24)
-        );
+        slots[0] = bytes32(uint256(rule.template) | (uint256(rule.chainId) << 8) | (uint256(rule.flags) << 24));
         slots[1] = bytes32(uint256(uint160(rule.pair)));
         slots[2] = bytes32(uint256(uint160(rule.tokenIn)));
         slots[3] = bytes32(uint256(uint160(rule.tokenOut)));
@@ -114,9 +113,8 @@ library RuleLib {
             revert InvalidTemplateParams();
         }
         if (isCronTemplate(rule.template)) {
-            uint256 schedule =
-                rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
-            if (schedule != 0 && (schedule < 1 hours || schedule > 30 days)) {
+            uint256 interval = rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
+            if (interval != 0 && (interval < 1 hours || interval > 30 days)) {
                 revert InvalidSecondary();
             }
         }
@@ -160,8 +158,8 @@ library RuleLib {
 
     /// @notice Templates whose condition uses a numeric threshold.
     function isThresholdTemplate(uint8 template) internal pure returns (bool) {
-        return template == 3 || template == 4 || template == 5 || template == 6 || template == 8
-            || template == 9 || template == 11 || template == 12 || template == 13;
+        return template == 3 || template == 4 || template == 5 || template == 6 || template == 8 || template == 9
+            || template == 11 || template == 12 || template == 13;
     }
 
     /// @notice Templates whose `secondary` value is a basis-point band or trailing tolerance.
@@ -177,5 +175,10 @@ library RuleLib {
     /// @notice Templates driven by the cron subscription.
     function isCronTemplate(uint8 template) internal pure returns (bool) {
         return template == 1 || template == 2 || template == 7 || template == 10;
+    }
+
+    function schedule(Rule memory rule) internal pure returns (uint256) {
+        uint256 value = rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
+        return value == 0 ? DEFAULT_SCHEDULE : value;
     }
 }

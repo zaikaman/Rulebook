@@ -10,6 +10,17 @@ import { formatUnits } from 'viem';
 
 import { knownToken } from './signatures.js';
 
+export const RULE_FLAGS = { active: 1, latched: 2, mirrored: 4, cancelled: 8 } as const;
+
+export function ruleLifecycle(rule: Rule, flags?: number) {
+  if (rule.replaced_by !== undefined) return 'cancelled';
+  if (flags === undefined)
+    return rule.status === 'active' && rule.latched ? 'latched' : rule.status;
+  if ((flags & RULE_FLAGS.cancelled) !== 0) return 'cancelled';
+  if ((flags & RULE_FLAGS.active) === 0) return 'paused';
+  return (flags & RULE_FLAGS.latched) !== 0 ? 'latched' : 'active';
+}
+
 const SCHEDULE_UNITS = [
   [604_800n, 'week'],
   [86_400n, 'day'],

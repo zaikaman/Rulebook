@@ -307,8 +307,8 @@ export function useCloneRule(listing: Listing, enabled = true): CloneParams {
       const result = { txHash: hash, ruleId: ruleIdFromLogs(receipt.logs) };
       setState({ status: 'confirmed', error: null, result });
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['rules', agent] }),
-        queryClient.invalidateQueries({ queryKey: ['rule', agent] }),
+        queryClient.invalidateQueries({ queryKey: ['rules', agent.toLowerCase()] }),
+        queryClient.invalidateQueries({ queryKey: ['rule', agent.toLowerCase()] }),
         queryClient.invalidateQueries({ queryKey: ['marketplace'] }),
         queryClient.invalidateQueries({ queryKey: ['leaderboard'] }),
       ]);

@@ -76,7 +76,7 @@ function NumericControl({
         type="datetime-local"
         value={value}
         min={dateTimeInputValue(Date.now())}
-        step={60}
+        step={1}
         onChange={(event) => setValue(event.target.value)}
       />
     );

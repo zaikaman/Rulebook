@@ -5,13 +5,15 @@ implementation. The user retains custody throughout: none of these actions moves
 
 ## What the states mean
 
-| State       | What the Agent does                                                                                    | What you see                             |
-| ----------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------- |
-| `active`    | Evaluates the rule on every matching wake-up.                                                          | Green **Active** pill.                   |
-| `paused`    | Keeps the rule and its values, but does not evaluate it.                                               | **Paused** pill and a **Resume** button. |
-| `cancelled` | Keeps the rule id for history, releases its budget reservation and its topic subscription permanently. | **Cancelled** pill, no action buttons.   |
-| `latched`   | A fired non-cron rule waits for a reset before it can fire again.                                      | **Fired — needs reset**.                 |
-| `silent`    | The account has no execution credit, so callbacks stop. This is not active.                            | **Silent — no execution credit**.        |
+| State             | What the Agent does                                                                               | What you see                                         |
+| ----------------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `active`          | Evaluates the rule on every matching wake-up.                                                     | Green **Active** pill.                               |
+| `paused`          | Keeps the rule and its values, but does not evaluate it.                                          | **Paused** pill and a **Resume** button.             |
+| `cancelled`       | Keeps the rule id and executions in **History** and releases its reservation and subscriptions.   | **Cancelled** pill on the old rule.                  |
+| Replaced          | Keeps the original rule and its executions in **History** and assigns the new version its own id. | **Replaced** pill with a link to the new rule.       |
+| Waiting for funds | The rule stays enabled while the Vault is short of the token it spends.                           | **Waiting for funds** and the amount needed per run. |
+| `latched`         | A fired non-cron rule waits for a reset before it can fire again.                                 | **Fired — needs reset**.                             |
+| `silent`          | The account has no execution credit, so callbacks stop. This is not active.                       | **Silent — no execution credit**.                    |
 
 Subscriptions are reference-counted per topic. Pausing the last rule that needs a topic calls
 `unsubscribe` exactly once; resuming re-subscribes once for the first rule on that topic.
@@ -33,20 +35,38 @@ contract's reason (for example `NotOwner` or `RuleNotActive`).
 2. Press **Cancel rule**, then **Confirm cancel**.
 3. Confirm the pill reads **Cancelled**.
 
-Cancelling is permanent: the rule id stays in the execution history, but the rule can never run
-again. Pause instead when the intent is temporary.
+Cancelling is permanent. The Agent stops requesting new executions for that rule when the
+transaction confirms. A callback already sent to the Vault can still settle. Use **Pause** for
+a temporary stop.
+
+## Edit a rule
+
+On automation accounts that support edits, open the rule and select **Edit rule**. Review the new
+sentence and sign once on Lasna. The updated rule keeps its priority and the old rule keeps its
+executions and proofs. A rule that was paused or waiting for a reset has a paused replacement.
+An existing callback can still settle. The replacement waits until any old callback has expired
+before it can request another execution.
 
 ## Reorder in the app
 
-The Agent evaluates rules top to bottom; the first rule gets the gas first.
+The Agent checks enabled rules from top to bottom.
 
-1. Open any rule's detail and find **Evaluation order**.
+1. Open **Your rules** and find **Evaluation order**.
 2. Drag a rule by its handle, or use **Move up** / **Move down** (keyboard works).
-3. The list submits the complete permutation and keeps the new order after a reload.
+3. Confirm the new order in your wallet. The order persists after a reload.
 
-A refused reorder (duplicate or unknown id, or a lost signature) rolls the list back and shows
-the reason. Old and new orders are both safe; nothing executes differently until the Agent
-accepts the permutation.
+If the order changes before you sign, review the latest order and try again. Paused rules keep
+their saved slots and return to the order when resumed.
+
+## Fund a waiting rule
+
+Use **Account & Vault** to deposit the token the rule spends. With the newer Agent and Vault,
+scheduled buys skip a due slot when a recent balance report shows insufficient funds. The next
+eligible slot can run after the deposit is observed. Paused rules still require **Resume**.
+After a plain ERC-20 transfer, the Vault owner can call `publishBalances()` to report the updated
+balance. The Vault verifies the live balance on every swap request.
+If a request already reached the Vault, delivery can still use network credit. The Agent releases
+the request's spend budget when it receives the Vault's skip report for the current attempt.
 
 ## Top up execution credit
 

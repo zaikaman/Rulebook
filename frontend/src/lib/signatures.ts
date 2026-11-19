@@ -82,6 +82,20 @@ export const signatureDetails = {
     const change = publish ? 'Create a rule and publish it to the marketplace.' : 'Create a rule.';
     return automation(agent, `${change} ${sentence}`, ruleSpend(rule));
   },
+  replace(
+    agent: Address,
+    ruleId: bigint,
+    rule: RuleSpend,
+    sentence: string,
+    publish: boolean,
+    enabled: boolean,
+  ): SignatureDetails {
+    return automation(
+      agent,
+      `Replace rule #${ruleId}. The new rule ${enabled ? 'keeps its priority and waits for any old callback to expire' : 'starts paused'}.${publish ? ' Publish the new settings to the marketplace.' : ''} ${sentence}`,
+      ruleSpend(rule),
+    );
+  },
   control(agent: Address, action: ControlFunction, ruleId: bigint): SignatureDetails {
     return automation(agent, controlEffect[action](ruleId));
   },

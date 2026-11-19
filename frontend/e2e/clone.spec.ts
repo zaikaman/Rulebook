@@ -77,7 +77,7 @@ test('clones a team listing into the cloner’s own account with its own limits'
   await expect(page.getByRole('heading', { name: 'Your rules' })).toBeVisible();
 
   // The copy lives on the cloner's Agent, not the author's, and it starts active.
-  const ruleList = page.getByRole('list', { name: 'Rules in evaluation order' });
+  const ruleList = page.getByRole('list', { name: 'Current rules' });
   await expect(ruleList).toContainText('buy');
   await expect(ruleList).toContainText('Active');
   const detail = page.getByRole('link', { name: 'Detail' });

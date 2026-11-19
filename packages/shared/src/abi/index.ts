@@ -429,6 +429,19 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "getEvaluationOrder",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "getHighWater",
     "inputs": [
       {
@@ -609,8 +622,8 @@ export const agentAbi = [
     "outputs": [
       {
         "name": "subs",
-        "type": "tuple[2]",
-        "internalType": "struct Agent.Subscription[2]",
+        "type": "tuple[3]",
+        "internalType": "struct Subscription[3]",
         "components": [
           {
             "name": "key",
@@ -917,6 +930,24 @@ export const agentAbi = [
   },
   {
     "type": "function",
+    "name": "reorderEvaluationRules",
+    "inputs": [
+      {
+        "name": "ids",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "expectedOrder",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "reorderRules",
     "inputs": [
       {
@@ -927,6 +958,116 @@ export const agentAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "replaceRule",
+    "inputs": [
+      {
+        "name": "oldId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expectedFlags",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "rule",
+        "type": "tuple",
+        "internalType": "struct RuleLib.Rule",
+        "components": [
+          {
+            "name": "template",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "chainId",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "flags",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "pair",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "tokenIn",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "tokenOut",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "amountIn",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "threshold",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "secondary",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastRun",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "runs",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ]
+      },
+      {
+        "name": "makePublic",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "replacementFor",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1282,6 +1423,25 @@ export const agentAbi = [
   },
   {
     "type": "event",
+    "name": "RuleReplaced",
+    "inputs": [
+      {
+        "name": "oldRuleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "newRuleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "VaultLinked",
     "inputs": [
       {
@@ -1349,16 +1509,6 @@ export const agentAbi = [
   {
     "type": "error",
     "name": "InvalidTemplateParams",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidThreshold",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "MirrorDepthNotAllowed",
     "inputs": []
   },
   {
@@ -1438,44 +1588,6 @@ export const agentAbi = [
         "name": "ruleId",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "TokenMismatch",
-    "inputs": [
-      {
-        "name": "expected",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "actual",
-        "type": "address",
-        "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "UnknownTemplate",
-    "inputs": [
-      {
-        "name": "template",
-        "type": "uint8",
-        "internalType": "uint8"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "UnsupportedChain",
-    "inputs": [
-      {
-        "name": "chainId",
-        "type": "uint16",
-        "internalType": "uint16"
       }
     ]
   }
@@ -1567,6 +1679,19 @@ export const vaultAbi = [
         "name": "",
         "type": "uint16",
         "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "REPLACEMENT_CALLBACK_VERSION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
       }
     ],
     "stateMutability": "view"
@@ -1683,6 +1808,29 @@ export const vaultAbi = [
   },
   {
     "type": "function",
+    "name": "executeReplacement",
+    "inputs": [
+      {
+        "name": "agent_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "maxSpendPerRun",
     "inputs": [],
     "outputs": [
@@ -1777,6 +1925,13 @@ export const vaultAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "publishBalances",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -2078,6 +2233,43 @@ export const vaultAbi = [
   },
   {
     "type": "event",
+    "name": "ScheduledSwapFunds",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "balance",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "observedAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "skippedRuleId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "skippedSequence",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SlippageChanged",
     "inputs": [
       {
@@ -2085,6 +2277,31 @@ export const vaultAbi = [
         "type": "uint16",
         "indexed": false,
         "internalType": "uint16"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SwapFundingDeferred",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "required",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -2145,6 +2362,22 @@ export const vaultAbi = [
     "type": "error",
     "name": "ConditionNotMet",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CooldownActive",
+    "inputs": [
+      {
+        "name": "ruleId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "readyAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ]
   },
   {
     "type": "error",

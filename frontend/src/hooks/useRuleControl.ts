@@ -1,12 +1,19 @@
 import { agentAbi, LASNA_CHAIN_ID, type Address } from '@rulebook/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback } from 'react';
-import { useAccount, useWriteContract } from 'wagmi';
+import { encodeAbiParameters, encodeFunctionData, keccak256 } from 'viem';
+import { useAccount, useSendTransaction, useWriteContract } from 'wagmi';
+import type { Rule } from '@rulebook/shared';
 
 import { signatureDetails, signatureTokenAmount, type ControlFunction } from '../lib/signatures.js';
 import { assertMirrorFunding, type MirrorConfig } from '../lib/ruleFunding.js';
 import { lasnaPublicClient } from '../lib/wagmi.js';
 import { useChainGuard } from './useChainGuard.js';
+import {
+  evaluationOrderKey,
+  readEvaluationOrder,
+  type EvaluationOrder,
+} from './useEvaluationOrder.js';
 
 function bufferedGas(estimated: bigint) {
   return (estimated * 120n) / 100n;
@@ -22,6 +29,7 @@ export function useRuleControl(agent: Address | null) {
   const { address } = useAccount();
   const requestSignature = useChainGuard();
   const { writeContractAsync } = useWriteContract();
+  const { sendTransactionAsync } = useSendTransaction();
   const queryClient = useQueryClient();
 
   const confirm = useCallback(
@@ -30,8 +38,11 @@ export function useRuleControl(agent: Address | null) {
       if (receipt.status !== 'success')
         throw new Error('The transaction reverted on Reactive Lasna.');
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['rule', agent] }),
-        queryClient.invalidateQueries({ queryKey: ['rules', agent] }),
+        queryClient.invalidateQueries({ queryKey: ['rule', agent?.toLowerCase()] }),
+        queryClient.invalidateQueries({ queryKey: ['rules', agent?.toLowerCase()] }),
+        queryClient.invalidateQueries({ queryKey: evaluationOrderKey(agent) }),
+        queryClient.invalidateQueries({ queryKey: ['rule-chain', agent?.toLowerCase()] }),
+        queryClient.invalidateQueries({ queryKey: ['rule-replacement', agent?.toLowerCase()] }),
       ]);
     },
     [agent, queryClient],
@@ -63,28 +74,57 @@ export function useRuleControl(agent: Address | null) {
   );
 
   const reorder = useCallback(
-    async (ids: bigint[]): Promise<void> => {
+    async (
+      ids: bigint[],
+      baseline: EvaluationOrder,
+      indexedRules: readonly Rule[],
+    ): Promise<void> => {
       if (!agent) throw new Error('No automation account is connected.');
-      const contract = {
-        address: agent,
-        account: address,
-        abi: agentAbi,
-        functionName: 'reorderRules',
-        args: [ids],
-      } as const;
+      const fresh = await readEvaluationOrder(agent, indexedRules);
+      if (fresh.ids.join() !== baseline.ids.join()) {
+        void queryClient.invalidateQueries({ queryKey: evaluationOrderKey(agent) });
+        throw new Error('The evaluation order changed. Review the current order and try again.');
+      }
+      const enabled = new Set(fresh.ids);
+      let next = 0;
+      const data = fresh.legacy
+        ? encodeFunctionData({
+            abi: agentAbi,
+            functionName: 'reorderRules',
+            args: [fresh.legacy.map((id) => (enabled.has(id) ? ids[next++]! : id))],
+          })
+        : encodeFunctionData({
+            abi: agentAbi,
+            functionName: 'reorderEvaluationRules',
+            args: [ids, keccak256(encodeAbiParameters([{ type: 'uint256[]' }], [fresh.ids]))],
+          });
+      const transaction = { to: agent, account: address, data } as const;
       let gas: bigint | undefined;
       const hash = await requestSignature(
         signatureDetails.reorder(agent, ids),
         address,
-        (connector) => writeContractAsync({ ...contract, connector, chainId: LASNA_CHAIN_ID, gas }),
+        (connector) =>
+          sendTransactionAsync({ ...transaction, connector, chainId: LASNA_CHAIN_ID, gas }),
         undefined,
         async () => {
-          gas = bufferedGas(await lasnaPublicClient.estimateContractGas(contract));
+          if (fresh.legacy) {
+            const current = await readEvaluationOrder(agent, indexedRules);
+            if (
+              current.legacy?.join() !== fresh.legacy.join() ||
+              current.ids.join() !== fresh.ids.join()
+            ) {
+              void queryClient.invalidateQueries({ queryKey: evaluationOrderKey(agent) });
+              throw new Error(
+                'The evaluation order changed. Review the current order and try again.',
+              );
+            }
+          }
+          gas = bufferedGas(await lasnaPublicClient.estimateGas(transaction));
         },
       );
       await confirm(hash);
     },
-    [address, agent, confirm, requestSignature, writeContractAsync],
+    [address, agent, confirm, queryClient, requestSignature, sendTransactionAsync],
   );
 
   const attachMirror = useCallback(

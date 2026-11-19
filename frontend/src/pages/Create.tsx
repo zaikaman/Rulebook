@@ -17,7 +17,8 @@ import { LiveCalldata } from '../composer/LiveCalldata.js';
 import { RuleFields } from '../composer/RuleFields.js';
 import { TemplatePicker } from '../composer/TemplatePicker.js';
 import { composerReducer, initialComposerState } from '../composer/reducer.js';
-import type { VaultTerms } from '../composer/types.js';
+import type { ComposerState, VaultTerms } from '../composer/types.js';
+import type { RuleReplacement } from '../composer/replaceRule.js';
 import { useFirstRuleGuide } from '../composer/useFirstRuleGuide.js';
 import { validateComposer } from '../composer/validation.js';
 import { CreateSuccess } from '../components/CreateSuccess.js';
@@ -34,23 +35,29 @@ import '../styles/composer.css';
 export function CreateRuleForm({
   agent,
   initialTemplate = 1,
+  initialState,
+  edit,
   vaultTerms,
   vaultPending = false,
   refreshVault,
   onReview,
   onCreatedChange,
+  onEdited,
 }: {
   readonly agent: Address;
   readonly initialTemplate?: TemplateId;
+  readonly initialState?: ComposerState;
+  readonly edit?: RuleReplacement;
   readonly vaultTerms?: VaultTerms | undefined;
   readonly vaultPending?: boolean;
   readonly refreshVault?: (() => Promise<VaultTerms>) | undefined;
   readonly onReview?: () => void;
   readonly onCreatedChange?: (created: boolean) => void;
+  readonly onEdited?: (id: bigint) => void;
 }) {
   const [state, dispatch] = useReducer(
     composerReducer,
-    initialComposerState(UNICHAIN_SEPOLIA_CHAIN_ID, initialTemplate),
+    initialState ?? initialComposerState(UNICHAIN_SEPOLIA_CHAIN_ID, initialTemplate),
   );
   const [submitted, setSubmitted] = useState(false);
   const [touched, setTouched] = useState<ReadonlySet<SlotKey>>(() => new Set());
@@ -96,7 +103,9 @@ export function CreateRuleForm({
       return;
     }
     submittedSentence.current = sentence;
-    void create(agent, ready, makePublic);
+    void create(agent, ready, makePublic, edit).then((updated) => {
+      if (edit && updated && updated.ruleId !== null) onEdited?.(updated.ruleId);
+    });
   }
 
   if (result) {
@@ -106,13 +115,18 @@ export function CreateRuleForm({
         ruleId={result.ruleId}
         sentence={submittedSentence.current}
         txHash={result.txHash}
-        onCreateAnother={() => {
-          dispatch({ type: 'reset' });
-          setSubmitted(false);
-          setTouched(new Set());
-          setMakePublic(false);
-          reset();
-        }}
+        edited={!!edit}
+        {...(edit
+          ? {}
+          : {
+              onCreateAnother: () => {
+                dispatch({ type: 'reset' });
+                setSubmitted(false);
+                setTouched(new Set());
+                setMakePublic(false);
+                reset();
+              },
+            })}
       />
     );
   }
@@ -145,6 +159,7 @@ export function CreateRuleForm({
           draft={ready}
           sentence={sentence}
           makePublic={makePublic}
+          edit={edit}
           complete={complete}
           required={required.length}
         />
@@ -173,9 +188,7 @@ export function CreateRuleForm({
           )}
           {!waitingForVault && vaultUnavailable && (
             <div role="alert" className="rule-composer__error">
-              <p>
-                Vault limits are unavailable. Try again before creating a rule that moves funds.
-              </p>
+              <p>Vault limits are unavailable. Try again before saving a rule that moves funds.</p>
               <button
                 type="button"
                 className="rule-composer__secondary"
@@ -219,7 +232,9 @@ export function CreateRuleForm({
                 ? 'Waiting for your signature…'
                 : status === 'confirming'
                   ? 'Waiting for the Lasna receipt…'
-                  : 'Review and create rule'}
+                  : edit
+                    ? 'Review and save changes'
+                    : 'Review and create rule'}
             {!busy && <HugeiconsIcon icon={ArrowRight02Icon} size={18} aria-hidden="true" />}
           </button>
           <p className="rule-composer__footnote">
@@ -244,20 +259,7 @@ export function Create() {
 function Composer({ agent, vault }: { agent: Address; vault: Address }) {
   const guide = useFirstRuleGuide();
   const [created, setCreated] = useState(false);
-  const terms = useQuery({
-    queryKey: ['composer-vault-terms', vault],
-    queryFn: async (): Promise<VaultTerms> => {
-      const contract = { address: vault, abi: vaultAbi } as const;
-      const [tokenIn, tokenOut, ceiling] = await Promise.all([
-        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenIn' }),
-        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenOut' }),
-        unichainPublicClient.readContract({ ...contract, functionName: 'maxSpendPerRun' }),
-      ]);
-      return { tokenIn, tokenOut, ceiling };
-    },
-    retry: false,
-    refetchOnWindowFocus: 'always',
-  });
+  const terms = useComposerVaultTerms(vault);
   return (
     <AppShell>
       <section className="app-page">
@@ -300,4 +302,23 @@ function Composer({ agent, vault }: { agent: Address; vault: Address }) {
       </section>
     </AppShell>
   );
+}
+
+export function useComposerVaultTerms(vault: Address | undefined) {
+  return useQuery({
+    queryKey: ['composer-vault-terms', vault],
+    enabled: !!vault,
+    queryFn: async (): Promise<VaultTerms> => {
+      if (!vault) throw new Error('Vault settings are unavailable.');
+      const contract = { address: vault, abi: vaultAbi } as const;
+      const [tokenIn, tokenOut, ceiling] = await Promise.all([
+        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenIn' }),
+        unichainPublicClient.readContract({ ...contract, functionName: 'allowedTokenOut' }),
+        unichainPublicClient.readContract({ ...contract, functionName: 'maxSpendPerRun' }),
+      ]);
+      return { tokenIn, tokenOut, ceiling };
+    },
+    retry: false,
+    refetchOnWindowFocus: 'always',
+  });
 }

@@ -29,6 +29,7 @@ export interface Store {
 const DECIMAL_COLUMNS: Partial<Record<string, readonly string[]>> = {
   vaults: ['max_spend_per_run'],
   rules: ['rule_id', 'amount_in', 'threshold', 'secondary'],
+  rule_replacements: ['old_rule_id', 'new_rule_id'],
   executions: ['rule_id', 'amount_in', 'amount_out'],
   callbacks: ['destination_chain_id'],
   rule_events: ['rule_id'],
@@ -81,7 +82,7 @@ export class SupabaseStore implements Store {
     }
     if (options.limit !== undefined) query = query.limit(options.limit);
     const { data, error } = await query.overrideTypes<Row[], { merge: false }>();
-    if (error) throw new Error(`select ${table} failed: ${error.message}`);
+    if (error) throw new Error(`select ${table} failed: ${error.message}`, { cause: error });
     const rows = data ?? [];
     for (const row of rows) {
       for (const { column, alias } of decimalColumns) {

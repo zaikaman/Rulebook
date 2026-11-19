@@ -15,7 +15,7 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { describeError } from '../lib/errors.js';
 
@@ -38,37 +38,37 @@ function reasonFor(error: unknown): string {
 /**
  * The Agent evaluates rules top to bottom. This list is that order: a drop or a keyboard move
  * submits the complete permutation, shows the new order immediately, and rolls the visual order
- * back if the chain refuses it. The first row is explicitly labelled "Runs first" rather than
- * leaving the reader to infer that position matters.
+ * back if the chain refuses it.
  */
 export function RuleOrderList({ ids, labels, onReorder, disabled = false }: RuleOrderListProps) {
   const [order, setOrder] = useState<bigint[]>(() => [...ids]);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const confirmedOrder = useRef(ids);
 
   // Re-sync when the chain value changes, without depending on a fresh array identity.
   const signature = ids.map((id) => id.toString()).join(',');
   useEffect(() => {
+    confirmedOrder.current = ids;
     setOrder([...ids]);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ids is represented by signature.
   }, [signature]);
 
   const commit = useCallback(
     async (next: bigint[]) => {
-      const previous = order;
       setOrder(next);
       setError(null);
       setPending(true);
       try {
         await onReorder(next);
       } catch (cause) {
-        setOrder(previous);
+        setOrder([...confirmedOrder.current]);
         setError(reasonFor(cause));
       } finally {
         setPending(false);
       }
     },
-    [onReorder, order],
+    [onReorder],
   );
 
   const sensors = useSensors(
@@ -77,7 +77,7 @@ export function RuleOrderList({ ids, labels, onReorder, disabled = false }: Rule
   );
 
   function handleDragEnd(event: DragEndEvent): void {
-    if (disabled || !event.over) return;
+    if (disabled || pending || !event.over) return;
     const oldIndex = order.findIndex((id) => id.toString() === String(event.active.id));
     const newIndex = order.findIndex((id) => id.toString() === String(event.over?.id));
     if (oldIndex === -1 || newIndex === -1 || oldIndex === newIndex) return;
@@ -111,7 +111,7 @@ export function RuleOrderList({ ids, labels, onReorder, disabled = false }: Rule
 
       {error ? (
         <div role="alert" className="app-alert text-sm" data-tone="error">
-          {error} The previous order is still in effect.
+          {error}
         </div>
       ) : null}
     </div>
@@ -173,7 +173,7 @@ function SortableRule({
       </span>
       <span className="min-w-0 flex-[1_1_10rem] break-words text-ink">{label}</span>
 
-      {index === 0 ? <span className="app-tag">Runs first</span> : null}
+      {index === 0 ? <span className="app-tag">Evaluated first</span> : null}
 
       <span className="flex gap-1">
         <button

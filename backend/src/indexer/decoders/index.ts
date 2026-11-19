@@ -76,6 +76,17 @@ const LASNA_EVENTS: EventDescriptor[] = [
     schema: z.object({ agent: address, ruleId: uint }),
   },
   {
+    name: 'RuleReplaced',
+    signature: 'RuleReplaced(uint256,uint256)',
+    abi: agentAbi,
+    schema: z
+      .object({ oldRuleId: uint, newRuleId: uint })
+      .refine(
+        ({ oldRuleId, newRuleId }) => newRuleId > oldRuleId,
+        'The replacement id must be greater than the retired id.',
+      ),
+  },
+  {
     name: 'RuleLatchChanged',
     signature: 'RuleLatchChanged(uint256,bool)',
     abi: agentAbi,
@@ -519,6 +530,22 @@ export async function persistDecodedEvent(
         rule_id: asString(args.ruleId),
         kind: 'cancelled',
         block_time: event.blockTime,
+      });
+      return;
+    }
+    case 'RuleReplaced': {
+      const oldId = asString(args.oldRuleId);
+      const newId = asString(args.newRuleId);
+      const [agent, retired, successor] = await Promise.all([
+        repositories.agents.get(event.address),
+        repositories.rules.get(event.address, oldId),
+        repositories.rules.get(event.address, newId),
+      ]);
+      if (!agent || retired?.status !== 'cancelled' || !successor) return;
+      await repositories.ruleReplacements.insert({
+        agent: event.address,
+        old_rule_id: oldId,
+        new_rule_id: newId,
       });
       return;
     }

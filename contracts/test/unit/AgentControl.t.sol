@@ -25,8 +25,7 @@ contract AgentControlTest is Test {
     address internal constant USER = address(0xA11CE);
     address internal constant STRANGER = address(0xB0B);
 
-    bytes32 internal constant EVALUATION_DEFERRED_TOPIC =
-        keccak256("EvaluationDeferred(uint256,uint256)");
+    bytes32 internal constant EVALUATION_DEFERRED_TOPIC = keccak256("EvaluationDeferred(uint256,uint256)");
     bytes32 internal constant BUDGET_LOW_TOPIC = keccak256("BudgetLow(uint256,uint256)");
 
     MockSystemContract internal system;
@@ -40,9 +39,7 @@ contract AgentControlTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
-        agent = new Agent(
-            USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this)
-        );
+        agent = new Agent(USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this));
     }
 
     function _rule() internal view returns (RuleLib.Rule memory rule) {
@@ -236,9 +233,7 @@ contract AgentControlTest is Test {
         uint256 evaluated;
         uint256 deferred;
         for (uint256 i = 0; i < logs.length; ++i) {
-            if (
-                logs[i].topics[0] == keccak256("RuleEvaluated(uint256,uint256,bytes32,uint32,bool)")
-            ) {
+            if (logs[i].topics[0] == keccak256("RuleEvaluated(uint256,uint256,bytes32,uint32,bool)")) {
                 evaluated += 1;
             }
             if (logs[i].topics[0] == EVALUATION_DEFERRED_TOPIC) deferred += 1;
@@ -356,11 +351,66 @@ contract AgentControlTest is Test {
         uint256 active = _addRule();
         IReactive.LogRecord memory log = _plainLog();
         vm.expectEmit(true, true, false, true, address(agent));
-        emit Agent.RuleEvaluated(
-            active, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false
-        );
+        emit Agent.RuleEvaluated(active, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false);
         vm.prank(address(system));
         agent.react{gas: 140_000}(log);
+    }
+
+    function test_reorderingLiveRulesPreservesPausedSlotsAndRejectsAStaleOrder() public {
+        uint256 first = _addRule();
+        uint256 paused = _addRule();
+        uint256 second = _addRule();
+        uint256 cancelled = _addRule();
+        vm.startPrank(USER);
+        agent.pauseRule(paused);
+        agent.cancelRule(cancelled);
+        uint256[] memory ids = agent.getEvaluationOrder();
+        assertEq(ids.length, 2);
+        bytes32 expected = keccak256(abi.encode(ids));
+        ids[0] = second;
+        ids[1] = cancelled;
+        vm.expectRevert(InvalidTemplateParams.selector);
+        agent.reorderEvaluationRules(ids, expected);
+        ids[1] = second;
+        vm.expectRevert(InvalidTemplateParams.selector);
+        agent.reorderEvaluationRules(ids, expected);
+        ids[1] = first;
+        agent.reorderEvaluationRules(ids, expected);
+        vm.expectRevert(InvalidTemplateParams.selector);
+        agent.reorderEvaluationRules(ids, expected);
+        agent.resumeRule(paused);
+        vm.stopPrank();
+        ids = agent.getEvaluationOrder();
+        assertEq(ids.length, 3);
+        assertEq(ids[0], second);
+        assertEq(ids[1], paused);
+        assertEq(ids[2], first);
+    }
+
+    function test_failedReplacementPreservesTheOriginalAndPausedReplacementStaysPaused() public {
+        uint256 first = _addRule();
+        uint256 paused = _addRule();
+        uint256 last = _addRule();
+        RuleLib.Rule memory replacement = _rule();
+        replacement.amountIn = agent.MAX_SPEND_PER_RUN() + 1;
+        vm.startPrank(USER);
+        vm.expectRevert(abi.encodeWithSelector(RuleNotActive.selector, first));
+        agent.replaceRule(first, 0, replacement, false);
+        vm.expectPartialRevert(ExceedsPerRunCap.selector);
+        agent.replaceRule(first, RuleLib.FLAG_ACTIVE, replacement, false);
+        assertEq(agent.getEvaluationOrder()[0], first);
+        assertEq(agent.monthlyReserved(), 30e6);
+        agent.pauseRule(paused);
+        replacement.amountIn = 5e6;
+        uint256 next = agent.replaceRule(paused, 0, replacement, false);
+        assertEq(agent.getRule(next).flags, 0);
+        assertEq(agent.monthlyReserved(), 20e6);
+        agent.resumeRule(next);
+        vm.stopPrank();
+        uint256[] memory order = agent.getEvaluationOrder();
+        assertEq(order[0], first);
+        assertEq(order[1], next);
+        assertEq(order[2], last);
     }
 
     function _addRuleWithAmount(uint256 amount) internal returns (uint256 ruleId) {

@@ -1,21 +1,23 @@
 import {
-  encodeAddRuleParams,
   LASNA_CHAIN_ID,
   ruleParamsFromDraft,
   type Address,
   type RuleParams,
 } from '@rulebook/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useState } from 'react';
 import { useAccount, useSendTransaction } from 'wagmi';
 
 import type { ReadyDraft } from '../composer/types.js';
+import { encodeRuleSubmission, type RuleReplacement } from '../composer/replaceRule.js';
 import { describeError, isWalletRejection } from '../lib/errors.js';
 import { ruleIdFromLogs } from '../lib/receipts.js';
 import { assertRuleFunding, RuleFundingError } from '../lib/ruleFunding.js';
-import { formatRuleSentence } from '../lib/rules.js';
+import { formatRuleSentence, RULE_FLAGS } from '../lib/rules.js';
 import { signatureDetails } from '../lib/signatures.js';
 import { estimateAddRuleGas, lasnaPublicClient } from '../lib/wagmi.js';
 import { useChainGuard } from './useChainGuard.js';
+import { evaluationOrderKey } from './useEvaluationOrder.js';
 
 export type CreateFailureKind = 'funding' | 'simulation' | 'wallet' | 'chain';
 
@@ -58,6 +60,7 @@ export function useCreateRule() {
   const { address } = useAccount();
   const requestSignature = useChainGuard();
   const { sendTransactionAsync } = useSendTransaction();
+  const queryClient = useQueryClient();
   const [state, setState] = useState<CreateRuleState>({
     status: 'idle',
     error: null,
@@ -73,6 +76,7 @@ export function useCreateRule() {
       agent: Address,
       draft: ReadyDraft,
       makePublic = false,
+      edit?: RuleReplacement,
     ): Promise<CreateRuleResult | null> => {
       setState({ status: 'simulating', error: null, result: null });
 
@@ -80,8 +84,8 @@ export function useCreateRule() {
       let params: RuleParams;
       try {
         params = ruleParamsFromDraft(draft);
-        data = encodeAddRuleParams(agent, params, { makePublic });
-        await assertRuleFunding(agent, params);
+        data = encodeRuleSubmission(agent, params, makePublic, edit);
+        await assertRuleFunding(agent, params, !!edit);
       } catch (error) {
         setState({
           status: 'failed',
@@ -125,8 +129,19 @@ export function useCreateRule() {
       let hash: `0x${string}`;
       try {
         const gas = await estimateAddRuleGas(agent, data, address);
+        const sentence = formatRuleSentence(draft);
+        const details = edit
+          ? signatureDetails.replace(
+              agent,
+              edit.ruleId,
+              params,
+              sentence,
+              makePublic,
+              edit.flags === RULE_FLAGS.active,
+            )
+          : signatureDetails.create(agent, params, sentence, makePublic);
         hash = await requestSignature(
-          signatureDetails.create(agent, params, formatRuleSentence(draft), makePublic),
+          details,
           address,
           (connector) =>
             sendTransactionAsync({
@@ -138,7 +153,7 @@ export function useCreateRule() {
               gas,
             }),
           undefined,
-          () => assertRuleFunding(agent, params),
+          () => assertRuleFunding(agent, params, !!edit),
         );
       } catch (error) {
         setState({
@@ -149,7 +164,9 @@ export function useCreateRule() {
               : isWalletRejection(error)
                 ? {
                     kind: 'wallet',
-                    message: 'You rejected the signature, so the rule was not created.',
+                    message: edit
+                      ? 'You rejected the signature. The original rule is unchanged.'
+                      : 'You rejected the signature, so the rule was not created.',
                     selector: null,
                   }
                 : {
@@ -177,6 +194,13 @@ export function useCreateRule() {
           return null;
         }
         const result = { txHash: hash, ruleId: ruleIdFromLogs(receipt.logs) };
+        void Promise.all([
+          queryClient.invalidateQueries({ queryKey: evaluationOrderKey(agent) }),
+          queryClient.invalidateQueries({ queryKey: ['rules', agent.toLowerCase()] }),
+          queryClient.invalidateQueries({ queryKey: ['rule', agent.toLowerCase()] }),
+          queryClient.invalidateQueries({ queryKey: ['rule-chain', agent.toLowerCase()] }),
+          queryClient.invalidateQueries({ queryKey: ['rule-replacement', agent.toLowerCase()] }),
+        ]);
         setState({ status: 'confirmed', error: null, result });
         return result;
       } catch (error) {
@@ -195,7 +219,7 @@ export function useCreateRule() {
         return null;
       }
     },
-    [address, requestSignature, sendTransactionAsync],
+    [address, queryClient, requestSignature, sendTransactionAsync],
   );
 
   return { ...state, create, reset };

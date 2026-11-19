@@ -1,7 +1,7 @@
 import type { Address } from '@rulebook/shared';
 import { formatEther, formatUnits, isAddress, isAddressEqual, zeroAddress } from 'viem';
 import { Link, useSearchParams } from 'react-router';
-import { useAccount, useReadContract } from 'wagmi';
+import { useAccount, useReadContract, useReadContracts } from 'wagmi';
 import { UNICHAIN_SEPOLIA_CHAIN_ID, vaultAbi, vaultFactoryAbi } from '@rulebook/shared';
 
 import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
@@ -16,7 +16,7 @@ import {
   DEMO_USDC,
   DEMO_WETH,
   LASNA_CONFIG,
-  PREVIOUS_VAULT_FACTORY_ADDRESS,
+  PREVIOUS_VAULT_FACTORY_ADDRESSES,
   UNICHAIN_CONFIG,
   VAULT_FACTORY_ADDRESS,
 } from '../lib/contracts.js';
@@ -157,16 +157,33 @@ function PreviousVault({ vault, address }: { vault: Address; address: Address })
   );
 }
 
-function usePreviousVault(address?: Address) {
-  const factory = PREVIOUS_VAULT_FACTORY_ADDRESS ?? VAULT_FACTORY_ADDRESS;
-  return useReadContract({
-    address: factory,
-    abi: vaultFactoryAbi,
-    functionName: 'vaultOf',
-    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
-    args: [address ?? zeroAddress],
-    query: { enabled: !!address && !!factory },
+function usePreviousVaults(address?: Address) {
+  const factories = PREVIOUS_VAULT_FACTORY_ADDRESSES.length
+    ? PREVIOUS_VAULT_FACTORY_ADDRESSES
+    : VAULT_FACTORY_ADDRESS
+      ? [VAULT_FACTORY_ADDRESS]
+      : [];
+  const query = useReadContracts({
+    contracts: factories.map(
+      (factory) =>
+        ({
+          address: factory,
+          abi: vaultFactoryAbi,
+          functionName: 'vaultOf',
+          chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+          args: [address ?? zeroAddress],
+        }) as const,
+    ),
+    query: { enabled: !!address && factories.length > 0 },
   });
+  const vaults = [
+    ...new Set(
+      query.data?.flatMap((entry) =>
+        entry.status === 'success' && entry.result !== zeroAddress ? [entry.result] : [],
+      ),
+    ),
+  ];
+  return { vaults, query };
 }
 
 export function Account() {
@@ -174,10 +191,10 @@ export function Account() {
   const [search] = useSearchParams();
   const fee = search.get('fund');
   const previousVault = search.get('vault');
-  const previous = usePreviousVault(address);
+  const { vaults: previousVaults, query: previous } = usePreviousVaults(address);
 
   if (previousVault && isAddress(previousVault)) {
-    if (address && previous.data && isAddressEqual(previous.data, previousVault)) {
+    if (address && previousVaults.some((vault) => isAddressEqual(vault, previousVault))) {
       return <PreviousVault key={previousVault} vault={previousVault} address={address} />;
     }
     return (
@@ -193,7 +210,9 @@ export function Account() {
           ) : (
             <ErrorState
               message="This vault could not be verified for the connected wallet."
-              {...(previous.isError ? { onRetry: () => void previous.refetch() } : {})}
+              {...(previous.isError || previous.data?.some((entry) => entry.status === 'failure')
+                ? { onRetry: () => void previous.refetch() }
+                : {})}
             />
           )}
           <Link to={appRoutes.account} className="app-link">
@@ -226,13 +245,17 @@ export function Account() {
             />
             <FundedAccount key={agent} agent={agent} vault={vault} />
             {address && <TelegramNotifications agent={agent} owner={address} />}
-            {previous.data &&
-              previous.data !== zeroAddress &&
-              !isAddressEqual(previous.data, vault) && (
-                <Link to={`${appRoutes.account}?vault=${previous.data}`} className="app-link">
-                  Withdraw from your previous vault
+            {previousVaults
+              .filter((previous) => !isAddressEqual(previous, vault))
+              .map((previous) => (
+                <Link
+                  key={previous}
+                  to={`${appRoutes.account}?vault=${previous}`}
+                  className="app-link"
+                >
+                  Withdraw from vault {shortAddress(previous)}
                 </Link>
-              )}
+              ))}
             <section className="app-divider space-y-3 pt-5" aria-labelledby="account-networks">
               <h2 id="account-networks" className="app-panel-heading">
                 Why two networks?

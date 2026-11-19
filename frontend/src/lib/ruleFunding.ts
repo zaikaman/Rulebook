@@ -36,8 +36,14 @@ type Spend = Pick<RuleParams, 'chainId' | 'tokenIn' | 'amountIn'> & {
 };
 
 /** Check the account and the funds one invocation could use, at a single funds-side block. */
-async function assertFunding(agent: Address, spend: Spend, mirror: boolean): Promise<void> {
+async function assertFunding(
+  agent: Address,
+  spend: Spend,
+  mirror: boolean,
+  editing = false,
+): Promise<void> {
   const { chainId, amountIn, tokenIn, tokenOut, sourceWallet } = spend;
+  const allowShortfall = editing && tokenOut !== undefined;
   if (chainId !== UNICHAIN_SEPOLIA_CHAIN_ID) {
     throw new RuleFundingError('This rule targets an unsupported funds network.');
   }
@@ -78,6 +84,26 @@ async function assertFunding(agent: Address, spend: Spend, mirror: boolean): Pro
         'This vault uses an incompatible execution contract. Use a vault for the current release.',
       );
     }
+    if (editing) {
+      const replacementVersion = await read({
+        ...contract,
+        functionName: 'REPLACEMENT_CALLBACK_VERSION',
+      }).catch((error: unknown) => {
+        if (
+          error instanceof BaseError &&
+          error.walk(
+            (cause) =>
+              cause instanceof ContractFunctionRevertedError ||
+              cause instanceof ContractFunctionZeroDataError,
+          )
+        )
+          return 0;
+        throw error;
+      });
+      if (replacementVersion !== 1) {
+        throw new RuleFundingError('Editing requires a Vault that supports rule replacements.');
+      }
+    }
     const [boundAgent, paused, mirrorMode, allowedIn, allowedOut, cap] = await Promise.all([
       read({ ...contract, functionName: 'agent' }),
       read({ ...contract, functionName: 'paused' }),
@@ -89,7 +115,8 @@ async function assertFunding(agent: Address, spend: Spend, mirror: boolean): Pro
     if (!isAddressEqual(boundAgent, agent)) {
       throw new RuleFundingError('Your vault is linked to a different automation account.');
     }
-    if (paused) throw new RuleFundingError('Unpause your vault before continuing.');
+    if (paused && !allowShortfall)
+      throw new RuleFundingError('Unpause your vault before continuing.');
     if (mirrorMode !== mirror) {
       throw new RuleFundingError(mirror ? 'Use a mirror-only vault.' : 'Use a standard vault.');
     }
@@ -116,7 +143,7 @@ async function assertFunding(agent: Address, spend: Spend, mirror: boolean): Pro
     ]);
     // Standard swaps and transfers spend actual ERC-20 balances. Mirrors also enforce recorded principal.
     const available = principal !== undefined && principal < balance ? principal : balance;
-    if (available < minimumBalance) {
+    if (available < minimumBalance && !allowShortfall) {
       const required = tokenAmount(minimumBalance);
       const held = tokenAmount(available);
       throw new RuleFundingError(
@@ -137,7 +164,11 @@ async function assertFunding(agent: Address, spend: Spend, mirror: boolean): Pro
   }
 }
 
-export async function assertRuleFunding(agent: Address, params: RuleParams): Promise<void> {
+export async function assertRuleFunding(
+  agent: Address,
+  params: RuleParams,
+  editing = false,
+): Promise<void> {
   const template = getTemplate(params.template);
   if (!template) throw new RuleFundingError('This rule template is unsupported.');
   if (template.action === 'alert') return;
@@ -160,6 +191,7 @@ export async function assertRuleFunding(agent: Address, params: RuleParams): Pro
       ...(template.name === 'IncomeSweep' ? { incomingMinimum: params.threshold } : {}),
     },
     false,
+    editing,
   );
 }
 

@@ -64,6 +64,8 @@ export const ruleSchema = z.object({
   runs: z.number().int().nonnegative(),
   last_run_at: blockTimeSchema.nullable().optional(),
   is_public: z.boolean().default(false),
+  replaces: uint256Schema.optional(),
+  replaced_by: uint256Schema.optional(),
   cached_price: cachedPriceSchema.nullable().optional(),
 });
 export type Rule = z.infer<typeof ruleSchema>;

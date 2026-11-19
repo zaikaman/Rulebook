@@ -6,6 +6,7 @@ import {IReactive} from "@reactive/interfaces/IReactive.sol";
 
 import {Agent} from "../../src/agent/Agent.sol";
 import {AgentFactory} from "../../src/agent/AgentFactory.sol";
+import {Subscription} from "../../src/agent/AgentRulePolicy.sol";
 import {RuleLib} from "../../src/libraries/RuleLib.sol";
 import {IRuleRegistry} from "../../src/registry/IRuleRegistry.sol";
 import {Vault} from "../../src/vault/Vault.sol";
@@ -43,9 +44,7 @@ contract AgentMirrorTest is Test {
         follower = Agent(factory.deploy(FOLLOWER_OWNER));
         vm.startPrank(LEADER_OWNER);
         leader.linkVault(1301, LEADER_VAULT);
-        leader.addRule(
-            RuleLib.Rule(3, 1301, 0, PAIR, TOKEN_IN, TOKEN_OUT, 12e6, 1e18, 11 days, 0, 0), false
-        );
+        leader.addRule(RuleLib.Rule(3, 1301, 0, PAIR, TOKEN_IN, TOKEN_OUT, 12e6, 1e18, 11 days, 0, 0), false);
         vm.stopPrank();
         vm.prank(FOLLOWER_OWNER);
         follower.linkVault(1301, FOLLOWER_VAULT);
@@ -99,8 +98,7 @@ contract AgentMirrorTest is Test {
     }
 
     function test_rejectsAnAgentOutsideTheFactory() public {
-        Agent impostor =
-            new Agent(address(this), system, IRuleRegistry(address(0)), follower.factory());
+        Agent impostor = new Agent(address(this), system, IRuleRegistry(address(0)), follower.factory());
         Agent.MirrorConfig memory config = _config();
         config.leaderAgent = address(impostor);
         _reject(0, MirrorDepthNotAllowed.selector, config);
@@ -124,8 +122,7 @@ contract AgentMirrorTest is Test {
         _attach();
         vm.startPrank(FOLLOWER_OWNER);
         follower.pauseRule(0);
-        RuleLib.Rule memory alert =
-            RuleLib.Rule(11, 1301, 0, PAIR, TOKEN_IN, TOKEN_OUT, 0, 1e18, 0, 0, 0);
+        RuleLib.Rule memory alert = RuleLib.Rule(11, 1301, 0, PAIR, TOKEN_IN, TOKEN_OUT, 0, 1e18, 0, 0, 0);
         for (uint256 i; i < 5; ++i) {
             follower.addRule(alert, false);
         }
@@ -151,7 +148,7 @@ contract AgentMirrorTest is Test {
     function test_subscribesOnlyToExecutedAndIgnoresWrongTopic() public {
         _attach();
         assertEq(system.lastSubscribedTopic(), uint256(Vault.Executed.selector));
-        Agent.Subscription[2] memory subscriptions = follower.getSubscriptions(0);
+        Subscription[3] memory subscriptions = follower.getSubscriptions(0);
         assertEq(subscriptions[0].source, LEADER_VAULT);
         assertEq(subscriptions[1].key, bytes32(0));
         IReactive.LogRecord memory log = _log(1);

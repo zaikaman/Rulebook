@@ -1427,11 +1427,13 @@
   --app-status-color: var(--rb-status-active);
 }
 
-.app-status[data-status='paused'] {
+.app-status[data-status='paused'],
+.app-status[data-status='waiting-funds'] {
   --app-status-color: var(--rb-status-paused);
 }
 
-.app-status[data-status='cancelled'] {
+.app-status[data-status='cancelled'],
+.app-status[data-status='replaced'] {
   --app-status-color: var(--rb-status-cancelled);
 }
 

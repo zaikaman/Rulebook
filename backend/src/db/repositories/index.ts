@@ -48,6 +48,12 @@ export type RuleRow = {
   indexed_at: string;
 };
 
+export type RuleReplacementRow = {
+  agent: string;
+  old_rule_id: string;
+  new_rule_id: string;
+};
+
 export type RuleEventRow = {
   chain_id: number;
   tx_hash: string;
@@ -215,6 +221,26 @@ export function createRepositories(store: Store) {
         if (vault) await this.upsert({ ...vault, mirror_mode: true });
       },
     },
+    ruleReplacements: {
+      async insert(row: RuleReplacementRow): Promise<void> {
+        await store.insert('rule_replacements', row, 'agent,old_rule_id');
+      },
+      async list(agent: string): Promise<RuleReplacementRow[]> {
+        return (await store.select('rule_replacements', { agent })) as RuleReplacementRow[];
+      },
+      async before(agent: string, ruleId: string): Promise<RuleReplacementRow | null> {
+        return (await store.selectOne('rule_replacements', {
+          agent,
+          new_rule_id: ruleId,
+        })) as RuleReplacementRow | null;
+      },
+      async after(agent: string, ruleId: string): Promise<RuleReplacementRow | null> {
+        return (await store.selectOne('rule_replacements', {
+          agent,
+          old_rule_id: ruleId,
+        })) as RuleReplacementRow | null;
+      },
+    },
     rules: {
       async upsert(row: Omit<RuleRow, 'indexed_at'>): Promise<void> {
         await store.upsert('rules', [withIndexedAt(row)], 'agent,rule_id');
@@ -254,7 +280,7 @@ export function createRepositories(store: Store) {
         latched?: boolean,
       ): Promise<void> {
         const existing = await this.get(agent, ruleId);
-        if (!existing) return;
+        if (!existing || (existing.status === 'cancelled' && status !== 'cancelled')) return;
         await store.upsert(
           'rules',
           [

@@ -1,4 +1,5 @@
-export type RuleStatus = 'active' | 'paused' | 'cancelled' | 'latched' | 'silent';
+export type RuleStatus =
+  'active' | 'paused' | 'cancelled' | 'latched' | 'silent' | 'waiting-funds' | 'replaced';
 
 const LABELS: Record<RuleStatus, string> = {
   active: 'Active',
@@ -6,6 +7,8 @@ const LABELS: Record<RuleStatus, string> = {
   cancelled: 'Cancelled',
   latched: 'Fired — needs reset',
   silent: 'Silent — no execution credit',
+  'waiting-funds': 'Waiting for funds',
+  replaced: 'Replaced',
 };
 
 /**

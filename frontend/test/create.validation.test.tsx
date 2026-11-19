@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { fireEvent, render as renderComponent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { agentAbi, getChain } from '@rulebook/shared';
 import { ContractFunctionZeroDataError, decodeFunctionData, zeroAddress } from 'viem';
@@ -7,6 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CreateRuleForm } from '../src/pages/Create.js';
 import { assertRuleFunding } from '../src/lib/ruleFunding.js';
+
+function render(component: Parameters<typeof renderComponent>[0]) {
+  return renderComponent(
+    <QueryClientProvider client={new QueryClient()}>{component}</QueryClientProvider>,
+  );
+}
 
 const USER = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
 const AGENT = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;

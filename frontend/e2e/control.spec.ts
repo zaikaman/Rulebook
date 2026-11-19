@@ -12,7 +12,7 @@ async function createRule(page: Page, amountLabel: string): Promise<void> {
   await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
   await page.getByLabel('Amount to spend').fill(amountLabel);
-  await page.getByLabel('Schedule').fill('1');
+  await page.getByLabel('Schedule', { exact: true }).fill('1');
   await page.getByRole('button', { name: 'Review and create rule' }).click();
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: /Rule created/ })).toBeVisible({
@@ -20,7 +20,9 @@ async function createRule(page: Page, amountLabel: string): Promise<void> {
   });
 }
 
-test('pausing a rule persists and a reorder survives a reload', async ({ page }) => {
+test('rules keep live priority, replacement history, and current funding status', async ({
+  page,
+}, testInfo) => {
   test.setTimeout(300_000);
   await installWallet(page, CONTROLLER);
 
@@ -59,7 +61,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     )
     .toBe(2);
   await page.goto('/rules');
-  const rows = page.getByRole('list', { name: 'Rules in evaluation order' }).getByRole('listitem');
+  const rows = page.getByRole('list', { name: 'Current rules' }).getByRole('listitem');
   await expect(rows).toHaveCount(2, { timeout: 30_000 });
 
   // Pause the first rule and confirm the pill, not a pending toast, changed.
@@ -91,8 +93,18 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   await expect(page.getByText('Paused').first()).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('button', { name: 'Resume' })).toBeVisible();
 
-  // Move the second rule to the top, then prove the permutation survives a reload.
+  await page.getByRole('link', { name: 'Your rules' }).click();
   const order = page.locator('[data-testid^="rule-order-"]');
+  await expect(order).toHaveCount(1, { timeout: 30_000 });
+  await expect(order.first()).not.toHaveAttribute('data-testid', `rule-order-${pausedRuleId}`);
+
+  await page.goto(`/rules/${agent}/${pausedRuleId}`);
+  await page.getByRole('button', { name: 'Resume' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await page.getByRole('link', { name: 'Your rules' }).click();
+
+  // Move the second enabled rule to the top and verify the chain order after reload.
   await expect(order).toHaveCount(2, { timeout: 30_000 });
   const firstId = await order.nth(0).getAttribute('data-testid');
   const secondId = await order.nth(1).getAttribute('data-testid');
@@ -100,7 +112,7 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
     .nth(1)
     .getByRole('button', { name: /Move rule .* up/ })
     .click();
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await approveSignature(page, 'Reactive Lasna');
 
   await expect(order.nth(0)).toHaveAttribute('data-testid', secondId ?? '');
 
@@ -109,6 +121,38 @@ test('pausing a rule persists and a reorder survives a reload', async ({ page })
   await expect(reloaded.nth(0)).toHaveAttribute('data-testid', secondId ?? '', {
     timeout: 30_000,
   });
-  await expect(reloaded.nth(0)).toContainText('Runs first');
+  await expect(reloaded.nth(0)).toContainText('Evaluated first');
   await expect(reloaded.nth(1)).toHaveAttribute('data-testid', firstId ?? '');
+
+  await rows.first().getByRole('link', { name: 'Detail' }).click();
+  const previousUrl = page.url();
+  await page.getByRole('link', { name: 'Edit rule' }).click();
+  await expect(page.getByLabel('Amount to spend')).toHaveValue('10');
+  await page.getByLabel('Amount to spend').fill('25');
+  await page.getByRole('button', { name: 'Review and save changes' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.getByRole('heading', { name: 'Rule #2' })).toBeVisible({ timeout: 90_000 });
+  await expect(page.getByText('Waiting for funds').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
+  await expect(page.getByRole('link', { name: /rule #/i }).first()).toHaveAttribute(
+    'href',
+    new URL(previousUrl).pathname,
+  );
+
+  await page.getByRole('link', { name: 'Your rules' }).click();
+  await expect(order.first()).toHaveAttribute('data-testid', 'rule-order-2');
+  await expect(rows).toHaveCount(2);
+  await page.getByText('History (1)').click();
+  await expect(page.getByRole('list', { name: 'Retired rules' })).toContainText('Replaced');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await rows.first().getByRole('link', { name: 'Detail' }).click();
+  await expect(page.getByText('Waiting for funds').first()).toBeVisible();
+  await expect(page.getByText('20 USDC available in the Vault.')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('waiting-for-funds-mobile.png') });
+
+  await fundFixtureVault(CONTROLLER, 5_000_000n);
+  await expect(page.getByRole('heading', { name: 'Rule #2' })).toBeVisible();
+  await expect(page.getByText('Waiting for funds')).toHaveCount(0, { timeout: 30_000 });
+  await expect(page.getByRole('button', { name: 'Pause' })).toBeVisible();
 });

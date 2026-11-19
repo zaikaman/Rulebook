@@ -2,6 +2,7 @@ import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   agentAbi,
+  agentFactoryAbi,
   alertTemplateSchema,
   getTemplate,
   LASNA_CHAIN_ID,
@@ -9,7 +10,7 @@ import {
   type Address,
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useAccount, useReadContract } from 'wagmi';
 
 import { AddressLink } from '../components/AddressLink.js';
@@ -23,14 +24,18 @@ import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PriceLabel } from '../components/PriceLabel.js';
 import { TxLink } from '../components/TxLink.js';
 import { RuleActions } from '../components/RuleActions.js';
-import { RuleOrderList } from '../components/RuleOrderList.js';
-import { StatusPill, type RuleStatus } from '../components/StatusPill.js';
+import { StatusPill } from '../components/StatusPill.js';
+import { composerForRule } from '../composer/replaceRule.js';
 import { TelegramNotifications } from '../components/TelegramNotifications.js';
 import { useRuleControl } from '../hooks/useRuleControl.js';
+import { useRuleFunds } from '../hooks/useRuleFunds.js';
 import { api, ApiError } from '../lib/api.js';
+import { AGENT_FACTORY_ADDRESS, DEMO_USDC } from '../lib/contracts.js';
 import { appRoutes } from '../lib/routes.js';
-import { lastRunLabel, ruleSentence } from '../lib/rules.js';
+import { lastRunLabel, ruleLifecycle, ruleSentence, RULE_FLAGS } from '../lib/rules.js';
 import { signatureTokenAmount } from '../lib/signatures.js';
+import { lasnaPublicClient } from '../lib/wagmi.js';
+import { CreateRuleForm, useComposerVaultTerms } from './Create.js';
 
 const ZERO = '0x0000000000000000000000000000000000000000';
 const INDEXER_RETRY_DELAY_MS = 5_000;
@@ -56,24 +61,24 @@ function CachedPrice({ agent, pair }: { readonly agent: Address; readonly pair: 
   );
 }
 
-function statusOf(status: 'active' | 'paused' | 'cancelled', latched: boolean): RuleStatus {
-  if (latched && status === 'active') return 'latched';
-  return status;
-}
-
 /** `/rules/:agent/:ruleId`: the sentence, its parameters, and the execution history. */
 export function RuleDetail() {
   const { agent, ruleId } = useParams();
   const { address } = useAccount();
-  const orderQuery = useReadContract({
-    address: (agent as Address | undefined) ?? ZERO,
-    abi: agentAbi,
-    functionName: 'getRuleIds',
-    chainId: LASNA_CHAIN_ID,
-    query: { enabled: Boolean(agent) },
+  const [search] = useSearchParams();
+  const navigate = useNavigate();
+  const agentAddress = (agent as Address | undefined) ?? ZERO;
+  const id = ruleId && /^\d{1,78}$/.test(ruleId) ? BigInt(ruleId) : null;
+  const editing = search.get('edit') === '1';
+  const detailPath = `/rules/${agentAddress}/${ruleId}`;
+  const chainRule = useQuery({
+    queryKey: ['rule-chain', agent?.toLowerCase(), ruleId],
+    queryFn: () => readRule(agentAddress, id ?? 0n),
+    enabled: !!agent && id !== null,
+    refetchInterval: 30_000,
   });
   const detailQuery = useQuery({
-    queryKey: ['rule', agent, ruleId],
+    queryKey: ['rule', agent?.toLowerCase(), ruleId],
     queryFn: async () => {
       try {
         return await api.ruleDetail(agent as string, ruleId as string);
@@ -82,28 +87,19 @@ export function RuleDetail() {
           throw error;
         }
 
-        // The receipt can arrive before the indexer. A cached order can also predate the receipt.
-        const containsRule = (ids: readonly bigint[] | undefined) =>
-          ids?.some((id) => id.toString() === ruleId);
         if (
-          !containsRule(orderQuery.data) &&
-          !containsRule((await orderQuery.refetch({ cancelRefetch: false })).data)
+          !chainRule.data?.template &&
+          !(await chainRule.refetch({ cancelRefetch: false })).data?.template
         ) {
           throw error;
         }
         throw new RuleIndexingError('Rule confirmed on Reactive Lasna.');
       }
     },
-    enabled: Boolean(agent && ruleId),
+    enabled: !!agent && id !== null,
     retry: (failureCount, error) =>
       error instanceof RuleIndexingError && failureCount < INDEXER_RETRY_LIMIT,
     retryDelay: INDEXER_RETRY_DELAY_MS,
-  });
-
-  const rulesQuery = useQuery({
-    queryKey: ['rules', agent],
-    queryFn: () => api.rules(agent as string, 'all'),
-    enabled: Boolean(agent),
   });
 
   const ownerQuery = useReadContract({
@@ -112,16 +108,54 @@ export function RuleDetail() {
     functionName: 'owner',
     chainId: LASNA_CHAIN_ID,
     query: {
-      enabled: Boolean(
-        address &&
-        agent &&
-        (detailQuery.data?.mirror ||
-          detailQuery.data?.sponsor?.chains.some(({ state }) => state !== 'healthy')),
-      ),
+      enabled: !!address && !!agent,
     },
   });
 
-  const control = useRuleControl((agent as Address | undefined) ?? null);
+  const isOwner = !!address && ownerQuery.data?.toLowerCase() === address.toLowerCase();
+  const storedRule = detailQuery.data?.rule;
+  const liveRule = chainRule.data?.template ? chainRule.data : undefined;
+  const lifecycle = storedRule ? ruleLifecycle(storedRule, liveRule?.flags) : undefined;
+  const terminal = lifecycle === 'cancelled';
+  const funds = useRuleFunds(
+    agentAddress,
+    storedRule,
+    lifecycle === 'active' && !!liveRule && (liveRule.flags & RULE_FLAGS.mirrored) === 0,
+  );
+  const currentAccount = useReadContract({
+    address: AGENT_FACTORY_ADDRESS ?? ZERO,
+    abi: agentFactoryAbi,
+    functionName: 'agentOf',
+    args: [address ?? ZERO],
+    chainId: LASNA_CHAIN_ID,
+    query: { enabled: !!funds && isOwner && !!AGENT_FACTORY_ADDRESS },
+  });
+  const control = useRuleControl(agent ? agentAddress : null);
+  const editCapability = useReadContract({
+    address: agentAddress,
+    abi: agentAbi,
+    functionName: 'getEvaluationOrder',
+    chainId: LASNA_CHAIN_ID,
+    query: { enabled: isOwner && !!storedRule && !terminal, retry: false, staleTime: Infinity },
+  });
+  const replacement = useQuery({
+    queryKey: ['rule-replacement', agent?.toLowerCase(), ruleId],
+    queryFn: () =>
+      lasnaPublicClient.readContract({
+        address: agentAddress,
+        abi: agentAbi,
+        functionName: 'replacementFor',
+        args: [id ?? 0n],
+      }),
+    enabled: terminal && !!agent && id !== null,
+    retry: false,
+  });
+  const editable =
+    isOwner &&
+    editCapability.isSuccess &&
+    !!liveRule &&
+    !terminal &&
+    (liveRule.flags & RULE_FLAGS.mirrored) === 0;
 
   const breadcrumb = (
     <>
@@ -185,22 +219,69 @@ export function RuleDetail() {
 
   const { rule, recent_executions: executions, budget, sponsor, mirror } = detailQuery.data;
   const alerts = detailQuery.data.alerts ?? [];
-  const agentAddress = agent as Address;
-  const rules = rulesQuery.data ?? [];
-  const order = orderQuery.data ?? rules.map((candidate) => candidate.rule_id);
-  const labels = Object.fromEntries(
-    rules.map((candidate) => [candidate.rule_id.toString(), ruleSentence(candidate)]),
-  );
   const currentRuleId = rule.rule_id;
-  const isOwner = !!address && ownerQuery.data?.toLowerCase() === address.toLowerCase();
+  const successor = rule.replaced_by ?? replacement.data;
+  const status = successor
+    ? 'replaced'
+    : funds
+      ? 'waiting-funds'
+      : (lifecycle ?? ruleLifecycle(rule));
+
+  if (editing && editable && liveRule) {
+    return (
+      <section className="app-page">
+        <PageHeading
+          title={`Edit rule #${currentRuleId}`}
+          description={
+            liveRule.flags === RULE_FLAGS.active
+              ? 'The new rule keeps its priority. A buy already sent to your Vault can still finish.'
+              : 'The updated rule starts paused. Resume it when you want it to run.'
+          }
+          aside={
+            <Link to={detailPath} className="app-button">
+              Back to rule
+            </Link>
+          }
+          focusOnMount
+        />
+        <EditRuleComposer
+          key={detailPath}
+          agent={agentAddress}
+          ruleId={currentRuleId}
+          liveRule={liveRule}
+          sentence={ruleSentence(rule)}
+          onEdited={(nextId) =>
+            void navigate(`/rules/${agentAddress}/${nextId}`, { replace: true })
+          }
+        />
+      </section>
+    );
+  }
 
   return (
     <section className="app-page">
       <PageHeading
         title={`Rule #${currentRuleId.toString()}`}
         breadcrumb={breadcrumb}
-        aside={<StatusPill status={statusOf(rule.status, rule.latched)} />}
+        aside={<StatusPill status={status} />}
       />
+
+      {funds && (
+        <div className="app-alert" data-tone="warning" role="status">
+          <p>
+            {funds.available} available in the Vault. This rule needs {funds.required} per run.
+          </p>
+          {isOwner &&
+          currentAccount.data?.toLowerCase() === agentAddress.toLowerCase() &&
+          funds.token.toLowerCase() === DEMO_USDC.toLowerCase() ? (
+            <Link to={appRoutes.account} className="app-link">
+              Fund your Vault
+            </Link>
+          ) : (
+            <AddressLink address={funds.vault} chainId={UNICHAIN_SEPOLIA_CHAIN_ID} />
+          )}
+        </div>
+      )}
 
       <section className="app-panel">
         <div className="app-panel-pad app-rule-summary space-y-2">
@@ -272,6 +353,25 @@ export function RuleDetail() {
         </dl>
       </section>
 
+      {successor ? (
+        <p className="app-copy">
+          Replaced by{' '}
+          <Link to={`/rules/${agentAddress}/${successor}`} className="app-link">
+            rule #{successor.toString()}
+          </Link>
+          .
+        </p>
+      ) : null}
+      {rule.replaces !== undefined && (
+        <p className="app-copy">
+          Replaces{' '}
+          <Link to={`/rules/${agentAddress}/${rule.replaces}`} className="app-link">
+            rule #{rule.replaces.toString()}
+          </Link>
+          .
+        </p>
+      )}
+
       <BudgetAtRiskBanner sponsor={sponsor} canFund={isOwner} />
       <div className="app-detail-layout">
         <div className="app-page">
@@ -288,7 +388,7 @@ export function RuleDetail() {
             />
           </section>
 
-          {isOwner && address && rule.status !== 'cancelled' && (
+          {isOwner && address && !terminal && (
             <TelegramNotifications
               agent={agentAddress}
               owner={address}
@@ -322,21 +422,31 @@ export function RuleDetail() {
         <div className="app-page">
           <section aria-label="Rule actions" className="app-panel app-panel-pad space-y-3">
             <h2 className="app-panel-heading">Control</h2>
-            {mirror && !mirror.detached_at ? (
-              isOwner ? (
-                <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
-              ) : (
-                <p className="app-copy">Connect the owner wallet to detach this mirror.</p>
-              )
+            {terminal ? (
+              <p className="app-copy">This rule is retired. You can still view its executions.</p>
+            ) : !isOwner ? (
+              <p className="app-copy">Connect the owner wallet to manage this rule.</p>
+            ) : mirror && !mirror.detached_at ? (
+              <DetachMirror detach={() => control.detachMirror(currentRuleId)} />
             ) : (
-              <RuleActions
-                ruleId={currentRuleId}
-                status={statusOf(rule.status, rule.latched)}
-                onPause={() => control.pause(currentRuleId)}
-                onResume={() => control.resume(currentRuleId)}
-                onCancel={() => control.cancel(currentRuleId)}
-                onRearm={() => control.rearm(currentRuleId)}
-              />
+              <>
+                <RuleActions
+                  ruleId={currentRuleId}
+                  status={status}
+                  onPause={() => control.pause(currentRuleId)}
+                  onResume={() => control.resume(currentRuleId)}
+                  onCancel={() => control.cancel(currentRuleId)}
+                  onRearm={() => control.rearm(currentRuleId)}
+                />
+                {editable && (
+                  <Link className="app-button" to="?edit=1">
+                    Edit rule
+                  </Link>
+                )}
+                {editCapability.isError && (
+                  <p className="app-copy">Editing requires a newer automation account.</p>
+                )}
+              </>
             )}
           </section>
 
@@ -347,14 +457,62 @@ export function RuleDetail() {
           ) : null}
         </div>
       </div>
-
-      <section aria-label="Evaluation order" className="app-panel app-panel-pad space-y-3">
-        <h2 className="app-panel-heading">Evaluation order</h2>
-        <p className="app-copy">
-          Rules run top to bottom on every wake-up. Move one to change which gets the gas first.
-        </p>
-        <RuleOrderList ids={order} labels={labels} onReorder={control.reorder} />
-      </section>
     </section>
+  );
+}
+
+type ChainRule = NonNullable<Awaited<ReturnType<typeof readRule>>>;
+
+function readRule(agent: Address, id: bigint) {
+  return lasnaPublicClient.readContract({
+    address: agent,
+    abi: agentAbi,
+    functionName: 'getRule',
+    args: [id],
+  });
+}
+
+function EditRuleComposer({
+  agent,
+  ruleId,
+  liveRule,
+  sentence,
+  onEdited,
+}: {
+  readonly agent: Address;
+  readonly ruleId: bigint;
+  readonly liveRule: ChainRule;
+  readonly sentence: string;
+  readonly onEdited: (nextId: bigint) => void;
+}) {
+  const vault = useReadContract({
+    address: agent,
+    abi: agentAbi,
+    functionName: 'getVault',
+    args: [BigInt(liveRule.chainId)],
+    chainId: LASNA_CHAIN_ID,
+  });
+  const terms = useComposerVaultTerms(vault.data && vault.data !== ZERO ? vault.data : undefined);
+  return (
+    <>
+      <p className="app-copy">Current rule “{sentence}”</p>
+      <CreateRuleForm
+        agent={agent}
+        initialState={composerForRule(liveRule)}
+        edit={{ ruleId, flags: liveRule.flags }}
+        vaultTerms={terms.data}
+        vaultPending={vault.isLoading || (!terms.data && terms.isFetching)}
+        refreshVault={async () => {
+          if (!vault.data || vault.data === ZERO) {
+            await vault.refetch({ throwOnError: true });
+            throw new Error('Link a vault before editing a rule that moves funds.');
+          }
+          const refreshed = await terms.refetch({ throwOnError: true });
+          if (!refreshed.data) throw new Error('Vault settings are unavailable.');
+          return refreshed.data;
+        }}
+        onEdited={onEdited}
+      />
+    </>
   );
 }

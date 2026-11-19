@@ -12,6 +12,13 @@ Use the deployment records to set `VITE_AGENT_FACTORY_ADDRESS` and `VITE_VAULT_F
 
 Existing owners can withdraw USDC and WETH from `/account?vault=<previous-vault-address>` with the same wallet. This route checks the old factory's ownership record and the vault's owner. Existing Agents and Vaults are bound to their original addresses. Owners must authorize the new account and recreate any rules they wish to carry over. Retire the old rules before starting equivalent rules in the new account. Allow any in-flight callbacks to expire or settle before moving balances if the old vault is execution-capable.
 
+For the rule lifecycle release, apply backend migration `0011_rule_replacements.sql` before
+cutting over. Deploy the matching Agent and Vault factories together. Keep the old factory in
+`VITE_PREVIOUS_AGENT_FACTORY_ADDRESS` so owners can still manage their old rules and open their
+history from **Your rules**.
+List any earlier Vault factories under `VITE_PREVIOUS_VAULT_FACTORY_ADDRESSES`, separated by commas,
+to keep their withdrawal links available.
+
 ## Verify the live release
 
 Check the origin event and Lasna evaluation for each canary. Confirm a funds-moving rule only when the paired Unichain receipt contains the vault's `Executed` event. Confirm alert rules from the Lasna `AlertRaised` event. Inspect both sides for debt before investigating a missed trigger. The same timer, price and transfer subscriptions stop receiving events if the Agent's network fees are unpaid. [Reactive fee and debt documentation](https://dev.reactive.network/economy)

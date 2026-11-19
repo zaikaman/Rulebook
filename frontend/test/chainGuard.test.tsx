@@ -41,6 +41,7 @@ vi.mock('wagmi', () => ({
   useSwitchChain: () => ({ switchChainAsync: mocks.switchChain }),
   useSignTypedData: () => ({ signTypedDataAsync: mocks.sign }),
   useWriteContract: () => ({ writeContractAsync: mocks.writeContract }),
+  useSendTransaction: () => ({ sendTransactionAsync: mocks.writeContract }),
 }));
 vi.mock('../src/components/chrome/WalletControl.js', () => ({
   WalletControl: () => null,

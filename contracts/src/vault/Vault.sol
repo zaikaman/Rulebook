@@ -14,6 +14,7 @@ import {
     AlertOnlyTemplate,
     CallbackSenderMismatch,
     ConditionNotMet,
+    CooldownActive,
     DuplicateLeaderExecution,
     ExceedsPerRunCap,
     Expired,
@@ -58,6 +59,11 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     event Deposited(address indexed token, uint256 amount, address indexed from);
     /// @notice Balances after every balance change; the balance-floor template listens to this.
     event Balances(address token0, uint256 balance0, address token1, uint256 balance1);
+    event ScheduledSwapFunds(
+        address token, uint256 balance, uint256 observedAt, uint256 skippedRuleId, uint32 skippedSequence
+    );
+    /// @notice An authenticated swap request was skipped before trading.
+    event SwapFundingDeferred(uint256 indexed ruleId, uint256 required, uint256 available);
     /// @notice Payout destination changed by the owner.
     event PayoutAddressChanged(address indexed previous, address indexed next);
     /// @notice Spend limits and the allowlisted pair changed by the owner.
@@ -70,6 +76,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     /// @notice Largest tolerance the owner may set: 10%. A wider floor is not a floor.
     uint16 public constant MAX_SLIPPAGE_BPS = 1_000;
     uint8 public constant EXECUTION_PAYLOAD_VERSION = 2;
+    uint8 public constant REPLACEMENT_CALLBACK_VERSION = 1;
 
     /// @notice The user who owns this vault and its principal.
     address public immutable owner;
@@ -140,11 +147,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
 
     /// @notice Withdraws principal to `to`, or to the payout address when `to` is zero.
     /// @dev Always allowed, including while paused: custody belongs to the owner (FR-006).
-    function withdraw(address token, uint256 amount, address to)
-        external
-        onlyVaultOwner
-        nonReentrant
-    {
+    function withdraw(address token, uint256 amount, address to) external onlyVaultOwner nonReentrant {
         uint256 available = _principal[token];
         if (amount > available) revert InsufficientPrincipal(amount, available);
         address recipient = to == address(0) ? payoutAddress : to;
@@ -164,10 +167,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     }
 
     /// @notice Sets the per-run ceiling and the allowlisted token pair.
-    function setLimits(uint256 maxSpendPerRun_, address tokenIn_, address tokenOut_)
-        external
-        onlyVaultOwner
-    {
+    function setLimits(uint256 maxSpendPerRun_, address tokenIn_, address tokenOut_) external onlyVaultOwner {
         _validateAllowlist(tokenIn_, tokenOut_);
         if (maxSpendPerRun_ == 0) revert InvalidAmount();
         maxSpendPerRun = maxSpendPerRun_;
@@ -188,17 +188,36 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         paused = paused_;
     }
 
+    /// @notice Publishes current balances, including funds received through a direct transfer.
+    function publishBalances() external onlyVaultOwner nonReentrant {
+        emit ScheduledSwapFunds(allowedTokenIn, IERC20(allowedTokenIn).balanceOf(address(this)), block.timestamp, 0, 0);
+    }
+
     /// @notice Reactive callback entry point. The `agent` argument is compared, never trusted.
     /// @dev Money path. Alert templates are refused before any token call, transfers use
     /// `transfer`, the balance-floor template uses `transferFrom`, and swaps quote from live
     /// reserves — never from the Agent's cached price (FR-028).
     function execute(address agent_, uint256 ruleId, bytes calldata data) external nonReentrant {
+        _execute(agent_, ruleId, data);
+    }
+
+    /// @notice Separate selector ensures older vaults cannot accept a replacement callback.
+    function executeReplacement(address agent_, uint256 ruleId, bytes calldata data) external nonReentrant {
+        _execute(agent_, ruleId, data);
+    }
+
+    function _execute(address agent_, uint256 ruleId, bytes calldata data) private {
         _authenticate(agent_);
         if (mirrorMode) revert MirrorDepthNotAllowed();
         if (paused) revert ConditionNotMet();
         if (ruleId > type(uint32).max) revert InvalidTemplateParams();
 
         ExecutionPayload memory payload = CallbackPayload.decode(data);
+        // The high bits carry the replacement's destination-side activation time. The low
+        // bits retain the original recipient or grid parameters in both old and new payloads.
+        uint64 notBefore = uint64(payload.extra >> 160);
+        if (block.timestamp < notBefore) revert CooldownActive(ruleId, notBefore);
+        payload.extra = uint160(payload.extra);
         if (payload.template > type(uint8).max) revert InvalidTemplateParams();
         uint8 template = uint8(payload.template);
         if (template < 1 || template > RuleLib.TEMPLATE_COUNT) revert UnknownTemplate(template);
@@ -222,6 +241,13 @@ contract Vault is AbstractCallback, ReentrancyGuard {
             if (payload.tokenOut != allowedTokenOut) {
                 revert TokenMismatch(allowedTokenOut, payload.tokenOut);
             }
+            uint256 available = IERC20(allowedTokenIn).balanceOf(address(this));
+            if (available < payload.amountIn) {
+                if (template > 2) revert InsufficientPrincipal(payload.amountIn, available);
+                emit SwapFundingDeferred(ruleId, payload.amountIn, available);
+                emit ScheduledSwapFunds(allowedTokenIn, available, block.timestamp, ruleId, payload.sequence);
+                return;
+            }
             _swap(ruleId, payload);
             if (template == 6) emit GridSettled(ruleId, payload.sequence);
         } else if (template == 9) {
@@ -232,10 +258,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
     }
 
     /// @notice Executes a proportional swap in a mirror vault with a live quote.
-    function executeMirror(address agent_, uint256 ruleId, bytes calldata data)
-        external
-        nonReentrant
-    {
+    function executeMirror(address agent_, uint256 ruleId, bytes calldata data) external nonReentrant {
         _authenticate(agent_);
         if (!mirrorMode) revert MirrorDepthNotAllowed();
         if (paused) revert ConditionNotMet();
@@ -257,9 +280,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (payload.amountIn > available) {
             revert InsufficientPrincipal(payload.amountIn, available);
         }
-        bytes32 key = CallbackPayload.mirrorExecutionKey(
-            payload.leaderVault, payload.leaderRuleId, payload.leaderTx
-        );
+        bytes32 key = CallbackPayload.mirrorExecutionKey(payload.leaderVault, payload.leaderRuleId, payload.leaderTx);
         if (_mirroredExecutions[key]) revert DuplicateLeaderExecution(key);
         _mirroredExecutions[key] = true;
 
@@ -293,9 +314,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         if (minOut == 0) revert InvalidAmount();
 
         uint256 received = _trade(payload.amountIn, minOut);
-        emit Executed(
-            ruleId, allowedTokenIn, allowedTokenOut, payload.amountIn, received, block.timestamp
-        );
+        emit Executed(ruleId, allowedTokenIn, allowedTokenOut, payload.amountIn, received, block.timestamp);
         _emitBalances(allowedTokenIn, allowedTokenOut);
     }
 
@@ -355,11 +374,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
 
     /// @dev Reads the pair's live reserves in the vault's allowlist order and verifies the pair
     /// really is the canonical pool for the allowlisted tokens.
-    function _liveReserves(address pair)
-        private
-        view
-        returns (uint256 reserveIn, uint256 reserveOut, uint256 price)
-    {
+    function _liveReserves(address pair) private view returns (uint256 reserveIn, uint256 reserveOut, uint256 price) {
         address factory = IUniswapV2Router02(router).factory();
         if (IUniswapV2Factory(factory).getPair(allowedTokenIn, allowedTokenOut) != pair) {
             revert InvalidTemplateParams();
@@ -377,11 +392,7 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         price = PriceMath.usdcPerWeth(raw0, raw1);
     }
 
-    function _conditionStillHolds(ExecutionPayload memory payload, uint256 price)
-        private
-        pure
-        returns (bool)
-    {
+    function _conditionStillHolds(ExecutionPayload memory payload, uint256 price) private pure returns (bool) {
         uint16 template = payload.template;
         if (template == 2 || template == 3 || template == 5) return price <= payload.threshold;
         if (template == 4) return price >= payload.threshold;
@@ -421,5 +432,10 @@ contract Vault is AbstractCallback, ReentrancyGuard {
         uint256 balance0 = token0 == address(0) ? 0 : IERC20(token0).balanceOf(address(this));
         uint256 balance1 = token1 == address(0) ? 0 : IERC20(token1).balanceOf(address(this));
         emit Balances(token0, balance0, token1, balance1);
+        if (token0 == allowedTokenIn) {
+            emit ScheduledSwapFunds(token0, balance0, block.timestamp, 0, 0);
+        } else if (token1 == allowedTokenIn) {
+            emit ScheduledSwapFunds(token1, balance1, block.timestamp, 0, 0);
+        }
     }
 }

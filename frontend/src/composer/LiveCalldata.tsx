@@ -1,9 +1,9 @@
 import { Copy01Icon, FileValidationIcon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
-  encodeAddRule,
   getTemplate,
   LASNA_CHAIN_ID,
+  ruleParamsFromDraft,
   type Address,
   type DraftError,
 } from '@rulebook/shared';
@@ -12,14 +12,16 @@ import { useEffect, useMemo, useState } from 'react';
 import { NetworkBadge } from '../components/NetworkBadge.js';
 
 import type { ReadyDraft } from './types.js';
+import { encodeRuleSubmission, type RuleReplacement } from './replaceRule.js';
 
 function encodeSafely(
   agent: Address,
   draft: ReadyDraft,
   makePublic: boolean,
+  edit?: RuleReplacement,
 ): { data?: `0x${string}`; error?: string } {
   try {
-    return { data: encodeAddRule(agent, draft, { makePublic }) };
+    return { data: encodeRuleSubmission(agent, ruleParamsFromDraft(draft), makePublic, edit) };
   } catch (error) {
     const draftError = error as DraftError;
     return { error: draftError.message };
@@ -34,6 +36,7 @@ export function LiveCalldata({
   draft,
   sentence,
   makePublic = false,
+  edit,
   complete,
   required,
 }: {
@@ -41,6 +44,7 @@ export function LiveCalldata({
   readonly draft: ReadyDraft | null;
   readonly sentence: string;
   readonly makePublic?: boolean;
+  readonly edit?: RuleReplacement | undefined;
   readonly complete: number;
   readonly required: number;
 }) {
@@ -48,8 +52,8 @@ export function LiveCalldata({
 
   const result = useMemo(() => {
     if (!draft) return undefined;
-    return encodeSafely(agent, draft, makePublic);
-  }, [agent, draft, makePublic]);
+    return encodeSafely(agent, draft, makePublic, edit);
+  }, [agent, draft, makePublic, edit]);
 
   useEffect(() => {
     if (!copyResult?.ok) return undefined;

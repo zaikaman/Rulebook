@@ -125,6 +125,24 @@
       "transactionUrl": "https://lasna.reactscan.net/tx/0xb7cfeaa513a2f336e8b5ad74d136963188235a0eb3ae4ece934572b63375817c",
       "blockNumber": 8731875,
       "confirmedAt": "2026-11-19T12:01:38.000Z"
+    },
+    {
+      "name": "AgentFactory",
+      "address": "0x1314eEc20C3C0218B7Ee54C457367e69332e017b",
+      "chainId": 5318007,
+      "status": "validation",
+      "release": "rule-lifecycle",
+      "workingTreeParent": "8ddc1fa",
+      "creationBytecodeHash": "0xc27ba64489af8d714cf955e33022a327a6f050cc41f84f6d2678d08caac714f2",
+      "runtimeBytecodeHash": "0x12a643e91a4f851cc5c877944af0cc7cad12442bb65f73da2d50c01a90a395f2",
+      "implementation": "0xF9e3C143f18594a3364149313cD51CBf340BDCF3",
+      "implementationRuntimeBytecodeHash": "0x1c7e9dd330d3e132e7ace8be20f6203f4647653b701530810d0021d55120d470",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0x1314eEc20C3C0218B7Ee54C457367e69332e017b",
+      "transactionHash": "0xaa7ecd32224f83b40672a885bb0cd4bb9acde834241ad9de12f9459e1de04836",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0xaa7ecd32224f83b40672a885bb0cd4bb9acde834241ad9de12f9459e1de04836",
+      "blockNumber": "8750519",
+      "confirmedAt": "2026-11-19T17:34:06.000Z"
     }
   ],
   "reactiveServices": [

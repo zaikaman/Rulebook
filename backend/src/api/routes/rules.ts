@@ -6,7 +6,7 @@ import { addressSchema } from '@rulebook/shared';
 
 import { sendError } from './errors.js';
 
-function toApiRule(row: RuleRow) {
+function toApiRule(row: RuleRow, before?: string, after?: string) {
   return {
     agent: row.agent,
     rule_id: row.rule_id,
@@ -16,6 +16,8 @@ function toApiRule(row: RuleRow) {
     latched: row.latched,
     runs: row.runs,
     is_public: row.is_public,
+    ...(before === undefined ? {} : { replaces: before }),
+    ...(after === undefined ? {} : { replaced_by: after }),
     ...(row.pair ? { pair: row.pair } : {}),
     ...(row.token_in ? { token_in: row.token_in } : {}),
     ...(row.token_out ? { token_out: row.token_out } : {}),
@@ -34,6 +36,20 @@ function toApiAlert(row: RuleEventRow) {
   };
 }
 
+function readReplacementHistory<T>(query: Promise<T>, fallback: T): Promise<T> {
+  return query.catch((error: unknown) => {
+    const cause = error instanceof Error ? error.cause : null;
+    if (
+      cause &&
+      typeof cause === 'object' &&
+      'code' in cause &&
+      (cause.code === '42P01' || cause.code === 'PGRST205')
+    )
+      return fallback;
+    throw error;
+  });
+}
+
 /** Registers the account rule list and detail routes. */
 export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void {
   app.get<{
@@ -42,11 +58,17 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
   }>('/v1/accounts/:agent/rules', async (request) => {
     const status = request.query.status ?? 'active';
     const agent = request.params.agent.toLowerCase();
-    const [rows, alerts] = await Promise.all([
+    const [rows, alerts, replacements] = await Promise.all([
       deps.repositories.rules.list(agent, status),
       deps.repositories.ruleEvents.listAlerts(agent).catch(() => []),
+      readReplacementHistory(deps.repositories.ruleReplacements.list(agent), []),
     ]);
-    return { rules: rows.map(toApiRule), alerts: alerts.map(toApiAlert) };
+    const before = new Map(replacements.map((edge) => [edge.new_rule_id, edge.old_rule_id]));
+    const after = new Map(replacements.map((edge) => [edge.old_rule_id, edge.new_rule_id]));
+    return {
+      rules: rows.map((row) => toApiRule(row, before.get(row.rule_id), after.get(row.rule_id))),
+      alerts: alerts.map(toApiAlert),
+    };
   });
 
   app.get<{ Params: { agent: string; ruleId: string } }>(
@@ -55,10 +77,15 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       const agent = request.params.agent.toLowerCase();
       const rule = await deps.repositories.rules.get(agent, request.params.ruleId);
       if (!rule) return sendError(reply, 404, 'not_found', 'Unknown rule');
-      const [executions, credit, mirror] = await Promise.all([
+      const [executions, credit, mirror, before, after] = await Promise.all([
         deps.repositories.executions.list({ agent, rule_id: rule.rule_id }, 10),
         loadAccountCredit(deps, agent).catch(() => null),
         deps.repositories.mirrors.get(agent, rule.rule_id),
+        readReplacementHistory(
+          deps.repositories.ruleReplacements.before(agent, rule.rule_id),
+          null,
+        ),
+        readReplacementHistory(deps.repositories.ruleReplacements.after(agent, rule.rule_id), null),
       ]);
       const parsedAgent = addressSchema.safeParse(agent);
       const linkedVault =
@@ -110,7 +137,7 @@ export function registerRuleRoutes(app: FastifyInstance, deps: ServerDeps): void
       );
 
       return {
-        rule: toApiRule(rule),
+        rule: toApiRule(rule, before?.old_rule_id, after?.new_rule_id),
         recent_executions: recentExecutions,
         alerts: alerts.map(toApiAlert),
         ...(mirror?.leader_vault && mirror.per_run_cap

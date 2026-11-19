@@ -1,7 +1,14 @@
-import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { render as renderComponent, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import axe from 'axe-core';
 import { describe, expect, it, vi } from 'vitest';
+
+function render(component: Parameters<typeof renderComponent>[0]) {
+  return renderComponent(
+    <QueryClientProvider client={new QueryClient()}>{component}</QueryClientProvider>,
+  );
+}
 
 import { CreateRuleForm } from '../src/pages/Create.js';
 

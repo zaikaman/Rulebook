@@ -90,4 +90,94 @@ contract T01_DCATest is TemplateTestBase {
         _react(_tick());
         assertEq(_runs(ruleId), 2);
     }
+
+    function test_insufficientVaultFundsSkipTheSlotAndTopUpRestoresTheNextSlot() public {
+        RuleLib.Rule memory rule = _rule();
+        rule.secondary = 1 hours;
+        uint256 hourlyId = _add(rule);
+        uint256 start = block.timestamp;
+        IReactive.LogRecord memory empty = _fundingLog(VAULT, 0);
+        _react(empty);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_requestCount(), 0);
+        assertEq(agent.monthlySpent(), 0);
+        assertEq(agent.getRule(hourlyId).flags, RuleLib.FLAG_ACTIVE);
+
+        vm.warp(start + 30 minutes);
+        IReactive.LogRecord memory funded = _fundingLog(VAULT, rule.amountIn);
+        funded.data = abi.encode(address(usdc), rule.amountIn, vm.getBlockTimestamp() + 1, uint256(0), uint32(0));
+        _react(funded);
+        _react(empty); // A delayed delivery cannot overwrite the newer deposit.
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_requestCount(), 0);
+        vm.warp(start + 1 hours);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_requestCount(), 1);
+        assertEq(_runs(hourlyId), 1);
+    }
+
+    function test_anotherVaultCannotBlockAFundedRule() public {
+        _react(_fundingLog(STRANGER, 0));
+        _react(_tick());
+        assertEq(_requestCount(), 1);
+    }
+
+    function test_replacementKeepsTheNextScheduledSlotAndStartsANewExecutionSequence() public {
+        _react(_tick());
+        uint256 first = block.timestamp;
+        RuleLib.Rule memory replacement = _rule();
+        replacement.amountIn = 5e6;
+        vm.prank(USER);
+        uint256 nextId = agent.replaceRule(ruleId, RuleLib.FLAG_ACTIVE, replacement, false);
+        assertEq(agent.getRule(ruleId).runs, 1);
+        assertEq(agent.getRule(ruleId).amountIn, 10e6);
+        assertEq(agent.getRule(ruleId).flags, RuleLib.FLAG_CANCELLED);
+        assertEq(agent.replacementFor(ruleId), nextId);
+        vm.warp(first + 10 minutes + 1);
+        _react(_tick());
+        assertEq(_requestCount(), 1);
+        vm.warp(first + 1 days);
+        _react(_tick());
+        assertEq(_requestCount(), 2);
+        assertEq(_runs(nextId), 1);
+    }
+
+    function test_vaultFundingDeferralRefundsOnlyTheSkippedAttempt() public {
+        _add(_rule());
+        _react(_tick());
+        assertEq(agent.monthlySpent(), 20e6);
+        IReactive.LogRecord memory skip = _fundingLog(VAULT, 0);
+        skip.data = abi.encode(address(usdc), uint256(0), block.timestamp, ruleId, uint32(1));
+        _react(skip);
+        assertEq(agent.monthlySpent(), 10e6);
+        _react(skip);
+        assertEq(agent.monthlySpent(), 10e6);
+    }
+
+    function test_repeatedReplacementCannotBypassTheOriginalCallbackWindow() public {
+        _react(_tick());
+        uint256 start = block.timestamp;
+        RuleLib.Rule memory edited = _rule();
+        edited.secondary = 1 hours;
+        vm.startPrank(USER);
+        uint256 interim = agent.replaceRule(ruleId, RuleLib.FLAG_ACTIVE, edited, false);
+        edited.secondary = 2 hours;
+        uint256 finalId = agent.replaceRule(interim, RuleLib.FLAG_ACTIVE, edited, false);
+        vm.stopPrank();
+        vm.warp(start + 10 minutes);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_runs(finalId), 0);
+        vm.warp(start + 10 minutes + 1);
+        _react(_tick(HOURLY_CRON_TOPIC));
+        assertEq(_runs(finalId), 1);
+    }
+
+    function _fundingLog(address origin, uint256 balance) internal returns (IReactive.LogRecord memory) {
+        return _log(
+            origin,
+            keccak256("ScheduledSwapFunds(address,uint256,uint256,uint256,uint32)"),
+            abi.encode(address(usdc), balance, block.timestamp, uint256(0), uint32(0))
+        );
+    }
 }

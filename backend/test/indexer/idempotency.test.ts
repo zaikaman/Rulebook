@@ -141,6 +141,53 @@ function executedLog(timestamp = 1_700_000_000n): RawLog {
 }
 
 describe('indexer idempotency', () => {
+  it('records one replacement for a known Agent and ignores invalid lineage', async () => {
+    const repositories = createRepositories(new InMemoryStore());
+    const created = ruleCreatedLog(0);
+    const replaced: RawLog = {
+      ...created,
+      topics: [toEventSelector('RuleReplaced(uint256,uint256)'), topicNumber(0), topicNumber(1)],
+      data: '0x',
+    };
+    const replacement = decodeLog(replaced);
+    if (!replacement.ok) throw new Error('Expected a valid replacement log.');
+    await persistDecodedEvent(repositories, replacement.event);
+    expect(await repositories.ruleReplacements.list(AGENT)).toEqual([]);
+
+    const deployment = agentDeployedLog();
+    const logs: RawLog[] = [
+      { ...deployment, topics: [deployment.topics[0]!, topicAddress(AGENT), topicAddress(AGENT)] },
+      created,
+      ruleCreatedLog(1),
+      {
+        ...created,
+        topics: [
+          toEventSelector('RuleCancelled(address,uint256)'),
+          topicAddress(AGENT),
+          topicNumber(0),
+        ],
+        data: '0x',
+        logIndex: 1,
+      },
+      replaced,
+      replaced,
+    ];
+    for (const log of logs) {
+      const decoded = decodeLog(log);
+      if (!decoded.ok) throw new Error('Expected a valid Agent log.');
+      await persistDecodedEvent(repositories, decoded.event);
+    }
+    expect(await repositories.ruleReplacements.list(AGENT)).toEqual([
+      { agent: AGENT, old_rule_id: '0', new_rule_id: '1' },
+    ]);
+    expect(
+      decodeLog({
+        ...replaced,
+        topics: [toEventSelector('RuleReplaced(uint256,uint256)'), topicNumber(1), topicNumber(0)],
+      }).ok,
+    ).toBe(false);
+  });
+
   it('replays a mirror execution once with its leader transaction', async () => {
     const repositories = createRepositories(new InMemoryStore());
     const deployment = vaultDeployedLog();

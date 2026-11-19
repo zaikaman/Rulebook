@@ -12,7 +12,8 @@ export interface CreateSuccessProps {
   readonly ruleId: bigint | null;
   readonly sentence: string;
   readonly txHash: `0x${string}`;
-  readonly onCreateAnother: () => void;
+  readonly onCreateAnother?: () => void;
+  readonly edited?: boolean;
 }
 
 /** The confirmation state: the rule id, its sentence, the Lasna receipt, and next actions. */
@@ -22,6 +23,7 @@ export function CreateSuccess({
   sentence,
   txHash,
   onCreateAnother,
+  edited = false,
 }: CreateSuccessProps) {
   return (
     <section aria-labelledby="create-success-heading" className="app-panel app-panel-pad space-y-4">
@@ -35,7 +37,8 @@ export function CreateSuccess({
           />
         </span>
         <h2 id="create-success-heading" className="app-panel-heading">
-          Rule created{ruleId !== null ? ` · #${ruleId.toString()}` : ''}
+          {edited ? 'Rule updated' : 'Rule created'}
+          {ruleId !== null ? ` · #${ruleId.toString()}` : ''}
         </h2>
       </div>
       <p className="break-words font-heading text-xl font-semibold text-ink">“{sentence}”</p>
@@ -55,9 +58,11 @@ export function CreateSuccess({
         <Link to="/rules" className="app-button">
           All rules
         </Link>
-        <button type="button" onClick={onCreateAnother} className="app-button">
-          Build another
-        </button>
+        {onCreateAnother && (
+          <button type="button" onClick={onCreateAnother} className="app-button">
+            Build another
+          </button>
+        )}
       </div>
     </section>
   );
