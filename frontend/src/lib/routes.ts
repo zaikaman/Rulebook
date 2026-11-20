@@ -6,6 +6,8 @@ export const appRoutes = {
   create: '/create',
   workflows: '/workflows',
   newWorkflow: '/workflows/new',
+  activity: '/activity',
+  runs: '/runs',
   marketplace: '/marketplace',
   proof: '/proof',
   account: '/account',

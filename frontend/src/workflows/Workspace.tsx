@@ -9,10 +9,11 @@ import {
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { formatUnits, zeroAddress, zeroHash, type Address, type Hex } from 'viem';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { appRoutes } from '@/lib/routes';
 import { unichainPublicClient } from '@/lib/wagmi';
 import { Field } from './Builder';
 import { WalletFeedback } from './Feedback';
@@ -301,6 +302,7 @@ export function WorkflowDetail() {
 
 export function WorkflowRunDetail() {
   const { id } = useParams();
+  const { state } = useLocation();
   const parsed = workflowIdSchema.safeParse(id);
   const query = useQuery({
     queryKey: ['workflow-run', id],
@@ -309,11 +311,16 @@ export function WorkflowRunDetail() {
     refetchInterval: 12_000,
   });
   const run = query.data;
+  const activityHref =
+    state?.activityFilter === 'attention'
+      ? { pathname: appRoutes.activity, search: '?filter=attention' }
+      : appRoutes.activity;
+  const breadcrumb = <Link to={activityHref}>Activity</Link>;
   if (!parsed.success) return <p role="alert">This run link is invalid.</p>;
   if (!run)
     return (
       <section className="app-page workflow-page">
-        <PageHeading title="Run proof" />
+        <PageHeading title="Run proof" breadcrumb={breadcrumb} />
         <QueryStatus pending={query.isPending} error={query.error} />
       </section>
     );
@@ -326,7 +333,7 @@ export function WorkflowRunDetail() {
         : new Date(Number(run.observed) * 1_000).toLocaleString();
   return (
     <section className="app-page workflow-page">
-      <PageHeading title="Run proof" description={run.status} />
+      <PageHeading title="Run proof" description={run.status} breadcrumb={breadcrumb} />
       <p className="app-copy">
         Observed {amount}. The highlighted path shows the Agent’s decision.
       </p>
@@ -582,6 +589,28 @@ export function WorkflowAccount() {
           </form>
         </>
       )}
+      <details className="app-panel app-panel-pad workflow-funding-guide">
+        <summary className="app-panel-heading">Fees and funding</summary>
+        <dl>
+          <div>
+            <dt>Watching credit</dt>
+            <dd>
+              Use Add watching credit to pay for trigger monitoring in testnet lREACT on Reactive
+              Lasna.
+            </dd>
+          </div>
+          <div>
+            <dt>Execution credit</dt>
+            <dd>
+              Use Add execution credit to pay for workflow runs in testnet ETH on Unichain Sepolia.
+            </dd>
+          </div>
+          <div>
+            <dt>Vault balance</dt>
+            <dd>Keep the testnet tokens your workflow needs to send or swap in your Vault.</dd>
+          </div>
+        </dl>
+      </details>
       <WalletFeedback wallet={wallet} />
     </section>
   );

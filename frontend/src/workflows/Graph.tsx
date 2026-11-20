@@ -1,10 +1,101 @@
-import { ReactFlow, Background, Controls, Position, type Edge, type Node } from '@xyflow/react';
-import { useMemo } from 'react';
+import {
+  ArrowUpRight01Icon,
+  Exchange01Icon,
+  FlashIcon,
+  GitBranchIcon,
+  MinusSignIcon,
+  Notification01Icon,
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
+import {
+  Background,
+  Controls,
+  Handle,
+  Position,
+  ReactFlow,
+  useViewport,
+  type BuiltInEdge,
+  type Dimensions,
+  type FitViewOptions,
+  type Node,
+  type NodeProps,
+  type XYPosition,
+} from '@xyflow/react';
+import { useMemo, useState } from 'react';
 import { workflowActionLabels, type WorkflowDraft } from '@rulebook/shared';
-import { conditionText, stepText, workflowTriggerText } from './model';
+import { conditionText, stepAmountText, stepText, workflowTriggerText } from './model';
 import '@xyflow/react/dist/style.css';
 
 export type GraphSelection = 'trigger' | number;
+export type WorkflowNodePositions = Record<string, XYPosition>;
+
+const nodeIcons = {
+  trigger: FlashIcon,
+  condition: GitBranchIcon,
+  send: ArrowUpRight01Icon,
+  swap: Exchange01Icon,
+  alert: Notification01Icon,
+  skip: MinusSignIcon,
+};
+
+type WorkflowNodeCard = Node<
+  {
+    owner: GraphSelection;
+    kind: keyof typeof nodeIcons;
+    caption: string;
+    title: string;
+    detail?: string;
+    description?: string;
+    continues: boolean;
+    matched: boolean;
+  },
+  'workflow'
+>;
+
+const fitOptions = {
+  padding: { top: '24px', bottom: '64px', x: '24px' },
+  maxZoom: 1.05,
+} satisfies FitViewOptions;
+
+function WorkflowDiagramNode({ data }: NodeProps<WorkflowNodeCard>) {
+  return (
+    <div
+      className="workflow-node-card"
+      data-kind={data.kind}
+      data-matched={data.matched || undefined}
+    >
+      {data.kind !== 'trigger' && (
+        <Handle type="target" position={Position.Top} isConnectable={false} />
+      )}
+      <span className="workflow-node-icon" aria-hidden="true">
+        <HugeiconsIcon icon={nodeIcons[data.kind]} size={18} />
+      </span>
+      <div className="workflow-node-copy">
+        <span className="workflow-node-kind">{data.caption}</span>
+        <strong className="workflow-node-title" title={data.title}>
+          {data.title}
+        </strong>
+        {data.detail && (
+          <span className="workflow-node-detail" title={data.description ?? data.detail}>
+            {data.detail}
+          </span>
+        )}
+      </div>
+      {data.continues && <Handle type="source" position={Position.Bottom} isConnectable={false} />}
+    </div>
+  );
+}
+
+const nodeTypes = { workflow: WorkflowDiagramNode };
+
+function measurementKey(node: WorkflowNodeCard) {
+  return `${node.id}:${node.data.kind}:${node.data.continues}`;
+}
+
+function ZoomReadout() {
+  const { zoom } = useViewport();
+  return <span className="workflow-canvas-zoom">{Math.round(zoom * 100)}%</span>;
+}
 
 function highlightedPath(draft: WorkflowDraft, leaf: number | undefined) {
   const path = new Set<number>();
@@ -27,99 +118,121 @@ export function WorkflowGraph({
   selected,
   select,
   leaf,
+  positions,
+  onPositionsChange,
 }: {
   draft: WorkflowDraft;
   selected?: GraphSelection;
   select?: (selection: GraphSelection) => void;
   leaf?: number;
+  positions?: WorkflowNodePositions;
+  onPositionsChange?: (positions: WorkflowNodePositions) => void;
 }) {
+  const editable = Boolean(select);
+  const [measurements, setMeasurements] = useState<Record<string, Dimensions>>({});
+  const [dragPositions, setDragPositions] = useState<WorkflowNodePositions>({});
+  const [activeNodeId, setActiveNodeId] = useState<string>();
   const { nodes, edges } = useMemo(() => {
-    const nodes: Node[] = [];
-    const edges: Edge[] = [];
+    const nodes: WorkflowNodeCard[] = [];
+    const edges: BuiltInEdge[] = [];
     const highlight = highlightedPath(draft, leaf);
-    const readOnly = !select;
     let nextRow = 0;
     function box(
       id: string,
-      owner: GraphSelection,
-      label: string,
-      detail: string,
-      column: number,
+      data: Omit<WorkflowNodeCard['data'], 'matched'>,
+      stage: number,
       row: number,
-      kind: string,
     ) {
-      const active = owner === 'trigger' ? leaf !== undefined : highlight.has(owner);
+      const { owner, caption, title, description } = data;
+      const matched = owner === 'trigger' ? leaf !== undefined : highlight.has(owner);
       nodes.push({
         id,
-        position: { x: row * 230, y: column * 106 },
-        draggable: false,
+        type: 'workflow',
+        position: { x: row * 248, y: stage * 122 },
         connectable: false,
-        selected: owner === selected,
-        selectable: !readOnly,
-        focusable: !readOnly,
-        sourcePosition: Position.Bottom,
-        targetPosition: Position.Top,
-        data: {
-          owner,
-          label: (
-            <>
-              <span className="workflow-node-kind">{kind}</span>
-              <strong>{label}</strong>
-              <span>{detail}</span>
-            </>
-          ),
-        },
-        className: 'workflow-node' + (active ? ' workflow-node--matched' : ''),
-        ariaLabel: kind + '. ' + label,
+        selectable: editable,
+        focusable: editable,
+        data: { ...data, matched },
+        className: 'workflow-node',
+        ariaRole: editable ? 'button' : undefined,
+        ariaLabel: [caption, title, description].filter(Boolean).join('. '),
       });
     }
-    function connect(source: string, target: string, label: string | undefined, active: boolean) {
+    function connect(
+      source: string,
+      target: string,
+      branch: 'yes' | 'otherwise' | undefined,
+      active: boolean,
+    ) {
       edges.push({
         id: source + '-' + target,
         source,
         target,
-        label,
-        className: active ? 'workflow-edge--matched' : '',
-        animated: false,
+        type: 'smoothstep',
+        pathOptions: { borderRadius: 10, offset: 12 },
+        label: branch === 'yes' ? 'Yes' : branch === 'otherwise' ? 'Otherwise' : undefined,
+        labelBgPadding: [7, 4],
+        labelBgBorderRadius: 5,
+        className: [branch && 'workflow-edge--' + branch, active && 'workflow-edge--matched']
+          .filter(Boolean)
+          .join(' '),
+        selectable: false,
       });
     }
-    function visit(id: number, column: number, visited: Set<number>): number {
+    // Branch paths stay stable even when the program compacts its numeric node IDs.
+    function visit(id: number, path: string, column: number, visited: Set<number>): number {
       const node = draft.nodes[id];
       if (!node || visited.has(id)) return nextRow;
       visited.add(id);
       if (node.type === 'condition') {
-        const yesRow = visit(node.yes, column + 1, visited);
-        const noRow = visit(node.no, column + 1, visited);
+        const yes = path + '-yes';
+        const no = path + '-otherwise';
+        const yesRow = visit(node.yes, yes, column + 1, visited);
+        const noRow = visit(node.no, no, column + 1, visited);
         const row = (yesRow + noRow) / 2;
         box(
-          String(id),
-          id,
-          conditionText(draft, node),
-          'Choose one path',
+          path,
+          {
+            owner: id,
+            kind: 'condition',
+            caption: 'Condition',
+            title: conditionText(draft, node),
+            continues: true,
+          },
           column,
           row,
-          'Condition',
         );
-        connect(String(id), String(node.yes), 'Yes', highlight.has(node.yes));
-        connect(String(id), String(node.no), 'Otherwise', highlight.has(node.no));
+        connect(path, yes, 'yes', highlight.has(node.yes));
+        connect(path, no, 'otherwise', highlight.has(node.no));
         return row;
       }
       const row = nextRow++;
-      if (!node.actions.length) box(String(id), id, 'Do nothing', '', column, row, 'Path');
+      if (!node.actions.length)
+        box(
+          path,
+          { owner: id, kind: 'skip', caption: 'Skip', title: 'Do nothing', continues: false },
+          column,
+          row,
+        );
       node.actions.forEach((action, index) => {
-        const actionId = index === 0 ? String(id) : id + '-step-' + index;
+        const actionId = index === 0 ? path : path + '-step-' + index;
         box(
           actionId,
-          id,
-          workflowActionLabels[action.kind],
-          action.kind === 'alert' ? '' : stepText(action),
+          {
+            owner: id,
+            kind: action.kind,
+            caption: 'Step ' + (index + 1),
+            title: workflowActionLabels[action.kind],
+            detail: action.kind === 'alert' ? undefined : stepAmountText(action),
+            description: action.kind === 'alert' ? undefined : stepText(action),
+            continues: index + 1 < node.actions.length,
+          },
           column + index,
           row,
-          'Step ' + (index + 1),
         );
         if (index > 0)
           connect(
-            index === 1 ? String(id) : id + '-step-' + (index - 1),
+            index === 1 ? path : path + '-step-' + (index - 1),
             actionId,
             undefined,
             highlight.has(id),
@@ -127,42 +240,118 @@ export function WorkflowGraph({
       });
       return row;
     }
-    const row = visit(0, 1, new Set());
-    box('trigger', 'trigger', workflowTriggerText(draft), '', 0, row, 'Trigger');
-    connect('trigger', '0', undefined, leaf !== undefined);
+    const row = visit(0, 'root', 1, new Set());
+    box(
+      'trigger',
+      {
+        owner: 'trigger',
+        kind: 'trigger',
+        caption: 'Trigger',
+        title: workflowTriggerText(draft),
+        continues: true,
+      },
+      0,
+      row,
+    );
+    connect('trigger', 'root', undefined, leaf !== undefined);
+    nodes.sort(
+      (left, right) => left.position.y - right.position.y || left.position.x - right.position.x,
+    );
     return { nodes, edges };
-  }, [draft, selected, select, leaf]);
+  }, [draft, editable, leaf]);
+
+  const laidOutNodes = useMemo(() => {
+    const activeNode =
+      nodes.find((node) => node.id === activeNodeId && node.data.owner === selected) ??
+      nodes.find((node) => node.data.owner === selected);
+    return nodes.map((node) => ({
+      ...node,
+      position: positions?.[node.id] ?? node.position,
+      measured: measurements[measurementKey(node)],
+      selected: node.id === activeNode?.id,
+      domAttributes: editable ? { 'aria-pressed': node.id === activeNode?.id } : undefined,
+    }));
+  }, [nodes, activeNodeId, selected, measurements, positions, editable]);
+
+  const positionedNodes = useMemo(
+    () =>
+      laidOutNodes.map((node) => {
+        const position = dragPositions[node.id];
+        return position ? { ...node, position, dragging: true } : node;
+      }),
+    [laidOutNodes, dragPositions],
+  );
+
+  function chooseNode(node: WorkflowNodeCard) {
+    setActiveNodeId(node.id);
+    select?.(node.data.owner);
+  }
 
   return (
     <div className="workflow-canvas" aria-label="Workflow diagram">
       <ReactFlow
         key={nodes.length}
         className="dark"
-        nodes={nodes}
+        nodes={positionedNodes}
         edges={edges}
+        nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.2, maxZoom: 1 }}
+        fitViewOptions={fitOptions}
         minZoom={0.12}
         maxZoom={1.7}
-        nodesDraggable={false}
+        nodesDraggable={Boolean(onPositionsChange)}
+        selectNodesOnDrag={false}
         nodesConnectable={false}
         edgesFocusable={false}
         deleteKeyCode={null}
         panOnScroll={false}
-        zoomOnScroll={false}
+        zoomOnScroll={editable}
+        preventScrolling={editable}
         proOptions={{ hideAttribution: true }}
-        onNodeClick={(_, node) => select?.(node.data.owner as GraphSelection)}
-        onNodeDoubleClick={(_, node) => select?.(node.data.owner as GraphSelection)}
-        onSelectionChange={({ nodes: focused }) => {
-          if (focused.length === 1 && focused[0]) {
-            const owner = focused[0].data.owner as GraphSelection;
-            if (owner !== selected) select?.(owner);
+        onNodeClick={editable ? (_, node) => chooseNode(node) : undefined}
+        onNodesChange={(changes) => {
+          // Controlled node updates must retain React Flow's sizes and handle bounds.
+          const measured = changes.getByType('dimensions');
+          if (measured.length) {
+            setMeasurements((current) => {
+              const next = { ...current };
+              for (const { id, dimensions } of measured) {
+                const node = nodes.find((item) => item.id === id);
+                if (node && dimensions) next[measurementKey(node)] = dimensions;
+              }
+              return next;
+            });
+          }
+          const active = changes.getByType('select').find((change) => change.selected);
+          const node = active && nodes.find((item) => item.id === active.id);
+          if (node) chooseNode(node);
+          if (!onPositionsChange) return;
+
+          const moving: WorkflowNodePositions = {};
+          const settled: WorkflowNodePositions = {};
+          for (const { id, position, dragging } of changes.getByType('position')) {
+            if (position) (dragging ? moving : settled)[id] = position;
+          }
+          if (Object.keys(moving).length) setDragPositions(moving);
+          if (Object.keys(settled).length) {
+            setDragPositions({});
+            onPositionsChange(settled);
           }
         }}
       >
-        <Background gap={22} size={1} color="var(--rb-border)" />
-        <Controls showInteractive={false} position="bottom-right" />
+        <Background gap={20} size={1.35} color="var(--workflow-grid-dot)" />
+        <Controls
+          aria-label="Canvas zoom controls"
+          orientation="horizontal"
+          showInteractive={false}
+          position="bottom-right"
+          fitViewOptions={fitOptions}
+          className="workflow-canvas-dock"
+        >
+          <ZoomReadout />
+        </Controls>
       </ReactFlow>
+      {editable && <p className="workflow-canvas-hint">Drag nodes to move · Scroll to zoom</p>}
     </div>
   );
 }

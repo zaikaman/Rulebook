@@ -1,4 +1,5 @@
 import {
+  workflowActivitySchema,
   workflowIdSchema,
   workflowListingSchema,
   workflowRunSchema,
@@ -20,16 +21,24 @@ const pageCursor = z.object({
   score: z.number().int().nonnegative().safe(),
   id: z.string().regex(/^[1-9]\d{0,77}$/),
 });
+const activityCursor = z.object({
+  block: z.number().int().nonnegative().safe(),
+  id: workflowIdSchema,
+});
+const walletAddress = z
+  .string()
+  .regex(/^0x[0-9a-f]{40}$/i)
+  .toLowerCase();
 
 function input<T>(result: z.SafeParseReturnType<unknown, T>): T {
   if (result.success) return result.data;
   throw Object.assign(new Error('Check the request parameters.'), { statusCode: 400 });
 }
 
-function cursorFrom(value: string | undefined) {
+function cursorFrom<T>(schema: z.ZodType<T>, value: string | undefined) {
   if (!value) return null;
   try {
-    return pageCursor.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+    return schema.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
   } catch {
     throw Object.assign(new Error('This page link is invalid.'), { statusCode: 400 });
   }
@@ -105,7 +114,7 @@ function run(row: Decision, outcome?: Outcome, steps: object[] = []) {
 export function registerWorkflowRoutes(app: FastifyInstance, db: SupabaseClient) {
   app.get('/v2/marketplace', async (req) => {
     const { q, tag, trigger, sort, cursor: token } = input(browseSchema.safeParse(req.query));
-    const cursor = cursorFrom(token);
+    const cursor = cursorFrom(pageCursor, token);
     const limit = 24;
     const rows = result(
       await db.rpc('browse_workflow_marketplace', {
@@ -142,14 +151,60 @@ export function registerWorkflowRoutes(app: FastifyInstance, db: SupabaseClient)
     return listing(row, id);
   });
 
+  app.get('/v2/activity', async (req) => {
+    const {
+      owner,
+      filter,
+      cursor: token,
+    } = input(
+      z
+        .object({
+          owner: walletAddress,
+          filter: z.enum(['all', 'attention']).default('all'),
+          cursor: z.string().max(160).optional(),
+        })
+        .safeParse(req.query),
+    );
+    const cursor = cursorFrom(activityCursor, token);
+    const limit = 30;
+    const rows = result(
+      await db.rpc('list_workflow_activity', {
+        wallet_owner: owner,
+        attention_only: filter === 'attention',
+        after_block: cursor?.block ?? null,
+        after_run: cursor?.id ?? null,
+        page_size: limit + 1,
+      }),
+    ) as {
+      id: string;
+      workflow_id: string;
+      title: string | null;
+      lasna_block: number;
+      status: string;
+    }[];
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return workflowActivitySchema.parse({
+      runs: page.map((row) => ({
+        id: row.id,
+        workflowId: row.workflow_id,
+        title: row.title,
+        status: row.status,
+      })),
+      nextCursor:
+        rows.length > limit && last
+          ? Buffer.from(JSON.stringify({ block: last.lasna_block, id: last.id })).toString(
+              'base64url',
+            )
+          : null,
+    });
+  });
+
   app.get('/v2/workflows/:agent/:id/runs', async (req) => {
     const { agent, id } = input(
       z
         .object({
-          agent: z
-            .string()
-            .regex(/^0x[0-9a-f]{40}$/i)
-            .transform((value) => value.toLowerCase()),
+          agent: walletAddress,
           id: workflowIdSchema,
         })
         .safeParse(req.params),

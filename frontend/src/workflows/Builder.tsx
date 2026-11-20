@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { bytesToHex, type Hex } from 'viem';
+import { z } from 'zod';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { workflowApi } from './api';
@@ -27,7 +28,12 @@ import {
   useWorkflowWallet,
   workflowDeploymentReady,
 } from './chain';
-import { WorkflowGraph, WorkflowOutline, type GraphSelection } from './Graph';
+import {
+  WorkflowGraph,
+  WorkflowOutline,
+  type GraphSelection,
+  type WorkflowNodePositions,
+} from './Graph';
 import {
   alertAction,
   emptyPath,
@@ -122,6 +128,10 @@ function newId(): Hex {
   return bytesToHex(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+const workflowNodePositionsSchema = z.record(
+  z.object({ x: z.number().finite(), y: z.number().finite() }),
+);
+
 function localDraft(key: string, id?: Hex) {
   try {
     const source = localStorage.getItem(key);
@@ -129,7 +139,14 @@ function localDraft(key: string, id?: Hex) {
     const draft = workflowDraftSchema.safeParse(saved?.draft);
     const savedId = workflowIdSchema.safeParse(saved?.id);
     if (draft.success && savedId.success && (!id || savedId.data === id)) {
-      return { draft: draft.data, id: savedId.data, copied: saved.copied !== false, saved: true };
+      const positions = workflowNodePositionsSchema.safeParse(saved.positions);
+      return {
+        draft: draft.data,
+        id: savedId.data,
+        copied: saved.copied !== false,
+        saved: true,
+        positions: positions.success ? positions.data : {},
+      };
     }
   } catch {
     /* The editor continues when browser storage is unavailable. */
@@ -138,7 +155,15 @@ function localDraft(key: string, id?: Hex) {
 }
 
 function readDraft(key: string, fallback: WorkflowDraft, id?: Hex) {
-  return localDraft(key, id) ?? { draft: fallback, id: id ?? newId(), copied: true, saved: false };
+  return (
+    localDraft(key, id) ?? {
+      draft: fallback,
+      id: id ?? newId(),
+      copied: true,
+      saved: false,
+      positions: {},
+    }
+  );
 }
 
 function Editor({
@@ -173,25 +198,37 @@ function Editor({
     return current;
   });
   const [draft, setDraft] = useState(initial.draft);
+  const [positions, setPositions] = useState<WorkflowNodePositions>(initial.positions);
   const [selected, select] = useState<GraphSelection>('trigger');
+  const map = useRef<HTMLDivElement>(null);
   const settings = useRef<HTMLElement>(null);
   const [listView, setListView] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [copyCredit, setCopyCredit] = useState(initial.copied);
   const [validation, setValidation] = useState<string>();
 
-  function selectFromOutline(selection: GraphSelection) {
+  function selectFromMap(selection: GraphSelection) {
     select(selection);
-    if (window.matchMedia('(max-width: 900px)').matches) settings.current?.focus();
+    const panel = settings.current;
+    if (
+      panel &&
+      map.current &&
+      panel.getBoundingClientRect().top > map.current.getBoundingClientRect().top
+    ) {
+      panel.focus();
+    }
   }
 
   useEffect(() => {
     try {
-      localStorage.setItem(key, JSON.stringify({ id: initial.id, draft, copied: copyCredit }));
+      localStorage.setItem(
+        key,
+        JSON.stringify({ id: initial.id, draft, copied: copyCredit, positions }),
+      );
     } catch {
       /* The current draft remains editable in this tab. */
     }
-  }, [key, initial.id, draft, copyCredit]);
+  }, [key, initial.id, draft, copyCredit, positions]);
 
   function update(change: Partial<WorkflowDraft>) {
     setDraft((current) => ({ ...current, ...change }));
@@ -225,7 +262,7 @@ function Editor({
   const node = selected === 'trigger' ? undefined : draft.nodes[selected];
   const nominated = listing && copy && copyCredit && sameWorkflowShape(copy, draft);
   return (
-    <section className="app-page workflow-page">
+    <section className="app-page workflow-page workflow-builder">
       <PageHeading
         title={id ? 'Edit workflow' : 'Build a workflow'}
         description={
@@ -357,10 +394,18 @@ function Editor({
         </section>
       ) : (
         <div className="workflow-workbench">
-          <div className="workflow-workbench-map">
-            {!listView && <WorkflowGraph draft={draft} selected={selected} select={select} />}
+          <div className="workflow-workbench-map" ref={map}>
+            {!listView && (
+              <WorkflowGraph
+                draft={draft}
+                selected={selected}
+                select={selectFromMap}
+                positions={positions}
+                onPositionsChange={(moved) => setPositions((current) => ({ ...current, ...moved }))}
+              />
+            )}
             <div className={listView ? '' : 'workflow-mobile-outline'}>
-              <WorkflowOutline draft={draft} selected={selected} select={selectFromOutline} />
+              <WorkflowOutline draft={draft} selected={selected} select={selectFromMap} />
             </div>
           </div>
           <section

@@ -10,9 +10,11 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 
 import { appRoutes, legacyWorkspace } from '@/lib/routes';
+import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { SidebarSection } from './SidebarSection.js';
 import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
+import { workflowNavigation } from './workflowNavigation.js';
 
 export function AppSidebar() {
   return (
@@ -25,41 +27,33 @@ export function AppSidebar() {
         <Wordmark />
       </Link>
 
-      <nav aria-label="Workspace" className="space-y-1 flex-1">
-        <SidebarSection
-          label={legacyWorkspace ? 'Rules' : 'Workflows'}
-          href={legacyWorkspace ? appRoutes.rules : appRoutes.workflows}
-          icon={Book02Icon}
-          nested
-          items={[
-            legacyWorkspace
-              ? { label: 'Compose sentence', href: appRoutes.create }
-              : { label: 'New workflow', href: appRoutes.newWorkflow },
-          ]}
-        />
-        <SidebarSection
-          label="Marketplace"
-          href={appRoutes.marketplace}
-          icon={Store01Icon}
-          items={[]}
-        />
-        {legacyWorkspace && (
-          <SidebarSection
-            label="Proof Explorer"
-            href={appRoutes.proof}
-            icon={DocumentValidationIcon}
-            nested
-            items={[]}
-          />
-        )}
-        <SidebarSection
-          label="Account & Vault"
-          href={appRoutes.account}
-          icon={Wallet01Icon}
-          items={[]}
-        />
-        {legacyWorkspace && (
-          <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} items={[]} />
+      {!legacyWorkspace && (
+        <div className="pb-4">
+          <NewWorkflowLink />
+        </div>
+      )}
+      <nav aria-label="Workspace" className="flex-1">
+        {legacyWorkspace ? (
+          <>
+            <SidebarSection
+              label="Rules"
+              href={appRoutes.rules}
+              icon={Book02Icon}
+              nested
+              items={[{ label: 'Compose sentence', href: appRoutes.create }]}
+            />
+            <SidebarSection label="Marketplace" href={appRoutes.marketplace} icon={Store01Icon} />
+            <SidebarSection
+              label="Proof Explorer"
+              href={appRoutes.proof}
+              icon={DocumentValidationIcon}
+              nested
+            />
+            <SidebarSection label="Account & Vault" href={appRoutes.account} icon={Wallet01Icon} />
+            <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} />
+          </>
+        ) : (
+          workflowNavigation.map((item) => <SidebarSection key={item.href} {...item} nested />)
         )}
       </nav>
 

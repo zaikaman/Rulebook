@@ -270,6 +270,24 @@ export const workflowListingSchema = z.object({
   copies: z.number().int().nonnegative(),
 });
 export type WorkflowListing = z.infer<typeof workflowListingSchema>;
+export const workflowRunStatusSchema = z.enum([
+  'Completed',
+  'Failed',
+  'Skipped',
+  'Waiting for confirmation',
+  'No result confirmed',
+]);
+export const workflowActivitySchema = z.object({
+  runs: z.array(
+    z.object({
+      id: workflowIdSchema,
+      workflowId: workflowIdSchema,
+      title: z.string().nullable(),
+      status: workflowRunStatusSchema,
+    }),
+  ),
+  nextCursor: z.string().nullable(),
+});
 export const workflowRunSchema = z.object({
   id: workflowIdSchema,
   workflowId: workflowIdSchema,
@@ -283,13 +301,7 @@ export const workflowRunSchema = z.object({
   lasnaTransaction: workflowIdSchema,
   destinationTransaction: workflowIdSchema.nullable(),
   expiresAt: z.number().int(),
-  status: z.enum([
-    'Completed',
-    'Failed',
-    'Skipped',
-    'Waiting for confirmation',
-    'No result confirmed',
-  ]),
+  status: workflowRunStatusSchema,
   reason: z.string().nullable(),
   steps: z.array(
     z.object({

@@ -15,22 +15,32 @@ export function SidebarSection({
   icon,
   items = [],
   nested = false,
+  activeOn = [],
 }: {
   readonly label: string;
   readonly href: AppHref | string;
   readonly icon: ComponentProps<typeof HugeiconsIcon>['icon'];
   readonly items?: readonly TreeChild[];
   readonly nested?: boolean;
+  readonly activeOn?: readonly AppHref[];
 }) {
   const { pathname } = useLocation();
   const sectionActive =
-    isActiveRoute(pathname, href, !nested) || items.some((item) => item.href === pathname);
+    isActiveRoute(pathname, href, !nested) ||
+    activeOn.some((path) => isActiveRoute(pathname, path, false)) ||
+    items.some((item) => item.href === pathname);
 
   return (
     <div className="pt-2">
       <Link
         to={href}
-        aria-current={pathname === href ? 'page' : undefined}
+        aria-current={
+          pathname === href
+            ? 'page'
+            : nested && sectionActive && items.length === 0
+              ? 'location'
+              : undefined
+        }
         data-active={sectionActive || undefined}
         className="app-nav-link flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-ink-muted transition-colors"
       >

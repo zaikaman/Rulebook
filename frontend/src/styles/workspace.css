@@ -7,6 +7,17 @@
   padding-inline: 1rem;
 }
 
+.app-nav-create-compact {
+  inline-size: 2.75rem;
+  padding-inline: 0;
+}
+
+@media (width < 23rem) {
+  .app-mobile-header--workflows .app-mobile-brand .font-heading {
+    display: none;
+  }
+}
+
 .wallet-control {
   min-inline-size: 0;
 }

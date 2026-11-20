@@ -11,6 +11,7 @@ import { Marketplace } from '../pages/Marketplace.js';
 import { Proof } from '../pages/Proof.js';
 import { RuleDetail } from '../pages/RuleDetail.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
+import { WorkflowActivity } from '../workflows/Activity.js';
 import { WorkflowBuilder } from '../workflows/Builder.js';
 import { WorkflowListingDetail, WorkflowMarketplace } from '../workflows/Marketplace.js';
 import {
@@ -44,6 +45,7 @@ export function AppRouter() {
             <Route path="workflows/new" element={<WorkflowBuilder />} />
             <Route path="workflows/:id" element={<WorkflowDetail />} />
             <Route path="workflows/:id/edit" element={<WorkflowBuilder />} />
+            <Route path="activity" element={<WorkflowActivity />} />
             <Route path="runs/:id" element={<WorkflowRunDetail />} />
             <Route
               path="rules"

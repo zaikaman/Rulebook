@@ -98,10 +98,13 @@ export function workflowTriggerText(draft: WorkflowDraft) {
   );
 }
 
+export function stepAmountText(action: WorkflowAction) {
+  return (action.amount || '…') + (action.unit === 'percent' ? '% of the payment' : ' USDC');
+}
+
 export function stepText(action: WorkflowAction) {
   if (action.kind === 'alert') return workflowActionLabels.alert;
-  const amount =
-    (action.amount || '…') + (action.unit === 'percent' ? '% of the payment' : ' USDC');
+  const amount = stepAmountText(action);
   if (action.kind === 'swap') return 'Spend ' + amount + ' to buy WETH';
   return 'Send ' + amount + ' to ' + (action.recipient || 'a wallet you choose');
 }

@@ -1,4 +1,4 @@
-import { workflowListingSchema, workflowRunSchema } from '@rulebook/shared';
+import { workflowActivitySchema, workflowListingSchema, workflowRunSchema } from '@rulebook/shared';
 import { z } from 'zod';
 
 const base = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(/\/$/, '');
@@ -16,6 +16,9 @@ async function get<T>(
 }
 
 export const workflowApi = {
+  activity(params: URLSearchParams, signal?: AbortSignal) {
+    return get('/v2/activity?' + params.toString(), workflowActivitySchema, signal);
+  },
   marketplace(params: URLSearchParams, signal?: AbortSignal) {
     return get(
       '/v2/marketplace?' + params.toString(),
