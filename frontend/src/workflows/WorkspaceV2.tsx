@@ -14,6 +14,7 @@ import {
   Add01Icon,
   Alert02Icon,
   ArrowRight01Icon,
+  ArrowUpRight01Icon,
   Book02Icon,
   Clock01Icon,
   Coins01Icon,
@@ -21,6 +22,7 @@ import {
   Pulse01Icon,
   RefreshIcon,
   Shield01Icon,
+  Store01Icon,
   Tick02Icon,
   TradeUpIcon,
   Wallet01Icon,
@@ -400,47 +402,140 @@ function Publication({
   });
   if (!factory) return null;
   const published = listing.data;
+  const publicListing = Boolean(published?.visible);
+  const listingUnavailable = Boolean(listing.error) && !published;
+  const checking = listing.isPending && !published && !listingUnavailable;
+  const listingLabel = publicListing
+    ? 'Listed'
+    : listingUnavailable
+      ? 'Unavailable'
+      : checking
+        ? 'Checking'
+        : 'Not listed';
+  const listingCopy = publicListing
+    ? 'This version is visible to other wallets in the Marketplace.'
+    : listingUnavailable
+      ? 'The Marketplace registry could not be read.'
+      : checking
+        ? 'Checking whether this version is public.'
+        : 'Publish this version so other wallets can inspect and copy it.';
+  const descriptionBytes = new TextEncoder().encode(description).length;
+  const descriptionTooLong = descriptionBytes > 280;
   return (
-    <section
-      className="app-panel app-panel-pad workflow-v2-stack"
-      aria-label="Marketplace publication"
-    >
-      <h2 className="app-panel-heading">Marketplace</h2>
-      {listing.error && (
-        <p role="alert" className="workflow-error">
-          {listing.error.message}
-        </p>
-      )}
-      {published?.visible ? (
-        <div className="workflow-actions">
-          <Link className="app-link" to={`/marketplace/${published.id}`}>
-            View listing
-          </Link>
-          <button
-            type="button"
-            className="app-button"
-            disabled={wallet.busy}
-            onClick={() =>
-              void wallet.perform(async () => {
-                await wallet.send(
-                  LASNA_CHAIN_ID,
-                  factory,
-                  encodeFunctionData({
-                    abi: workflowAgentFactoryV2Abi,
-                    functionName: 'unpublish',
-                    args: [published.id],
-                  }),
-                  'Remove this version from the public Marketplace.',
-                );
-              })
-            }
-          >
-            Unpublish
-          </button>
+    <section className="app-panel rb-publication" aria-labelledby="marketplace-listing-title">
+      <header className="rb-panel-head">
+        <div className="rb-publication-identity">
+          <span className="rb-publication-icon" aria-hidden="true">
+            <HugeiconsIcon icon={Store01Icon} size={18} strokeWidth={1.7} />
+          </span>
+          <div>
+            <h2 className="rb-panel-title" id="marketplace-listing-title">
+              Marketplace listing
+            </h2>
+            <p className="rb-panel-copy">{listingCopy}</p>
+          </div>
+        </div>
+        <span
+          className="rb-chip"
+          data-tone={publicListing ? 'info' : listingUnavailable ? 'danger' : undefined}
+        >
+          {listingLabel}
+        </span>
+      </header>
+      {publicListing && published ? (
+        <>
+          <div className="rb-publication-body">
+            <div className="rb-publication-banner" data-tone="public">
+              <span className="rb-publication-mark" aria-hidden="true">
+                <HugeiconsIcon icon={ArrowUpRight01Icon} size={15} strokeWidth={1.8} />
+              </span>
+              <p className="rb-publication-copy">
+                <strong>Anyone with the link can open it.</strong> They can review the program and
+                copy it as their own draft. Unpublishing hides the listing without stopping this
+                workflow.
+              </p>
+            </div>
+            <dl className="rb-spec-facts">
+              <div>
+                <dt>Listing</dt>
+                <dd className="rb-publication-id">#{published.id.toString()}</dd>
+              </div>
+              <div>
+                <dt>Settlement network</dt>
+                <dd>
+                  <NetworkBadge chainId={item.chain} />
+                </dd>
+              </div>
+              <div>
+                <dt>Visibility</dt>
+                <dd>Public</dd>
+              </div>
+            </dl>
+          </div>
+          <footer className="rb-publication-foot">
+            <Link className="app-button app-button--primary" to={`/marketplace/${published.id}`}>
+              View listing
+              <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
+            </Link>
+            <button
+              type="button"
+              className="app-button app-button--danger"
+              disabled={wallet.busy}
+              onClick={() =>
+                void wallet.perform(async () => {
+                  await wallet.send(
+                    LASNA_CHAIN_ID,
+                    factory,
+                    encodeFunctionData({
+                      abi: workflowAgentFactoryV2Abi,
+                      functionName: 'unpublish',
+                      args: [published.id],
+                    }),
+                    'Remove this version from the public Marketplace.',
+                  );
+                })
+              }
+            >
+              Unpublish
+            </button>
+          </footer>
+        </>
+      ) : listingUnavailable ? (
+        <div className="rb-publication-body">
+          <div className="rb-publication-banner" data-tone="error" role="alert">
+            <span className="rb-publication-mark" aria-hidden="true">
+              <HugeiconsIcon icon={Alert02Icon} size={15} strokeWidth={1.8} />
+            </span>
+            <div className="rb-publication-error-copy">
+              <p className="rb-publication-copy">
+                <strong>Marketplace status is unavailable.</strong> {listing.error?.message}
+              </p>
+              <button
+                type="button"
+                className="app-button app-button--quiet"
+                disabled={listing.isFetching}
+                onClick={() => void listing.refetch()}
+              >
+                {listing.isFetching && <Spinner />}
+                {listing.isFetching ? 'Checking' : 'Check again'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : checking ? (
+        <div className="rb-publication-body" aria-live="polite">
+          <div className="rb-publication-banner">
+            <span className="rb-publication-mark" aria-hidden="true">
+              <Spinner />
+            </span>
+            <p className="rb-publication-copy">
+              Checking the Marketplace registry for this version.
+            </p>
+          </div>
         </div>
       ) : (
         <form
-          className="workflow-v2-stack"
+          className="rb-publication-form"
           onSubmit={(event) => {
             event.preventDefault();
             void wallet.perform(async () => {
@@ -461,21 +556,58 @@ function Publication({
             });
           }}
         >
-          <V2Field name="Public description">
-            <textarea
-              className="app-input"
-              maxLength={280}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </V2Field>
-          <button
-            className="app-button"
-            type="submit"
-            disabled={wallet.busy || listing.isPending || !description.trim()}
-          >
-            Publish version
-          </button>
+          <div className="rb-publication-body">
+            <div className="rb-publication-banner">
+              <span className="rb-publication-mark" aria-hidden="true">
+                <HugeiconsIcon icon={InformationCircleIcon} size={15} strokeWidth={1.8} />
+              </span>
+              <p className="rb-publication-copy">
+                Add a description so other wallets know what this workflow does. The workflow title
+                is published with it, and you can unpublish at any time.
+              </p>
+            </div>
+            <label className="app-field">
+              <span className="rb-publication-label">
+                <span>Public description</span>
+                <span
+                  className="rb-publication-count"
+                  data-tone={descriptionTooLong ? 'danger' : undefined}
+                >
+                  {descriptionBytes}/280 bytes
+                </span>
+              </span>
+              <textarea
+                className="app-input rb-publication-input"
+                rows={4}
+                maxLength={280}
+                value={description}
+                placeholder="Describe when this workflow runs and what it does."
+                aria-invalid={descriptionTooLong || undefined}
+                aria-describedby="marketplace-description-help"
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
+            <p
+              className="rb-publication-hint"
+              data-tone={descriptionTooLong ? 'error' : undefined}
+              id="marketplace-description-help"
+            >
+              {descriptionTooLong
+                ? 'Shorten the description to 280 bytes or fewer.'
+                : 'Shown with the listing in the Marketplace.'}
+            </p>
+          </div>
+          <footer className="rb-publication-foot">
+            <button
+              className="app-button app-button--primary"
+              type="submit"
+              disabled={
+                wallet.busy || listing.isPending || !description.trim() || descriptionTooLong
+              }
+            >
+              {wallet.busy ? 'Publishing…' : 'Publish version'}
+            </button>
+          </footer>
         </form>
       )}
     </section>

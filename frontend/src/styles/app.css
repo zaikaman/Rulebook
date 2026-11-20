@@ -1806,6 +1806,192 @@
   gap: 0.5rem;
 }
 
+/* Marketplace publication */
+
+.rb-publication {
+  overflow: hidden;
+  min-inline-size: 0;
+}
+
+.rb-publication-identity {
+  display: flex;
+  min-inline-size: 0;
+  flex: 1 1 20rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.rb-publication-identity .rb-panel-copy {
+  max-inline-size: 62ch;
+}
+
+.rb-publication-icon {
+  display: grid;
+  inline-size: 2.25rem;
+  block-size: 2.25rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--rb-accent-line);
+  border-radius: 0.5625rem;
+  background: var(--rb-accent-tint);
+  color: var(--rb-accent);
+}
+
+.rb-publication-body {
+  display: grid;
+  gap: 1.125rem;
+  padding: 1.25rem;
+}
+
+@media (min-width: 70rem) {
+  .rb-publication-body {
+    padding: 1.5rem;
+  }
+}
+
+.rb-publication-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+  background: var(--rb-surface-inset);
+}
+
+.rb-publication-banner[data-tone='public'] {
+  border-color: color-mix(in oklch, var(--rb-accent) 30%, var(--rb-border));
+  background: color-mix(in oklch, var(--rb-accent) 7%, var(--rb-surface-inset));
+}
+
+.rb-publication-banner[data-tone='error'] {
+  border-color: color-mix(in oklch, var(--rb-danger) 34%, var(--rb-border));
+  background: color-mix(in oklch, var(--rb-danger) 6%, var(--rb-surface-inset));
+}
+
+.rb-publication-mark {
+  display: grid;
+  inline-size: 2rem;
+  block-size: 2rem;
+  flex: none;
+  place-items: center;
+  border-radius: 0.5rem;
+  background: var(--rb-control);
+  color: var(--rb-ink-muted);
+}
+
+.rb-publication-banner[data-tone='public'] .rb-publication-mark {
+  background: var(--rb-accent-tint);
+  color: var(--rb-accent);
+}
+
+.rb-publication-banner[data-tone='error'] .rb-publication-mark {
+  background: color-mix(in oklch, var(--rb-danger) 12%, var(--rb-control));
+  color: var(--rb-danger);
+}
+
+.rb-publication-banner .rb-publication-copy {
+  max-inline-size: 72ch;
+}
+
+.rb-publication-copy {
+  color: var(--rb-ink-muted);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.rb-publication-copy strong {
+  color: var(--rb-ink);
+  font-weight: 650;
+}
+
+.rb-publication-id {
+  color: var(--rb-ink);
+  font-family: var(--font-geist-mono);
+  font-size: 0.75rem;
+}
+
+.rb-publication-error-copy {
+  display: grid;
+  min-inline-size: 0;
+  justify-items: start;
+  gap: 0.5rem;
+}
+
+.rb-publication-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  border-block-start: 1px solid var(--rb-border);
+  padding: 0.875rem 1.25rem;
+  background: var(--rb-surface-inset);
+}
+
+@media (min-width: 70rem) {
+  .rb-publication-foot {
+    padding: 1rem 1.5rem;
+  }
+}
+
+.rb-publication-foot .app-button--danger {
+  margin-inline-start: auto;
+}
+
+.rb-publication-form {
+  display: grid;
+}
+
+.rb-publication-form .app-field {
+  max-inline-size: 46rem;
+}
+
+.rb-publication > .rb-panel-head > .rb-chip {
+  margin-inline-start: auto;
+}
+
+.rb-publication-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.rb-publication-count {
+  color: var(--rb-ink-faint);
+  font-family: var(--font-geist-mono);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.rb-publication-count[data-tone='danger'],
+.rb-publication-hint[data-tone='error'] {
+  color: var(--rb-danger);
+}
+
+.rb-publication-input {
+  min-block-size: 7rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.rb-publication-hint {
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 36rem) {
+  .rb-publication-foot .app-button {
+    flex: 1 1 10rem;
+  }
+
+  .rb-publication-foot .app-button--danger {
+    margin-inline-start: 0;
+  }
+}
+
 /* Workflow canvas panel */
 
 .rb-canvas-panel {
