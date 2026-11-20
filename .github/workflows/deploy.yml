@@ -30,6 +30,7 @@ jobs:
       VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
       VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      WORKFLOW_V2_ACTIVATION: ${{ vars.WORKFLOW_V2_ACTIVATION }}
       VERCEL_TELEMETRY_DISABLED: '1'
     steps:
       - uses: actions/checkout@v4

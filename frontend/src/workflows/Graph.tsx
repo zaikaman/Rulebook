@@ -24,10 +24,34 @@ import {
 import { useMemo, useState } from 'react';
 import { workflowActionLabels, type WorkflowDraft } from '@rulebook/shared';
 import { conditionText, stepAmountText, stepText, workflowTriggerText } from './model';
+import {
+  branchPathKey,
+  isLibraryNode,
+  isTriggerNode,
+  placementProblem,
+  stepPathKey,
+  workflowNodeMime,
+  workflowRootKey,
+  type LibraryNode,
+  type LibraryTarget,
+} from './nodeLibraryModel';
 import '@xyflow/react/dist/style.css';
 
 export type GraphSelection = 'trigger' | number;
 export type WorkflowNodePositions = Record<string, XYPosition>;
+
+export type CanvasNode =
+  | { title: string; yes: number; no: number }
+  | {
+      actions: {
+        kind: 'send' | 'swap' | 'alert';
+        title: string;
+        detail?: string;
+        description?: string;
+      }[];
+    };
+
+export type CanvasDraft = { trigger: string; nodes: readonly CanvasNode[] };
 
 const nodeIcons = {
   trigger: FlashIcon,
@@ -45,6 +69,7 @@ type WorkflowNodeCard = Node<
     caption: string;
     title: string;
     detail?: string;
+    step?: number;
     description?: string;
     continues: boolean;
     matched: boolean;
@@ -97,13 +122,16 @@ function ZoomReadout() {
   return <span className="workflow-canvas-zoom">{Math.round(zoom * 100)}%</span>;
 }
 
-function highlightedPath(draft: WorkflowDraft, leaf: number | undefined) {
+function highlightedPath(
+  nodes: CanvasDraft['nodes'] | WorkflowDraft['nodes'],
+  leaf: number | undefined,
+) {
   const path = new Set<number>();
   if (leaf === undefined) return path;
   function find(id: number): boolean {
-    const node = draft.nodes[id];
+    const node = nodes[id];
     if (!node) return false;
-    if (id === leaf || (node.type === 'condition' && (find(node.yes) || find(node.no)))) {
+    if (id === leaf || ('yes' in node && (find(node.yes) || find(node.no)))) {
       path.add(id);
       return true;
     }
@@ -120,6 +148,8 @@ export function WorkflowGraph({
   leaf,
   positions,
   onPositionsChange,
+  draggedTool,
+  onToolDrop,
 }: {
   draft: WorkflowDraft;
   selected?: GraphSelection;
@@ -127,6 +157,79 @@ export function WorkflowGraph({
   leaf?: number;
   positions?: WorkflowNodePositions;
   onPositionsChange?: (positions: WorkflowNodePositions) => void;
+  draggedTool?: LibraryNode | null;
+  onToolDrop?: (kind: LibraryNode, target?: LibraryTarget) => void;
+}) {
+  const canvas = useMemo<CanvasDraft>(
+    () => ({
+      trigger: workflowTriggerText(draft),
+      nodes: draft.nodes.map((node) =>
+        node.type === 'condition'
+          ? { title: conditionText(draft, node), yes: node.yes, no: node.no }
+          : {
+              actions: node.actions.map((action) => ({
+                kind: action.kind,
+                title: workflowActionLabels[action.kind],
+                detail: action.kind === 'alert' ? undefined : stepAmountText(action),
+                description: action.kind === 'alert' ? undefined : stepText(action),
+              })),
+            },
+      ),
+    }),
+    [draft],
+  );
+  return (
+    <WorkflowCanvas
+      draft={canvas}
+      {...{ selected, select, leaf, positions, onPositionsChange }}
+      drop={
+        onToolDrop
+          ? {
+              mime: workflowNodeMime,
+              active: Boolean(draggedTool),
+              hint:
+                draggedTool &&
+                (isTriggerNode(draggedTool)
+                  ? 'Drop on the trigger to replace it'
+                  : draggedTool === 'condition'
+                    ? 'Drop on a highlighted node to branch before it'
+                    : 'Drop on an empty path or an existing step'),
+              accepts: (target) =>
+                Boolean(draggedTool && !placementProblem(draft, draggedTool, target)),
+              receive: (tool, target) => {
+                if (isLibraryNode(tool)) onToolDrop(tool, target);
+              },
+            }
+          : undefined
+      }
+    />
+  );
+}
+
+type CanvasDrop = {
+  mime: string;
+  active: boolean;
+  hint?: string | null;
+  accepts: (target: LibraryTarget) => boolean;
+  receive: (tool: string, target?: LibraryTarget) => void;
+};
+
+export function WorkflowCanvas({
+  draft,
+  selected,
+  select,
+  leaf,
+  positions,
+  onPositionsChange,
+  drop,
+}: {
+  draft: CanvasDraft;
+  selected?: GraphSelection;
+  select?: (selection: GraphSelection) => void;
+  leaf?: number;
+  positions?: WorkflowNodePositions;
+  onPositionsChange?: (positions: WorkflowNodePositions) => void;
+  drop?: CanvasDrop;
 }) {
   const editable = Boolean(select);
   const [measurements, setMeasurements] = useState<Record<string, Dimensions>>({});
@@ -135,7 +238,7 @@ export function WorkflowGraph({
   const { nodes, edges } = useMemo(() => {
     const nodes: WorkflowNodeCard[] = [];
     const edges: BuiltInEdge[] = [];
-    const highlight = highlightedPath(draft, leaf);
+    const highlight = highlightedPath(draft.nodes, leaf);
     let nextRow = 0;
     function box(
       id: string,
@@ -184,9 +287,9 @@ export function WorkflowGraph({
       const node = draft.nodes[id];
       if (!node || visited.has(id)) return nextRow;
       visited.add(id);
-      if (node.type === 'condition') {
-        const yes = path + '-yes';
-        const no = path + '-otherwise';
+      if ('yes' in node) {
+        const yes = branchPathKey(path, 'yes');
+        const no = branchPathKey(path, 'otherwise');
         const yesRow = visit(node.yes, yes, column + 1, visited);
         const noRow = visit(node.no, no, column + 1, visited);
         const row = (yesRow + noRow) / 2;
@@ -196,7 +299,7 @@ export function WorkflowGraph({
             owner: id,
             kind: 'condition',
             caption: 'Condition',
-            title: conditionText(draft, node),
+            title: node.title,
             continues: true,
           },
           column,
@@ -215,45 +318,41 @@ export function WorkflowGraph({
           row,
         );
       node.actions.forEach((action, index) => {
-        const actionId = index === 0 ? path : path + '-step-' + index;
+        const actionId = stepPathKey(path, index);
         box(
           actionId,
           {
             owner: id,
             kind: action.kind,
+            step: index,
             caption: 'Step ' + (index + 1),
-            title: workflowActionLabels[action.kind],
-            detail: action.kind === 'alert' ? undefined : stepAmountText(action),
-            description: action.kind === 'alert' ? undefined : stepText(action),
+            title: action.title,
+            detail: action.detail,
+            description: action.description,
             continues: index + 1 < node.actions.length,
           },
           column + index,
           row,
         );
         if (index > 0)
-          connect(
-            index === 1 ? path : path + '-step-' + (index - 1),
-            actionId,
-            undefined,
-            highlight.has(id),
-          );
+          connect(stepPathKey(path, index - 1), actionId, undefined, highlight.has(id));
       });
       return row;
     }
-    const row = visit(0, 'root', 1, new Set());
+    const row = visit(0, workflowRootKey, 1, new Set());
     box(
       'trigger',
       {
         owner: 'trigger',
         kind: 'trigger',
         caption: 'Trigger',
-        title: workflowTriggerText(draft),
+        title: draft.trigger,
         continues: true,
       },
       0,
       row,
     );
-    connect('trigger', 'root', undefined, leaf !== undefined);
+    connect('trigger', workflowRootKey, undefined, leaf !== undefined);
     nodes.sort(
       (left, right) => left.position.y - right.position.y || left.position.x - right.position.x,
     );
@@ -264,14 +363,19 @@ export function WorkflowGraph({
     const activeNode =
       nodes.find((node) => node.id === activeNodeId && node.data.owner === selected) ??
       nodes.find((node) => node.data.owner === selected);
-    return nodes.map((node) => ({
-      ...node,
-      position: positions?.[node.id] ?? node.position,
-      measured: measurements[measurementKey(node)],
-      selected: node.id === activeNode?.id,
-      domAttributes: editable ? { 'aria-pressed': node.id === activeNode?.id } : undefined,
-    }));
-  }, [nodes, activeNodeId, selected, measurements, positions, editable]);
+    return nodes.map((node) => {
+      const placement = { owner: node.data.owner, afterStep: node.data.step };
+      const acceptsTool = drop?.accepts(placement);
+      return {
+        ...node,
+        position: positions?.[node.id] ?? node.position,
+        measured: measurements[measurementKey(node)],
+        selected: node.id === activeNode?.id,
+        className: acceptsTool ? 'workflow-node workflow-node--drop-target' : node.className,
+        domAttributes: editable ? { 'aria-pressed': node.id === activeNode?.id } : undefined,
+      };
+    });
+  }, [nodes, activeNodeId, selected, measurements, positions, editable, drop]);
 
   const positionedNodes = useMemo(
     () =>
@@ -288,7 +392,34 @@ export function WorkflowGraph({
   }
 
   return (
-    <div className="workflow-canvas" aria-label="Workflow diagram">
+    <div
+      className="workflow-canvas"
+      aria-label="Workflow diagram"
+      onDragOver={
+        drop
+          ? (event) => {
+              if (!event.dataTransfer.types.includes(drop.mime)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'copy';
+            }
+          : undefined
+      }
+      onDrop={
+        drop
+          ? (event) => {
+              const kind = event.dataTransfer.getData(drop.mime);
+              if (!kind) return;
+              event.preventDefault();
+              const id =
+                event.target instanceof Element
+                  ? event.target.closest<HTMLElement>('.workflow-node')?.dataset.id
+                  : undefined;
+              const node = nodes.find((item) => item.id === id);
+              drop.receive(kind, node && { owner: node.data.owner, afterStep: node.data.step });
+            }
+          : undefined
+      }
+    >
       <ReactFlow
         key={nodes.length}
         className="dark"
@@ -351,7 +482,11 @@ export function WorkflowGraph({
           <ZoomReadout />
         </Controls>
       </ReactFlow>
-      {editable && <p className="workflow-canvas-hint">Drag nodes to move · Scroll to zoom</p>}
+      {editable && (
+        <p className="workflow-canvas-hint" data-drop-active={drop?.active || undefined}>
+          {drop?.hint || 'Drag nodes to move · Scroll to zoom'}
+        </p>
+      )}
     </div>
   );
 }
@@ -367,7 +502,7 @@ export function WorkflowOutline({
   selected?: GraphSelection;
   leaf?: number;
 }) {
-  const highlight = highlightedPath(draft, leaf);
+  const highlight = highlightedPath(draft.nodes, leaf);
   function branch(id: number, depth: number) {
     const node = draft.nodes[id];
     if (!node || depth > 3) return null;

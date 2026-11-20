@@ -19,7 +19,9 @@ import { PublicAccountChain } from './sponsor/accountChain.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
 import { TelegramWorker } from './telegram/worker.js';
 import { WorkflowIndexer } from './workflows/indexer.js';
+import { WorkflowV2Indexer } from './workflows/indexerV2.js';
 import { registerWorkflowRoutes } from './workflows/routes.js';
+import { registerWorkflowV2Routes } from './workflows/routesV2.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -114,8 +116,15 @@ export async function startServer(): Promise<void> {
     config.workflows && config.INDEXER_ENABLED
       ? new WorkflowIndexer(supabase, clients, config.workflows, app.log)
       : undefined;
+  const v2 = config.workflowsV2;
+  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory);
+  const workflowV2Indexer =
+    v2 && config.INDEXER_ENABLED
+      ? new WorkflowV2Indexer(supabase, clients, v2, app.log)
+      : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   void workflowIndexer?.run();
+  void workflowV2Indexer?.run();
 
   const worker =
     telegram && telegramDb ? new TelegramWorker(telegramDb, telegram, app.log) : undefined;
@@ -143,6 +152,7 @@ export async function startServer(): Promise<void> {
     process.once(signal, () => {
       poller?.stop();
       workflowIndexer?.stop();
+      workflowV2Indexer?.stop();
       worker?.stop();
       void Promise.all([app.close(), workerRun]).then(() => process.exit(0));
     });

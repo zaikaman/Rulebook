@@ -8,6 +8,8 @@ export const FIXTURE_API_PORT = Number(process.env.RULEBOOK_E2E_API_PORT ?? 1878
 export const FIXTURE_FRONTEND_PORT = Number(process.env.RULEBOOK_E2E_FRONTEND_PORT ?? 15173);
 export const FIXTURE_API_URL = `http://127.0.0.1:${FIXTURE_API_PORT}`;
 export const FIXTURE_FRONTEND_URL = `http://localhost:${FIXTURE_FRONTEND_PORT}`;
+export const FIXTURE_V2_FRONTEND_PORT = Number(process.env.RULEBOOK_E2E_V2_PORT ?? 15174);
+export const FIXTURE_V2_FRONTEND_URL = `http://localhost:${FIXTURE_V2_FRONTEND_PORT}`;
 
 export const SPONSOR_PRIVATE_KEY =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80' as const;
@@ -31,4 +33,12 @@ export const AGENT_FACTORY_ADDRESS = getContractAddress({
 export const VAULT_FACTORY_ADDRESS = getContractAddress({
   from: SPONSOR_ADDRESS,
   nonce: 2n,
+});
+export const WORKFLOW_V2_AGENT_FACTORY_ADDRESS = getContractAddress({
+  from: SPONSOR_ADDRESS,
+  nonce: 3n,
+});
+export const WORKFLOW_V2_VAULT_FACTORY_ADDRESS = getContractAddress({
+  from: SPONSOR_ADDRESS,
+  nonce: 4n,
 });

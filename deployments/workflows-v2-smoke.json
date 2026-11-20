@@ -1,0 +1,37 @@
+{
+  "workflow": "0x2edf3d39609dd438321913507b32428ba912e78dae74d5d18741ce3abbc130f6",
+  "agent": "0xebDA1C4d66D80CE37AdcE33D0F524645b01CcFf0",
+  "vault": "0xC15a2BA79c63bd462f362867446E9a33731b814f",
+  "runs": [
+    {
+      "inputUsdcBaseUnits": "1200000",
+      "spentUsdcBaseUnits": "200000",
+      "runId": "0x9fcb56adee124a3e9eabb365fcae08af3daa0ca19080adf3599e3e0e2cdd32bb",
+      "path": 1,
+      "status": "confirmed",
+      "originTransaction": "0x7e60500a6ebdd08ef4cfd561d40030f01d8342233655781c341c6d4d3c19b636",
+      "lasnaTransaction": "0xf96813b6dab95a46947a0befae6c002c54dd2b43de1860d5f675c64d89609a48",
+      "destinationTransaction": "0x45a1fd070af63bfb19218a639ddb96430f8626806a08c08b8aa51a1a7459f7fd"
+    },
+    {
+      "inputUsdcBaseUnits": "600000",
+      "spentUsdcBaseUnits": "50000",
+      "runId": "0x69b437ab07bae9c84bd4bae00ad38b36cb161de0cb527bde7f468c2fdcd03b41",
+      "path": 3,
+      "status": "confirmed",
+      "originTransaction": "0x0b1a50868ff8bf8f439811ddd9aa245d6a707c9603dbe9b6dc06c7933b08f1a9",
+      "lasnaTransaction": "0x2823d68d1cef33f6e35b79a2a2632fb6869cb2e5fb7afdb65ff9e01d13884e39",
+      "destinationTransaction": "0xc62b69b6a9c539ae3fe90dddc39f745d6ca82331fe3d6a0666904b7acdfbe708"
+    },
+    {
+      "inputUsdcBaseUnits": "100000",
+      "spentUsdcBaseUnits": "0",
+      "runId": "0xcc6f1729ee3edcc4f39704c148445fb99b13908125e0647bc0f87b825d67865e",
+      "path": 4,
+      "status": "skipped",
+      "originTransaction": "0x66b0bc6dcd6fc0ced78cd76583f4d675a4f2acbc69a05120ba173e7d1da10e0c",
+      "lasnaTransaction": "0x4608a32e7b6e88e8aa4fd64dcf4850be8e2fe1a88c0aa357c22456384a3c24f5",
+      "destinationTransaction": "0x793fbf8706c668bcd67594723be17d5f36a08853a6b9303a355f7f4bf5a4a04e"
+    }
+  ]
+}

@@ -45,6 +45,7 @@ const PROG = [
 
 export const workflowTriggers = ['payment', 'schedule', 'price'] as const;
 export const workflowActionKinds = ['send', 'swap', 'alert'] as const;
+export const workflowLimits = { nodes: 15, conditionDepth: 3, stepsPerPath: 3 } as const;
 export const workflowNodeSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('condition'),
@@ -63,7 +64,7 @@ export const workflowNodeSchema = z.discriminatedUnion('type', [
           recipient: z.string(),
         }),
       )
-      .max(3),
+      .max(workflowLimits.stepsPerPath),
   }),
 ]);
 
@@ -75,7 +76,7 @@ export const workflowDraftSchema = z.object({
   rising: z.boolean(),
   spendLimit: z.string(),
   slippage: z.string(),
-  nodes: z.array(workflowNodeSchema).min(1).max(15),
+  nodes: z.array(workflowNodeSchema).min(1).max(workflowLimits.nodes),
 });
 
 export type WorkflowDraft = z.infer<typeof workflowDraftSchema>;
@@ -138,7 +139,11 @@ export function encodeWorkflow(input: WorkflowDraft, vault?: Address): Hex {
       );
       if (threshold === 0n || threshold > maxThreshold)
         throw new Error('Enter a positive branch threshold.');
-      if (draft.trigger === 'schedule' || level > 3 || node.yes === node.no)
+      if (
+        draft.trigger === 'schedule' ||
+        level > workflowLimits.conditionDepth ||
+        node.yes === node.no
+      )
         throw new Error('This workflow cannot add another branch.');
       for (const child of [node.yes, node.no]) {
         if (child <= index || child >= draft.nodes.length || depth.has(child))

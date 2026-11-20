@@ -4934,6 +4934,2116 @@ export const workflowVaultFactoryAbi = [
   }
 ] as const;
 
+export const workflowAgentV2Abi = [
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "system_",
+        "type": "address",
+        "internalType": "contract IReactiveSystem"
+      },
+      {
+        "name": "factory_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "coverDebt",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "disable",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "enable",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "originAfter",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "entries",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "hash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "nextDue",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "lasnaAfter",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "trigger",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "chain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "interval",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "expiry",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "source",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "subject",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "dip",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "inactivity",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "once",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "originAfter",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "linkVault",
+    "inputs": [
+      {
+        "name": "chain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pay",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "programs",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "publication",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "hash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "react",
+    "inputs": [
+      {
+        "name": "log",
+        "type": "tuple",
+        "internalType": "struct IReactive.LogRecord",
+        "components": [
+          {
+            "name": "chain_id",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "_contract",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "topic_0",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic_1",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic_2",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic_3",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "data",
+            "type": "bytes",
+            "internalType": "bytes"
+          },
+          {
+            "name": "block_number",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "op_code",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "block_hash",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "tx_hash",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "log_index",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "system",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IReactiveSystem"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "titles",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vaults",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdraw",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "workflowIds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "Disabled",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Dispatched",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originChain",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "originTransaction",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originLogIndex",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "chain",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "expiresAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Enabled",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chain",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "InvalidAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidProgram",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidWorkflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
+    "inputs": []
+  }
+] as const;
+
+export const workflowAgentFactoryV2Abi = [
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "system",
+        "type": "address",
+        "internalType": "contract IReactiveSystem"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "agentOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "create",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "agent",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "implementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "listingCount",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "listingOf",
+    "inputs": [
+      {
+        "name": "agent",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "hash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "listings",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "agent",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "visible",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "publish",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unpublish",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "AgentCreated",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "agent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Published",
+    "inputs": [
+      {
+        "name": "listing",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "agent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "chain",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Unpublished",
+    "inputs": [
+      {
+        "name": "listing",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidListing",
+    "inputs": []
+  }
+] as const;
+
+export const workflowVaultV2Abi = [
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "proxy",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "agent_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "chain_",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "cfg",
+        "type": "tuple",
+        "internalType": "struct WorkflowProtocolsV2.Networks",
+        "components": [
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "weth",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "router",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "pair",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "name": "validator_",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "receive",
+    "stateMutability": "payable"
+  },
+  {
+    "type": "function",
+    "name": "CONFIRMED",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "EXPIRED",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "FAILED",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "IN_GRACE_PERIOD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "PAYOUT_GRACE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SKIPPED",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "agent",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "authorizations",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "originAfter",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "authorize",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "chain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "checkIn",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "coverDebt",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "execute",
+    "inputs": [
+      {
+        "name": "sender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "run",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramV2.Run",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "programHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "originChain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "originTransaction",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "originLogIndex",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "originBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "previous",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "high",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "highBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observationTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "activityTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "actor",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "outcomes",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pair",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pay",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "paymentWorkflow",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "programs",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revoke",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "router",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "settle",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "run",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramV2.Run",
+        "components": [
+          {
+            "name": "epoch",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "programHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "originChain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "originTransaction",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "originLogIndex",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "originBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observed",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "previous",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "high",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "highBlock",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observationTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "activityTime",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "observationId",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "actor",
+            "type": "address",
+            "internalType": "address"
+          }
+        ]
+      },
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "titles",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "validator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "weth",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "withdraw",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "workflowIds",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32[]",
+        "internalType": "bytes32[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "workflowMemory",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "peak",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "referencePrice",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "lastCheckIn",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "activity",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "eligibleAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "positionBlock",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "positionIndex",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "closed",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "Authorized",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "programHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CheckIn",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "timestamp",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Closed",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Observation",
+    "inputs": [
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "value",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Outcome",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "status",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "path",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "reason",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Revoked",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Step",
+    "inputs": [
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "index",
+        "type": "uint8",
+        "indexed": true,
+        "internalType": "uint8"
+      },
+      {
+        "name": "kind",
+        "type": "uint8",
+        "indexed": false,
+        "internalType": "uint8"
+      },
+      {
+        "name": "spent",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "received",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "CapExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "DuplicateOrigin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAmount",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidAuthorization",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidMarket",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSecondary",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NoLongerEligible",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "SettlementInterrupted",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StaleObservation",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
+    "inputs": []
+  }
+] as const;
+
+export const workflowVaultFactoryV2Abi = [
+  {
+    "type": "constructor",
+    "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "callbackProxy",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "chain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "create",
+    "inputs": [
+      {
+        "name": "agent",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "validator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "vaultOf",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "VaultCreated",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "agent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "AgentMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InactiveDeployment",
+    "inputs": []
+  }
+] as const;
+
+export const workflowProgramValidatorV2Abi = [
+  {
+    "type": "function",
+    "name": "validateProgram",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramV2.Program",
+        "components": [
+          {
+            "name": "version",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "trigger",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "interval",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "expires",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "subject",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "usdcCap",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "wethCap",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "slippage",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "once",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "nodes",
+            "type": "tuple[]",
+            "internalType": "struct WorkflowProgramV2.Node[]",
+            "components": [
+              {
+                "name": "check",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "yes",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "no",
+                "type": "uint8",
+                "internalType": "uint8"
+              },
+              {
+                "name": "value",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "upper",
+                "type": "uint128",
+                "internalType": "uint128"
+              },
+              {
+                "name": "actions",
+                "type": "tuple[]",
+                "internalType": "struct WorkflowProgramV2.Action[]",
+                "components": [
+                  {
+                    "name": "kind",
+                    "type": "uint8",
+                    "internalType": "uint8"
+                  },
+                  {
+                    "name": "unit",
+                    "type": "uint8",
+                    "internalType": "uint8"
+                  },
+                  {
+                    "name": "amount",
+                    "type": "uint96",
+                    "internalType": "uint96"
+                  },
+                  {
+                    "name": "account",
+                    "type": "address",
+                    "internalType": "address"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "error",
+    "name": "InvalidProgram",
+    "inputs": []
+  }
+] as const;
+
 export const abis = {
   agentAbi,
   vaultAbi,
@@ -4944,4 +7054,9 @@ export const abis = {
   workflowVaultAbi,
   workflowDirectoryAbi,
   workflowVaultFactoryAbi,
+  workflowAgentV2Abi,
+  workflowAgentFactoryV2Abi,
+  workflowVaultV2Abi,
+  workflowVaultFactoryV2Abi,
+  workflowProgramValidatorV2Abi,
 } as const;

@@ -39,7 +39,7 @@ function backends() {
 
 async function workflowSettings() {
   const records = JSON.parse(
-    await readFile(new URL('../deployments/workflows.json', import.meta.url), 'utf8'),
+    await readFile(new URL('../deployments/workflows-v2.json', import.meta.url), 'utf8'),
   );
   function deployment(contract, chainId) {
     const entry = records.find((item) => item.contract === contract && item.chainId === chainId);
@@ -53,13 +53,13 @@ async function workflowSettings() {
     }
     return entry;
   }
-  const directory = deployment('WorkflowDirectory', 5318007);
-  const vaultFactory = deployment('WorkflowVaultFactory', 1301);
+  const agentFactory = deployment('WorkflowAgentFactoryV2', 5318007);
+  const vaultFactory = deployment('WorkflowVaultFactoryV2', 1301);
   return {
-    WORKFLOW_DIRECTORY_ADDRESS: directory.address,
-    WORKFLOW_VAULT_FACTORY_ADDRESS: vaultFactory.address,
-    WORKFLOW_START_BLOCK_LASNA: String(directory.blockNumber),
-    WORKFLOW_START_BLOCK_UNICHAIN: String(vaultFactory.blockNumber),
+    WORKFLOW_V2_DEPLOYMENT: JSON.stringify({
+      lasna: { factory: agentFactory.address, startBlock: agentFactory.blockNumber },
+      unichain: { factory: vaultFactory.address, startBlock: vaultFactory.blockNumber },
+    }),
   };
 }
 
@@ -85,7 +85,7 @@ async function apiReady() {
   try {
     const health = await json(api + '/health');
     if (health.status !== 'ok' || health.database?.reachable !== true) return false;
-    const response = await fetch(api + '/v2/marketplace', {
+    const response = await fetch(api + '/v3/marketplace', {
       headers: { Origin: web, Accept: 'application/json' },
       signal: AbortSignal.timeout(20_000),
     });
@@ -126,7 +126,7 @@ async function backend() {
   const config = await heroku('/config-vars');
   for (const [name, expected] of Object.entries(await workflowSettings())) {
     if (config[name]?.toLowerCase() !== expected.toLowerCase()) {
-      throw new Error('Heroku setting ' + name + ' must match deployments/workflows.json.');
+      throw new Error('Heroku setting ' + name + ' must match deployments/workflows-v2.json.');
     }
   }
   for (const name of ['DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
@@ -214,8 +214,11 @@ try {
           env('GITHUB_ENV'),
           [
             'VITE_API_BASE_URL=' + server,
-            'VITE_WORKFLOW_DIRECTORY_ADDRESS=' + settings.WORKFLOW_DIRECTORY_ADDRESS,
-            'VITE_WORKFLOW_VAULT_FACTORY_ADDRESS=' + settings.WORKFLOW_VAULT_FACTORY_ADDRESS,
+            'VITE_WORKFLOW_V2_DEPLOYMENT=' + settings.WORKFLOW_V2_DEPLOYMENT,
+            ...(process.env.WORKFLOW_V2_ACTIVATION
+              ? ['VITE_WORKFLOW_V2_ACTIVATION=' + process.env.WORKFLOW_V2_ACTIVATION]
+              : []),
+            'VITE_LEGACY_WORKSPACE=false',
             '',
           ].join('\n'),
         );

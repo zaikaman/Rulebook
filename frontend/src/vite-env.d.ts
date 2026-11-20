@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_LEGACY_WORKSPACE?: string;
   readonly VITE_WORKFLOW_DIRECTORY_ADDRESS?: string;
   readonly VITE_WORKFLOW_VAULT_FACTORY_ADDRESS?: string;
+  readonly VITE_WORKFLOW_V2_DEPLOYMENT?: string;
+  readonly VITE_WORKFLOW_V2_ACTIVATION?: string;
 }
 
 interface ImportMeta {

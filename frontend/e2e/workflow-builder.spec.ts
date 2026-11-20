@@ -28,6 +28,7 @@ test('uses the wheel to zoom inside the builder canvas and scroll outside it', a
 test('builds nested paths and reviews the workflow in plain English', async ({ page }) => {
   await page.goto('/workflows/new?template=blank');
   await page.getByLabel('Workflow name').fill('Sort my payments');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Maximum USDC per run').fill('1');
   await page.getByRole('button', { name: 'Show outline' }).click();
   await page.getByRole('button', { name: 'Edit the first path' }).click();
@@ -35,7 +36,9 @@ test('builds nested paths and reviews the workflow in plain English', async ({ p
   await page.getByLabel('Payment is at least (USDC)').fill('1');
   await page.getByRole('button', { name: 'Edit yes path' }).click();
   await page.getByRole('button', { name: 'Add step' }).click();
+  await page.getByRole('button', { name: /Record an alert/ }).click();
   await page.getByRole('button', { name: 'Add step' }).click();
+  await page.getByRole('button', { name: /Record an alert/ }).click();
   await page.getByRole('button', { name: 'Review workflow' }).click();
   await expect(page.getByRole('region', { name: 'Review workflow' })).toContainText(
     'Payment is at least 1 USDC',
@@ -47,6 +50,87 @@ test('builds nested paths and reviews the workflow in plain English', async ({ p
 
   await page.reload();
   await expect(page.getByLabel('Workflow name')).toHaveValue('Sort my payments');
+});
+
+test('builds and reviews an encodable payment workflow by dragging library nodes', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await page.goto('/workflows/new?template=blank');
+  const canvas = page.locator('.workflow-canvas');
+  const library = page.getByRole('region', { name: 'Node library' });
+  const settings = page.getByRole('region', { name: 'Selected step settings' });
+  const nodesTab = page.getByRole('button', { name: 'Nodes', exact: true });
+
+  await page.getByLabel('Workflow name').fill('Save part of my USDC');
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await settings.getByLabel('Maximum USDC per run').fill('1');
+  await nodesTab.click();
+  await library
+    .getByRole('button', { name: /^Condition/ })
+    .dragTo(canvas.locator('[data-id="root"]'));
+  await settings.getByLabel('Payment is at least (USDC)').fill('1');
+
+  await nodesTab.click();
+  await library
+    .getByRole('button', { name: /^Send USDC/ })
+    .dragTo(canvas.locator('[data-id="root-yes"]'));
+  await settings.getByLabel('Amount in USDC').fill('0.2');
+  await settings.getByLabel('Recipient wallet').fill('0x1111111111111111111111111111111111111111');
+  await nodesTab.click();
+  await library
+    .getByRole('button', { name: /^Record an alert/ })
+    .dragTo(canvas.locator('[data-id="root-yes"]'));
+  await expect(settings.getByLabel('Action')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Review workflow' }).click();
+  const review = page.getByRole('region', { name: 'Review workflow' });
+  await expect(review).toContainText('Payment is at least 1 USDC');
+  await expect(review.getByRole('listitem').filter({ hasText: /^Send 0\.2 USDC to / })).toHaveCount(
+    1,
+  );
+  await expect(review.getByText('Record an alert', { exact: true })).toBeVisible();
+  await expect(review.getByText('Do nothing', { exact: true })).toBeVisible();
+});
+
+test('inserts a step after the drop target and keeps unsupported changes blocked', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 940 });
+  await page.goto('/workflows/new?template=payment');
+  const canvas = page.locator('.workflow-canvas');
+  const library = page.getByRole('region', { name: 'Node library' });
+  const settings = page.getByRole('region', { name: 'Selected step settings' });
+  await expect(library.getByRole('button', { name: /^On a schedule/ })).toBeDisabled();
+  await expect(library.getByRole('button', { name: /^Price crosses a target/ })).toBeDisabled();
+
+  const swap = library.getByRole('button', { name: /^Buy WETH with USDC/ });
+  await swap.dragTo(canvas.locator('[data-id="root-yes"]'));
+  const actions = settings.getByRole('combobox', { name: 'Action', exact: true });
+  await expect(actions.nth(0)).toHaveValue('send');
+  await expect(actions.nth(1)).toHaveValue('swap');
+  await expect(actions.nth(2)).toHaveValue('alert');
+  await expect(actions.nth(0).locator('option[value="swap"]')).toBeDisabled();
+
+  await page.getByRole('button', { name: 'Nodes', exact: true }).click();
+  await swap.dragTo(canvas.locator('[data-id="root-yes"]'));
+  await expect(page.getByRole('alert')).toContainText('A path can contain up to 3 steps.');
+  await canvas.locator('[data-id="root-yes"]').click();
+  await expect(actions).toHaveCount(3);
+});
+
+test('lets a phone choose a branch without dragging', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/workflows/new?template=payment');
+  await page.getByRole('button', { name: 'Add nodes' }).click();
+  const library = page.getByRole('region', { name: 'Node library' });
+  await library.getByRole('button', { name: /^Record an alert/ }).press('Enter');
+  const choice = page.getByRole('region', { name: 'Choose a path' });
+  await expect(choice.getByRole('button', { name: 'Yes', exact: true })).toBeFocused();
+  await choice.getByRole('button', { name: 'Otherwise / Otherwise', exact: true }).click();
+  const settings = page.getByRole('region', { name: 'Selected step settings' });
+  await expect(settings.getByRole('combobox', { name: 'Action', exact: true })).toHaveValue(
+    'alert',
+  );
 });
 
 test('opens the right editor from the canvas nodes and can fit the full diagram', async ({
@@ -145,6 +229,13 @@ test('drags one node with its connections and saves its position in the draft', 
   await page.reload();
   await expect.poll(() => horizontalPosition(transfer)).toBeCloseTo(moved);
   expect(await horizontalPosition(nextStep)).toBe(nextPosition);
+
+  await transfer.click();
+  await page.getByRole('button', { name: 'Move step 2 earlier' }).click();
+  const reordered = canvas.getByRole('button', { name: /^Step 2\. Send USDC\. Send 20%/ });
+  await expect.poll(() => horizontalPosition(reordered)).toBeCloseTo(moved);
+  await page.getByRole('button', { name: 'Remove step 1' }).click();
+  await expect.poll(() => horizontalPosition(transfer)).toBeCloseTo(moved);
 });
 
 test('a phone can edit conditions through the outline', async ({ page }) => {

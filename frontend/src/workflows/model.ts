@@ -121,16 +121,6 @@ export function conditionText(
   );
 }
 
-export function nodeDepth(nodes: WorkflowNode[], target: number, id = 0, depth = 0): number {
-  if (target === id) return depth;
-  const node = nodes[id];
-  if (node?.type !== 'condition') return -1;
-  return Math.max(
-    nodeDepth(nodes, target, node.yes, depth + 1),
-    nodeDepth(nodes, target, node.no, depth + 1),
-  );
-}
-
 export function replaceNode(draft: WorkflowDraft, id: number, node: WorkflowNode): WorkflowDraft {
   return { ...draft, nodes: draft.nodes.map((item, index) => (index === id ? node : item)) };
 }

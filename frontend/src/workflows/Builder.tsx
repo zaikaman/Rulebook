@@ -5,6 +5,7 @@ import {
   workflowActionLabels,
   workflowDraftSchema,
   workflowIdSchema,
+  workflowLimits,
   workflowTriggerLabels,
   workflowTriggers,
   type WorkflowAction,
@@ -34,17 +35,20 @@ import {
   type GraphSelection,
   type WorkflowNodePositions,
 } from './Graph';
-import {
-  alertAction,
-  emptyPath,
-  nodeDepth,
-  removeCondition,
-  replaceNode,
-  sameWorkflowShape,
-  starters,
-} from './model';
+import { alertAction, removeCondition, replaceNode, sameWorkflowShape, starters } from './model';
 import { verifyListing } from './listing';
 import { WalletFeedback } from './Feedback';
+import { NodeLibrary } from './NodeLibrary';
+import {
+  isTriggerNode,
+  keepEditedStepPositions,
+  keepStepPositions,
+  placeLibraryNode,
+  placementProblem,
+  workflowPaths,
+  type LibraryNode,
+  type LibraryTarget,
+} from './nodeLibraryModel';
 
 export function WorkflowBuilder() {
   const { id: routeId } = useParams();
@@ -202,20 +206,77 @@ function Editor({
   const [selected, select] = useState<GraphSelection>('trigger');
   const map = useRef<HTMLDivElement>(null);
   const settings = useRef<HTMLElement>(null);
+  const libraryToggle = useRef<HTMLButtonElement>(null);
+  const [panel, setPanel] = useState<'library' | 'settings'>('library');
+  const [libraryPath, setLibraryPath] = useState<number>();
+  const [draggedTool, setDraggedTool] = useState<LibraryNode | null>(null);
+  const [panelMessage, setPanelMessage] = useState<{ text: string; error?: boolean }>();
   const [listView, setListView] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [copyCredit, setCopyCredit] = useState(initial.copied);
   const [validation, setValidation] = useState<string>();
 
-  function selectFromMap(selection: GraphSelection) {
+  function selectFromMap(selection: GraphSelection, focus = false) {
     select(selection);
-    const panel = settings.current;
+    setPanel('settings');
+    requestAnimationFrame(() => {
+      const inspector = settings.current;
+      const tools = inspector?.parentElement;
+      if (
+        inspector &&
+        (focus ||
+          (tools &&
+            map.current &&
+            tools.getBoundingClientRect().top > map.current.getBoundingClientRect().top))
+      )
+        inspector.focus();
+    });
+  }
+
+  function openLibrary(path?: number, focus = false) {
+    setPanel('library');
+    setLibraryPath(path);
+    setPanelMessage(undefined);
+    if (focus) libraryToggle.current?.focus();
+  }
+
+  function addFromLibrary(kind: LibraryNode, target: LibraryTarget) {
+    const result = placeLibraryNode(draft, kind, target);
+    if (result.error) {
+      setPanelMessage({ text: result.error, error: true });
+      return;
+    }
     if (
-      panel &&
-      map.current &&
-      panel.getBoundingClientRect().top > map.current.getBoundingClientRect().top
-    ) {
-      panel.focus();
+      result.notice &&
+      !window.confirm(
+        'Switching triggers changes what the conditions measure. Clear their thresholds and keep the paths?',
+      )
+    )
+      return;
+    if (!result.draft) return;
+    setPositions((current) => keepStepPositions(current, draft, kind, target));
+    setDraft(result.draft);
+    setValidation(undefined);
+    setPanelMessage(result.notice ? { text: result.notice } : undefined);
+    selectFromMap(target.owner, true);
+  }
+
+  function addFromDrop(kind: LibraryNode, target?: LibraryTarget) {
+    setDraggedTool(null);
+    if (target) {
+      addFromLibrary(kind, target);
+      return;
+    }
+    const paths = workflowPaths(draft);
+    if (!isTriggerNode(kind) && paths.length === 1 && paths[0]) {
+      addFromLibrary(kind, { owner: paths[0].id });
+    } else {
+      setPanelMessage({
+        text: isTriggerNode(kind)
+          ? 'Drop a trigger on the current trigger to replace it.'
+          : 'Drop on a highlighted path or step to choose where it goes.',
+        error: true,
+      });
     }
   }
 
@@ -233,6 +294,12 @@ function Editor({
   function update(change: Partial<WorkflowDraft>) {
     setDraft((current) => ({ ...current, ...change }));
     setValidation(undefined);
+    setPanelMessage(undefined);
+  }
+
+  function editSteps(owner: number, actions: WorkflowAction[]) {
+    setPositions((current) => keepEditedStepPositions(current, draft, owner, actions));
+    update({ nodes: replaceNode(draft, owner, { type: 'path', actions }).nodes });
   }
 
   function inspect() {
@@ -317,6 +384,15 @@ function Editor({
             onChange={(event) => update({ title: event.target.value })}
           />
         </Field>
+        {!reviewing && (
+          <button
+            type="button"
+            className="app-button workflow-library-shortcut"
+            onClick={() => openLibrary(undefined, true)}
+          >
+            Add nodes
+          </button>
+        )}
         <button
           type="button"
           className="app-button workflow-view-toggle"
@@ -402,239 +478,243 @@ function Editor({
                 select={selectFromMap}
                 positions={positions}
                 onPositionsChange={(moved) => setPositions((current) => ({ ...current, ...moved }))}
+                draggedTool={draggedTool}
+                onToolDrop={addFromDrop}
               />
             )}
             <div className={listView ? '' : 'workflow-mobile-outline'}>
               <WorkflowOutline draft={draft} selected={selected} select={selectFromMap} />
             </div>
           </div>
-          <section
-            ref={settings}
-            tabIndex={-1}
-            className="workflow-settings"
-            aria-label="Selected step settings"
-          >
-            {selected === 'trigger' || !node ? (
-              <>
-                <h2>Trigger and limits</h2>
-                <Field label="Starts when">
-                  <select
-                    className="app-input"
-                    value={draft.trigger}
-                    onChange={(event) => {
-                      const trigger = event.target.value as WorkflowDraft['trigger'];
-                      const hasBranches = draft.nodes[0]?.type === 'condition';
-                      const hasPercent = draft.nodes.some(
-                        (item) =>
-                          item.type === 'path' &&
-                          item.actions.some((action) => action.unit === 'percent'),
-                      );
-                      if (
-                        ((trigger === 'schedule' && hasBranches) ||
-                          (trigger !== 'payment' && hasPercent)) &&
-                        !window.confirm('Changing the trigger clears the current paths. Continue?')
-                      )
-                        return;
-                      const reset =
-                        (trigger === 'schedule' && hasBranches) ||
-                        (trigger !== 'payment' && hasPercent);
-                      update({ trigger, ...(reset ? { nodes: [emptyPath] } : {}) });
-                    }}
-                  >
-                    {workflowTriggers.map((trigger) => (
-                      <option key={trigger} value={trigger}>
-                        {workflowTriggerLabels[trigger]}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                {draft.trigger === 'schedule' && (
-                  <Field label="Interval in hours">
-                    <input
-                      className="app-input"
-                      inputMode="numeric"
-                      value={draft.intervalHours}
-                      onChange={(event) => update({ intervalHours: event.target.value })}
-                    />
-                  </Field>
-                )}
-                {draft.trigger === 'price' && (
-                  <>
-                    <Field label="Crossing direction">
-                      <select
-                        className="app-input"
-                        value={draft.rising ? 'up' : 'down'}
-                        onChange={(event) => update({ rising: event.target.value === 'up' })}
-                      >
-                        <option value="down">Falls below</option>
-                        <option value="up">Rises to or above</option>
-                      </select>
-                    </Field>
-                    <Field label="Target price in USDC per WETH">
-                      <input
-                        className="app-input"
-                        inputMode="decimal"
-                        value={draft.price}
-                        onChange={(event) => update({ price: event.target.value })}
-                      />
-                    </Field>
-                  </>
-                )}
-                <Field label="Maximum USDC per run">
-                  <input
-                    className="app-input"
-                    inputMode="decimal"
-                    value={draft.spendLimit}
-                    onChange={(event) => update({ spendLimit: event.target.value })}
-                  />
-                </Field>
-                <Field label="Maximum swap slippage (%)">
-                  <input
-                    className="app-input"
-                    inputMode="decimal"
-                    value={draft.slippage}
-                    onChange={(event) => update({ slippage: event.target.value })}
-                  />
-                </Field>
-                <button type="button" className="app-button" onClick={() => select(0)}>
-                  Edit the first path
-                </button>
-              </>
-            ) : (
-              typeof selected === 'number' &&
-              (node.type === 'condition' ? (
+          <aside className="workflow-settings" aria-label="Workflow tools">
+            <div className="workflow-panel-tabs" role="group" aria-label="Builder panel">
+              <button
+                type="button"
+                ref={libraryToggle}
+                aria-pressed={panel === 'library'}
+                onClick={() => openLibrary()}
+              >
+                Nodes
+              </button>
+              <button
+                type="button"
+                aria-pressed={panel === 'settings'}
+                onClick={() => {
+                  setPanel('settings');
+                  setPanelMessage(undefined);
+                }}
+              >
+                Settings
+              </button>
+            </div>
+            {panelMessage && (
+              <p
+                className={panelMessage.error ? 'workflow-error' : 'app-copy'}
+                role={panelMessage.error ? 'alert' : 'status'}
+              >
+                {panelMessage.text}
+              </p>
+            )}
+            {panel === 'library' && (
+              <NodeLibrary
+                draft={draft}
+                path={libraryPath}
+                onAdd={addFromLibrary}
+                onDrag={setDraggedTool}
+              />
+            )}
+            <section
+              ref={settings}
+              tabIndex={-1}
+              className="workflow-inspector"
+              aria-label="Selected step settings"
+              hidden={panel !== 'settings'}
+            >
+              {selected === 'trigger' || !node ? (
                 <>
-                  <h2>Condition</h2>
-                  <Field
-                    label={
-                      draft.trigger === 'payment'
-                        ? 'Payment is at least (USDC)'
-                        : 'Price is at least (USDC per WETH)'
-                    }
-                  >
-                    <input
+                  <h2>Trigger and limits</h2>
+                  <Field label="Starts when">
+                    <select
                       className="app-input"
-                      value={node.amount}
-                      inputMode="decimal"
+                      value={draft.trigger}
                       onChange={(event) =>
-                        update({
-                          nodes: replaceNode(draft, selected, {
-                            ...node,
-                            amount: event.target.value,
-                          }).nodes,
+                        addFromLibrary(event.target.value as WorkflowDraft['trigger'], {
+                          owner: 'trigger',
                         })
                       }
+                    >
+                      {workflowTriggers.map((trigger) => (
+                        <option key={trigger} value={trigger}>
+                          {workflowTriggerLabels[trigger]}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  {draft.trigger === 'schedule' && (
+                    <Field label="Interval in hours">
+                      <input
+                        className="app-input"
+                        inputMode="numeric"
+                        value={draft.intervalHours}
+                        onChange={(event) => update({ intervalHours: event.target.value })}
+                      />
+                    </Field>
+                  )}
+                  {draft.trigger === 'price' && (
+                    <>
+                      <Field label="Crossing direction">
+                        <select
+                          className="app-input"
+                          value={draft.rising ? 'up' : 'down'}
+                          onChange={(event) => update({ rising: event.target.value === 'up' })}
+                        >
+                          <option value="down">Falls below</option>
+                          <option value="up">Rises to or above</option>
+                        </select>
+                      </Field>
+                      <Field label="Target price in USDC per WETH">
+                        <input
+                          className="app-input"
+                          inputMode="decimal"
+                          value={draft.price}
+                          onChange={(event) => update({ price: event.target.value })}
+                        />
+                      </Field>
+                    </>
+                  )}
+                  <Field label="Maximum USDC per run">
+                    <input
+                      className="app-input"
+                      inputMode="decimal"
+                      value={draft.spendLimit}
+                      onChange={(event) => update({ spendLimit: event.target.value })}
                     />
                   </Field>
-                  <div className="workflow-actions">
-                    <button type="button" className="app-button" onClick={() => select(node.yes)}>
-                      Edit yes path
-                    </button>
-                    <button type="button" className="app-button" onClick={() => select(node.no)}>
-                      Edit otherwise path
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="workflow-text-button"
-                    onClick={() => {
-                      if (!window.confirm('Remove this condition and both paths?')) return;
-                      update({ nodes: removeCondition(draft, selected).nodes });
-                      select('trigger');
-                    }}
-                  >
-                    Remove condition
+                  <Field label="Maximum swap slippage (%)">
+                    <input
+                      className="app-input"
+                      inputMode="decimal"
+                      value={draft.slippage}
+                      onChange={(event) => update({ slippage: event.target.value })}
+                    />
+                  </Field>
+                  <button type="button" className="app-button" onClick={() => select(0)}>
+                    Edit the first path
                   </button>
                 </>
               ) : (
-                <>
-                  <h2>Path steps</h2>
-                  {node.actions.length === 0 && (
-                    <p className="app-copy">This path does nothing until you add a step.</p>
-                  )}
-                  {node.actions.map((action, index) => (
-                    <ActionFields
-                      key={index}
-                      action={action}
-                      index={index}
-                      payment={draft.trigger === 'payment'}
-                      change={(next) =>
-                        update({
-                          nodes: replaceNode(draft, selected, {
-                            type: 'path',
-                            actions: node.actions.map((step, i) => (i === index ? next : step)),
-                          }).nodes,
-                        })
+                typeof selected === 'number' &&
+                (node.type === 'condition' ? (
+                  <>
+                    <h2>Condition</h2>
+                    <Field
+                      label={
+                        draft.trigger === 'payment'
+                          ? 'Payment is at least (USDC)'
+                          : 'Price is at least (USDC per WETH)'
                       }
-                      remove={() =>
-                        update({
-                          nodes: replaceNode(draft, selected, {
-                            type: 'path',
-                            actions: node.actions.filter((_, i) => i !== index),
-                          }).nodes,
-                        })
-                      }
-                      earlier={
-                        index > 0
-                          ? () => {
-                              const actions = [...node.actions];
-                              const [step] = actions.splice(index, 1);
-                              if (!step) return;
-                              actions.splice(index - 1, 0, step);
-                              update({
-                                nodes: replaceNode(draft, selected, { type: 'path', actions })
-                                  .nodes,
-                              });
-                            }
-                          : undefined
-                      }
-                    />
-                  ))}
-                  <div className="workflow-actions">
-                    {node.actions.length < 3 && (
-                      <button
-                        type="button"
-                        className="app-button"
-                        onClick={() =>
+                    >
+                      <input
+                        className="app-input"
+                        value={node.amount}
+                        inputMode="decimal"
+                        onChange={(event) =>
                           update({
                             nodes: replaceNode(draft, selected, {
-                              type: 'path',
-                              actions: [...node.actions, alertAction],
+                              ...node,
+                              amount: event.target.value,
                             }).nodes,
                           })
                         }
-                      >
-                        Add step
+                      />
+                    </Field>
+                    <div className="workflow-actions">
+                      <button type="button" className="app-button" onClick={() => select(node.yes)}>
+                        Edit yes path
                       </button>
+                      <button type="button" className="app-button" onClick={() => select(node.no)}>
+                        Edit otherwise path
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="workflow-text-button"
+                      onClick={() => {
+                        if (!window.confirm('Remove this condition and both paths?')) return;
+                        update({ nodes: removeCondition(draft, selected).nodes });
+                        select('trigger');
+                      }}
+                    >
+                      Remove condition
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <h2>Path steps</h2>
+                    {node.actions.length === 0 && (
+                      <p className="app-copy">This path does nothing until you add a step.</p>
                     )}
-                    {draft.trigger !== 'schedule' && nodeDepth(draft.nodes, selected) < 3 && (
-                      <button
-                        type="button"
-                        className="app-button"
-                        onClick={() => {
-                          const yes = draft.nodes.length;
+                    {node.actions.map((action, index) => (
+                      <ActionFields
+                        key={index}
+                        action={action}
+                        index={index}
+                        payment={draft.trigger === 'payment'}
+                        swapAvailable={
+                          !node.actions.some((step, i) => i !== index && step.kind === 'swap')
+                        }
+                        change={(next) =>
                           update({
-                            nodes: [
-                              ...replaceNode(draft, selected, {
-                                type: 'condition',
-                                amount: '',
-                                yes,
-                                no: yes + 1,
-                              }).nodes,
-                              node,
-                              emptyPath,
-                            ],
-                          });
-                        }}
-                      >
-                        Add condition
-                      </button>
-                    )}
-                  </div>
-                </>
-              ))
-            )}
-          </section>
+                            nodes: replaceNode(draft, selected, {
+                              type: 'path',
+                              actions: node.actions.map((step, i) => (i === index ? next : step)),
+                            }).nodes,
+                          })
+                        }
+                        remove={() =>
+                          editSteps(
+                            selected,
+                            node.actions.filter((_, i) => i !== index),
+                          )
+                        }
+                        earlier={
+                          index > 0
+                            ? () => {
+                                const actions = [...node.actions];
+                                const [step] = actions.splice(index, 1);
+                                if (!step) return;
+                                actions.splice(index - 1, 0, step);
+                                editSteps(selected, actions);
+                              }
+                            : undefined
+                        }
+                      />
+                    ))}
+                    <div className="workflow-actions">
+                      {node.actions.length < workflowLimits.stepsPerPath && (
+                        <button
+                          type="button"
+                          className="app-button"
+                          onClick={() => openLibrary(selected, true)}
+                        >
+                          Add step
+                        </button>
+                      )}
+                      {!placementProblem(draft, 'condition', { owner: selected }) && (
+                        <button
+                          type="button"
+                          className="app-button"
+                          onClick={() => addFromLibrary('condition', { owner: selected })}
+                        >
+                          Add condition
+                        </button>
+                      )}
+                    </div>
+                  </>
+                ))
+              )}
+            </section>
+          </aside>
         </div>
       )}
     </section>
@@ -654,6 +734,7 @@ function ActionFields({
   action,
   index,
   payment,
+  swapAvailable,
   change,
   remove,
   earlier,
@@ -661,6 +742,7 @@ function ActionFields({
   action: WorkflowAction;
   index: number;
   payment: boolean;
+  swapAvailable: boolean;
   change: (value: WorkflowAction) => void;
   remove: () => void;
   earlier?: () => void;
@@ -682,7 +764,11 @@ function ActionFields({
           }}
         >
           {workflowActionKinds.map((kind) => (
-            <option key={kind} value={kind}>
+            <option
+              key={kind}
+              value={kind}
+              disabled={kind === 'swap' && !swapAvailable && action.kind !== 'swap'}
+            >
               {workflowActionLabels[kind]}
             </option>
           ))}

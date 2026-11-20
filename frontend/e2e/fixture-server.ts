@@ -18,6 +18,7 @@ import { privateKeyToAccount } from 'viem/accounts';
 import { createChainClients } from '../../backend/src/chain/clients.js';
 import { PublicSponsorSource } from '../../backend/src/chain/sponsorSource.js';
 import type { AppConfig } from '../../backend/src/config.js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createRepositories } from '../../backend/src/db/repositories/index.js';
 import { InMemoryStore } from '../../backend/src/db/store.js';
 import { CursorStore } from '../../backend/src/indexer/cursors.js';
@@ -25,6 +26,7 @@ import { IndexerPoller } from '../../backend/src/indexer/poller.js';
 import { seedMarketplace } from '../../backend/src/marketplace/seed.js';
 import { buildServer } from '../../backend/src/server.js';
 import { PublicAccountChain } from '../../backend/src/sponsor/accountChain.js';
+import { registerWorkflowV2Routes } from '../../backend/src/workflows/routesV2.js';
 import {
   AGENT_FACTORY_ADDRESS,
   ANVIL_RPC_PORT,
@@ -35,12 +37,34 @@ import {
   SPONSOR_PRIVATE_KEY,
   USER_ADDRESS,
   VAULT_FACTORY_ADDRESS,
+  WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+  WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+  FIXTURE_V2_FRONTEND_URL,
 } from './fixtureConfig.js';
 
 interface Artifact {
   readonly abi: Abi;
   readonly bytecode: { readonly object: Hex };
   readonly deployedBytecode: { readonly object: Hex };
+}
+
+function emptyWorkflowV2Database() {
+  const query = () => {
+    const result = { data: [], error: null };
+    const builder = {
+      select: () => builder,
+      match: () => builder,
+      eq: () => builder,
+      or: () => builder,
+      ilike: () => builder,
+      order: () => builder,
+      limit: () => builder,
+      maybeSingle: async () => ({ data: null, error: null }),
+      then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
+    };
+    return builder;
+  };
+  return { from: query } as unknown as SupabaseClient;
 }
 
 function artifact(path: string): Artifact {
@@ -52,6 +76,12 @@ function artifact(path: string): Artifact {
 const ruleRegistryArtifact = artifact('../../contracts/out/RuleRegistry.sol/RuleRegistry.json');
 const agentFactoryArtifact = artifact('../../contracts/out/AgentFactory.sol/AgentFactory.json');
 const vaultFactoryArtifact = artifact('../../contracts/out/VaultFactory.sol/VaultFactory.json');
+const workflowAgentFactoryV2Artifact = artifact(
+  '../../contracts/out/WorkflowAgentFactoryV2.sol/WorkflowAgentFactoryV2.json',
+);
+const workflowVaultFactoryV2Artifact = artifact(
+  '../../contracts/out/WorkflowVaultFactoryV2.sol/WorkflowVaultFactoryV2.json',
+);
 const mockErc20Artifact = artifact('../../contracts/out/MockERC20.sol/MockERC20.json');
 const mockSystemArtifact = artifact(
   '../../contracts/out/MockSystemContract.sol/MockSystemContract.json',
@@ -158,6 +188,24 @@ async function main(): Promise<void> {
     throw new Error('VaultFactory was not deployed at its expected address');
   }
 
+  for (const [factory, args, expectedAddress] of [
+    [
+      workflowAgentFactoryV2Artifact,
+      [getChain(LASNA_CHAIN_ID).systemContract],
+      WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+    ],
+    [workflowVaultFactoryV2Artifact, [], WORKFLOW_V2_VAULT_FACTORY_ADDRESS],
+  ] as const) {
+    const hash = await wallet.deployContract({
+      abi: factory.abi,
+      bytecode: factory.bytecode.object,
+      args,
+    });
+    const receipt = await publicClient.waitForTransactionReceipt({ hash });
+    if (receipt.contractAddress?.toLowerCase() !== expectedAddress.toLowerCase())
+      throw new Error('V2 workflow factory was not deployed at its expected address');
+  }
+
   const usdc = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
   const weth = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).weth;
   for (const token of [usdc, weth]) {
@@ -190,7 +238,11 @@ async function main(): Promise<void> {
     INDEXER_ENABLED: false,
     INDEXER_START_BLOCK_LASNA: 0,
     INDEXER_START_BLOCK_UNICHAIN: 0,
-    corsOrigins: [FIXTURE_FRONTEND_URL],
+    WORKFLOW_V2_DEPLOYMENT: {
+      lasna: { factory: WORKFLOW_V2_AGENT_FACTORY_ADDRESS, startBlock: 1 },
+      unichain: { factory: WORKFLOW_V2_VAULT_FACTORY_ADDRESS, startBlock: 1 },
+    },
+    corsOrigins: [FIXTURE_FRONTEND_URL, FIXTURE_V2_FRONTEND_URL],
   };
 
   const clients = createChainClients(config);
@@ -216,8 +268,19 @@ async function main(): Promise<void> {
     },
     { logger: false },
   );
+  const workflowDatabase = emptyWorkflowV2Database();
+  registerWorkflowV2Routes(built.app, workflowDatabase, WORKFLOW_V2_AGENT_FACTORY_ADDRESS);
   serverRef.current = built.app;
   await built.app.listen({ port: FIXTURE_API_PORT, host: '127.0.0.1' });
+  const v2Marketplace = await fetch(`${FIXTURE_API_URL}/v3/marketplace`, {
+    headers: { origin: FIXTURE_V2_FRONTEND_URL },
+  });
+  if (
+    !v2Marketplace.ok ||
+    v2Marketplace.headers.get('access-control-allow-origin') !== FIXTURE_V2_FRONTEND_URL ||
+    (await v2Marketplace.json()).listings.length !== 0
+  )
+    throw new Error('V2 fixture API or browser CORS check failed');
 
   // The control and clone stories need the read model the indexer normally supplies. Both
   // configured chains share this anvil, but every contract the fixture exercises (Agent,

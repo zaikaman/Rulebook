@@ -9,6 +9,9 @@ it('counts each copied wallet only when its exact attributed activation is autho
     await db.exec(
       await readFile(new URL('../db/migrations/0012_workflows.sql', import.meta.url), 'utf8'),
     );
+    await db.exec(
+      await readFile(new URL('../db/migrations/0014_workflow_v2.sql', import.meta.url), 'utf8'),
+    );
     await db.exec(`
       insert into workflow_agents values ('original-agent', 'original'), ('copy-agent', 'copier');
       insert into workflow_vaults values

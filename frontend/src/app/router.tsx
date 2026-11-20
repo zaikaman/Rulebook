@@ -13,13 +13,16 @@ import { RuleDetail } from '../pages/RuleDetail.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import { WorkflowActivity } from '../workflows/Activity.js';
 import { WorkflowBuilder } from '../workflows/Builder.js';
-import { WorkflowListingDetail, WorkflowMarketplace } from '../workflows/Marketplace.js';
+import { WorkflowBuilderV2 } from '../workflows/BuilderV2.js';
 import {
-  WorkflowAccount,
-  WorkflowDetail,
-  WorkflowRunDetail,
-  Workflows,
-} from '../workflows/Workspace.js';
+  WorkflowAccountV2,
+  WorkflowActivityV2,
+  WorkflowDetailV2,
+  WorkflowsV2,
+} from '../workflows/WorkspaceV2.js';
+import { WorkflowListingDetail } from '../workflows/Marketplace.js';
+import { WorkflowListingV2, WorkflowMarketplaceV2 } from '../workflows/MarketplaceV2.js';
+import { WorkflowDetail, WorkflowRunDetail, Workflows } from '../workflows/Workspace.js';
 import { legacyWorkspace } from '../lib/routes.js';
 import '../styles/workflows.css';
 
@@ -41,12 +44,27 @@ export function AppRouter() {
           {legacyWorkspace && <Route path="create" element={<Create />} />}
           {legacyWorkspace && <Route path="account" element={<Account />} />}
           <Route element={<AppShell />}>
-            <Route path="workflows" element={<Workflows />} />
-            <Route path="workflows/new" element={<WorkflowBuilder />} />
-            <Route path="workflows/:id" element={<WorkflowDetail />} />
-            <Route path="workflows/:id/edit" element={<WorkflowBuilder />} />
-            <Route path="activity" element={<WorkflowActivity />} />
-            <Route path="runs/:id" element={<WorkflowRunDetail />} />
+            <Route path="workflows" element={legacyWorkspace ? <Workflows /> : <WorkflowsV2 />} />
+            <Route
+              path="workflows/new"
+              element={legacyWorkspace ? <WorkflowBuilder /> : <WorkflowBuilderV2 />}
+            />
+            <Route
+              path="workflows/:id"
+              element={legacyWorkspace ? <WorkflowDetail /> : <WorkflowDetailV2 />}
+            />
+            <Route
+              path="workflows/:id/edit"
+              element={legacyWorkspace ? <WorkflowBuilder /> : <WorkflowBuilderV2 />}
+            />
+            <Route
+              path="activity"
+              element={legacyWorkspace ? <WorkflowActivity /> : <WorkflowActivityV2 />}
+            />
+            <Route
+              path="runs/:id"
+              element={legacyWorkspace ? <WorkflowRunDetail /> : <WorkflowActivityV2 />}
+            />
             <Route
               path="rules"
               element={legacyWorkspace ? <Home /> : <Navigate to="/workflows" replace />}
@@ -55,14 +73,17 @@ export function AppRouter() {
             {!legacyWorkspace && (
               <Route path="create" element={<Navigate to="/workflows/new" replace />} />
             )}
-            {!legacyWorkspace && <Route path="account" element={<WorkflowAccount />} />}
+            {!legacyWorkspace && <Route path="account" element={<WorkflowAccountV2 />} />}
             <Route path="proof" element={<Proof />} />
             <Route path="proof/:reactiveTxHash" element={<Proof />} />
             <Route
               path="marketplace"
-              element={legacyWorkspace ? <Marketplace /> : <WorkflowMarketplace />}
+              element={legacyWorkspace ? <Marketplace /> : <WorkflowMarketplaceV2 />}
             />
-            <Route path="marketplace/:listingId" element={<WorkflowListingDetail />} />
+            <Route
+              path="marketplace/:listingId"
+              element={legacyWorkspace ? <WorkflowListingDetail /> : <WorkflowListingV2 />}
+            />
             <Route path="leaderboard" element={<Navigate to="/marketplace" replace />} />
             <Route path="cost" element={<Cost />} />
             {/* Fallback inside app */}

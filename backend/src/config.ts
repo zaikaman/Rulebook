@@ -2,6 +2,36 @@ import { addressSchema, type Address } from '@rulebook/shared';
 import { zeroAddress } from 'viem';
 import { z } from 'zod';
 import type { WorkflowDeployment } from './workflows/indexer.js';
+import type { WorkflowV2Deployment } from './workflows/indexerV2.js';
+
+const v2ChainDeployment = z
+  .object({
+    factory: addressSchema.refine(
+      (factory) => factory !== zeroAddress,
+      'Use the deployed factory address',
+    ),
+    startBlock: z.number().int().positive().safe(),
+  })
+  .strict();
+
+const workflowV2DeploymentJson = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'Enter a JSON deployment configuration' });
+      return z.NEVER;
+    }
+  })
+  .pipe(
+    z
+      .object({
+        lasna: v2ChainDeployment,
+        unichain: v2ChainDeployment,
+      })
+      .strict(),
+  );
 
 /**
  * Every environment variable the backend reads. Validation happens once, at boot, so a missing
@@ -39,6 +69,7 @@ const envSchema = z.object({
   WORKFLOW_VAULT_FACTORY_ADDRESS: addressSchema.optional(),
   WORKFLOW_START_BLOCK_LASNA: z.coerce.number().int().positive().optional(),
   WORKFLOW_START_BLOCK_UNICHAIN: z.coerce.number().int().positive().optional(),
+  WORKFLOW_V2_DEPLOYMENT: workflowV2DeploymentJson.optional(),
 });
 
 export interface TelegramConfig {
@@ -62,6 +93,7 @@ export interface AppConfig {
   readonly corsOrigins: readonly string[];
   readonly telegram?: TelegramConfig;
   readonly workflows?: WorkflowDeployment;
+  readonly workflowsV2?: WorkflowV2Deployment;
 }
 
 /** Error thrown when the environment is incomplete or malformed. */
@@ -91,6 +123,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     WORKFLOW_VAULT_FACTORY_ADDRESS: vaultFactory,
     WORKFLOW_START_BLOCK_LASNA: lasnaStart,
     WORKFLOW_START_BLOCK_UNICHAIN: unichainStart,
+    WORKFLOW_V2_DEPLOYMENT: workflowsV2,
     ...base
   } = data;
   const corsOrigins = base.CORS_ORIGINS.split(',')
@@ -134,6 +167,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...base,
     corsOrigins,
     telegram,
+    workflowsV2,
     workflows:
       directory && vaultFactory && lasnaStart && unichainStart
         ? { directory, vaultFactory, lasnaStart, unichainStart }

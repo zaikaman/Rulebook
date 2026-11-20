@@ -1,0 +1,209 @@
+import {
+  addressSchema,
+  workflowIdSchema,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+} from '@rulebook/shared';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { FastifyInstance } from 'fastify';
+import { toFunctionSelector } from 'viem';
+import { z } from 'zod';
+
+const settlementChain = z.literal(UNICHAIN_SEPOLIA_CHAIN_ID);
+const cursor = z.object({
+  block: z.number().int().nonnegative().safe(),
+  id: workflowIdSchema,
+  chain: settlementChain,
+});
+
+const query = z.object({
+  owner: addressSchema,
+  id: workflowIdSchema.optional(),
+  after: z.string().max(250).optional(),
+});
+const listingId = z.string().regex(/^[1-9]\d{0,77}$/);
+const listing = z.object({
+  id: listingId,
+  owner: addressSchema,
+  agent: addressSchema,
+  workflow_id: workflowIdSchema,
+  program_hash: workflowIdSchema,
+  program: z.string().regex(/^0x[\da-f]+$/i),
+  chain: settlementChain,
+  title: z.string(),
+  description: z.string(),
+  block_number: z.number().int().safe(),
+  log_index: z.number().int().nonnegative(),
+});
+const marketCursor = z.object({
+  block: z.number().int().nonnegative().safe(),
+  index: z.number().int().nonnegative().safe(),
+});
+const run = z.object({
+  id: workflowIdSchema,
+  workflow_id: workflowIdSchema,
+  agent: addressSchema,
+  title: z.string(),
+  chain: settlementChain,
+  program_hash: workflowIdSchema,
+  epoch: z.string(),
+  origin_chain: z.number().int(),
+  origin_transaction: workflowIdSchema,
+  origin_log_index: z.string(),
+  lasna_transaction: workflowIdSchema,
+  lasna_block: z.number().int().nonnegative().safe(),
+  expires_at: z.number().int().nonnegative().safe(),
+  destination_transaction: workflowIdSchema.nullable(),
+  reason: z.string().nullable(),
+  path: z.number().int().nonnegative().nullable(),
+  status: z.enum(['pending', 'confirmed', 'skipped', 'expired', 'failed', 'in grace period']),
+});
+
+const reasons = new Map<string, string>([
+  [toFunctionSelector('InvalidAuthorization()'), 'The workflow authorization is no longer active.'],
+  [
+    toFunctionSelector('NoLongerEligible()'),
+    'The live balances or position no longer meet the workflow checks.',
+  ],
+  [toFunctionSelector('StaleObservation()'), 'The workflow received a stale price observation.'],
+  [toFunctionSelector('DuplicateOrigin()'), 'This payment has already been used.'],
+  [toFunctionSelector('CapExceeded()'), 'The run exceeded the approved spending limit.'],
+  [toFunctionSelector('InvalidMarket()'), 'The configured testnet market is unavailable.'],
+  [
+    toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)'),
+    'The wallet or Vault had insufficient tokens.',
+  ],
+  [
+    toFunctionSelector('ERC20InsufficientAllowance(address,uint256,uint256)'),
+    'The Vault had insufficient token allowance.',
+  ],
+]);
+
+function readCursor(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    return cursor.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
+  } catch {
+    throw Object.assign(new Error('This activity page link is invalid.'), { statusCode: 400 });
+  }
+}
+
+export function registerWorkflowV2Routes(
+  app: FastifyInstance,
+  db: SupabaseClient,
+  factory: Address,
+) {
+  const deployment = factory.toLowerCase();
+  app.get('/v3/marketplace', async (request, reply) => {
+    const params = z
+      .object({ q: z.string().max(160).default(''), after: z.string().max(250).optional() })
+      .safeParse(request.query);
+    if (!params.success) return reply.code(400).send({ message: 'Check the search parameters.' });
+    let before;
+    if (params.data.after) {
+      try {
+        before = marketCursor.parse(
+          JSON.parse(Buffer.from(params.data.after, 'base64url').toString('utf8')),
+        );
+      } catch {
+        return reply.code(400).send({ message: 'This Marketplace page link is invalid.' });
+      }
+    }
+    let page = db
+      .from('workflow_v2_market_listings')
+      .select('*')
+      .match({ deployment, visible: true });
+    const search = params.data.q.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
+    if (search) page = page.ilike('title', `%${search}%`);
+    if (before)
+      page = page.or(
+        `block_number.lt.${before.block},and(block_number.eq.${before.block},log_index.lt.${before.index})`,
+      );
+    const limit = 24;
+    const { data, error } = await page
+      .order('block_number', { ascending: false })
+      .order('log_index', { ascending: false })
+      .limit(limit + 1);
+    if (error) throw error;
+    const rows = z.array(listing).parse(data);
+    const last = rows[limit - 1];
+    return {
+      listings: rows.slice(0, limit),
+      nextCursor:
+        last && rows.length > limit
+          ? Buffer.from(
+              JSON.stringify({ block: last.block_number, index: last.log_index }),
+            ).toString('base64url')
+          : null,
+    };
+  });
+
+  app.get('/v3/marketplace/:id', async (request, reply) => {
+    const params = z.object({ id: listingId }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ message: 'This listing ID is invalid.' });
+    const { data, error } = await db
+      .from('workflow_v2_market_listings')
+      .select('*')
+      .match({ deployment, visible: true, id: params.data.id })
+      .maybeSingle();
+    if (error) throw error;
+    return data
+      ? listing.parse(data)
+      : reply.code(404).send({ message: 'This listing is unavailable.' });
+  });
+
+  app.get('/v3/activity', async (request, reply) => {
+    const input = query.safeParse(request.query);
+    if (!input.success) return reply.code(400).send({ message: 'Enter a wallet address.' });
+    const after = readCursor(input.data.after);
+    const limit = 24;
+    let pageQuery = db
+      .from('workflow_v2_activity')
+      .select('*')
+      .match({ deployment, owner: input.data.owner.toLowerCase() });
+    if (input.data.id) pageQuery = pageQuery.eq('id', input.data.id);
+    if (after) {
+      const equalBlock = `lasna_block.eq.${after.block}`;
+      pageQuery = pageQuery.or(
+        `lasna_block.lt.${after.block},and(${equalBlock},id.lt.${after.id}),and(${equalBlock},id.eq.${after.id},chain.lt.${after.chain})`,
+      );
+    }
+    const { data, error } = await pageQuery
+      .order('lasna_block', { ascending: false })
+      .order('id', { ascending: false })
+      .order('chain', { ascending: false })
+      .limit(limit + 1);
+    if (error) throw error;
+    const rows = z.array(run).parse(data);
+    const last = rows[limit - 1];
+    return {
+      runs: rows.slice(0, limit).map((row) => ({
+        id: row.id,
+        chain: row.chain,
+        agent: row.agent,
+        workflowId: row.workflow_id,
+        title: row.title,
+        programHash: row.program_hash,
+        epoch: row.epoch,
+        originChain: row.origin_chain,
+        originTransaction: row.origin_transaction,
+        originLogIndex: row.origin_log_index,
+        lasnaTransaction: row.lasna_transaction,
+        destinationTransaction: row.destination_transaction,
+        expiresAt: row.expires_at,
+        status: row.status,
+        path: row.path,
+        reason: row.reason
+          ? (reasons.get(row.reason) ?? 'Settlement returned a contract error.')
+          : null,
+        reasonCode: row.reason,
+      })),
+      nextCursor:
+        last && rows.length > limit
+          ? Buffer.from(
+              JSON.stringify({ block: last.lasna_block, id: last.id, chain: last.chain }),
+            ).toString('base64url')
+          : null,
+    };
+  });
+}

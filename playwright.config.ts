@@ -6,7 +6,11 @@ import {
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_PORT,
   FIXTURE_FRONTEND_URL,
+  FIXTURE_V2_FRONTEND_PORT,
+  FIXTURE_V2_FRONTEND_URL,
   VAULT_FACTORY_ADDRESS,
+  WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+  WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './frontend/e2e/fixtureConfig';
 
 /**
@@ -47,6 +51,24 @@ export default defineConfig({
         VITE_UNICHAIN_RPC_URL: ANVIL_RPC_URL,
         VITE_AGENT_FACTORY_ADDRESS: AGENT_FACTORY_ADDRESS,
         VITE_VAULT_FACTORY_ADDRESS: VAULT_FACTORY_ADDRESS,
+      },
+    },
+    {
+      command: `npm run dev -w frontend -- --port ${FIXTURE_V2_FRONTEND_PORT} --strictPort`,
+      url: FIXTURE_V2_FRONTEND_URL,
+      timeout: 120_000,
+      reuseExistingServer: false,
+      env: {
+        VITE_API_BASE_URL: FIXTURE_API_URL,
+        VITE_LEGACY_WORKSPACE: 'false',
+        VITE_WALLETCONNECT_PROJECT_ID: '',
+        VITE_LASNA_RPC_URL: ANVIL_RPC_URL,
+        VITE_UNICHAIN_RPC_URL: ANVIL_RPC_URL,
+        VITE_WORKFLOW_V2_DEPLOYMENT: JSON.stringify({
+          lasna: { factory: WORKFLOW_V2_AGENT_FACTORY_ADDRESS, startBlock: 1 },
+          unichain: { factory: WORKFLOW_V2_VAULT_FACTORY_ADDRESS, startBlock: 1 },
+        }),
+        VITE_WORKFLOW_V2_ACTIVATION: 'true',
       },
     },
   ],

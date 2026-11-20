@@ -6,7 +6,11 @@ it('lists a wallet’s activity across workflows with stable pages and verified 
   const db = new PGlite();
   try {
     await db.exec('create role anon; create role authenticated; create role service_role;');
-    for (const migration of ['0012_workflows.sql', '0013_workflow_activity.sql']) {
+    for (const migration of [
+      '0012_workflows.sql',
+      '0013_workflow_activity.sql',
+      '0014_workflow_v2.sql',
+    ]) {
       await db.exec(
         await readFile(new URL(`../db/migrations/${migration}`, import.meta.url), 'utf8'),
       );

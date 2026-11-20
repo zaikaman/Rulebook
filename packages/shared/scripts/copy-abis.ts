@@ -24,6 +24,11 @@ const CONTRACTS = [
   { name: 'WorkflowVault', exportName: 'workflowVaultAbi' },
   { name: 'WorkflowDirectory', exportName: 'workflowDirectoryAbi' },
   { name: 'WorkflowVaultFactory', exportName: 'workflowVaultFactoryAbi' },
+  { name: 'WorkflowAgentV2', exportName: 'workflowAgentV2Abi' },
+  { name: 'WorkflowAgentFactoryV2', exportName: 'workflowAgentFactoryV2Abi' },
+  { name: 'WorkflowVaultV2', exportName: 'workflowVaultV2Abi' },
+  { name: 'WorkflowVaultFactoryV2', exportName: 'workflowVaultFactoryV2Abi' },
+  { name: 'WorkflowProgramValidatorV2', exportName: 'workflowProgramValidatorV2Abi' },
 ] as const;
 
 if (!existsSync(OUT_DIR)) {

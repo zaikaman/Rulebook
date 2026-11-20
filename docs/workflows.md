@@ -1,19 +1,27 @@
-# Rulebook Workflows
+# Rulebook workflows
 
-A workflow starts when the Vault receives USDC, on a schedule, or when the configured USDC/WETH pool price crosses a target. Payment and price workflows can add up to three levels of conditions. The chosen path runs up to three steps in order. A step can send USDC, buy WETH, or record an on-chain alert. A path with no steps skips the run.
+Rulebook watches events and runs schedules on Reactive Lasna. It settles workflows in a wallet-owned Vault on Unichain Sepolia. The original catalog contains 13 recipes.
 
-Use **Workflows → New workflow** to start with an example or an empty workflow. Choose a node to edit it. Phones use the same editor with an outline. Review the plain-English summary, approve the Vault authorization on Unichain Sepolia, then enable the workflow on Reactive Lasna. Keep watching credit and execution credit funded in **Account & Vault**. A USDC deposit to the Vault can trigger a payment workflow. The balance left after a workflow runs can be withdrawn by the owner.
+| Category      | Recipes                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------- |
+| Trading       | Scheduled buy, buy more on a dip, limit buy, take profit, trailing stop, price-band trading |
+| Payments      | Recurring transfer, income sweep, balance refill                                            |
+| Wallet safety | Inactivity payout, price alert, price-range alert, large-transfer alert                     |
 
-Only the owner can create, change, or stop a workflow. Pause or cancel blocks spending on Unichain first and then stops new decisions on Lasna. Earlier callbacks no longer have an approved authorization after a pause, edit, or resume. A branch settles as one transaction. If an action fails, transfers and swaps from earlier steps roll back.
+Open **Workflows → New workflow** and choose a recipe or start from scratch. Drag a node from the library onto the canvas, or select it and choose a path from the settings. A check creates a Yes path and an Otherwise path. Each path can contain up to three checks and three ordered actions. The review shows the settlement network, amounts, recipients, spending limits, and expiry before the wallet asks for signatures.
 
-Activity shows the original event, the Lasna decision, and the destination outcome if confirmed. A request by itself does not confirm settlement. An alert is recorded in the destination transaction.
+The income sweep can use two payment thresholds. For example, send 0.20 USDC when the Vault receives at least 1 USDC, send 0.05 USDC when it receives at least 0.25 USDC, and skip smaller deposits. Activity links the origin transfer, the Lasna decision, and the settlement receipt. Open a run to see the evaluated path on the canvas.
 
-Publish a workflow version from its detail page. Each listing refers to the exact published program, even if the author later updates their own workflow. The author can unpublish any listed version. Copying opens a draft with the recipient and spending cap cleared. The copy runs on the new user's own account. Popularity counts distinct non-author wallets that activate an attributed copy with matching authorizations on both chains.
+Fund watching and execution credit from **Account & Vault**. A balance refill pulls USDC from the owner’s wallet up to the approved allowance, per-run cap, and amount needed to reach the floor. An inactivity payout requires a fixed recipient and amount, explicit consent, and a 24-hour grace period. The owner can check in to clear a pending payout. The owner can pause a workflow by revoking Vault authorization before turning off its Lasna subscription.
+
+The Marketplace publishes the exact enabled program version. Copying creates an editable draft with recipients, watched-wallet details, expiry, and spending limits cleared. Each wallet provides its own Vault funds and signs its own authorization.
 
 ## Deploy and verify
 
-Build with Foundry and regenerate shared ABIs with `npm run generate`. Set `DEPLOYER_PRIVATE_KEY`, `LASNA_RPC_URL`, and `UNICHAIN_RPC_URL` in the ignored contracts environment and keep keys out of shell history. Broadcast `DeployWorkflows.s.sol:DeployWorkflows` on Lasna and Unichain Sepolia using the configured RPC aliases. The Lasna broadcast creates the directory and Agent factory. The Unichain broadcast creates the Vault factory. Record the confirmed addresses, blocks, transaction hashes, and runtime code hashes.
+Build the contracts with Foundry and regenerate the shared ABIs with `npm run generate`. Run `DeployWorkflowsV2.s.sol:DeployWorkflowsV2` against the `lasna` and `unichain_sepolia` RPC aliases. The script deploys the Agent factory on Lasna and the Vault factory on Unichain Sepolia. Record confirmed addresses, blocks, transaction hashes, and bytecode hashes.
 
-Apply backend migrations before starting the new workflow indexer. Set `WORKFLOW_DIRECTORY_ADDRESS`, `WORKFLOW_VAULT_FACTORY_ADDRESS`, `WORKFLOW_START_BLOCK_LASNA`, and `WORKFLOW_START_BLOCK_UNICHAIN` from the confirmed receipts. Set `INDEXER_ENABLED=true`. Set the matching `VITE_WORKFLOW_DIRECTORY_ADDRESS` and `VITE_WORKFLOW_VAULT_FACTORY_ADDRESS` on the frontend and point its API URL to the backend.
+Apply `0014_workflow_v2.sql` with `npm run migrate -w backend`. Set `WORKFLOW_V2_DEPLOYMENT` on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. Both use JSON with `lasna` and `unichain` entries, each containing the confirmed factory address and start block under `factory` and `startBlock`. Enable the indexer with `INDEXER_ENABLED=true`. The frontend uses `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Pause, check-in, and withdrawal controls are independent of the activation flag.
 
-Run `npm run verify` and the Playwright tests. For live acceptance, start from the savings template and use 1.20, 0.60, and 0.10 USDC origin payments to check the two funded paths and the skip. Check a native scheduled tick and a real price crossing. Publish from the first wallet and activate an edited copy from a second. Verify counts and receipts before recording the buildathon demo.
+Run `npm run verify` and `npx playwright test`. Test the branching income sweep on the live testnets with 1.20, 0.60, and 0.10 USDC deposits. Record the origin, Lasna decision, and destination transactions, and check the selected path and balances for each. Verify scheduled and price-triggered runs before presenting them as live-tested recipes.
+
+[Testnet factory receipts](../deployments/workflows-v2.json) · [Live income sweep receipts](../deployments/workflows-v2-smoke.json)
