@@ -18,6 +18,8 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   const pairing = { id: 'a'.repeat(64), profile: '@anya' };
   const botUrl = 'https://t.me/RulebookFixtureBot?start=test';
   const token = 't'.repeat(43);
+  let verifications = 0;
+  let rejectSession = false;
   let settings: TelegramSettings = {
     connection: 'disconnected',
     profile: null,
@@ -51,11 +53,16 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
       return;
     }
     if (path.endsWith('/session')) {
+      verifications += 1;
       expect(request.postDataJSON().signature).toMatch(/^0x[a-f0-9]{130}$/i);
       await route.fulfill({ json: { token, expiresAt } });
       return;
     }
     expect(request.headers().authorization).toBe(`Bearer ${token}`);
+    if (rejectSession) {
+      await route.fulfill({ status: 401, json: {} });
+      return;
+    }
     if (path.endsWith('/pairing')) {
       await route.fulfill({ json: { url: botUrl, expiresAt } });
       return;
@@ -119,9 +126,21 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await section.getByRole('button', { name: 'Send test message' }).click();
   await expect(section.getByText('Test message sent.')).toBeVisible();
 
+  await page.reload();
+  await expect(section.getByText('Connected to @anya')).toBeVisible();
+  await expect(section.getByRole('button', { name: 'Verify wallet' })).toHaveCount(0);
+  expect(verifications).toBe(1);
+
   await page.goBack();
   const delivery = section.getByLabel(`Telegram delivery for ${title}`);
   await delivery.selectOption('mute');
   await expect(section.getByText('Muted', { exact: true })).toBeVisible();
   expect(await section.evaluate((panel) => panel.scrollWidth)).toBeLessThanOrEqual(390);
+
+  rejectSession = true;
+  await page.reload();
+  await expect(section.getByRole('button', { name: 'Verify wallet' })).toBeVisible();
+  await page.waitForFunction(() =>
+    Object.keys(sessionStorage).every((key) => !key.startsWith('rulebook:telegram-session:')),
+  );
 });

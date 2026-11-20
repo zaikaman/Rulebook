@@ -224,6 +224,6 @@ function telegramRequest(method: string, token?: string, body?: object): Request
   return { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' };
 }
 
-const baseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
+export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';
 
-export const api = new ApiClient(baseUrl);
+export const api = new ApiClient(apiBaseUrl);

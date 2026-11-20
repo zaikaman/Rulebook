@@ -1,6 +1,7 @@
 import {
   LASNA_CHAIN_ID,
   telegramRuleName,
+  telegramSessionSchema,
   telegramSignIn,
   type Address,
   type TelegramPreference,
@@ -15,17 +16,46 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useSignTypedData } from 'wagmi';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { Spinner } from './chrome/Spinner.js';
-import { api, ApiError } from '../lib/api.js';
+import { api, apiBaseUrl, ApiError } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 
 type Session = Awaited<ReturnType<typeof api.telegramSession>>;
 type Pairing = Awaited<ReturnType<typeof api.telegramPair>>;
+
+function storeSession(key: string, session: Session | null) {
+  try {
+    if (session) window.sessionStorage.setItem(key, JSON.stringify(session));
+    else window.sessionStorage.removeItem(key);
+  } catch {
+    // The signed-in panel still works in memory if browser storage is unavailable.
+  }
+}
+
+function restoreSession(key: string): Session | null {
+  try {
+    const stored = window.sessionStorage.getItem(key);
+    if (!stored) return null;
+    const session = telegramSessionSchema.safeParse(JSON.parse(stored));
+    if (
+      session.success &&
+      /^[A-Za-z0-9_-]{43}$/.test(session.data.token) &&
+      session.data.expiresAt * 1000 > Date.now()
+    ) {
+      return session.data;
+    }
+  } catch {
+    // Old or malformed entries should be treated as signed out.
+  }
+  storeSession(key, null);
+  return null;
+}
+
 type DeliverySetting = {
   id: string;
   title: string;
@@ -98,8 +128,14 @@ function TelegramSettingsPanel(props: NotificationProps) {
   const name = workflow ? 'workflow' : 'rule';
   const heading = useId();
   const queryClient = useQueryClient();
-  const sessionKey = ['telegram-session', agent.toLowerCase(), owner.toLowerCase()];
-  const settingsKey = ['telegram-settings', agent.toLowerCase(), owner.toLowerCase()];
+  const { sessionKey, settingsKey, storageKey } = useMemo(() => {
+    const scope = [apiBaseUrl, agent.toLowerCase(), owner.toLowerCase()] as const;
+    return {
+      sessionKey: ['telegram-session', ...scope] as const,
+      settingsKey: ['telegram-settings', ...scope] as const,
+      storageKey: `rulebook:telegram-session:v1:${JSON.stringify(scope)}`,
+    };
+  }, [agent, owner]);
   const { signTypedDataAsync } = useSignTypedData();
   const guard = useChainGuard();
   const [pairing, setPairing] = useState<Pairing>();
@@ -108,32 +144,45 @@ function TelegramSettingsPanel(props: NotificationProps) {
   const [error, setError] = useState<string>();
   const { data: session } = useQuery<Session | null>({
     queryKey: sessionKey,
-    queryFn: async () => null,
+    queryFn: () => null,
     enabled: false,
     gcTime: 20 * 60_000,
+    initialData: () => restoreSession(storageKey),
   });
+  const activeSession = session && session.expiresAt * 1000 > Date.now() ? session : null;
   const settings = useQuery({
     queryKey: settingsKey,
-    queryFn: () => api.telegramSettings(agent, session!.token),
-    enabled: Boolean(session),
+    queryFn: () => api.telegramSettings(agent, activeSession!.token),
+    enabled: Boolean(activeSession),
     retry: false,
     refetchInterval: (query) =>
       pairing || query.state.data?.testDelivery === 'pending' ? 2_000 : 15_000,
   });
+  const sessionRejected = settings.error instanceof ApiError && settings.error.status === 401;
 
+  const clearSession = useCallback(
+    (expected: Session) => {
+      if (queryClient.getQueryData<Session | null>(sessionKey)?.token !== expected.token) return;
+      storeSession(storageKey, null);
+      queryClient.setQueryData(sessionKey, null);
+      queryClient.removeQueries({ queryKey: settingsKey, exact: true });
+      setPairing(undefined);
+      setExpired(false);
+    },
+    [queryClient, sessionKey, settingsKey, storageKey],
+  );
   useEffect(() => {
     if (!session) return;
+    if (sessionRejected) {
+      clearSession(session);
+      return;
+    }
     const sessionTimer = setTimeout(
-      () => {
-        queryClient.setQueryData(
-          ['telegram-session', agent.toLowerCase(), owner.toLowerCase()],
-          null,
-        );
-      },
+      () => clearSession(session),
       Math.max(0, session.expiresAt * 1000 - Date.now()),
     );
     return () => clearTimeout(sessionTimer);
-  }, [session, agent, owner, queryClient]);
+  }, [session, sessionRejected, clearSession]);
 
   useEffect(() => {
     if (!pairing) return;
@@ -141,17 +190,14 @@ function TelegramSettingsPanel(props: NotificationProps) {
       () => {
         setPairing(undefined);
         setExpired(true);
-        void queryClient.invalidateQueries({
-          queryKey: ['telegram-settings', agent.toLowerCase(), owner.toLowerCase()],
-        });
+        void queryClient.invalidateQueries({ queryKey: settingsKey });
       },
       Math.max(0, pairing.expiresAt * 1000 - Date.now()),
     );
     return () => clearTimeout(pairingTimer);
-  }, [pairing, agent, owner, queryClient]);
+  }, [pairing, queryClient, settingsKey]);
 
-  const sessionRejected = settings.error instanceof ApiError && settings.error.status === 401;
-  const authorized = sessionRejected ? undefined : session;
+  const authorized = sessionRejected ? null : activeSession;
   const current = authorized ? settings.data : undefined;
 
   async function run(label: string, action: () => Promise<TelegramSettings | void>) {
@@ -160,13 +206,16 @@ function TelegramSettingsPanel(props: NotificationProps) {
     try {
       await queryClient.cancelQueries({ queryKey: settingsKey });
       const result = await action();
-      if (result) queryClient.setQueryData(settingsKey, result);
-      else await queryClient.invalidateQueries({ queryKey: settingsKey });
-    } catch (failure) {
-      if (failure instanceof ApiError && failure.status === 401) {
-        queryClient.setQueryData(sessionKey, null);
-        setPairing(undefined);
+      if (!result) {
+        await queryClient.invalidateQueries({ queryKey: settingsKey });
+      } else if (
+        session &&
+        queryClient.getQueryData<Session | null>(sessionKey)?.token === session.token
+      ) {
+        queryClient.setQueryData(settingsKey, result);
       }
+    } catch (failure) {
+      if (session && failure instanceof ApiError && failure.status === 401) clearSession(session);
       setError(
         failure instanceof ApiError
           ? failure.message
@@ -196,6 +245,8 @@ function TelegramSettingsPanel(props: NotificationProps) {
     const verified = await api.telegramSession(agent, owner, challenge, signature);
     setPairing(undefined);
     setExpired(false);
+    queryClient.removeQueries({ queryKey: settingsKey, exact: true });
+    storeSession(storageKey, verified);
     queryClient.setQueryData(sessionKey, verified);
   }
 
