@@ -9,6 +9,10 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FOUNDRY_VERSION: v1.7.1
+  NODE_VERSION: '24'
+
 jobs:
   contracts:
     name: contracts
@@ -22,9 +26,17 @@ jobs:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.7.1
+          version: ${{ env.FOUNDRY_VERSION }}
+          cache: false
       - name: Format
         run: forge fmt --check
+      - name: Cache Solidity build
+        uses: actions/cache@v4
+        with:
+          path: |
+            contracts/cache
+            contracts/out
+          key: ${{ runner.os }}-${{ runner.arch }}-solidity-${{ env.FOUNDRY_VERSION }}-${{ hashFiles('contracts/**/*.sol', 'contracts/foundry.toml', 'contracts/foundry.lock', 'contracts/remappings.txt') }}
       - name: Build
         run: forge build
       - name: Test
@@ -33,48 +45,69 @@ jobs:
         run: forge snapshot --check
       - name: Coverage gate
         run: node ../scripts/coverage-gate.mjs
+      - name: Share compiled contracts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-contracts
+          path: contracts/out
+          if-no-files-found: error
 
   node:
     name: node
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
-      - run: npm ci
-      - uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: v1.7.1
+      - run: npm ci --prefer-offline --no-audit --no-fund
       - name: Build shared package
         run: npm run build -w packages/shared
-      - name: Verify generated artifacts
-        run: |
-          npm run build -w contracts
-          npm run generate -w packages/shared
-          git diff --exit-code
       - name: Typecheck
         run: |
           npm run typecheck -w packages/shared
           npm run typecheck -w backend
-          npm run typecheck -w frontend
       - name: Test
         run: |
           npm run test -w packages/shared
           npm run test -w backend
           npm run test -w frontend
-      - name: Build frontend
+      - name: Typecheck and build frontend
         run: npm run build -w frontend
-      - run: npx playwright install --with-deps chromium
-      - name: Browser and accessibility tests
-        run: npx playwright test
       - name: Lint
         run: npm run lint
       - name: Format check
         run: npm run format:check
+
+  browser:
+    name: browser and generated artifacts
+    needs: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci --prefer-offline --no-audit --no-fund
+      - uses: actions/download-artifact@v4
+        with:
+          name: compiled-contracts
+          path: contracts/out
+      - name: Verify generated artifacts
+        run: |
+          npm run generate -w packages/shared
+          git diff --exit-code
+      - name: Build shared package
+        run: npm run build -w packages/shared
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+          cache: false
+      - run: npx playwright install --with-deps --only-shell chromium
+      - name: Browser and accessibility tests
+        run: npx playwright test
 
   secret-scan:
     name: secret scan
@@ -83,7 +116,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
-      - run: npm ci --ignore-scripts
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm ci --workspaces=false --ignore-scripts --prefer-offline --no-audit --no-fund
       - name: Scan
         run: node scripts/secret-scan.mjs

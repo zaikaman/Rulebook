@@ -26,7 +26,7 @@ describe('Vercel SPA routing', () => {
     expect(servedBySpaRewrite('/rules/0x1111111111111111111111111111111111111111/3')).toBe(true);
   });
 
-  it('builds the frontend workspace', () => {
-    expect(config.buildCommand).toContain('frontend');
+  it('runs the build from the Vercel project root (frontend)', () => {
+    expect(config.buildCommand).toBe('npm run build');
   });
 });
