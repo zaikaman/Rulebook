@@ -8,9 +8,10 @@ import { Link, useParams } from 'react-router';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WorkflowProgramSummary } from './BuilderV2';
+import { ListingStatusV2 } from './ListingStatusV2';
 import { workflowV2Deployment } from './chainV2';
 import { toDraft } from './modelV2';
-import { getV2Listing, v2ApiBase, v2ListingId, v2MarketPage } from './listingV2';
+import { v2ApiBase, v2ListingId, v2ListingQuery, v2MarketPage } from './listingV2';
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -22,6 +23,7 @@ export function WorkflowMarketplaceV2() {
     queryKey: ['workflow-v2', 'marketplace', search],
     enabled: Boolean(workflowV2Deployment),
     placeholderData: keepPreviousData,
+    refetchOnMount: 'always',
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({ q: search, ...(pageParam ? { after: pageParam } : {}) });
@@ -165,19 +167,10 @@ export function WorkflowMarketplaceV2() {
 export function WorkflowListingV2() {
   const { listingId } = useParams();
   const id = v2ListingId.safeParse(listingId);
-  const query = useQuery({
-    queryKey: ['workflow-v2', 'listing', listingId],
-    enabled: id.success,
-    queryFn: ({ signal }) => getV2Listing(id.data!, signal),
-  });
+  const query = useQuery(v2ListingQuery(id.data));
   if (!id.success) return <p role="alert">This listing link is invalid.</p>;
-  if (query.error)
-    return (
-      <div className="rb-alert" role="alert">
-        <span>{query.error.message}</span>
-      </div>
-    );
-  if (!query.data) return <p role="status">Reading the published workflow…</p>;
+  if (!query.isFetchedAfterMount || !query.data || query.error || query.failureReason)
+    return <ListingStatusV2 query={query} />;
   const item = query.data;
 
   return (

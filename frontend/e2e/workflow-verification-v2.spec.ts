@@ -55,61 +55,98 @@ const parameters: Record<string, string> = {
   minimumTransferRaw: '1000',
 };
 
+/** Library nodes render a suffix such as "Adds a condition", so match the name as a prefix. */
+function nodeName(name: string) {
+  return new RegExp(`^${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s|$)`);
+}
+
 function library(page: Page) {
-  return page.getByRole('complementary', { name: 'Node library' });
+  return page.getByRole('complementary', { name: 'Workflow inspector' });
+}
+
+async function openLibraryGroup(page: Page, group: string) {
+  await library(page).getByRole('button', { name: 'Library', exact: true }).click();
+  await library(page).getByRole('button', { name: group, exact: true }).click();
 }
 
 async function pickNode(page: Page, group: string, name: string) {
-  await library(page).getByRole('button', { name: group, exact: true }).click();
-  await library(page).getByRole('button', { name, exact: true }).click();
+  await openLibraryGroup(page, group);
+  await library(page)
+    .getByRole('button', { name: nodeName(name) })
+    .click();
+}
+
+async function chooseTrigger(page: Page, kind: TriggerCode) {
+  await pickNode(page, 'Triggers', triggers[kind]);
+  await library(page)
+    .getByRole('button', { name: /^Use as trigger/ })
+    .click();
+}
+
+async function placeNode(page: Page, path: 'Main' | 'Yes' | 'Otherwise' = 'Main') {
+  await library(page)
+    .getByRole('button', { name: nodeName(path + ' path') })
+    .click();
 }
 
 async function fromScratch(page: Page, name: string) {
   await page.goto(builder + '/workflows/new');
   await page.getByRole('button', { name: 'Start from scratch' }).click();
   await page.getByLabel('Workflow name').fill(name);
+  await page
+    .getByLabel('Workflow diagram')
+    .getByRole('button', { name: /^Trigger\./ })
+    .click();
 }
 
 async function addAlert(page: Page, path?: 'Yes' | 'Otherwise') {
   await pickNode(page, 'Notifications', actions[action.alert].name);
-  const editor = path ? page.getByRole('region', { name: path + ' path' }) : page;
-  await editor.getByRole('button', { name: 'Add Record an alert here' }).click();
+  await placeNode(page, path);
 }
 
 async function expectReview(page: Page, name: string) {
   await page.getByRole('button', { name: 'Review workflow' }).click();
-  await expect(page.getByRole('heading', { name: 'Review ' + name })).toBeVisible();
-  await expect(page.getByText('Unichain Sepolia', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible();
+  const review = page.locator('.rb-review-program');
+  await expect(review.getByRole('heading', { name: 'Program review' })).toBeVisible();
+  const settlement = review.locator('dl > div').filter({ hasText: 'Settlement network' });
+  await expect(settlement.locator('dd')).toHaveText('Unichain Sepolia');
 }
 
 for (const recipe of workflowV2Recipes) {
   test(`builds and restores the ${recipe.title} recipe draft`, async ({ page }) => {
     await page.goto(builder + '/workflows/new');
     const picker = page.getByRole('region', { name: 'Workflow recipes' });
-    await picker.getByLabel('Category').selectOption(recipe.category);
+    const settings = page.locator('.rb-configurator');
+    await picker
+      .getByRole('group', { name: 'Recipe category' })
+      .getByRole('button', { name: recipe.category, exact: true })
+      .click();
     await picker.getByLabel('Search recipes').fill(recipe.title);
     await picker.getByRole('button', { name: recipe.title, exact: false }).click();
     for (const field of recipeFields[recipe.id]) {
       const value =
         field === 'expiresAt' ? String(Math.floor(Date.now() / 1000) + 3600) : parameters[field];
       if (field === 'direction') {
-        await picker.getByLabel('Alert when the price is').selectOption('falling');
+        await settings.getByLabel('Alert when the price is').selectOption('falling');
       } else {
         expect(value, field).toBeTruthy();
-        await picker.getByLabel(recipeLabels[field]!, { exact: true }).fill(value!);
+        await settings.getByLabel(recipeLabels[field]!, { exact: true }).fill(value!);
       }
     }
     if (recipe.id === 'inactivity-payout') {
-      await picker.getByRole('button', { name: 'Open in builder' }).click();
-      await expect(picker.getByRole('alert')).toContainText('Confirm the fixed inactivity payout');
-      await picker.getByRole('checkbox').check();
+      await settings.getByRole('button', { name: 'Open in builder' }).click();
+      await expect(settings.getByRole('alert')).toContainText(
+        'Confirm the fixed inactivity payout',
+      );
+      await settings.getByRole('checkbox').check();
     }
-    await picker.getByRole('button', { name: 'Open in builder' }).click();
+    await settings.getByRole('button', { name: 'Open in builder' }).click();
     await expect(page.getByLabel('Workflow name')).toHaveValue(recipe.title);
     const editedTitle = recipe.title + ' draft';
     await page.getByLabel('Workflow name').fill(editedTitle);
     await expectReview(page, editedTitle);
-    const summary = page.locator('.workflow-v2-summary').locator('..');
+    const summary = page.locator('.rb-review-program');
     const reviewed = await summary.innerText();
     await page.reload();
     await expect(page.getByLabel('Workflow name')).toHaveValue(editedTitle);
@@ -136,10 +173,10 @@ for (const kind of Object.values(check)) {
     await fromScratch(page, name);
     const kindOfTrigger = compatibleTriggers[kind] ?? trigger.schedule;
     if (kindOfTrigger !== trigger.schedule) {
-      await library(page).getByRole('button', { name: 'Checks', exact: true }).click();
-      const needsTrigger = library(page).getByRole('button', { name: metadata.name, exact: false });
+      await openLibraryGroup(page, 'Checks');
+      const needsTrigger = library(page).getByRole('button', { name: nodeName(metadata.name) });
       await expect(needsTrigger).toBeDisabled();
-      await pickNode(page, 'Triggers', triggers[kindOfTrigger]);
+      await chooseTrigger(page, kindOfTrigger);
     } else {
       await page.getByLabel('Interval in seconds').fill('3600');
     }
@@ -150,7 +187,7 @@ for (const kind of Object.values(check)) {
       await page.getByLabel('Watched wallet address').fill(USER_ADDRESS);
     }
     await pickNode(page, 'Checks', metadata.name);
-    await page.getByRole('button', { name: `Add ${metadata.name} here`, exact: true }).click();
+    await placeNode(page);
     if (metadata.decimals !== undefined) {
       const threshold =
         kind === check.inactivity ? '86400' : metadata.decimals === 18 ? '1200' : '2';
@@ -174,7 +211,7 @@ for (const [kind, name] of Object.entries(triggers) as [string, string][]) {
     if (id === trigger.schedule) {
       await page.getByLabel('Interval in seconds').fill('3600');
     } else {
-      await pickNode(page, 'Triggers', name);
+      await chooseTrigger(page, id);
       if (id === trigger.transfer) await page.getByLabel('Token contract address').fill(token);
       if (id === trigger.payment)
         await page.getByText('Live check settings', { exact: true }).click();
@@ -183,7 +220,7 @@ for (const [kind, name] of Object.entries(triggers) as [string, string][]) {
     }
     await addAlert(page);
     await expectReview(page, title);
-    await expect(page.locator('.workflow-v2-summary')).toContainText(name);
+    await expect(page.locator('.rb-review-program')).toContainText(name);
   });
 }
 
@@ -202,21 +239,20 @@ for (const kind of Object.values(action)) {
     if (parent !== null) {
       const meta = checks[parent];
       await pickNode(page, 'Checks', meta.name);
-      await page.getByRole('button', { name: `Add ${meta.name} here`, exact: true }).click();
+      await placeNode(page);
       await page
         .getByLabel(meta.name + ' threshold')
         .fill(parent === check.inactivity ? '86400' : '1');
     }
-    const path = parent === null ? page : page.getByRole('region', { name: 'Yes path' });
     await pickNode(page, kind === action.alert ? 'Notifications' : 'Actions', metadata.name);
-    await path.getByRole('button', { name: `Add ${metadata.name} here`, exact: true }).click();
+    await placeNode(page, parent === null ? 'Main' : 'Yes');
     if (metadata.asset)
-      await path
+      await library(page)
         .getByLabel('Amount in ' + metadata.asset)
         .fill(metadata.asset === 'USDC' ? '0.2' : '0.0001');
-    if (metadata.recipient) await path.getByLabel('Recipient address').fill(USER_ADDRESS);
+    if (metadata.recipient) await library(page).getByLabel('Recipient address').fill(USER_ADDRESS);
     if (metadata.asset) {
-      await page.getByText('Spending limits and timing', { exact: true }).click();
+      await page.getByRole('button', { name: 'Workflow settings' }).click();
       await page.getByLabel('Maximum USDC per run').fill('0.2');
       await page.getByLabel('Maximum WETH per run').fill('0.0001');
       if (kind === action.buy || kind === action.sell)
@@ -238,19 +274,22 @@ test('rejects drops on the wrong node and preserves a full branch', async ({ pag
   const canvas = page.getByLabel('Workflow diagram');
   const schedule = canvas.getByRole('button', { name: 'Trigger. Every 3600 seconds' });
   const skip = canvas.getByRole('button', { name: 'Skip. Do nothing' });
-  const price = library(page).getByRole('button', { name: triggers[trigger.price], exact: true });
+  await openLibraryGroup(page, 'Triggers');
+  const price = library(page).getByRole('button', { name: nodeName(triggers[trigger.price]) });
   await price.dragTo(skip);
   await expect(schedule).toBeVisible();
   await price.dragTo(schedule);
   await expect(canvas.getByRole('button', { name: 'Trigger. Pool price changes' })).toBeVisible();
 
-  await pickNode(page, 'Triggers', triggers[trigger.schedule]);
+  await chooseTrigger(page, trigger.schedule);
   for (let count = 1; count <= 3; count++) {
     await addAlert(page);
     await expect(canvas.getByText('Record an alert', { exact: true })).toHaveCount(count);
   }
-  await addAlert(page);
-  await expect(page.getByRole('alert')).toContainText('A path can have up to three actions.');
+  await pickNode(page, 'Notifications', actions[action.alert].name);
+  await expect(
+    library(page).getByText('No path can accept this node.', { exact: false }),
+  ).toBeVisible();
   await expect(canvas.getByText('Record an alert', { exact: true })).toHaveCount(3);
   await expectReview(page, 'Verify canvas connections');
 });
@@ -261,7 +300,7 @@ test('resumes activation after the wallet declines the Lasna signature', async (
     rejectFirstCall: toFunctionSelector('enable(bytes32,uint64,bytes,string,uint64)'),
   });
   await page.goto(builder + '/workflows/new');
-  await page.getByRole('button', { name: /^Recurring transfer/ }).click();
+  await page.getByRole('button', { name: 'Recurring transfer', exact: false }).click();
   await page.getByLabel('Interval in seconds').fill('3600');
   await page.getByLabel('USDC to send').fill('0.02');
   await page.getByLabel('Recipient address').fill(USER_ADDRESS);
@@ -281,7 +320,7 @@ test('resumes activation after the wallet declines the Lasna signature', async (
   await expect(
     page.getByRole('heading', { name: 'Recurring transfer', exact: true }),
   ).toBeVisible();
-  await expect(page.getByText('Unichain Sepolia · Active')).toBeVisible();
+  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
   const sent = (await walletRequests(page))
     .filter(({ method }) => method === 'eth_sendTransaction')
     .map(({ chainId }) => chainId);

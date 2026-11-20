@@ -5,7 +5,7 @@ test('uses the wheel to zoom inside the builder canvas and scroll outside it', a
   await page.goto('/workflows/new?template=blank');
   const canvas = page.locator('.workflow-canvas');
   const viewport = canvas.locator('.react-flow__viewport');
-  const workspace = page.locator('.app-shell main > [class*="overflow-y-auto"]');
+  const workspace = page.locator('.app-shell .app-scroll');
   const zoom = () =>
     viewport.evaluate((element) => new DOMMatrix(getComputedStyle(element).transform).a);
   const scrollTop = () => workspace.evaluate((element) => element.scrollTop);

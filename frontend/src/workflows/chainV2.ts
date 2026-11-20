@@ -219,7 +219,7 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
         functionName: 'callbackProxy',
       })
     : undefined;
-  const [usdc, weth, watch, execution, native] = await Promise.all([
+  const [usdc, weth, watch, execution, native, walletNative, walletWatch] = await Promise.all([
     vault === zeroAddress
       ? zeroAddress
       : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'usdc' }),
@@ -243,19 +243,21 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
           args: [vault],
         }),
     vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
+    client.getBalance({ address: owner }),
+    lasna.getBalance({ address: owner }),
   ]);
-  const balance = (token: Address) =>
+  const tokenBalance = (token: Address, account: Address) =>
     token === zeroAddress
       ? 0n
       : client.readContract({
           address: token,
           abi: erc20Abi,
           functionName: 'balanceOf',
-          args: [vault],
+          args: [account],
         });
-  const [stable, wrapped, refillAllowance] = await Promise.all([
-    balance(usdc),
-    balance(weth),
+  const [stable, wrapped, refillAllowance, walletStable, walletWrapped] = await Promise.all([
+    tokenBalance(usdc, vault),
+    tokenBalance(weth, vault),
     usdc === zeroAddress
       ? 0n
       : client.readContract({
@@ -264,6 +266,8 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
           functionName: 'allowance',
           args: [owner, vault],
         }),
+    tokenBalance(usdc, owner),
+    tokenBalance(weth, owner),
   ]);
   return {
     agent,
@@ -278,6 +282,10 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
     stable,
     wrapped,
     refillAllowance,
+    walletStable,
+    walletWrapped,
+    walletNative,
+    walletWatch,
   };
 }
 

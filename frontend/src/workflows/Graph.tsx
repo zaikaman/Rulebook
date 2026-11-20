@@ -221,14 +221,18 @@ export function WorkflowCanvas({
   leaf,
   positions,
   onPositionsChange,
+  onPaneClick,
+  fitViewOptions = fitOptions,
   drop,
 }: {
   draft: CanvasDraft;
   selected?: GraphSelection;
-  select?: (selection: GraphSelection) => void;
+  select?: (selection: GraphSelection, step?: number) => void;
   leaf?: number;
   positions?: WorkflowNodePositions;
   onPositionsChange?: (positions: WorkflowNodePositions) => void;
+  onPaneClick?: () => void;
+  fitViewOptions?: FitViewOptions;
   drop?: CanvasDrop;
 }) {
   const editable = Boolean(select);
@@ -388,7 +392,7 @@ export function WorkflowCanvas({
 
   function chooseNode(node: WorkflowNodeCard) {
     setActiveNodeId(node.id);
-    select?.(node.data.owner);
+    select?.(node.data.owner, node.data.step);
   }
 
   return (
@@ -427,7 +431,7 @@ export function WorkflowCanvas({
         edges={edges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={fitOptions}
+        fitViewOptions={fitViewOptions}
         minZoom={0.12}
         maxZoom={1.7}
         nodesDraggable={Boolean(onPositionsChange)}
@@ -440,6 +444,7 @@ export function WorkflowCanvas({
         preventScrolling={editable}
         proOptions={{ hideAttribution: true }}
         onNodeClick={editable ? (_, node) => chooseNode(node) : undefined}
+        onPaneClick={onPaneClick}
         onNodesChange={(changes) => {
           // Controlled node updates must retain React Flow's sizes and handle bounds.
           const measured = changes.getByType('dimensions');
@@ -476,7 +481,7 @@ export function WorkflowCanvas({
           orientation="horizontal"
           showInteractive={false}
           position="bottom-right"
-          fitViewOptions={fitOptions}
+          fitViewOptions={fitViewOptions}
           className="workflow-canvas-dock"
         >
           <ZoomReadout />

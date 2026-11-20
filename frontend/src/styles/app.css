@@ -1,5 +1,10 @@
 /* Rulebook workspace: a full-height rail beside a scrollable, panel-led canvas. */
 
+:root:has(.app-shell) {
+  scrollbar-color: color-mix(in oklch, var(--rb-ink-faint) 75%, var(--rb-border-strong)) transparent;
+  scrollbar-width: thin;
+}
+
 .app-shell {
   display: flex;
   min-block-size: 100vh;
@@ -64,6 +69,7 @@
   gap: 1.5rem;
   overflow-y: auto;
   padding: 1.5rem 0.75rem;
+  scrollbar-width: thin;
 }
 
 .app-nav-group {
@@ -366,21 +372,8 @@
   .app-scroll {
     overflow-y: auto;
     scrollbar-gutter: stable;
+    scrollbar-width: thin;
   }
-}
-
-.app-scroll::-webkit-scrollbar {
-  inline-size: 10px;
-}
-
-.app-scroll::-webkit-scrollbar-thumb {
-  border: 3px solid var(--rb-canvas);
-  border-radius: 999px;
-  background: var(--rb-border-strong);
-}
-
-.app-scroll::-webkit-scrollbar-thumb:hover {
-  background: var(--rb-ink-faint);
 }
 
 .app-workspace {
@@ -1110,6 +1103,15 @@
   line-height: 1.5;
 }
 
+.rb-callout--recovery {
+  border-color: var(--rb-funds-line);
+  background: color-mix(in oklch, var(--rb-funds-tint) 52%, var(--rb-surface-raised));
+}
+
+.rb-callout--recovery p:not(.rb-callout-title) {
+  color: color-mix(in oklch, var(--rb-funds) 30%, var(--rb-ink-muted));
+}
+
 .rb-note {
   display: flex;
   flex-wrap: wrap;
@@ -1330,6 +1332,20 @@
     var(--rb-surface-raised);
 }
 
+.rb-balance[data-role='credit'] {
+  background:
+    radial-gradient(
+      ellipse at 100% 0%,
+      color-mix(in oklch, var(--rb-automation) 12%, transparent),
+      transparent 70%
+    ),
+    var(--rb-surface-raised);
+}
+
+.rb-balance[data-role='credit'] .rb-balance-head svg {
+  color: var(--rb-automation);
+}
+
 .rb-balance-head {
   display: flex;
   align-items: center;
@@ -1476,6 +1492,14 @@
   letter-spacing: 0;
 }
 
+.rb-credit-note {
+  margin-block-start: 0.25rem;
+  color: var(--rb-ink-faint);
+  font-size: 0.6875rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
 .rb-setup {
   display: grid;
   gap: 1.25rem;
@@ -1554,10 +1578,36 @@
     grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.9fr) auto;
     align-items: end;
   }
+
+  .rb-form-grid--two {
+    grid-template-columns: minmax(0, 1.4fr) auto;
+  }
 }
 
 .rb-form-grid .app-button {
   min-block-size: 2.5rem;
+}
+
+.rb-funding-guidance {
+  display: grid;
+  gap: 0.375rem;
+  margin-block-start: 0.125rem;
+}
+
+.rb-funding-hint {
+  color: var(--rb-ink-faint);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.rb-funding-hint[data-tone='error'] {
+  color: var(--rb-danger);
+}
+
+.rb-funding-hint strong {
+  color: var(--rb-ink-muted);
+  font-weight: 600;
 }
 
 .rb-action-row {
@@ -1577,9 +1627,21 @@
 }
 
 .rb-canvas-panel .workflow-canvas {
+  block-size: clamp(34rem, 64vh, 44rem);
   border: 0;
   border-radius: 0;
   background: var(--rb-canvas);
+}
+
+@media (max-width: 63.99rem) {
+  .rb-canvas-panel .workflow-canvas {
+    block-size: 30rem;
+  }
+
+  .workflow-canvas-hint {
+    inset-block-end: 4.35rem;
+    max-inline-size: calc(100% - 1.75rem);
+  }
 }
 
 .rb-canvas-panel .workflow-canvas .react-flow {
@@ -1860,27 +1922,109 @@
   accent-color: var(--rb-accent);
 }
 
+/* The editor fills the shell while recipes and review use the regular workspace. */
+
+.app-shell:has(.rb-editor-page) {
+  block-size: 100dvh;
+  min-block-size: 0;
+  overflow: clip;
+}
+
+.app-shell:has(.rb-editor-page) .app-scroll {
+  overflow: clip;
+  scrollbar-gutter: auto;
+}
+
+.app-workspace:has(> .rb-editor-page) {
+  display: flex;
+  block-size: 100%;
+  max-inline-size: none;
+  flex-direction: column;
+  padding: 0 clamp(0.625rem, 1.6vw, 1.5rem) clamp(0.625rem, 1.6vw, 1.5rem);
+}
+
+.rb-editor-page {
+  min-block-size: 0;
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+.rb-editor-page > .app-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  border-block-end: 0;
+  padding-block: 0.75rem 0;
+}
+
+.rb-editor-page .app-heading h1 {
+  overflow: hidden;
+  font-size: 1.375rem;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rb-builder {
   display: grid;
-  align-items: start;
-  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) clamp(16rem, 33%, 23rem);
+  gap: 0.75rem;
 }
 
-@media (min-width: 72rem) {
+@media (max-width: 39.99rem) {
+  .rb-editor-page > .app-heading {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .rb-builder {
-    grid-template-columns: minmax(0, 1fr) 19rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 4fr) minmax(0, 5fr);
   }
 
-  .rb-library {
-    position: sticky;
-    inset-block-start: 1rem;
+  .rb-builder .workflow-canvas-hint:not([data-drop-active='true']) {
+    display: none;
+  }
+
+  .rb-builder .workflow-canvas .workflow-canvas-dock {
+    inset-inline-end: 0.5rem;
+    inset-block-end: 0.5rem;
+  }
+
+  .rb-builder .workflow-canvas-dock .react-flow__controls-button {
+    width: 2.125rem;
+    height: 2.125rem;
   }
 }
 
-.rb-builder-column {
-  display: grid;
+@media (max-width: 39.99rem) and (max-height: 42rem) {
+  .rb-builder {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 64rem) and (max-height: 35rem) {
+  .app-shell:has(.rb-editor-page) :is(.app-rail, .app-topbar) {
+    display: none;
+  }
+
+  .app-shell:has(.rb-editor-page) .app-mobile {
+    display: flex;
+  }
+}
+
+.rb-builder > .rb-canvas-panel {
+  display: flex;
   min-inline-size: 0;
-  gap: 1rem;
+  min-block-size: 0;
+  flex-direction: column;
+}
+
+.rb-builder .workflow-canvas {
+  block-size: auto;
+  min-block-size: 0;
+  flex: 1;
 }
 
 .rb-library-body {
@@ -1976,19 +2120,20 @@
 }
 
 .rb-node-add {
+  display: grid;
+  place-items: center;
   color: var(--rb-ink-faint);
-  font-size: 1rem;
   line-height: 1;
 }
 
 .rb-canvas-toolbar {
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  flex: none;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
   border-block-end: 1px solid var(--rb-border);
-  padding: 1rem 1.25rem;
+  padding: 0.25rem 0.5rem 0.25rem 1rem;
 }
 
 .rb-name-field {
@@ -2026,49 +2171,393 @@
   color: var(--rb-ink-faint);
 }
 
-.rb-canvas-foot {
+.rb-inspector {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  border-block-start: 1px solid var(--rb-border);
-  padding: 0.625rem 1rem;
+  flex-direction: column;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
 }
 
-.rb-canvas-foot span {
-  color: var(--rb-ink-faint);
-  font-size: 0.75rem;
-  line-height: 1.45;
-}
-
-.rb-program-editor {
+.rb-inspector .rb-segmented {
   display: grid;
-  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.rb-program-editor > .workflow-v2-path {
-  border: 0;
-  padding: 0;
-  background: transparent;
+.rb-inspector .rb-segment {
+  text-align: center;
 }
 
-.rb-editor-block {
+.rb-inspector-feedback {
   display: grid;
-  gap: 0.75rem;
-  border: 1px solid var(--rb-border);
-  border-radius: 0.625rem;
-  padding: 0.875rem;
+  gap: 0.25rem;
+  border-block-end: 1px solid var(--rb-border);
+  padding: 0.75rem 1rem;
   background: var(--rb-surface-inset);
 }
 
-.rb-editor-head {
+.rb-inspector-feedback p {
+  color: var(--rb-ink-muted);
+  font-size: 0.71875rem;
+  line-height: 1.45;
+}
+
+.rb-inspector-feedback .rb-inspector-error {
+  color: var(--rb-danger);
+}
+
+.rb-inspector-switch {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.1875rem;
+  border-block-end: 1px solid var(--rb-border);
+  padding: 0.375rem;
+  background: var(--rb-surface-inset);
+}
+
+.rb-inspector-switch button {
+  min-block-size: 2.125rem;
+  border: 1px solid transparent;
+  border-radius: 0.4375rem;
+  color: var(--rb-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    background-color 150ms ease-out,
+    border-color 150ms ease-out,
+    color 150ms ease-out;
+}
+
+.rb-inspector-switch button:hover {
+  color: var(--rb-ink);
+}
+
+.rb-inspector-switch button[aria-pressed='true'] {
+  border-color: var(--rb-border);
+  background: var(--rb-control);
+  color: var(--rb-ink);
+}
+
+.rb-inspector-body {
+  min-block-size: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.rb-inspector-body:focus-visible {
+  outline: 2px solid var(--rb-accent);
+  outline-offset: -2px;
+}
+
+.rb-inspector-head {
   display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-block-end: 1px solid var(--rb-border);
+  padding: 1rem;
+}
+
+.rb-inspector-title {
+  display: flex;
+  min-inline-size: 0;
   align-items: center;
   gap: 0.625rem;
 }
 
-.rb-editor-index,
+.rb-inspector-icon {
+  display: grid;
+  inline-size: 2rem;
+  block-size: 2rem;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.5rem;
+  background: var(--rb-control);
+  color: var(--rb-ink-muted);
+}
+
+.rb-inspector-icon[data-tone='trigger'] {
+  border-color: var(--rb-accent-line);
+  background: var(--rb-accent-tint);
+  color: var(--rb-accent);
+}
+
+.rb-inspector-icon[data-tone='logic'] {
+  border-color: var(--rb-automation-line);
+  background: var(--rb-automation-tint);
+  color: var(--rb-automation);
+}
+
+.rb-inspector-icon[data-tone='funds'] {
+  border-color: var(--rb-funds-line);
+  background: var(--rb-funds-tint);
+  color: var(--rb-funds);
+}
+
+.rb-inspector-title h2 {
+  min-inline-size: 0;
+  color: var(--rb-ink);
+  font-family: var(--font-manrope);
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.rb-inspector-title p {
+  margin-block-start: 0.125rem;
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  line-height: 1.4;
+}
+
+.rb-inspector-back {
+  flex: none;
+  padding: 0.1875rem 0;
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  font-weight: 600;
+}
+
+.rb-inspector-back:hover {
+  color: var(--rb-accent);
+}
+
+.rb-inspector-section {
+  display: grid;
+  gap: 0.75rem;
+  border-block-end: 1px solid var(--rb-border);
+  padding: 1rem;
+}
+
+.rb-inspector-section-head h3 {
+  color: var(--rb-ink);
+  font-size: 0.8125rem;
+  font-weight: 640;
+  line-height: 1.3;
+}
+
+.rb-inspector-section-head p {
+  margin-block-start: 0.1875rem;
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  line-height: 1.45;
+}
+
+.rb-inspector-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.rb-inspector-copy {
+  color: var(--rb-ink-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.rb-inspector-note {
+  padding: 0.875rem 1rem 1rem;
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  line-height: 1.45;
+}
+
+.rb-inspector-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  border-block-start: 1px solid var(--rb-border);
+  padding-block-start: 0.75rem;
+}
+
+.rb-inspector-actions .workflow-text-button {
+  padding: 0;
+  color: var(--rb-ink-faint);
+  font-size: 0.71875rem;
+  text-decoration: none;
+}
+
+.rb-inspector-actions .workflow-text-button:hover {
+  color: var(--rb-accent);
+  text-decoration: underline;
+}
+
+.rb-inspector-actions .workflow-text-button[data-tone='danger']:hover {
+  color: var(--rb-danger);
+}
+
+.rb-inspector-list {
+  display: grid;
+  gap: 0.375rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.rb-inspector-list button {
+  display: flex;
+  inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.4375rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--rb-surface-inset);
+  text-align: start;
+}
+
+.rb-inspector-list button:hover {
+  border-color: var(--rb-border-strong);
+  background: var(--rb-control);
+}
+
+.rb-inspector-list button > span:first-child {
+  display: grid;
+  min-inline-size: 0;
+  gap: 0.125rem;
+}
+
+.rb-inspector-list strong {
+  color: var(--rb-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rb-inspector-list small,
+.rb-inspector-list button > span:last-child {
+  color: var(--rb-ink-faint);
+  font-size: 0.6875rem;
+}
+
+.rb-inspector-branches {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.rb-inspector-branch {
+  display: flex;
+  inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.4375rem;
+  padding: 0.5625rem 0.625rem;
+  background: var(--rb-surface-inset);
+  text-align: start;
+}
+
+.rb-inspector-branch:hover {
+  border-color: var(--rb-automation-line);
+  background: var(--rb-automation-tint);
+}
+
+.rb-inspector-branch strong {
+  color: var(--rb-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rb-inspector-branch small {
+  color: var(--rb-ink-faint);
+  font-size: 0.6875rem;
+}
+
+.rb-advanced {
+  border-block-start: 1px solid var(--rb-border);
+  padding-block-start: 0.75rem;
+}
+
+.rb-advanced > summary {
+  cursor: pointer;
+  color: var(--rb-ink-muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.rb-advanced > summary:hover {
+  color: var(--rb-ink);
+}
+
+.rb-advanced[open] > summary {
+  margin-block-end: 0.75rem;
+  color: var(--rb-ink);
+}
+
+.rb-consent--plain {
+  border: 0;
+  padding: 0.125rem 0;
+  background: transparent;
+}
+
+.rb-placement {
+  display: grid;
+  gap: 0.625rem;
+  border-block-start: 1px solid var(--rb-border);
+  padding: 1rem;
+  background: var(--rb-surface-inset);
+}
+
+.rb-placement-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.rb-placement-head strong {
+  color: var(--rb-ink);
+  font-size: 0.75rem;
+  font-weight: 640;
+}
+
+.rb-placement-targets {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.rb-placement-target {
+  display: grid;
+  inline-size: 100%;
+  gap: 0.125rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.4375rem;
+  padding: 0.5rem 0.625rem;
+  background: var(--rb-surface-raised);
+  text-align: start;
+}
+
+.rb-placement-target:hover:not(:disabled) {
+  border-color: var(--rb-accent-line);
+  background: var(--rb-accent-tint);
+}
+
+.rb-placement-target:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.rb-placement-target strong {
+  color: var(--rb-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.rb-placement-target small {
+  color: var(--rb-ink-faint);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
 .rb-spec-index {
   display: grid;
   inline-size: 1.5rem;
@@ -2082,34 +2571,6 @@
   font-family: var(--font-geist-mono);
   font-size: 0.6875rem;
   font-weight: 600;
-}
-
-.rb-editor-head h3 {
-  color: var(--rb-ink);
-  font-size: 0.875rem;
-  font-weight: 640;
-}
-
-.rb-editor-head p {
-  margin-block-start: 0.125rem;
-  color: var(--rb-ink-faint);
-  font-size: 0.75rem;
-}
-
-.rb-editor-fields {
-  display: grid;
-  gap: 0.625rem;
-}
-
-.rb-settings-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
-  gap: 0.75rem;
-  align-items: end;
-}
-
-.rb-settings-grid .rb-consent {
-  grid-column: 1 / -1;
 }
 
 .rb-full {
@@ -2300,37 +2761,6 @@
   font-size: 0.8125rem;
 }
 
-.workflow-v2-step {
-  border: 1px solid var(--rb-border);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  background: var(--rb-surface-raised);
-}
-
-.workflow-v2-branches > section {
-  border: 1px solid var(--rb-border);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
-  background: var(--rb-surface-inset);
-}
-
-.workflow-v2-branches h3 {
-  color: var(--rb-ink-faint);
-  font-size: 0.625rem;
-  font-weight: 660;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-
-.rb-step-label {
-  color: var(--rb-ink-faint);
-  font-size: 0.625rem;
-  font-weight: 660;
-  letter-spacing: 0.09em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
 .rb-library .rb-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2338,13 +2768,6 @@
 
 .rb-library .rb-segment {
   text-align: center;
-}
-
-.rb-editor-fields details > summary {
-  cursor: pointer;
-  color: var(--rb-ink-muted);
-  font-size: 0.75rem;
-  line-height: 1.4;
 }
 
 @media (max-width: 63.99rem) {

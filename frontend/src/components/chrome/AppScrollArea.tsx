@@ -10,8 +10,8 @@ export function AppScrollArea({ children }: { readonly children: ReactNode }) {
   }, [pathname]);
 
   return (
-    <div ref={area} className="app-scroll">
+    <main ref={area} className="app-scroll">
       {children}
-    </div>
+    </main>
   );
 }

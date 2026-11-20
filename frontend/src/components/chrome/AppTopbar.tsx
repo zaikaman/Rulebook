@@ -26,7 +26,7 @@ export function AppTopbar() {
 
   return (
     <header className="app-topbar">
-      <nav aria-label="Breadcrumb" className="app-crumb">
+      <nav aria-label="Workspace breadcrumb" className="app-crumb">
         <Link to={appRoutes.workflows}>Workspace</Link>
         <span className="app-crumb-sep" aria-hidden="true">
           /

@@ -27,7 +27,7 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import {
   encodeFunctionData,
@@ -778,34 +778,192 @@ type FundsOperation =
   | 'add-weth'
   | 'withdraw-usdc'
   | 'withdraw-weth'
-  | 'withdraw-eth'
+  | 'run-credit'
+  | 'watch-credit'
   | 'approve-refill-usdc'
   | 'revoke-refill-usdc'
-  | 'watch-credit'
-  | 'run-credit';
+  | 'withdraw-eth';
+
+type FundingGroup =
+  'Vault funds' | 'Execution credit' | 'Watching credit' | 'Allowances' | 'Recovery';
+
+type FundingKind =
+  | 'deposit'
+  | 'withdraw'
+  | 'execution-credit'
+  | 'watching-credit'
+  | 'allowance'
+  | 'revoke-allowance';
+
+type FundingUnit = 'USDC' | 'WETH' | 'ETH' | 'lREACT';
+
+type FundingBalanceKey =
+  | 'stable'
+  | 'wrapped'
+  | 'native'
+  | 'walletStable'
+  | 'walletWrapped'
+  | 'walletNative'
+  | 'walletWatch';
+
+interface FundingAction {
+  readonly label: string;
+  readonly group: FundingGroup;
+  readonly kind: FundingKind;
+  readonly unit: FundingUnit;
+  readonly decimals: number;
+  readonly amountLabel: string;
+  readonly requiresAmount: boolean;
+  readonly hint: string;
+  readonly balanceKey?: FundingBalanceKey;
+  readonly balanceLabel?: 'Wallet balance' | 'Vault balance';
+  readonly validateBalance?: boolean;
+}
+
+const fundingGroupOrder: readonly FundingGroup[] = [
+  'Vault funds',
+  'Execution credit',
+  'Watching credit',
+  'Allowances',
+  'Recovery',
+];
+
+const fundingActions: Record<FundsOperation, FundingAction> = {
+  'add-usdc': {
+    label: 'Deposit USDC',
+    group: 'Vault funds',
+    kind: 'deposit',
+    unit: 'USDC',
+    decimals: 6,
+    amountLabel: 'Amount (USDC)',
+    requiresAmount: true,
+    hint: 'Sends test USDC to the vault. USDC pays for buys, transfers, and balance refills.',
+    balanceKey: 'walletStable',
+    balanceLabel: 'Wallet balance',
+    validateBalance: true,
+  },
+  'add-weth': {
+    label: 'Deposit WETH',
+    group: 'Vault funds',
+    kind: 'deposit',
+    unit: 'WETH',
+    decimals: 18,
+    amountLabel: 'Amount (WETH)',
+    requiresAmount: true,
+    hint: 'Sends test WETH to the vault. Only needed for workflows that sell WETH.',
+    balanceKey: 'walletWrapped',
+    balanceLabel: 'Wallet balance',
+    validateBalance: true,
+  },
+  'withdraw-usdc': {
+    label: 'Withdraw USDC',
+    group: 'Vault funds',
+    kind: 'withdraw',
+    unit: 'USDC',
+    decimals: 6,
+    amountLabel: 'Amount (USDC)',
+    requiresAmount: true,
+    hint: 'Returns USDC from the vault to your wallet.',
+    balanceKey: 'stable',
+    balanceLabel: 'Vault balance',
+    validateBalance: true,
+  },
+  'withdraw-weth': {
+    label: 'Withdraw WETH',
+    group: 'Vault funds',
+    kind: 'withdraw',
+    unit: 'WETH',
+    decimals: 18,
+    amountLabel: 'Amount (WETH)',
+    requiresAmount: true,
+    hint: 'Returns WETH from the vault to your wallet.',
+    balanceKey: 'wrapped',
+    balanceLabel: 'Vault balance',
+    validateBalance: true,
+  },
+  'run-credit': {
+    label: 'Deposit ETH for execution credit',
+    group: 'Execution credit',
+    kind: 'execution-credit',
+    unit: 'ETH',
+    decimals: 18,
+    amountLabel: 'Amount (ETH)',
+    requiresAmount: true,
+    hint: 'Sends test ETH to the Unichain callback proxy for this vault. This credit pays workflow callbacks; it is not held in the vault.',
+    balanceKey: 'walletNative',
+    balanceLabel: 'Wallet balance',
+    validateBalance: true,
+  },
+  'watch-credit': {
+    label: 'Deposit lREACT for watching credit',
+    group: 'Watching credit',
+    kind: 'watching-credit',
+    unit: 'lREACT',
+    decimals: 18,
+    amountLabel: 'Amount (lREACT)',
+    requiresAmount: true,
+    hint: 'Sends test lREACT to Reactive Lasna for this agent. Watching credit pays for trigger evaluations.',
+    balanceKey: 'walletWatch',
+    balanceLabel: 'Wallet balance',
+    validateBalance: true,
+  },
+  'approve-refill-usdc': {
+    label: 'Set USDC refill allowance',
+    group: 'Allowances',
+    kind: 'allowance',
+    unit: 'USDC',
+    decimals: 6,
+    amountLabel: 'Allowance (USDC)',
+    requiresAmount: true,
+    hint: 'Lets the vault pull USDC from your wallet for balance refills, up to this total allowance.',
+    balanceKey: 'walletStable',
+    balanceLabel: 'Wallet balance',
+  },
+  'revoke-refill-usdc': {
+    label: 'Revoke USDC refill allowance',
+    group: 'Allowances',
+    kind: 'revoke-allowance',
+    unit: 'USDC',
+    decimals: 6,
+    amountLabel: 'Amount',
+    requiresAmount: false,
+    hint: 'Stops the vault from pulling any more USDC from your wallet.',
+  },
+  'withdraw-eth': {
+    label: 'Recover unused vault ETH',
+    group: 'Recovery',
+    kind: 'withdraw',
+    unit: 'ETH',
+    decimals: 18,
+    amountLabel: 'Amount (ETH)',
+    requiresAmount: true,
+    hint: 'Returns ETH that was sent directly to the vault contract. This balance is separate from execution credit.',
+    balanceKey: 'native',
+    balanceLabel: 'Vault balance',
+    validateBalance: true,
+  },
+};
+
 function displayUnits(value: bigint, decimals: number) {
   const [whole, fraction] = formatUnits(value, decimals).split('.');
   const trimmed = fraction?.slice(0, 4).replace(/0+$/, '');
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
-const fundsLabels: Record<FundsOperation, string> = {
-  'add-usdc': 'Deposit USDC',
-  'add-weth': 'Deposit WETH',
-  'withdraw-usdc': 'Withdraw USDC',
-  'withdraw-weth': 'Withdraw WETH',
-  'withdraw-eth': 'Withdraw Vault ETH',
-  'approve-refill-usdc': 'Set USDC refill allowance',
-  'revoke-refill-usdc': 'Revoke USDC refill allowance',
-  'watch-credit': 'Add Lasna watching credit',
-  'run-credit': 'Add testnet execution credit',
-};
+function exactUnits(value: bigint, decimals: number) {
+  const [whole = '0', fraction] = formatUnits(value, decimals).split('.');
+  if (!fraction) return whole;
+  const trimmed = fraction.replace(/0+$/, '');
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
 
 export function WorkflowAccountV2() {
   const wallet = useWorkflowV2Wallet();
   const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
   const [operation, setOperation] = useState<FundsOperation>('add-usdc');
   const [amount, setAmount] = useState('');
+  const amountRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const data = useQuery({
     queryKey: ['workflow-v2', 'funding', wallet.owner, chain],
     enabled: Boolean(wallet.owner && settlementFactory()),
@@ -813,26 +971,54 @@ export function WorkflowAccountV2() {
     refetchInterval: 12_000,
   });
   const funds = data.data;
-  const operations = Object.entries(fundsLabels);
-  const revokeRefill = operation === 'revoke-refill-usdc';
+  const showRecovery = Boolean(funds && funds.native > 0n);
+  const activeOperation = operation === 'withdraw-eth' && !showRecovery ? 'add-usdc' : operation;
+  const action = fundingActions[activeOperation];
+  const balance = action.balanceKey && funds ? funds[action.balanceKey] : undefined;
+  const limit = action.validateBalance ? balance : undefined;
+  const groups = fundingGroupOrder
+    .map((group) => ({
+      group,
+      actions: (Object.keys(fundingActions) as FundsOperation[]).filter(
+        (key) => fundingActions[key].group === group && (key !== 'withdraw-eth' || showRecovery),
+      ),
+    }))
+    .filter((entry) => entry.actions.length > 0);
+
+  let amountError: string | undefined;
+  let parsedAmount: bigint | undefined;
+  if (action.requiresAmount && amount.trim()) {
+    try {
+      parsedAmount = readAmount(amount, action.decimals, 'amount');
+      if (parsedAmount === 0n) amountError = 'Enter a positive amount.';
+      else if (limit !== undefined && parsedAmount > limit)
+        amountError = `You can use at most ${exactUnits(limit, action.decimals)} ${action.unit}.`;
+    } catch (error) {
+      amountError = error instanceof Error ? error.message : 'Enter a valid amount.';
+    }
+  }
+  const canSubmit =
+    !wallet.busy &&
+    (!action.requiresAmount || (parsedAmount !== undefined && parsedAmount > 0n)) &&
+    !amountError;
 
   function submit() {
     void wallet.perform(async () => {
       if (!funds || funds.vault === zeroAddress)
         throw new Error('Create your Agent and Vault first.');
-      const symbol = operation.endsWith('usdc')
-        ? 'USDC'
-        : operation.endsWith('weth')
-          ? 'WETH'
-          : operation === 'watch-credit'
-            ? 'lREACT'
-            : 'ETH';
-      const quantity = revokeRefill
-        ? 0n
-        : readAmount(amount, symbol === 'USDC' ? 6 : 18, 'funding amount');
-      if (!revokeRefill && quantity === 0n) throw new Error('Enter a positive amount.');
-      const display = `${formatUnits(quantity, symbol === 'USDC' ? 6 : 18)} ${symbol}`;
-      if (operation === 'approve-refill-usdc' || revokeRefill) {
+      const quantity = action.requiresAmount
+        ? readAmount(amount, action.decimals, 'funding amount')
+        : 0n;
+      if (action.requiresAmount && quantity === 0n) throw new Error('Enter a positive amount.');
+      if (action.validateBalance && action.balanceKey) {
+        const limit = funds[action.balanceKey];
+        if (quantity > limit)
+          throw new Error(
+            `You can use at most ${exactUnits(limit, action.decimals)} ${action.unit}.`,
+          );
+      }
+      const display = `${formatUnits(quantity, action.decimals)} ${action.unit}`;
+      if (action.kind === 'allowance' || action.kind === 'revoke-allowance') {
         await wallet.send(
           chain,
           funds.usdc,
@@ -841,55 +1027,56 @@ export function WorkflowAccountV2() {
             functionName: 'approve',
             args: [funds.vault, quantity],
           }),
-          revokeRefill
-            ? 'Stop your Vault from pulling any more USDC from your wallet.'
-            : 'Set the total USDC your Vault may pull for balance refills.',
+          action.hint,
           display,
         );
-      } else if (operation === 'watch-credit' || operation === 'run-credit') {
-        const watch = operation === 'watch-credit';
-        const provider = watch ? funds.lasnaSystem : funds.proxy;
-        if (!provider) throw new Error('Execution credit is unavailable for this testnet.');
+      } else if (action.kind === 'execution-credit' || action.kind === 'watching-credit') {
+        const watching = action.kind === 'watching-credit';
+        const provider = watching ? funds.lasnaSystem : funds.proxy;
+        if (!provider || provider === zeroAddress)
+          throw new Error('Network credit is unavailable for this testnet.');
         await wallet.send(
-          watch ? LASNA_CHAIN_ID : chain,
+          watching ? LASNA_CHAIN_ID : chain,
           provider,
           encodeFunctionData({
             abi: executionCreditAbi,
             functionName: 'depositTo',
-            args: [watch ? funds.agent : funds.vault],
+            args: [watching ? funds.agent : funds.vault],
           }),
-          fundsLabels[operation],
+          action.hint,
           display,
           quantity,
         );
+      } else if (action.kind === 'deposit') {
+        const token: Address = action.unit === 'USDC' ? funds.usdc : funds.weth;
+        if (token === zeroAddress) throw new Error('This testnet token is unavailable.');
+        await wallet.send(
+          chain,
+          token,
+          encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [funds.vault, quantity],
+          }),
+          action.hint,
+          display,
+        );
       } else {
         const token: Address =
-          symbol === 'USDC' ? funds.usdc : symbol === 'WETH' ? funds.weth : zeroAddress;
-        if (operation.startsWith('add-')) {
-          await wallet.send(
-            chain,
-            token,
-            encodeFunctionData({
-              abi: erc20Abi,
-              functionName: 'transfer',
-              args: [funds.vault, quantity],
-            }),
-            'Send test tokens to your workflow Vault.',
-            display,
-          );
-        } else {
-          await wallet.send(
-            chain,
-            funds.vault,
-            encodeFunctionData({
-              abi: workflowVaultV2Abi,
-              functionName: 'withdraw',
-              args: [token, quantity],
-            }),
-            'Return funds from the Vault to your wallet.',
-            display,
-          );
-        }
+          action.unit === 'USDC' ? funds.usdc : action.unit === 'WETH' ? funds.weth : zeroAddress;
+        if (action.unit !== 'ETH' && token === zeroAddress)
+          throw new Error('This testnet token is unavailable.');
+        await wallet.send(
+          chain,
+          funds.vault,
+          encodeFunctionData({
+            abi: workflowVaultV2Abi,
+            functionName: 'withdraw',
+            args: [token, quantity],
+          }),
+          action.hint,
+          display,
+        );
       }
       setAmount('');
     });
@@ -921,7 +1108,7 @@ export function WorkflowAccountV2() {
             {
               icon: Coins01Icon,
               title: 'Vault funds',
-              copy: 'USDC, ETH, and WETH held by the vault on Unichain Sepolia.',
+              copy: 'USDC and WETH principal held by the vault on Unichain Sepolia.',
             },
             {
               icon: Pulse01Icon,
@@ -931,7 +1118,7 @@ export function WorkflowAccountV2() {
             {
               icon: Shield01Icon,
               title: 'Execution credit',
-              copy: 'ETH reserved for the agent callbacks that settle confirmed runs.',
+              copy: 'ETH held by the callback proxy to pay for the callbacks that settle runs.',
             },
           ]}
         />
@@ -984,7 +1171,7 @@ export function WorkflowAccountV2() {
             </p>
             <p className="rb-setup-step">
               <b aria-hidden="true">3</b>
-              Fund the vault and add execution credit.
+              Fund vault principal and execution credit.
             </p>
           </div>
           <div className="rb-action-row">
@@ -1015,18 +1202,7 @@ export function WorkflowAccountV2() {
                 {displayUnits(funds.stable, 6)}
                 <span>USDC</span>
               </p>
-              <p className="rb-balance-foot">Settlement balance on Unichain Sepolia</p>
-            </div>
-            <div className="rb-balance" data-role="funds">
-              <p className="rb-balance-head">
-                <HugeiconsIcon icon={Wallet01Icon} size={13} aria-hidden="true" />
-                Vault ETH
-              </p>
-              <p className="rb-balance-value">
-                {displayUnits(funds.native, 18)}
-                <span>ETH</span>
-              </p>
-              <p className="rb-balance-foot">Pays gas when the vault acts</p>
+              <p className="rb-balance-foot">Principal for buys, transfers, and refills</p>
             </div>
             <div className="rb-balance" data-role="funds">
               <p className="rb-balance-head">
@@ -1037,57 +1213,131 @@ export function WorkflowAccountV2() {
                 {displayUnits(funds.wrapped, 18)}
                 <span>WETH</span>
               </p>
-              <p className="rb-balance-foot">Wrapped balance available to swaps</p>
+              <p className="rb-balance-foot">Principal for workflows that sell WETH</p>
+            </div>
+            <div className="rb-balance" data-role="credit">
+              <p className="rb-balance-head">
+                <HugeiconsIcon icon={Pulse01Icon} size={13} aria-hidden="true" />
+                Execution credit
+              </p>
+              <p className="rb-balance-value">
+                {displayUnits(funds.execution, 18)}
+                <span>ETH</span>
+              </p>
+              <p className="rb-balance-foot">Pays callback gas on Unichain Sepolia</p>
             </div>
           </div>
+
+          {funds.native > 0n && (
+            <div className="rb-callout rb-callout--recovery">
+              <div className="rb-callout-copy">
+                <p className="rb-callout-title">Unused vault ETH</p>
+                <p>
+                  {exactUnits(funds.native, 18)} ETH sits in the vault contract. It is separate from
+                  execution credit and does not pay for callbacks.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="app-button"
+                onClick={() => {
+                  setOperation('withdraw-eth');
+                  setAmount(exactUnits(funds.native, 18));
+                  formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  amountRef.current?.focus({ preventScroll: true });
+                }}
+              >
+                Recover ETH
+              </button>
+            </div>
+          )}
 
           <div className="rb-split">
             <div className="app-panel">
               <div className="rb-panel-head">
                 <div>
                   <h2 className="rb-panel-title">Move test funds</h2>
-                  <p className="rb-panel-copy">Deposits and withdrawals settle from your wallet.</p>
+                  <p className="rb-panel-copy">
+                    Every action sends one transaction from your wallet.
+                  </p>
                 </div>
               </div>
               <form
+                ref={formRef}
                 className="rb-panel-body"
                 onSubmit={(event) => {
                   event.preventDefault();
                   submit();
                 }}
               >
-                <div className="rb-form-grid">
+                <div
+                  className={
+                    action.requiresAmount ? 'rb-form-grid' : 'rb-form-grid rb-form-grid--two'
+                  }
+                >
                   <V2Field name="Funding action">
                     <select
                       className="app-input"
-                      value={operation}
-                      onChange={(event) => setOperation(event.target.value as FundsOperation)}
+                      value={activeOperation}
+                      aria-describedby="funding-hint"
+                      onChange={(event) => {
+                        setOperation(event.target.value as FundsOperation);
+                        setAmount('');
+                      }}
                     >
-                      {operations.map(([key, label]) => (
-                        <option value={key} key={key}>
-                          {label}
-                        </option>
+                      {groups.map(({ group, actions }) => (
+                        <optgroup key={group} label={group}>
+                          {actions.map((key) => (
+                            <option value={key} key={key}>
+                              {fundingActions[key].label}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </V2Field>
-                  {!revokeRefill && (
-                    <V2Field name="Amount">
+                  {action.requiresAmount && (
+                    <V2Field name={action.amountLabel}>
                       <input
+                        ref={amountRef}
                         className="app-input"
                         inputMode="decimal"
                         value={amount}
                         placeholder="0.00"
+                        aria-invalid={amountError ? true : undefined}
+                        aria-describedby="funding-hint"
                         onChange={(event) => setAmount(event.target.value)}
                       />
                     </V2Field>
                   )}
                   <button
                     className="app-button app-button--primary"
-                    disabled={wallet.busy || (!revokeRefill && !amount.trim())}
+                    disabled={!canSubmit}
                     type="submit"
                   >
                     Review transaction
                   </button>
+                </div>
+                <div className="rb-funding-guidance">
+                  <p
+                    id="funding-hint"
+                    className="rb-funding-hint"
+                    data-tone={amountError ? 'error' : undefined}
+                    role={amountError ? 'alert' : undefined}
+                  >
+                    {amountError ?? action.hint}
+                  </p>
+                  {action.requiresAmount && balance !== undefined && (
+                    <p className="rb-funding-hint">
+                      {action.balanceLabel}:{' '}
+                      <strong>
+                        {exactUnits(balance, action.decimals)} {action.unit}
+                      </strong>
+                      {action.balanceKey === 'walletNative' || action.balanceKey === 'walletWatch'
+                        ? ' Keep a little for network gas.'
+                        : null}
+                    </p>
+                  )}
                 </div>
               </form>
             </div>
@@ -1095,8 +1345,10 @@ export function WorkflowAccountV2() {
             <div className="app-panel">
               <div className="rb-panel-head">
                 <div>
-                  <h2 className="rb-panel-title">Automation credit</h2>
-                  <p className="rb-panel-copy">Keeps watching and settlement funded.</p>
+                  <h2 className="rb-panel-title">Credits and allowances</h2>
+                  <p className="rb-panel-copy">
+                    Watching credit funds Lasna evaluations. The allowance caps USDC refills.
+                  </p>
                 </div>
               </div>
               <div className="rb-panel-body">
@@ -1109,20 +1361,17 @@ export function WorkflowAccountV2() {
                     </span>
                   </div>
                   <div className="rb-credit-row">
-                    <span className="rb-credit-name">Execution credit</span>
-                    <span className="rb-credit-value">
-                      {displayUnits(funds.execution, 18)}
-                      <span>ETH</span>
-                    </span>
-                  </div>
-                  <div className="rb-credit-row">
-                    <span className="rb-credit-name">Refill allowance</span>
+                    <span className="rb-credit-name">USDC refill allowance</span>
                     <span className="rb-credit-value">
                       {displayUnits(funds.refillAllowance, 6)}
                       <span>USDC</span>
                     </span>
                   </div>
                 </div>
+                <p className="rb-credit-note">
+                  Watching credit is held on Reactive Lasna. The refill allowance is approved on
+                  Unichain Sepolia.
+                </p>
               </div>
             </div>
           </div>
