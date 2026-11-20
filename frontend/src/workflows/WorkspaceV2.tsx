@@ -10,6 +10,22 @@ import {
   workflowVaultV2Abi,
   workflowV2Action,
 } from '@rulebook/shared';
+import {
+  Add01Icon,
+  Alert02Icon,
+  ArrowRight01Icon,
+  Book02Icon,
+  Clock01Icon,
+  Coins01Icon,
+  InformationCircleIcon,
+  Pulse01Icon,
+  RefreshIcon,
+  Shield01Icon,
+  Tick02Icon,
+  TradeUpIcon,
+  Wallet01Icon,
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
@@ -25,6 +41,10 @@ import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { CopyButton } from '@/components/chrome/CopyButton';
+import { EmptyState } from '@/components/chrome/EmptyState';
+import { HowItWorks } from '@/components/chrome/HowItWorks';
+import { NetworkBadge } from '@/components/NetworkBadge';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
   readFundsV2,
@@ -50,48 +70,167 @@ export function WorkflowsV2() {
     queryFn: () => readWorkflowsV2(owner!),
     refetchInterval: 12_000,
   });
+  const workflows = rows.data ?? [];
+  const watching = workflows.filter((row) => row.active).length;
+  const awaiting = workflows.filter((row) => !row.active && row.staged && row.auth[3]).length;
+  const paused = workflows.length - watching - awaiting;
+
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
+    <section className="app-page">
       <PageHeading
+        eyebrow="Automation"
         title="Workflows"
-        description="Manage the testnet workflows that run from your wallet."
+        description="Build, activate, and monitor the testnet automations that run from your wallet."
+        aside={
+          <Link className="app-button app-button--primary" to="/workflows/new">
+            <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden="true" />
+            New workflow
+          </Link>
+        }
       />
-      <div className="workflow-actions">
-        <Link className="app-button app-button--primary" to="/workflows/new">
-          New workflow
-        </Link>
-        {!owner && <WalletControl setup />}
-      </div>
+
+      {!owner && (
+        <div className="rb-callout">
+          <div className="rb-callout-copy">
+            <p className="rb-callout-title">Connect a wallet to load your workflows</p>
+            <p>Your agent, vault, and run history all belong to the connected wallet.</p>
+          </div>
+          <WalletControl setup />
+        </div>
+      )}
+
+      {!owner && (
+        <HowItWorks
+          title="How a workflow runs"
+          steps={[
+            {
+              icon: Pulse01Icon,
+              title: 'Trigger',
+              copy: 'A schedule, price move, or wallet event tells the agent when to evaluate.',
+            },
+            {
+              icon: Shield01Icon,
+              title: 'Checks',
+              copy: 'Conditions and spending caps decide whether the run may continue.',
+            },
+            {
+              icon: TradeUpIcon,
+              title: 'Actions',
+              copy: 'Your vault executes the swap, transfer, or alert on Unichain Sepolia.',
+            },
+          ]}
+        />
+      )}
+
       {!workflowV2Deployment && (
-        <p className="app-copy">
-          Browse the workflow recipes and build a draft while testnet activation is being
-          configured.
+        <p className="rb-note">
+          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+          Testnet activation is being configured. You can still browse recipes and build a draft.
         </p>
       )}
-      {rows.isFetching && !rows.data && <p role="status">Reading your workflows…</p>}
+
       {rows.error && (
-        <p className="workflow-error" role="alert">
-          {rows.error.message}
-        </p>
+        <div className="rb-alert" role="alert">
+          <span>{rows.error.message}</span>
+          <button type="button" onClick={() => void rows.refetch()}>
+            Try again
+          </button>
+        </div>
       )}
-      {rows.data?.length === 0 && <p className="app-copy">This wallet has no workflows yet.</p>}
-      {!!rows.data?.length && (
-        <ul className="app-panel workflow-workspace-list">
-          {rows.data.map((row) => (
-            <li key={row.id}>
-              <Link to={`/workflows/${row.id}`} className="workflow-workspace-row">
-                <strong>{row.title}</strong>
-                <span>
-                  {v2Network(row.chain).name} ·{' '}
-                  {row.active
-                    ? 'Watching for events'
-                    : row.staged && row.auth[3]
-                      ? 'Finish activation'
-                      : 'Stopped'}
-                </span>
+
+      {!!owner && !!rows.data && (
+        <div className="rb-metrics">
+          <div className="rb-metric">
+            <p className="rb-metric-label">Workflows</p>
+            <p className="rb-metric-value">{workflows.length}</p>
+            <p className="rb-metric-note">Saved in this vault</p>
+          </div>
+          <div className="rb-metric" data-tone="active">
+            <p className="rb-metric-label">Watching</p>
+            <p className="rb-metric-value">{watching}</p>
+            <p className="rb-metric-note">Evaluating triggers on Lasna</p>
+          </div>
+          <div className="rb-metric">
+            <p className="rb-metric-label">Needs attention</p>
+            <p className="rb-metric-value">{awaiting + paused}</p>
+            <p className="rb-metric-note">Paused or awaiting activation</p>
+          </div>
+        </div>
+      )}
+
+      {!!owner && Boolean(workflowV2Deployment) && rows.isPending && (
+        <div className="rb-skeleton-grid" aria-hidden="true">
+          <div className="rb-skeleton rb-skeleton--tall" />
+          <div className="rb-skeleton rb-skeleton--tall" />
+        </div>
+      )}
+      {!!owner && Boolean(workflowV2Deployment) && rows.isFetching && !rows.data && (
+        <span className="sr-only" role="status">
+          Reading your workflows…
+        </span>
+      )}
+
+      {!!owner && rows.data?.length === 0 && (
+        <EmptyState
+          icon={Book02Icon}
+          title="No workflows yet"
+          description="A workflow watches for a trigger, checks your conditions, then acts from your vault. Start from a recipe or build the logic yourself."
+          action={
+            <>
+              <Link className="app-button app-button--primary" to="/workflows/new">
+                Build a workflow
               </Link>
-            </li>
-          ))}
+              <Link className="app-button" to="/marketplace">
+                Browse Marketplace
+              </Link>
+            </>
+          }
+          steps={['Pick a trigger', 'Add checks and actions', 'Review and activate']}
+        />
+      )}
+
+      {!!workflows.length && (
+        <ul className="rb-card-grid">
+          {workflows.map((row) => {
+            const ready = !row.active && row.staged && row.auth[3];
+            const tone = row.active ? 'active' : ready ? 'info' : 'paused';
+            const label = row.active ? 'Watching' : ready ? 'Ready to activate' : 'Paused';
+            return (
+              <li key={row.id}>
+                <Link to={`/workflows/${row.id}`} className="rb-card">
+                  <div className="rb-card-body">
+                    <div className="rb-card-head">
+                      <span className="rb-card-icon" aria-hidden="true">
+                        <HugeiconsIcon icon={Book02Icon} size={18} strokeWidth={1.7} />
+                      </span>
+                      <div className="rb-card-heading">
+                        <h2 className="rb-card-title">{row.title}</h2>
+                        <p className="rb-card-meta">
+                          <NetworkBadge chainId={row.chain} />
+                        </p>
+                      </div>
+                      <span className="rb-chip" data-tone={tone}>
+                        {label}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="rb-card-foot">
+                    <span>
+                      {row.active
+                        ? 'Watching for events'
+                        : ready
+                          ? 'Authorization pending'
+                          : 'Not watching'}
+                    </span>
+                    <span className="rb-card-cue">
+                      Open
+                      <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -137,8 +276,23 @@ export function WorkflowDetailV2() {
         ? 'Finish activation'
         : 'Paused';
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
-      <PageHeading title={item.title} description={`${v2Network(item.chain).name} · ${status}`} />
+    <section className="app-page">
+      <PageHeading
+        eyebrow="Workflow"
+        title={item.title}
+        description="Review the program, its activation state, and the path it settles through."
+        aside={
+          <div className="rb-inline">
+            <NetworkBadge chainId={item.chain} />
+            <span
+              className="rb-chip"
+              data-tone={item.closed || active ? 'active' : item.auth[3] ? 'info' : 'paused'}
+            >
+              {status}
+            </span>
+          </div>
+        }
+      />
       <div className="workflow-actions">
         {!item.closed && (
           <Link className="app-button" to={`/workflows/${item.id}/edit`}>
@@ -182,9 +336,11 @@ export function WorkflowDetailV2() {
           Activity
         </Link>
       </div>
-      <div className="app-panel app-panel-pad">
+      <div className="rb-canvas-panel">
         <WorkflowCanvas draft={diagramV2(toDraft(program, item.title)).canvas} />
-        <WorkflowProgramSummary draft={toDraft(program, item.title)} />
+        <div className="rb-panel-body">
+          <WorkflowProgramSummary draft={toDraft(program, item.title)} />
+        </div>
       </div>
       {!item.staged && <Publication item={item} wallet={wallet} />}
       <V2Feedback wallet={wallet} />
@@ -345,9 +501,25 @@ function TransactionLink({
   ) : null;
 }
 
+type ActivityFilter = 'all' | 'pending' | 'confirmed' | 'other';
+
+const activityFilters = [
+  { id: 'all', label: 'All' },
+  { id: 'pending', label: 'Pending' },
+  { id: 'confirmed', label: 'Confirmed' },
+  { id: 'other', label: 'Other' },
+] as const satisfies readonly { readonly id: ActivityFilter; readonly label: string }[];
+
+const activityFilterStatuses = {
+  pending: new Set(['pending', 'in grace period']),
+  confirmed: new Set(['confirmed']),
+  other: new Set(['skipped', 'expired', 'failed']),
+} as const satisfies Record<Exclude<ActivityFilter, 'all'>, ReadonlySet<string>>;
+
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
   const { id: requestedId } = useParams();
+  const [filter, setFilter] = useState<ActivityFilter>('all');
   const requested = workflowIdSchema.safeParse(requestedId);
   const query = useInfiniteQuery({
     queryKey: ['workflow-v2', 'activity', wallet.owner, requestedId],
@@ -368,74 +540,201 @@ export function WorkflowActivityV2() {
   });
   if (requestedId && !requested.success) return <p role="alert">This run link is invalid.</p>;
   const rows = query.data?.pages.flatMap((page) => page.runs) ?? [];
+  const visible =
+    filter === 'all' ? rows : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
+    <section className="app-page">
       <PageHeading
+        eyebrow="Automation"
         title="Activity"
-        description="Follow the origin event, Lasna callback, and settlement."
+        description="Follow each run from the origin event through the Lasna decision to settlement."
+        aside={
+          <>
+            {wallet.owner && <span className="rb-chip rb-chip--plain">{rows.length} loaded</span>}
+            <button
+              type="button"
+              className="app-button"
+              disabled={query.isFetching}
+              onClick={() => void query.refetch()}
+            >
+              <HugeiconsIcon icon={RefreshIcon} size={15} aria-hidden="true" />
+              Refresh
+            </button>
+          </>
+        }
       />
-      {!wallet.owner && <WalletControl setup />}
-      {!workflowV2Deployment && (
-        <p className="app-copy">Activity opens when the V2 testnet deployment is configured.</p>
+
+      {!wallet.owner && (
+        <div className="rb-callout">
+          <div className="rb-callout-copy">
+            <p className="rb-callout-title">Connect a wallet to read its runs</p>
+            <p>Activity is scoped to the wallet that owns the agent and vault.</p>
+          </div>
+          <WalletControl setup />
+        </div>
       )}
-      {query.isFetching && !query.data && <p role="status">Loading workflow activity…</p>}
-      {query.error && (
-        <p className="workflow-error" role="alert">
-          {query.error.message}{' '}
-          <button
-            className="workflow-text-button"
-            type="button"
-            onClick={() => void query.refetch()}
-          >
-            Try again
-          </button>
+
+      {!wallet.owner && (
+        <HowItWorks
+          title="What each run records"
+          steps={[
+            {
+              icon: Pulse01Icon,
+              title: 'Origin event',
+              copy: 'The transaction that matched the trigger on the watched network.',
+            },
+            {
+              icon: Shield01Icon,
+              title: 'Lasna decision',
+              copy: 'The agent evaluates the checks and records which path it chose.',
+            },
+            {
+              icon: Wallet01Icon,
+              title: 'Settlement',
+              copy: 'The vault executes the approved action and the run is confirmed.',
+            },
+          ]}
+        />
+      )}
+
+      {!workflowV2Deployment && (
+        <p className="rb-note">
+          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+          Activity opens when the V2 testnet deployment is configured.
         </p>
       )}
-      {query.isSuccess && !rows.length && <p className="app-copy">No matching runs yet.</p>}
-      {!!rows.length && (
-        <ul className="workflow-v2-activity">
-          {rows.map((run) => (
-            <li
-              key={`${run.chain}:${run.id}`}
-              className="app-panel app-panel-pad workflow-v2-stack"
-            >
-              <div className="workflow-actions">
-                <Link className="app-link" to={`/workflows/${run.workflowId}`}>
-                  {run.title}
-                </Link>
-                <span className="workflow-status">{run.status}</span>
-              </div>
-              <p className="app-copy">
-                {v2Network(run.chain).name}
-                {run.reason && ` · ${run.reason}`}
-              </p>
-              <div className="workflow-actions">
-                <TransactionLink
-                  chain={run.originChain}
-                  hash={run.originTransaction}
-                  label="Origin event"
-                />
-                {!requestedId && (
-                  <Link className="app-link" to={`/runs/${run.id}`}>
-                    Run details
-                  </Link>
-                )}
-                <TransactionLink
-                  chain={LASNA_CHAIN_ID}
-                  hash={run.lasnaTransaction}
-                  label="Lasna decision"
-                />
-                <TransactionLink
-                  chain={run.chain}
-                  hash={run.destinationTransaction}
-                  label="Settlement transaction"
-                />
-              </div>
-              {requestedId && run.path !== null && <RunPath run={run} />}
-            </li>
-          ))}
+
+      {query.error && (
+        <div className="rb-alert" role="alert">
+          <span>{query.error.message}</span>
+          <button type="button" onClick={() => void query.refetch()}>
+            Try again
+          </button>
+        </div>
+      )}
+
+      {query.isPending && Boolean(wallet.owner) && Boolean(workflowV2Deployment) && (
+        <div className="rb-skeleton-grid" aria-hidden="true">
+          <div className="rb-skeleton" />
+          <div className="rb-skeleton" />
+        </div>
+      )}
+      {query.isPending && Boolean(wallet.owner) && Boolean(workflowV2Deployment) && (
+        <span className="sr-only" role="status">
+          Loading workflow activity…
+        </span>
+      )}
+
+      {!!wallet.owner && query.isSuccess && rows.length > 0 && (
+        <div className="rb-toolbar">
+          <div className="rb-filters" role="group" aria-label="Filter runs">
+            {activityFilters.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                className="rb-filter"
+                aria-pressed={filter === option.id}
+                onClick={() => setFilter(option.id)}
+              >
+                {option.label}
+                <span className="rb-filter-count">
+                  {option.id === 'all'
+                    ? rows.length
+                    : rows.filter((run) => activityFilterStatuses[option.id].has(run.status))
+                        .length}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {query.isSuccess && !rows.length && (
+        <EmptyState
+          icon={Clock01Icon}
+          title="No runs yet"
+          description="Runs appear here once a trigger fires and the agent evaluates the workflow's conditions."
+          action={
+            <Link className="app-button" to="/workflows">
+              View workflows
+            </Link>
+          }
+          steps={['Trigger fires on Lasna', 'Checks are evaluated', 'Vault settles on Unichain']}
+        />
+      )}
+
+      {rows.length > 0 && !visible.length && <p className="rb-note">No runs match this filter.</p>}
+
+      {!!visible.length && (
+        <ul className="rb-feed">
+          {visible.map((run) => {
+            const tone =
+              run.status === 'confirmed'
+                ? 'active'
+                : run.status === 'failed'
+                  ? 'danger'
+                  : run.status === 'pending' || run.status === 'in grace period'
+                    ? 'paused'
+                    : undefined;
+            return (
+              <li key={`${run.chain}:${run.id}`} className="rb-run" data-tone={tone}>
+                <span className="rb-run-marker" aria-hidden="true">
+                  <HugeiconsIcon
+                    icon={
+                      tone === 'active' ? Tick02Icon : tone === 'danger' ? Alert02Icon : Clock01Icon
+                    }
+                    size={16}
+                  />
+                </span>
+                <div className="rb-run-body">
+                  <div className="rb-run-head">
+                    <Link className="rb-run-title" to={`/workflows/${run.workflowId}`}>
+                      {run.title}
+                    </Link>
+                    <span className="rb-chip" data-tone={tone}>
+                      {run.status}
+                    </span>
+                  </div>
+                  <p className="rb-run-meta">
+                    <span>{v2Network(run.chain).name}</span>
+                    {run.path !== null && <span>Path {run.path + 1}</span>}
+                    {run.reason && <span>{run.reason}</span>}
+                  </p>
+                  <div className="rb-run-links">
+                    <TransactionLink
+                      chain={run.originChain}
+                      hash={run.originTransaction}
+                      label="Origin event"
+                    />
+                    <TransactionLink
+                      chain={LASNA_CHAIN_ID}
+                      hash={run.lasnaTransaction}
+                      label="Lasna decision"
+                    />
+                    <TransactionLink
+                      chain={run.chain}
+                      hash={run.destinationTransaction}
+                      label="Settlement transaction"
+                    />
+                    {!requestedId && (
+                      <Link to={`/runs/${run.id}`}>
+                        Run details
+                        <HugeiconsIcon icon={ArrowRight01Icon} size={12} aria-hidden="true" />
+                      </Link>
+                    )}
+                  </div>
+                  {requestedId && run.path !== null && (
+                    <div className="rb-run-path">
+                      <RunPath run={run} />
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
+
       {query.hasNextPage && (
         <button
           type="button"
@@ -484,6 +783,12 @@ type FundsOperation =
   | 'revoke-refill-usdc'
   | 'watch-credit'
   | 'run-credit';
+function displayUnits(value: bigint, decimals: number) {
+  const [whole, fraction] = formatUnits(value, decimals).split('.');
+  const trimmed = fraction?.slice(0, 4).replace(/0+$/, '');
+  return trimmed ? `${whole}.${trimmed}` : whole;
+}
+
 const fundsLabels: Record<FundsOperation, string> = {
   'add-usdc': 'Deposit USDC',
   'add-weth': 'Deposit WETH',
@@ -591,104 +896,264 @@ export function WorkflowAccountV2() {
   }
 
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
+    <section className="app-page">
       <PageHeading
+        eyebrow="Manage"
         title="Account & Vault"
-        description="Manage testnet balances, watching credit, and execution credit."
+        description="Track testnet balances, watching credit, and execution credit from one place."
+        aside={<span className="rb-chip rb-chip--plain">Unichain Sepolia</span>}
       />
-      {!wallet.owner && <WalletControl setup />}
-      {!settlementFactory() && (
-        <p className="app-copy">The V2 Vault factory is unavailable on this testnet.</p>
+
+      {!wallet.owner && (
+        <div className="rb-callout">
+          <div className="rb-callout-copy">
+            <p className="rb-callout-title">Connect a wallet to open its account</p>
+            <p>Balances and credit are read from the agent and vault owned by that wallet.</p>
+          </div>
+          <WalletControl setup />
+        </div>
       )}
-      {data.isFetching && !funds && <p role="status">Reading your testnet account…</p>}
-      {data.error && (
-        <p className="workflow-error" role="alert">
-          {data.error.message}
+
+      {!wallet.owner && (
+        <HowItWorks
+          title="What your account holds"
+          steps={[
+            {
+              icon: Coins01Icon,
+              title: 'Vault funds',
+              copy: 'USDC, ETH, and WETH held by the vault on Unichain Sepolia.',
+            },
+            {
+              icon: Pulse01Icon,
+              title: 'Watching credit',
+              copy: 'lREACT that pays the agent to monitor triggers on Reactive Lasna.',
+            },
+            {
+              icon: Shield01Icon,
+              title: 'Execution credit',
+              copy: 'ETH reserved for the agent callbacks that settle confirmed runs.',
+            },
+          ]}
+        />
+      )}
+
+      {!settlementFactory() && (
+        <p className="rb-note">
+          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+          The V2 Vault factory is unavailable on this testnet.
         </p>
       )}
-      {wallet.owner && funds?.vault === zeroAddress && (
-        <button
-          className="app-button app-button--primary"
-          type="button"
-          disabled={wallet.busy}
-          onClick={() =>
-            void wallet.perform(async (signer) => {
-              await wallet.ensure(signer, chain);
-            })
-          }
-        >
-          Create your testnet accounts
-        </button>
+
+      {data.error && (
+        <div className="rb-alert" role="alert">
+          <span>{data.error.message}</span>
+        </div>
       )}
-      {funds && funds.vault !== zeroAddress && (
-        <div className="app-panel app-panel-pad workflow-v2-stack">
-          <dl className="workflow-v2-summary">
-            <div>
-              <dt>Reactive Lasna Agent</dt>
-              <dd className="workflow-v2-address">{funds.agent}</dd>
-            </div>
-            <div>
-              <dt>{v2Network(chain).name} Vault</dt>
-              <dd className="workflow-v2-address">{funds.vault}</dd>
-            </div>
-            <div>
-              <dt>Vault balance</dt>
-              <dd>
-                {formatUnits(funds.stable, 6)} USDC · {formatUnits(funds.native, 18)} ETH
-                {chain === UNICHAIN_SEPOLIA_CHAIN_ID && ` · ${formatUnits(funds.wrapped, 18)} WETH`}
-              </dd>
-            </div>
-            <div>
-              <dt>Automation credit</dt>
-              <dd>
-                {formatUnits(funds.watch, 18)} lREACT watching · {formatUnits(funds.execution, 18)}{' '}
-                ETH execution
-              </dd>
-            </div>
-            <div>
-              <dt>Remaining refill allowance</dt>
-              <dd>{formatUnits(funds.refillAllowance, 6)} USDC</dd>
-            </div>
-          </dl>
-          <form
-            className="workflow-v2-settings"
-            onSubmit={(event) => {
-              event.preventDefault();
-              submit();
-            }}
-          >
-            <V2Field name="Funding action">
-              <select
-                className="app-input"
-                value={operation}
-                onChange={(event) => setOperation(event.target.value as FundsOperation)}
-              >
-                {operations.map(([key, label]) => (
-                  <option value={key} key={key}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </V2Field>
-            {!revokeRefill && (
-              <V2Field name="Amount">
-                <input
-                  className="app-input"
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                />
-              </V2Field>
-            )}
+
+      {!!wallet.owner && Boolean(settlementFactory()) && data.isPending && (
+        <div className="rb-skeleton-grid" aria-hidden="true">
+          <div className="rb-skeleton" />
+          <div className="rb-skeleton" />
+          <div className="rb-skeleton" />
+        </div>
+      )}
+      {!!wallet.owner && Boolean(settlementFactory()) && data.isPending && (
+        <span className="sr-only" role="status">
+          Reading your testnet account…
+        </span>
+      )}
+
+      {wallet.owner && funds?.vault === zeroAddress && (
+        <section className="rb-setup">
+          <div className="rb-setup-head">
+            <p className="app-eyebrow">Testnet onboarding</p>
+            <h2 className="rb-setup-title">Create your agent and vault</h2>
+            <p className="app-heading-copy">
+              Rulebook creates a wallet-owned agent on Reactive Lasna and a vault on Unichain
+              Sepolia. Both are required before a workflow can be activated.
+            </p>
+          </div>
+          <div className="rb-setup-steps">
+            <p className="rb-setup-step">
+              <b aria-hidden="true">1</b>
+              Approve the agent on Reactive Lasna.
+            </p>
+            <p className="rb-setup-step">
+              <b aria-hidden="true">2</b>
+              Approve the vault on Unichain Sepolia.
+            </p>
+            <p className="rb-setup-step">
+              <b aria-hidden="true">3</b>
+              Fund the vault and add execution credit.
+            </p>
+          </div>
+          <div className="rb-action-row">
             <button
               className="app-button app-button--primary"
-              disabled={wallet.busy || (!revokeRefill && !amount.trim())}
-              type="submit"
+              type="button"
+              disabled={wallet.busy}
+              onClick={() =>
+                void wallet.perform(async (signer) => {
+                  await wallet.ensure(signer, chain);
+                })
+              }
             >
-              Review transaction
+              Create your testnet accounts
             </button>
-          </form>
-        </div>
+          </div>
+        </section>
+      )}
+      {funds && funds.vault !== zeroAddress && (
+        <>
+          <div className="rb-balance-grid">
+            <div className="rb-balance" data-role="funds">
+              <p className="rb-balance-head">
+                <HugeiconsIcon icon={Coins01Icon} size={13} aria-hidden="true" />
+                Vault USDC
+              </p>
+              <p className="rb-balance-value">
+                {displayUnits(funds.stable, 6)}
+                <span>USDC</span>
+              </p>
+              <p className="rb-balance-foot">Settlement balance on Unichain Sepolia</p>
+            </div>
+            <div className="rb-balance" data-role="funds">
+              <p className="rb-balance-head">
+                <HugeiconsIcon icon={Wallet01Icon} size={13} aria-hidden="true" />
+                Vault ETH
+              </p>
+              <p className="rb-balance-value">
+                {displayUnits(funds.native, 18)}
+                <span>ETH</span>
+              </p>
+              <p className="rb-balance-foot">Pays gas when the vault acts</p>
+            </div>
+            <div className="rb-balance" data-role="funds">
+              <p className="rb-balance-head">
+                <HugeiconsIcon icon={Coins01Icon} size={13} aria-hidden="true" />
+                Vault WETH
+              </p>
+              <p className="rb-balance-value">
+                {displayUnits(funds.wrapped, 18)}
+                <span>WETH</span>
+              </p>
+              <p className="rb-balance-foot">Wrapped balance available to swaps</p>
+            </div>
+          </div>
+
+          <div className="rb-split">
+            <div className="app-panel">
+              <div className="rb-panel-head">
+                <div>
+                  <h2 className="rb-panel-title">Move test funds</h2>
+                  <p className="rb-panel-copy">Deposits and withdrawals settle from your wallet.</p>
+                </div>
+              </div>
+              <form
+                className="rb-panel-body"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  submit();
+                }}
+              >
+                <div className="rb-form-grid">
+                  <V2Field name="Funding action">
+                    <select
+                      className="app-input"
+                      value={operation}
+                      onChange={(event) => setOperation(event.target.value as FundsOperation)}
+                    >
+                      {operations.map(([key, label]) => (
+                        <option value={key} key={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </V2Field>
+                  {!revokeRefill && (
+                    <V2Field name="Amount">
+                      <input
+                        className="app-input"
+                        inputMode="decimal"
+                        value={amount}
+                        placeholder="0.00"
+                        onChange={(event) => setAmount(event.target.value)}
+                      />
+                    </V2Field>
+                  )}
+                  <button
+                    className="app-button app-button--primary"
+                    disabled={wallet.busy || (!revokeRefill && !amount.trim())}
+                    type="submit"
+                  >
+                    Review transaction
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            <div className="app-panel">
+              <div className="rb-panel-head">
+                <div>
+                  <h2 className="rb-panel-title">Automation credit</h2>
+                  <p className="rb-panel-copy">Keeps watching and settlement funded.</p>
+                </div>
+              </div>
+              <div className="rb-panel-body">
+                <div className="rb-credit-list">
+                  <div className="rb-credit-row">
+                    <span className="rb-credit-name">Watching credit</span>
+                    <span className="rb-credit-value">
+                      {displayUnits(funds.watch, 18)}
+                      <span>lREACT</span>
+                    </span>
+                  </div>
+                  <div className="rb-credit-row">
+                    <span className="rb-credit-name">Execution credit</span>
+                    <span className="rb-credit-value">
+                      {displayUnits(funds.execution, 18)}
+                      <span>ETH</span>
+                    </span>
+                  </div>
+                  <div className="rb-credit-row">
+                    <span className="rb-credit-name">Refill allowance</span>
+                    <span className="rb-credit-value">
+                      {displayUnits(funds.refillAllowance, 6)}
+                      <span>USDC</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="app-panel">
+            <div className="rb-panel-head">
+              <div>
+                <h2 className="rb-panel-title">Contracts</h2>
+                <p className="rb-panel-copy">The agent and vault owned by this wallet.</p>
+              </div>
+            </div>
+            <div className="rb-panel-body">
+              <div className="rb-address-list">
+                <div className="rb-address-row">
+                  <div className="rb-address-copy">
+                    <span className="rb-address-name">Reactive Lasna Agent</span>
+                    <span className="rb-address-value">{funds.agent}</span>
+                  </div>
+                  <CopyButton value={funds.agent} label="agent address" />
+                </div>
+                <div className="rb-address-row">
+                  <div className="rb-address-copy">
+                    <span className="rb-address-name">{v2Network(chain).name} Vault</span>
+                    <span className="rb-address-value">{funds.vault}</span>
+                  </div>
+                  <CopyButton value={funds.vault} label="vault address" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
       )}
       <V2Feedback wallet={wallet} />
     </section>

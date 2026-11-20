@@ -1,4 +1,11 @@
-import { ArrowRight02Icon, Copy01Icon, Search01Icon } from '@hugeicons/core-free-icons';
+import {
+  Activity01Icon,
+  ArrowRight02Icon,
+  Copy01Icon,
+  FlashIcon,
+  Search01Icon,
+  TransactionHistoryIcon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
@@ -6,6 +13,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ChainOnlyProof } from '../components/ChainOnlyProof.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { HowItWorks } from '../components/chrome/HowItWorks.js';
 import { ProofRow } from '../components/ProofRow.js';
 import { useProof, proofErrorCopy } from '../hooks/useProof.js';
 import { appRoutes } from '../lib/routes.js';
@@ -46,6 +54,7 @@ export function Proof() {
     return (
       <section className="app-page">
         <PageHeading
+          eyebrow="Proof"
           title="Execution proof"
           description="Trace a rule from the event that triggered it to the outcome on the destination chain."
         />
@@ -63,7 +72,10 @@ export function Proof() {
             <span className="app-icon">
               <HugeiconsIcon icon={Search01Icon} size={20} aria-hidden="true" />
             </span>
-            <h2 className="app-panel-heading">Find a transaction</h2>
+            <div>
+              <p className="app-eyebrow">Lookup</p>
+              <h2 className="app-panel-heading">Find a transaction</h2>
+            </div>
           </div>
           <label htmlFor="proof-hash" className="app-field">
             Reactive transaction hash
@@ -97,6 +109,28 @@ export function Proof() {
               : 'Paste the hash of the Lasna transaction that evaluated your rule.'}
           </p>
         </form>
+        <div className="max-w-[46rem]">
+          <HowItWorks
+            title="How a proof is assembled"
+            steps={[
+              {
+                icon: Activity01Icon,
+                title: 'Origin event',
+                copy: 'The transaction that matched the rule on the watched network.',
+              },
+              {
+                icon: FlashIcon,
+                title: 'Lasna decision',
+                copy: 'The agent records whether the rule should run and which path it chose.',
+              },
+              {
+                icon: TransactionHistoryIcon,
+                title: 'Settlement',
+                copy: 'The vault transaction on the destination chain, linked to its explorer.',
+              },
+            ]}
+          />
+        </div>
       </section>
     );
   }
@@ -105,6 +139,7 @@ export function Proof() {
     return (
       <section aria-busy="true" className="app-page">
         <PageHeading
+          eyebrow="Proof"
           title="Execution proof"
           description="Reading the chain…"
           breadcrumb={breadcrumb}
@@ -120,7 +155,7 @@ export function Proof() {
     const copy = proofErrorCopy(proofQuery.error);
     return (
       <section className="app-page">
-        <PageHeading title="Execution proof" breadcrumb={breadcrumb} />
+        <PageHeading eyebrow="Proof" title="Execution proof" breadcrumb={breadcrumb} />
         <ErrorState
           message={copy.title}
           detail={copy.detail}
@@ -138,6 +173,7 @@ export function Proof() {
   return (
     <section className="app-page">
       <PageHeading
+        eyebrow="Proof"
         title="Execution proof"
         description="Follow each step of the execution and open it on the corresponding chain explorer."
         breadcrumb={breadcrumb}

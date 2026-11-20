@@ -1,18 +1,27 @@
 import { decodeWorkflowV2 } from '@rulebook/shared';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { ArrowRight01Icon, Search01Icon, Store01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+
+import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
-import { V2Field, WorkflowProgramSummary } from './BuilderV2';
+import { WorkflowProgramSummary } from './BuilderV2';
 import { workflowV2Deployment } from './chainV2';
 import { toDraft } from './modelV2';
 import { getV2Listing, v2ApiBase, v2ListingId, v2MarketPage } from './listingV2';
+
+function shortAddress(address: string) {
+  return `${address.slice(0, 6)}…${address.slice(-4)}`;
+}
 
 export function WorkflowMarketplaceV2() {
   const [search, setSearch] = useState('');
   const query = useInfiniteQuery({
     queryKey: ['workflow-v2', 'marketplace', search],
     enabled: Boolean(workflowV2Deployment),
+    placeholderData: keepPreviousData,
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({ q: search, ...(pageParam ? { after: pageParam } : {}) });
@@ -23,42 +32,122 @@ export function WorkflowMarketplaceV2() {
     getNextPageParam: (result) => result.nextCursor,
   });
   const items = query.data?.pages.flatMap((result) => result.listings) ?? [];
+  const filtered = search.trim().length > 0;
+
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
+    <section className="app-page">
       <PageHeading
+        eyebrow="Discover"
         title="Marketplace"
-        description="Browse testnet workflows published by other wallets and open one as your own draft."
+        description="Browse testnet workflows published by other wallets and copy one as your own draft."
+        aside={<span className="rb-chip rb-chip--plain">{items.length} listed</span>}
       />
-      <V2Field name="Search listings">
-        <input
-          className="app-input"
-          type="search"
-          maxLength={160}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      </V2Field>
-      {query.isFetching && !query.data && <p role="status">Loading Marketplace…</p>}
-      {query.error && (
-        <p className="workflow-error" role="alert">
-          {query.error.message}
+
+      {!workflowV2Deployment && (
+        <p className="rb-note">
+          The Marketplace opens when the V2 testnet deployment is configured.
         </p>
       )}
-      {(!workflowV2Deployment || (query.isSuccess && !items.length)) && (
-        <p className="app-copy">No matching workflows are published yet.</p>
+
+      <div className="rb-toolbar">
+        <label className="rb-search">
+          <span className="sr-only">Search listings</span>
+          <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden="true" />
+          <input
+            className="app-input"
+            type="search"
+            maxLength={160}
+            value={search}
+            placeholder="Search by name or description"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </label>
+        {filtered && (
+          <button
+            type="button"
+            className="app-button app-button--quiet"
+            onClick={() => setSearch('')}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      {query.error && (
+        <div className="rb-alert" role="alert">
+          <span>{query.error.message}</span>
+          <button type="button" onClick={() => void query.refetch()}>
+            Try again
+          </button>
+        </div>
       )}
+
+      {query.isPending && Boolean(workflowV2Deployment) && (
+        <div className="rb-skeleton-grid" aria-hidden="true">
+          <div className="rb-skeleton rb-skeleton--tall" />
+          <div className="rb-skeleton rb-skeleton--tall" />
+          <div className="rb-skeleton rb-skeleton--tall" />
+        </div>
+      )}
+      {query.isPending && Boolean(workflowV2Deployment) && (
+        <span className="sr-only" role="status">
+          Loading Marketplace…
+        </span>
+      )}
+
+      {query.isSuccess && !items.length && (
+        <EmptyState
+          icon={filtered ? Search01Icon : Store01Icon}
+          title={filtered ? 'No listings match your search' : 'Nothing published yet'}
+          description={
+            filtered
+              ? 'Try a shorter term, or clear the search to see every published workflow.'
+              : 'Published workflows become starting points for other wallets. Publish one from its detail page to list it here.'
+          }
+          action={
+            filtered ? (
+              <button type="button" className="app-button" onClick={() => setSearch('')}>
+                Clear search
+              </button>
+            ) : (
+              <Link className="app-button app-button--primary" to="/workflows/new">
+                Build a workflow
+              </Link>
+            )
+          }
+        />
+      )}
+
       {!!items.length && (
-        <ul className="app-panel workflow-workspace-list">
+        <ul className="rb-card-grid">
           {items.map((item) => (
             <li key={item.id}>
-              <Link to={`/marketplace/${item.id}`} className="workflow-workspace-row">
-                <strong>{item.title}</strong>
-                <span>{item.description}</span>
+              <Link to={`/marketplace/${item.id}`} className="rb-card">
+                <div className="rb-card-body">
+                  <div className="rb-card-head">
+                    <span className="rb-card-icon" data-role="automation" aria-hidden="true">
+                      <HugeiconsIcon icon={Store01Icon} size={18} strokeWidth={1.7} />
+                    </span>
+                    <div className="rb-card-heading">
+                      <h2 className="rb-card-title">{item.title}</h2>
+                      <p className="rb-card-meta font-mono">{shortAddress(item.owner)}</p>
+                    </div>
+                  </div>
+                  <p className="rb-card-copy">{item.description}</p>
+                </div>
+                <div className="rb-card-foot">
+                  <span>Published workflow</span>
+                  <span className="rb-card-cue">
+                    Open
+                    <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
+                  </span>
+                </div>
               </Link>
             </li>
           ))}
         </ul>
       )}
+
       {query.hasNextPage && (
         <button
           type="button"
@@ -82,23 +171,65 @@ export function WorkflowListingV2() {
     queryFn: ({ signal }) => getV2Listing(id.data!, signal),
   });
   if (!id.success) return <p role="alert">This listing link is invalid.</p>;
-  if (query.error) return <p role="alert">{query.error.message}</p>;
+  if (query.error)
+    return (
+      <div className="rb-alert" role="alert">
+        <span>{query.error.message}</span>
+      </div>
+    );
   if (!query.data) return <p role="status">Reading the published workflow…</p>;
   const item = query.data;
+
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
-      <PageHeading title={item.title} description={item.description} />
-      <p className="workflow-v2-address">Published by {item.owner}</p>
-      <div className="app-panel app-panel-pad">
-        <WorkflowProgramSummary draft={toDraft(decodeWorkflowV2(item.program), item.title)} />
-      </div>
-      <div className="workflow-actions">
-        <Link className="app-button app-button--primary" to={`/workflows/new?copy=${item.id}`}>
-          Copy as draft
-        </Link>
-        <Link className="app-button" to="/marketplace">
-          Back to Marketplace
-        </Link>
+    <section className="app-page">
+      <PageHeading
+        eyebrow="Marketplace"
+        title={item.title}
+        description={item.description}
+        aside={
+          <Link className="app-button app-button--primary" to={`/workflows/new?copy=${item.id}`}>
+            Copy as draft
+          </Link>
+        }
+      />
+      <div className="rb-split">
+        <div className="app-panel">
+          <div className="rb-panel-head">
+            <div>
+              <h2 className="rb-panel-title">Program</h2>
+              <p className="rb-panel-copy">The published trigger, checks, and actions.</p>
+            </div>
+          </div>
+          <div className="rb-panel-body">
+            <WorkflowProgramSummary draft={toDraft(decodeWorkflowV2(item.program), item.title)} />
+          </div>
+        </div>
+        <div className="app-panel">
+          <div className="rb-panel-head">
+            <h2 className="rb-panel-title">Details</h2>
+          </div>
+          <div className="rb-panel-body">
+            <dl className="rb-summary">
+              <div>
+                <dt>Published by</dt>
+                <dd className="font-mono text-xs">{item.owner}</dd>
+              </div>
+              <div>
+                <dt>Listing ID</dt>
+                <dd className="font-mono text-xs">{item.id}</dd>
+              </div>
+            </dl>
+            <p className="app-copy">
+              Copying creates a private draft in the builder. Review each node and the spending
+              limits before activating it from your own vault.
+            </p>
+            <div className="rb-action-row">
+              <Link className="app-button" to="/marketplace">
+                Back to Marketplace
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
     </section>
   );

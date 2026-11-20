@@ -12,8 +12,27 @@ import {
   type WorkflowV2Program,
   type WorkflowV2RecipeId,
 } from '@rulebook/shared';
+import {
+  ArrowRight01Icon,
+  Coins01Icon,
+  Notification03Icon,
+  Pulse01Icon,
+  Search01Icon,
+  Settings02Icon,
+  Shield01Icon,
+  TradeUpIcon,
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { bytesToHex, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
@@ -21,6 +40,7 @@ import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { NetworkBadge } from '@/components/NetworkBadge';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { diagramV2, replacePath } from './diagramV2';
 import { copyListingDraft, getV2Listing, v2ListingId } from './listingV2';
@@ -67,6 +87,36 @@ function toolLabel(tool: NodeTool) {
   if (tool.group === 'trigger') return triggers[tool.code];
   return tool.group === 'check' ? checks[tool.code].name : actions[tool.code].name;
 }
+
+function nodeIcon(tool: NodeTool) {
+  if (tool.group === 'trigger') return Pulse01Icon;
+  if (tool.group === 'check') return Shield01Icon;
+  return tool.code === A.alert ? Notification03Icon : TradeUpIcon;
+}
+
+const recipeCategories = ['All categories', 'Trading', 'Payments', 'Wallet safety'] as const;
+
+const recipeCategoryIcons: Record<string, ComponentProps<typeof HugeiconsIcon>['icon']> = {
+  Trading: TradeUpIcon,
+  Payments: Coins01Icon,
+  'Wallet safety': Shield01Icon,
+};
+
+const recipeSummaries = {
+  'scheduled-buy': 'Buy a fixed amount of WETH on a repeating schedule.',
+  'buy-the-dip': 'Buy on schedule, but only after the price drops by a set percentage.',
+  'limit-buy': 'Buy WETH once the pool price reaches your limit, then close.',
+  'take-profit': 'Sell WETH once the price reaches your target, then close.',
+  'trailing-stop': 'Sell after a fall from the high, with a deeper stop as a backstop.',
+  'price-band': 'Sell above the band and buy below it around one reference price.',
+  'recurring-transfer': 'Send a fixed USDC amount to one address on a repeating schedule.',
+  'income-sweep': 'Sweep incoming USDC above a floor to another address.',
+  'balance-refill': 'Top the vault back up with USDC when its balance falls below a floor.',
+  'inactivity-payout': 'Send a fixed payout if the wallet stays inactive for a set time.',
+  'price-alert': 'Record an alert when the price crosses a chosen target.',
+  'price-range-alert': 'Record an alert when the price moves outside a range.',
+  'large-transfer-alert': 'Record an alert when a token transfer exceeds an amount.',
+} as const satisfies Record<WorkflowV2RecipeId, string>;
 
 export function V2Field({ name, children }: { name: string; children: ReactNode }) {
   return (
@@ -133,11 +183,26 @@ function RecipePicker({
   close: () => void;
 }) {
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('All categories');
-  const [selected, select] = useState<WorkflowV2RecipeId | undefined>(initialRecipe);
+  const [category, setCategory] = useState<(typeof recipeCategories)[number]>('All categories');
+  const [selected, select] = useState<WorkflowV2RecipeId | undefined>(
+    initialRecipe ?? workflowV2Recipes[0]?.id,
+  );
   const [values, setValues] = useState<Record<string, string>>({ direction: 'rising' });
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string>();
+  const configurator = useRef<HTMLFormElement>(null);
+
+  function choose(item: WorkflowV2RecipeId) {
+    select(item);
+    setValues({ direction: 'rising' });
+    setConsent(false);
+    setError(undefined);
+    if (window.matchMedia('(max-width: 63.99rem)').matches) {
+      requestAnimationFrame(() =>
+        configurator.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+      );
+    }
+  }
   const recipe = workflowV2Recipes.find((item) => item.id === selected);
   const visible = workflowV2Recipes.filter(
     (item) =>
@@ -157,97 +222,152 @@ function RecipePicker({
   }
 
   return (
-    <section className="workflow-v2-columns" aria-label="Workflow recipes">
-      <div className="app-panel app-panel-pad workflow-v2-stack">
-        <div className="workflow-actions">
-          <h2 className="app-panel-heading">Recipes</h2>
+    <div className="rb-template">
+      <section className="app-panel rb-template-library" aria-label="Workflow recipes">
+        <div className="rb-panel-head">
+          <div>
+            <p className="app-eyebrow">Recipes</p>
+            <h2 className="rb-panel-title">Start from a proven program</h2>
+            <p className="rb-panel-copy">
+              Pick a template, set its inputs, then refine every node in the builder.
+            </p>
+          </div>
           <button type="button" className="app-button" onClick={close}>
+            <HugeiconsIcon icon={Settings02Icon} size={15} aria-hidden="true" />
             Start from scratch
           </button>
         </div>
-        <Input name="Search recipes" value={search} change={setSearch} text />
-        <V2Field name="Category">
-          <select
-            className="app-input"
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-          >
-            {['All categories', 'Trading', 'Payments', 'Wallet safety'].map((name) => (
-              <option key={name}>{name}</option>
+        <div className="rb-template-controls">
+          <label className="rb-search">
+            <span className="sr-only">Search recipes</span>
+            <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden="true" />
+            <input
+              className="app-input"
+              type="search"
+              value={search}
+              placeholder="Search recipes"
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+          <div className="rb-segmented" role="group" aria-label="Recipe category">
+            {recipeCategories.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className="rb-segment"
+                aria-pressed={category === name}
+                onClick={() => setCategory(name)}
+              >
+                {name}
+              </button>
             ))}
-          </select>
-        </V2Field>
-        <ul className="workflow-v2-recipe-list">
+          </div>
+        </div>
+        <ul className="rb-recipe-grid">
           {visible.map((item) => (
             <li key={item.id}>
               <button
-                className="workflow-workspace-row"
                 type="button"
+                className="rb-recipe-card"
                 aria-pressed={item.id === selected}
-                onClick={() => {
-                  select(item.id);
-                  setValues({ direction: 'rising' });
-                  setConsent(false);
-                  setError(undefined);
-                }}
+                onClick={() => choose(item.id)}
               >
-                <strong>{item.title}</strong>
-                <span>
-                  {item.category} · {v2Network(item.chain).name}
+                <span className="rb-recipe-icon" aria-hidden="true">
+                  <HugeiconsIcon
+                    icon={recipeCategoryIcons[item.category] ?? Settings02Icon}
+                    size={17}
+                  />
+                </span>
+                <span className="rb-recipe-copy">
+                  <span className="rb-recipe-kicker">{item.category}</span>
+                  <span className="rb-recipe-title">{item.title}</span>
+                  <span className="rb-recipe-summary">{recipeSummaries[item.id]}</span>
+                  <span className="rb-recipe-meta">{v2Network(item.chain).name}</span>
+                </span>
+                <span className="rb-recipe-arrow" aria-hidden="true">
+                  <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
                 </span>
               </button>
             </li>
           ))}
         </ul>
-        {!visible.length && <p className="app-copy">No recipes match your search.</p>}
-      </div>
-      {recipe && (
-        <form className="app-panel app-panel-pad workflow-v2-stack" onSubmit={useRecipe}>
-          <h2 className="app-panel-heading">{recipe.title}</h2>
-          <p className="app-copy">{v2Network(recipe.chain).name}</p>
-          {recipeFields[recipe.id].map((field) =>
-            field === 'direction' ? (
-              <V2Field key={field} name="Alert when the price is">
-                <select
-                  className="app-input"
-                  value={values.direction}
-                  onChange={(event) => setValues({ ...values, direction: event.target.value })}
-                >
-                  <option value="rising">At or above target</option>
-                  <option value="falling">At or below target</option>
-                </select>
-              </V2Field>
-            ) : (
-              <Input
-                key={field}
-                name={recipeLabels[field] ?? field}
-                value={values[field] ?? ''}
-                text={/recipient|address/i.test(recipeLabels[field] ?? '')}
-                change={(value) => setValues({ ...values, [field]: value })}
-              />
-            ),
+        {!visible.length && <p className="rb-template-empty">No recipes match this search.</p>}
+      </section>
+      <aside className="rb-template-aside">
+        <form ref={configurator} className="app-panel rb-configurator" onSubmit={useRecipe}>
+          <div className="rb-panel-head">
+            <div>
+              <p className="app-eyebrow">{recipe ? recipe.category : 'Recipe'}</p>
+              <h2 className="rb-panel-title">{recipe ? recipe.title : 'Select a recipe'}</h2>
+              <p className="rb-panel-copy">
+                {recipe ? recipeSummaries[recipe.id] : 'Choose a card to configure its inputs.'}
+              </p>
+            </div>
+            {recipe && <NetworkBadge chainId={recipe.chain} />}
+          </div>
+          {recipe ? (
+            <>
+              <div className="rb-configurator-body">
+                <div className="rb-configurator-fields">
+                  {recipeFields[recipe.id].map((field) =>
+                    field === 'direction' ? (
+                      <V2Field key={field} name="Alert when the price is">
+                        <select
+                          className="app-input"
+                          value={values.direction}
+                          onChange={(event) =>
+                            setValues({ ...values, direction: event.target.value })
+                          }
+                        >
+                          <option value="rising">At or above target</option>
+                          <option value="falling">At or below target</option>
+                        </select>
+                      </V2Field>
+                    ) : (
+                      <Input
+                        key={field}
+                        name={recipeLabels[field] ?? field}
+                        value={values[field] ?? ''}
+                        text={/recipient|address/i.test(recipeLabels[field] ?? '')}
+                        change={(value) => setValues({ ...values, [field]: value })}
+                      />
+                    ),
+                  )}
+                </div>
+                {recipe.id === 'inactivity-payout' && (
+                  <label className="rb-consent">
+                    <input
+                      type="checkbox"
+                      checked={consent}
+                      onChange={(event) => setConsent(event.target.checked)}
+                    />
+                    I authorize one fixed payout after a 24-hour grace period.
+                  </label>
+                )}
+                {error && (
+                  <p className="rb-alert" role="alert">
+                    {error}
+                  </p>
+                )}
+              </div>
+              <div className="rb-configurator-foot">
+                <button className="app-button app-button--primary" type="submit">
+                  Open in builder
+                  <HugeiconsIcon icon={ArrowRight01Icon} size={15} aria-hidden="true" />
+                </button>
+                <span className="rb-configurator-note">
+                  Nothing activates until you review and sign.
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="rb-configurator-body">
+              <p className="app-copy">Choose a recipe to see its inputs.</p>
+            </div>
           )}
-          {recipe.id === 'inactivity-payout' && (
-            <label className="workflow-v2-consent">
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(event) => setConsent(event.target.checked)}
-              />
-              I authorize one fixed payout after a 24-hour grace period.
-            </label>
-          )}
-          {error && (
-            <p className="workflow-error" role="alert">
-              {error}
-            </p>
-          )}
-          <button className="app-button app-button--primary" type="submit">
-            Open in builder
-          </button>
         </form>
-      )}
-    </section>
+      </aside>
+    </div>
   );
 }
 
@@ -282,6 +402,7 @@ function PathEditor({
         id={`edit-${anchor}`}
         tabIndex={-1}
       >
+        <p className="rb-step-label">Check</p>
         <div className="workflow-actions">
           <strong>{metadata.name}</strong>
           <button className="workflow-text-button" type="button" onClick={() => change(path.yes)}>
@@ -351,6 +472,7 @@ function PathEditor({
           change({ steps: path.steps.map((current, i) => (i === index ? next : current)) });
         return (
           <div key={index} className="workflow-v2-step workflow-v2-stack">
+            <p className="rb-step-label">Action {index + 1}</p>
             <strong>{metadata.name}</strong>
             {metadata.asset && (
               <>
@@ -411,7 +533,7 @@ function PathEditor({
                 className="workflow-text-button"
                 onClick={() => change({ steps: path.steps.filter((_, i) => i !== index) })}
               >
-                Remove {metadata.name.toLowerCase()}
+                Remove step
               </button>
             </div>
           </div>
@@ -440,37 +562,43 @@ export function WorkflowProgramSummary({ draft }: { draft: V2Draft }) {
   function show(path: DraftPath): ReactNode {
     if ('steps' in path)
       return path.steps.length ? (
-        <ol>
+        <ol className="rb-spec-steps">
           {path.steps.map((step, index) => (
             <li key={index}>
-              {actions[step.kind].name}
-              {step.amount &&
-                ` · ${step.amount} ${step.unit === U.percent ? '% of payment' : actions[step.kind].asset}`}
-              {step.recipient && (
-                <>
-                  {' '}
-                  · <span className="workflow-v2-address">{step.recipient}</span>
-                </>
+              <HugeiconsIcon icon={TradeUpIcon} size={12} aria-hidden="true" />
+              <span>{actions[step.kind].name}</span>
+              {step.amount && (
+                <em>
+                  {step.amount}{' '}
+                  {step.unit === U.percent ? '% of payment' : actions[step.kind].asset}
+                </em>
               )}
+              {step.recipient && <code>{step.recipient}</code>}
             </li>
           ))}
         </ol>
       ) : (
-        <p>Skip the run.</p>
+        <p className="rb-spec-skip">Skip the run.</p>
       );
     return (
-      <div className="workflow-v2-path">
-        <strong>
-          {checks[path.check].name} {path.value}
-          {path.upper && ` to ${path.upper}`}
-        </strong>
-        <div className="workflow-v2-branches">
+      <div className="rb-spec-branch">
+        <div className="rb-spec-condition">
+          <HugeiconsIcon icon={Shield01Icon} size={13} aria-hidden="true" />
+          <strong>{checks[path.check].name}</strong>
+          {path.value && (
+            <span>
+              {path.value}
+              {path.upper && ` to ${path.upper}`}
+            </span>
+          )}
+        </div>
+        <div className="rb-spec-branches">
           <div>
-            <h3>Yes</h3>
+            <h4>Yes</h4>
             {show(path.yes)}
           </div>
           <div>
-            <h3>Otherwise</h3>
+            <h4>Otherwise</h4>
             {show(path.no)}
           </div>
         </div>
@@ -478,57 +606,74 @@ export function WorkflowProgramSummary({ draft }: { draft: V2Draft }) {
     );
   }
   return (
-    <div className="workflow-v2-stack">
-      <dl className="workflow-v2-summary">
-        <div>
-          <dt>Settlement network</dt>
-          <dd>{v2Network(draft.chain).name}</dd>
-        </div>
-        <div>
-          <dt>Trigger</dt>
-          <dd>
-            {triggers[draft.trigger]}
-            {draft.trigger === T.schedule && ` every ${draft.interval} seconds`}
-          </dd>
-        </div>
-        <div>
-          <dt>Per-run limits</dt>
-          <dd>
-            {draft.usdcCap || '0'} USDC · {draft.wethCap || '0'} WETH
-          </dd>
-        </div>
-        {Number(draft.slippage) > 0 && (
+    <div className="rb-spec">
+      <section className="rb-spec-block">
+        <header>
+          <span className="rb-spec-index">1</span>
+          <h3>Trigger</h3>
+        </header>
+        <p className="rb-spec-value">
+          {triggers[draft.trigger]}
+          {draft.trigger === T.schedule && draft.interval && (
+            <span> every {draft.interval} seconds</span>
+          )}
+        </p>
+      </section>
+      <section className="rb-spec-block">
+        <header>
+          <span className="rb-spec-index">2</span>
+          <h3>Logic</h3>
+        </header>
+        {show(draft.root)}
+      </section>
+      <section className="rb-spec-block">
+        <header>
+          <span className="rb-spec-index">3</span>
+          <h3>Guardrails</h3>
+        </header>
+        <dl className="rb-spec-facts">
           <div>
-            <dt>Maximum swap slippage</dt>
-            <dd>{draft.slippage}%</dd>
+            <dt>Settlement network</dt>
+            <dd>{v2Network(draft.chain).name}</dd>
           </div>
-        )}
-        {draft.source && (
           <div>
-            <dt>Token contract</dt>
-            <dd className="workflow-v2-address">{draft.source}</dd>
+            <dt>Per-run limits</dt>
+            <dd>
+              {draft.usdcCap || '0'} USDC · {draft.wethCap || '0'} WETH
+            </dd>
           </div>
-        )}
-        {draft.subject && (
-          <div>
-            <dt>Account or protocol</dt>
-            <dd className="workflow-v2-address">{draft.subject}</dd>
-          </div>
-        )}
-        {draft.expires && (
-          <div>
-            <dt>Expires</dt>
-            <dd>{new Date(Number(draft.expires) * 1000).toLocaleString()}</dd>
-          </div>
-        )}
-        {draft.once && (
-          <div>
-            <dt>After confirmation</dt>
-            <dd>Close this workflow</dd>
-          </div>
-        )}
-      </dl>
-      {show(draft.root)}
+          {Number(draft.slippage) > 0 && (
+            <div>
+              <dt>Maximum swap slippage</dt>
+              <dd>{draft.slippage}%</dd>
+            </div>
+          )}
+          {draft.source && (
+            <div>
+              <dt>Token contract</dt>
+              <dd className="workflow-v2-address">{draft.source}</dd>
+            </div>
+          )}
+          {draft.subject && (
+            <div>
+              <dt>Account or protocol</dt>
+              <dd className="workflow-v2-address">{draft.subject}</dd>
+            </div>
+          )}
+          {draft.expires && (
+            <div>
+              <dt>Expires</dt>
+              <dd>{new Date(Number(draft.expires) * 1000).toLocaleString()}</dd>
+            </div>
+          )}
+          {draft.once && (
+            <div>
+              <dt>After confirmation</dt>
+              <dd>Close this workflow</dd>
+            </div>
+          )}
+        </dl>
+      </section>
     </div>
   );
 }
@@ -753,11 +898,49 @@ function Editor({
 
   const spendKinds = program?.nodes.flatMap((node) => node.actions.map((step) => step.kind)) ?? [];
   const hasPayout = spendKinds.includes(A.inactivityPayout);
+  const headingAside = recipes ? undefined : program ? (
+    <div className="rb-action-row">
+      <button type="button" className="app-button" onClick={() => review(undefined)}>
+        Back to editing
+      </button>
+    </div>
+  ) : (
+    <div className="rb-action-row">
+      {!id && (
+        <button type="button" className="app-button" onClick={() => setRecipes(true)}>
+          Browse recipes
+        </button>
+      )}
+      {id && (
+        <Link className="app-button" to={`/workflows/${id}`}>
+          View workflow
+        </Link>
+      )}
+      <button
+        type="button"
+        className="app-button app-button--primary"
+        disabled={validating}
+        onClick={() => void prepare()}
+      >
+        {validating ? 'Checking program…' : 'Review workflow'}
+      </button>
+    </div>
+  );
   return (
-    <section className="app-page workflow-page workflow-v2-stack">
+    <section className="app-page">
       <PageHeading
-        title={id ? 'Edit workflow' : 'Build a workflow'}
-        description="Choose a testnet recipe or build a workflow from triggers, checks, actions, and notifications."
+        eyebrow={recipes ? 'New workflow' : 'Builder'}
+        title={
+          recipes
+            ? 'Choose a starting point'
+            : draft.title.trim() || (id ? 'Edit workflow' : 'Untitled workflow')
+        }
+        description={
+          recipes
+            ? 'Start from a proven recipe or build the program node by node.'
+            : 'Build the program on the canvas, then review its limits before activation.'
+        }
+        aside={headingAside}
       />
       {recipes ? (
         <RecipePicker
@@ -771,97 +954,118 @@ function Editor({
           }}
         />
       ) : program ? (
-        <section className="app-panel app-panel-pad workflow-v2-stack">
-          <h2 className="app-panel-heading">Review {draft.title.trim()}</h2>
-          <WorkflowProgramSummary draft={draft} />
-          {hasPayout && (
-            <label className="workflow-v2-consent">
-              <input
-                type="checkbox"
-                checked={consent}
-                onChange={(event) => setConsent(event.target.checked)}
-              />
-              Authorize the fixed payout after the 24-hour grace period.
-            </label>
-          )}
-          <p className="app-copy">
-            Review the {v2Network(draft.chain).name} authorization and then enable the workflow on
-            Reactive Lasna.
-          </p>
-          {(!settlementFactory() || !workflowActivationEnabled) && (
-            <p className="app-copy">Testnet activation is disabled.</p>
-          )}
-          <div className="workflow-actions">
-            <button
-              type="button"
-              className="app-button"
-              disabled={wallet.busy}
-              onClick={() => review(undefined)}
-            >
-              Back to editing
-            </button>
-            {wallet.owner ? (
-              <button
-                className="app-button app-button--primary"
-                type="button"
-                disabled={
-                  wallet.busy ||
-                  !workflowActivationEnabled ||
-                  !settlementFactory() ||
-                  (hasPayout && !consent)
-                }
-                onClick={async () => {
-                  if (await wallet.activate(workflowId, draft.title.trim(), program)) {
-                    try {
-                      localStorage.removeItem(storageKey);
-                    } catch {
-                      /* The chain transaction is confirmed. */
-                    }
-                    navigate(`/workflows/${workflowId}`);
+        <div className="rb-review">
+          <section className="app-panel rb-review-program">
+            <div className="rb-panel-head">
+              <div>
+                <p className="app-eyebrow">Step 2 of 3</p>
+                <h2 className="rb-panel-title">Program review</h2>
+                <p className="rb-panel-copy">
+                  This is exactly what the agent evaluates and the vault executes.
+                </p>
+              </div>
+              <span className="rb-chip rb-chip--plain">{v2Network(draft.chain).name}</span>
+            </div>
+            <div className="rb-panel-body">
+              <WorkflowProgramSummary draft={draft} />
+            </div>
+          </section>
+
+          <aside className="app-panel rb-activation" aria-label="Activation">
+            <div className="rb-panel-head">
+              <div>
+                <p className="app-eyebrow">Step 3 of 3</p>
+                <h2 className="rb-panel-title">Activate</h2>
+                <p className="rb-panel-copy">
+                  Confirm the authorization and enable the workflow on Reactive Lasna.
+                </p>
+              </div>
+            </div>
+            <div className="rb-panel-body rb-activation-body">
+              <dl className="rb-summary">
+                <div>
+                  <dt>Workflow</dt>
+                  <dd>{draft.title.trim() || 'Untitled workflow'}</dd>
+                </div>
+                <div>
+                  <dt>Network</dt>
+                  <dd>{v2Network(draft.chain).name}</dd>
+                </div>
+                <div>
+                  <dt>Trigger</dt>
+                  <dd>{triggers[draft.trigger]}</dd>
+                </div>
+                <div>
+                  <dt>Per-run caps</dt>
+                  <dd>
+                    {draft.usdcCap || '0'} USDC · {draft.wethCap || '0'} WETH
+                  </dd>
+                </div>
+              </dl>
+              {hasPayout && (
+                <label className="rb-consent">
+                  <input
+                    type="checkbox"
+                    checked={consent}
+                    onChange={(event) => setConsent(event.target.checked)}
+                  />
+                  Authorize the fixed payout after the 24-hour grace period.
+                </label>
+              )}
+              {(!settlementFactory() || !workflowActivationEnabled) && (
+                <p className="rb-alert">Testnet activation is disabled.</p>
+              )}
+              {wallet.owner ? (
+                <button
+                  className="app-button app-button--primary rb-full"
+                  type="button"
+                  disabled={
+                    wallet.busy ||
+                    !workflowActivationEnabled ||
+                    !settlementFactory() ||
+                    (hasPayout && !consent)
                   }
-                }}
-              >
-                Activate workflow
-              </button>
-            ) : (
-              <WalletControl setup />
-            )}
-          </div>
-          <V2Feedback wallet={wallet} />
-        </section>
+                  onClick={async () => {
+                    if (await wallet.activate(workflowId, draft.title.trim(), program)) {
+                      try {
+                        localStorage.removeItem(storageKey);
+                      } catch {
+                        /* The chain transaction is confirmed. */
+                      }
+                      navigate(`/workflows/${workflowId}`);
+                    }
+                  }}
+                >
+                  Activate workflow
+                </button>
+              ) : (
+                <WalletControl setup />
+              )}
+              <p className="rb-activation-note">
+                Activation signs one Lasna transaction from your wallet. You can pause the workflow
+                at any time.
+              </p>
+              <V2Feedback wallet={wallet} />
+            </div>
+          </aside>
+        </div>
       ) : (
-        <>
-          <div className="workflow-actions">
-            {!id && (
-              <button type="button" className="app-button" onClick={() => setRecipes(true)}>
-                Browse recipes
-              </button>
-            )}
-            <button
-              type="button"
-              className="app-button app-button--primary"
-              disabled={validating}
-              onClick={() => void prepare()}
-            >
-              Review workflow
-            </button>
-            {id && (
-              <Link className="app-button" to={`/workflows/${id}`}>
-                Back to workflow
-              </Link>
-            )}
-          </div>
-          <div className="workflow-v2-columns workflow-v2-editor">
-            <section
-              className="app-panel app-panel-pad workflow-v2-stack"
-              aria-label="Workflow graph"
-            >
-              <Input
-                name="Workflow name"
-                value={draft.title}
-                change={(title) => update({ title })}
-                text
-              />
+        <div className="rb-builder">
+          <div className="rb-builder-column">
+            <section className="rb-canvas-panel" aria-label="Workflow graph">
+              <div className="rb-canvas-toolbar">
+                <label className="rb-name-field">
+                  <span>Workflow name</span>
+                  <input
+                    className="rb-name-input"
+                    value={draft.title}
+                    placeholder="Untitled workflow"
+                    maxLength={80}
+                    onChange={(event) => update({ title: event.target.value })}
+                  />
+                </label>
+                <span className="rb-chip rb-chip--plain">Draft</span>
+              </div>
               <WorkflowCanvas
                 draft={diagram.canvas}
                 selected={canvasSelection}
@@ -876,67 +1080,113 @@ function Editor({
                   receive: drop,
                 }}
               />
-              <button type="button" className="app-button" onClick={focusSettings}>
-                Edit selected node
-              </button>
-              <div
-                id="edit-trigger"
-                tabIndex={-1}
-                className="workflow-v2-path workflow-v2-stack"
-                onDragOver={(event) => {
-                  if (event.dataTransfer.types.includes(nodeMime)) event.preventDefault();
-                }}
-                onDrop={(event) => {
-                  const tool = tools.find(
-                    (item) =>
-                      item.group === 'trigger' &&
-                      `${item.group}:${item.code}` === event.dataTransfer.getData(nodeMime),
-                  );
-                  if (tool?.group !== 'trigger') return;
-                  event.preventDefault();
-                  const problem = unavailable(tool, draft);
-                  if (problem) setError(problem);
-                  else update({ trigger: tool.code });
-                }}
-              >
-                <strong>{triggers[draft.trigger]}</strong>
-                {draft.trigger === T.schedule && (
-                  <Input
-                    name="Interval in seconds"
-                    value={draft.interval}
-                    change={(interval) => update({ interval })}
-                  />
-                )}
-                {draft.trigger === T.transfer && (
-                  <Input
-                    name="Token contract address"
-                    value={draft.source}
-                    change={(source) => update({ source })}
-                    text
-                  />
-                )}
-                <details>
-                  <summary>Live check settings</summary>
-                  <div className="workflow-v2-stack">
-                    <Input
-                      name="Watched wallet address"
-                      value={draft.subject}
-                      change={(subject) => update({ subject })}
-                      text
-                    />
-                  </div>
-                </details>
+              <div className="rb-canvas-foot">
+                <span>
+                  Drag a node from the library, or select a node on the canvas to edit it.
+                </span>
+                <button
+                  type="button"
+                  className="app-button app-button--quiet"
+                  onClick={focusSettings}
+                >
+                  Edit selected node
+                </button>
               </div>
-              <PathEditor
-                anchor={workflowRootKey}
-                path={draft.root}
-                change={(root) => update({ root })}
-                depth={0}
-                {...{ draft, selected, place }}
-              />
-              <details>
-                <summary>Spending limits and timing</summary>
-                <div className="workflow-v2-settings">
+            </section>
+
+            <section className="app-panel" aria-label="Program steps">
+              <div className="rb-panel-head">
+                <div>
+                  <p className="app-eyebrow">Step 1 of 3</p>
+                  <h2 className="rb-panel-title">Program</h2>
+                  <p className="rb-panel-copy">
+                    Define when the workflow runs and what each path does.
+                  </p>
+                </div>
+              </div>
+              <div className="rb-panel-body rb-program-editor">
+                <div
+                  id="edit-trigger"
+                  tabIndex={-1}
+                  className="rb-editor-block"
+                  onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes(nodeMime)) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    const tool = tools.find(
+                      (item) =>
+                        item.group === 'trigger' &&
+                        `${item.group}:${item.code}` === event.dataTransfer.getData(nodeMime),
+                    );
+                    if (tool?.group !== 'trigger') return;
+                    event.preventDefault();
+                    const problem = unavailable(tool, draft);
+                    if (problem) setError(problem);
+                    else update({ trigger: tool.code });
+                  }}
+                >
+                  <div className="rb-editor-head">
+                    <span className="rb-editor-index">1</span>
+                    <div>
+                      <h3>Trigger</h3>
+                      <p>{triggers[draft.trigger]}</p>
+                    </div>
+                  </div>
+                  <div className="rb-editor-fields">
+                    {draft.trigger === T.schedule && (
+                      <Input
+                        name="Interval in seconds"
+                        value={draft.interval}
+                        change={(interval) => update({ interval })}
+                      />
+                    )}
+                    {draft.trigger === T.transfer && (
+                      <Input
+                        name="Token contract address"
+                        value={draft.source}
+                        change={(source) => update({ source })}
+                        text
+                      />
+                    )}
+                    <details>
+                      <summary>Live check settings</summary>
+                      <div className="workflow-v2-stack">
+                        <Input
+                          name="Watched wallet address"
+                          value={draft.subject}
+                          change={(subject) => update({ subject })}
+                          text
+                        />
+                      </div>
+                    </details>
+                  </div>
+                </div>
+                <div className="rb-editor-head">
+                  <span className="rb-editor-index">2</span>
+                  <div>
+                    <h3>Logic</h3>
+                    <p>Checks and actions run in the order shown.</p>
+                  </div>
+                </div>
+                <PathEditor
+                  anchor={workflowRootKey}
+                  path={draft.root}
+                  change={(root) => update({ root })}
+                  depth={0}
+                  {...{ draft, selected, place }}
+                />
+              </div>
+            </section>
+
+            <section className="app-panel" aria-label="Spending limits and timing">
+              <div className="rb-panel-head">
+                <div>
+                  <h2 className="rb-panel-title">Guardrails</h2>
+                  <p className="rb-panel-copy">Caps and timing apply to every run.</p>
+                </div>
+              </div>
+              <div className="rb-panel-body">
+                <div className="rb-settings-grid">
                   <Input
                     name="Maximum USDC per run"
                     value={draft.usdcCap}
@@ -957,7 +1207,7 @@ function Editor({
                     value={draft.expires}
                     change={(expires) => update({ expires })}
                   />
-                  <label className="workflow-v2-consent">
+                  <label className="rb-consent">
                     <input
                       type="checkbox"
                       checked={draft.once}
@@ -966,17 +1216,22 @@ function Editor({
                     Close after a confirmed run
                   </label>
                 </div>
-              </details>
+              </div>
             </section>
-            <aside className="app-panel app-panel-pad workflow-v2-stack" aria-label="Node library">
-              <h2 className="app-panel-heading">Nodes</h2>
-              <p className="app-copy">
-                Drag a node onto a path, or select it and choose where to add it.
-              </p>
-              <div className="workflow-actions" aria-label="Node groups">
+          </div>
+
+          <aside className="app-panel rb-library" aria-label="Node library">
+            <div className="rb-panel-head">
+              <div>
+                <p className="app-eyebrow">Library</p>
+                <h2 className="rb-panel-title">Add a node</h2>
+              </div>
+            </div>
+            <div className="rb-library-body">
+              <div className="rb-segmented" role="group" aria-label="Node groups">
                 {nodeGroups.map((group) => (
                   <button
-                    className="app-button"
+                    className="rb-segment"
                     type="button"
                     key={group}
                     aria-pressed={group === nodeGroup}
@@ -986,61 +1241,85 @@ function Editor({
                   </button>
                 ))}
               </div>
-              {[nodeGroup].map((group) => (
-                <section key={group} className="workflow-v2-tools">
-                  <h3>{group}</h3>
-                  {tools
-                    .filter((tool) =>
-                      group === 'Triggers'
-                        ? tool.group === 'trigger'
-                        : group === 'Checks'
-                          ? tool.group === 'check'
-                          : tool.group === 'action' &&
-                            (group === 'Notifications') === (tool.code === A.alert),
-                    )
-                    .map((tool) => {
-                      const reason = unavailable(tool, draft);
-                      return (
-                        <button
-                          type="button"
-                          key={`${tool.group}:${tool.code}`}
-                          className="app-button"
-                          draggable={!reason}
-                          disabled={Boolean(reason)}
-                          aria-pressed={
-                            tool.group === 'trigger'
-                              ? tool.code === draft.trigger
-                              : selected?.code === tool.code && selected?.group === tool.group
+              <div className="rb-node-list">
+                {tools
+                  .filter((tool) =>
+                    nodeGroup === 'Triggers'
+                      ? tool.group === 'trigger'
+                      : nodeGroup === 'Checks'
+                        ? tool.group === 'check'
+                        : tool.group === 'action' &&
+                          (nodeGroup === 'Notifications') === (tool.code === A.alert),
+                  )
+                  .map((tool) => {
+                    const reason = unavailable(tool, draft);
+                    return (
+                      <button
+                        type="button"
+                        key={`${tool.group}:${tool.code}`}
+                        className="rb-node"
+                        data-group={tool.group}
+                        draggable={!reason}
+                        disabled={Boolean(reason)}
+                        aria-pressed={
+                          tool.group === 'trigger'
+                            ? tool.code === draft.trigger
+                            : selected?.code === tool.code && selected?.group === tool.group
+                        }
+                        onDragStart={(event) => {
+                          event.dataTransfer.setData(nodeMime, `${tool.group}:${tool.code}`);
+                          setDragged(tool);
+                        }}
+                        onDragEnd={() => setDragged(undefined)}
+                        onClick={() => {
+                          if (tool.group === 'trigger') {
+                            update({ trigger: tool.code });
+                            pick(undefined);
+                          } else {
+                            pick(tool);
+                            setStatus(`Choose a path for ${toolLabel(tool)}.`);
                           }
-                          onDragStart={(event) => {
-                            event.dataTransfer.setData(nodeMime, `${tool.group}:${tool.code}`);
-                            setDragged(tool);
-                          }}
-                          onDragEnd={() => setDragged(undefined)}
-                          onClick={() => {
-                            if (tool.group === 'trigger') {
-                              update({ trigger: tool.code });
-                              pick(undefined);
-                            } else {
-                              pick(tool);
-                              setStatus(`Choose a path for ${toolLabel(tool)}.`);
-                            }
-                          }}
-                        >
-                          {toolLabel(tool)}
-                          {reason && <small>{reason}</small>}
-                        </button>
-                      );
-                    })}
-                </section>
-              ))}
-            </aside>
-          </div>
-        </>
+                        }}
+                      >
+                        <span className="rb-node-icon" aria-hidden="true">
+                          <HugeiconsIcon icon={nodeIcon(tool)} size={15} strokeWidth={1.7} />
+                        </span>
+                        <span className="rb-node-copy">
+                          <strong>{toolLabel(tool)}</strong>
+                          <small>
+                            {reason ??
+                              (tool.group === 'trigger'
+                                ? 'Replaces the current trigger'
+                                : tool.group === 'check'
+                                  ? 'Adds a condition'
+                                  : 'Adds an action')}
+                          </small>
+                        </span>
+                        <span className="rb-node-add" aria-hidden="true">
+                          +
+                        </span>
+                      </button>
+                    );
+                  })}
+              </div>
+            </div>
+            <div className="rb-library-foot">
+              <p role={selected ? 'status' : undefined}>
+                {selected
+                  ? `Choose a path on the canvas or in the program to place ${toolLabel(selected)}.`
+                  : 'Drag onto the canvas, or select a node and choose a path.'}
+              </p>
+            </div>
+          </aside>
+        </div>
       )}
-      {status && <p role="status">{status}</p>}
+      {status && (
+        <p className="rb-note" role="status">
+          {status}
+        </p>
+      )}
       {error && (
-        <p role="alert" className="workflow-error">
+        <p className="rb-alert" role="alert">
           {error}
         </p>
       )}

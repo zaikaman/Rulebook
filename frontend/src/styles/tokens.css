@@ -7,18 +7,23 @@
   --rb-funds-tint: oklch(0.255 0.038 175);
   --rb-funds-line: oklch(0.437 0.061 175);
 
-  /* Surfaces, borders, and text. */
-  --rb-surface: oklch(0.135 0.006 252);
-  --rb-surface-raised: oklch(0.189 0.01 252);
-  --rb-surface-inset: oklch(0.218 0.016 252);
-  --rb-control: oklch(0.242 0.015 252);
-  --rb-border: oklch(0.31 0.017 252);
-  --rb-control-border: oklch(0.42 0.028 252);
-  --rb-ink: oklch(0.957 0.009 252);
-  --rb-ink-muted: oklch(0.739 0.021 252);
+  /* Surface ladder: canvas, rail, panel, inset, control. */
+  --rb-canvas: oklch(0.152 0.008 252);
+  --rb-surface: oklch(0.174 0.009 252);
+  --rb-surface-raised: oklch(0.212 0.011 252);
+  --rb-surface-inset: oklch(0.192 0.01 252);
+  --rb-control: oklch(0.246 0.013 252);
+  --rb-border: oklch(0.292 0.014 252);
+  --rb-border-strong: oklch(0.368 0.018 252);
+  --rb-control-border: oklch(0.368 0.02 252);
+  --rb-ink: oklch(0.968 0.006 252);
+  --rb-ink-muted: oklch(0.748 0.016 252);
+  --rb-ink-faint: oklch(0.608 0.016 252);
   --rb-accent: oklch(0.789 0.108 248);
+  --rb-accent-hover: oklch(0.845 0.085 248);
   --rb-accent-ink: oklch(0.204 0.044 254);
-  --rb-accent-tint: oklch(0.286 0.054 249);
+  --rb-accent-tint: oklch(0.279 0.05 249);
+  --rb-accent-line: oklch(0.44 0.072 249);
   --rb-danger: oklch(0.784 0.115 20);
 
   /* Status colours: latched and silent must never look like active. */

@@ -25,6 +25,7 @@ import { WorkflowListingV2, WorkflowMarketplaceV2 } from '../workflows/Marketpla
 import { WorkflowDetail, WorkflowRunDetail, Workflows } from '../workflows/Workspace.js';
 import { legacyWorkspace } from '../lib/routes.js';
 import '../styles/workflows.css';
+import '../styles/app.css';
 
 export function AppRouter() {
   return (

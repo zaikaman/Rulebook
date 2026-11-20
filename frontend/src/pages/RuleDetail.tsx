@@ -262,6 +262,7 @@ export function RuleDetail() {
         <nav aria-label="Breadcrumb" className="app-breadcrumb">
           {breadcrumb}
         </nav>
+        <p className="app-eyebrow">Rule record</p>
         <div className="app-rule-identity">
           <h1>Rule #{currentRuleId.toString()}</h1>
           <StatusPill status={shownStatus} />

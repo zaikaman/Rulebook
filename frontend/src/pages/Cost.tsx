@@ -185,6 +185,7 @@ export function Cost() {
   return (
     <section className="app-page app-cost">
       <PageHeading
+        eyebrow="Economics"
         title="Cost & custody model"
         description="See what it costs to run a rule and where your funds are held."
         aside={

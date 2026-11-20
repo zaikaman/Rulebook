@@ -17,14 +17,19 @@ colors:
   status-cancelled: 'oklch(0.713 0.025 252)'
   status-latched: 'oklch(0.794 0.099 230)'
   danger: 'oklch(0.784 0.115 20)'
-  surface: 'oklch(0.135 0.006 252)'
-  surface-raised: 'oklch(0.189 0.01 252)'
-  surface-inset: 'oklch(0.218 0.016 252)'
-  control: 'oklch(0.242 0.015 252)'
-  border: 'oklch(0.31 0.017 252)'
-  control-border: 'oklch(0.42 0.028 252)'
-  ink: 'oklch(0.957 0.009 252)'
-  ink-muted: 'oklch(0.739 0.021 252)'
+  canvas: 'oklch(0.152 0.008 252)'
+  surface: 'oklch(0.174 0.009 252)'
+  surface-raised: 'oklch(0.212 0.011 252)'
+  surface-inset: 'oklch(0.192 0.01 252)'
+  control: 'oklch(0.246 0.013 252)'
+  border: 'oklch(0.292 0.014 252)'
+  border-strong: 'oklch(0.368 0.018 252)'
+  control-border: 'oklch(0.368 0.02 252)'
+  ink: 'oklch(0.968 0.006 252)'
+  ink-muted: 'oklch(0.748 0.016 252)'
+  ink-faint: 'oklch(0.608 0.016 252)'
+  accent-hover: 'oklch(0.845 0.085 248)'
+  accent-line: 'oklch(0.44 0.072 249)'
   slot-open: 'oklch(0.255 0.028 249)'
   slot-open-line: 'oklch(0.494 0.065 249)'
   landing-canvas: '#020202'
@@ -85,10 +90,10 @@ typography:
 rounded:
   tag: '0.375rem'
   preset: '0.4375rem'
-  field: '0.5rem'
-  button: '0.625rem'
-  nav-item: '0.75rem'
-  panel: '1rem'
+  field: '0.5625rem'
+  button: '0.5625rem'
+  nav-item: '0.5625rem'
+  panel: '0.875rem'
   landing-card: '1.5rem'
   shell-compact: '28px'
   shell-wide: '40px'
@@ -186,6 +191,8 @@ Don't:
 - Do keep network names and status labels beside their colors.
 - Do show the empty, filled, focus, and invalid states of sentence slots.
 - Do use bordered, tonal workspace panels and reserve pronounced content shadows for wallet overlays.
+- Do group rail navigation by Automation, Discover, and Manage; keep the active item on a raised surface with an accent edge.
+- Do give every page a single clear primary action in its heading.
 - Do keep transaction identifiers readable at narrow widths.
   Map: src/styles/tokens.css
   Map: src/styles/theme.css
