@@ -87,6 +87,6 @@ test('clones a team listing into the cloner’s own account with its own limits'
 
   await detail.click();
   await expect(page).toHaveURL(new RegExp(clonerAgent ?? '', 'i'));
-  await expect(page.getByText('Per-run amount')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Per run', { exact: true })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText('Active').first()).toBeVisible();
 });

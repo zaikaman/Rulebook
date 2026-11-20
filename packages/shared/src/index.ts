@@ -7,6 +7,7 @@ export * from './encode.js';
 export * from './generated/templates.js';
 export * from './schemas.js';
 export * from './telegram.js';
+export * from './workflows.js';
 export {
   agentAbi,
   agentFactoryAbi,
@@ -14,6 +15,10 @@ export {
   ruleRegistryAbi,
   vaultAbi,
   vaultFactoryAbi,
+  workflowAgentAbi,
+  workflowVaultAbi,
+  workflowDirectoryAbi,
+  workflowVaultFactoryAbi,
 } from './abi/index.js';
 export { systemContractAbi } from './abi/system.js';
 export { executionCreditAbi } from './abi/credit.js';

@@ -12,12 +12,18 @@ const coreContracts = [
   'src/vault/VaultFactory.sol',
 ];
 const artifact = new URL('../contracts/.coverage-summary.json', import.meta.url);
-const result = spawnSync(process.env.FORGE_PATH ?? 'forge', ['coverage', '--report', 'summary'], {
-  cwd: fileURLToPath(new URL('../contracts/', import.meta.url)),
-  encoding: 'utf8',
-  maxBuffer: 16 * 1024 * 1024,
-  env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? 'error' },
-});
+// Foundry's unoptimized coverage compiler measures the existing single-action baseline.
+// The main contract test job still runs the Workflow suite with the configured viaIR compiler.
+const result = spawnSync(
+  process.env.FORGE_PATH ?? 'forge',
+  ['coverage', '--report', 'summary', '--skip', 'Workflow'],
+  {
+    cwd: fileURLToPath(new URL('../contracts/', import.meta.url)),
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+    env: { ...process.env, RUST_LOG: process.env.RUST_LOG ?? 'error' },
+  },
+);
 
 if (result.error || result.status !== 0) {
   console.error(result.error?.message ?? result.stderr);

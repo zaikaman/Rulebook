@@ -1,0 +1,447 @@
+.workflow-page {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.workflow-page .app-heading {
+  margin-bottom: 0;
+}
+
+.workflow-actions,
+.workflow-builder-toolbar,
+.workflow-listing-meta,
+.workflow-starters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.workflow-starters a {
+  color: var(--rb-ink-muted);
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.45rem;
+  font-size: 0.8rem;
+}
+
+.workflow-starters a[aria-current],
+.workflow-starters a:hover {
+  background: var(--rb-accent-tint);
+  color: var(--rb-accent);
+  border-color: var(--rb-control-border);
+}
+
+.workflow-builder-toolbar {
+  align-items: flex-end;
+}
+
+.workflow-builder-toolbar .app-field {
+  flex: 1 1 15rem;
+}
+
+.workflow-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 17.5rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 1rem;
+  overflow: hidden;
+  align-items: stretch;
+}
+
+.workflow-workbench-map {
+  min-width: 0;
+  display: grid;
+}
+
+.workflow-canvas {
+  height: clamp(22rem, 50vh, 35rem);
+  min-width: 0;
+  background: var(--rb-surface);
+  border-radius: 0.85rem;
+  overflow: hidden;
+  border: 1px solid var(--rb-border);
+}
+
+.workflow-workbench .workflow-canvas {
+  height: 100%;
+  min-height: 30rem;
+  border: 0;
+  border-radius: 0;
+}
+
+.workflow-canvas .react-flow {
+  --xy-edge-stroke-default: var(--rb-control-border);
+  --xy-edge-label-color-default: var(--rb-ink);
+  --xy-edge-label-background-color-default: var(--rb-surface);
+  --xy-controls-button-background-color-default: var(--rb-surface-raised);
+  --xy-controls-button-background-color-hover-default: var(--rb-control);
+  --xy-controls-button-color-default: var(--rb-ink);
+  --xy-controls-button-border-color-default: var(--rb-border);
+  --xy-node-boxshadow-selected-default: none;
+  --xy-node-boxshadow-hover-default: none;
+}
+
+.workflow-canvas .workflow-node {
+  display: grid;
+  width: 13rem;
+  min-height: 5.25rem;
+  text-align: left;
+  background: var(--rb-surface-raised);
+  color: var(--rb-ink-muted);
+  border: 1px solid var(--rb-border);
+  border-radius: 0.65rem;
+  font-size: 0.72rem;
+  padding: 0.6rem 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-node strong {
+  display: block;
+  color: var(--rb-ink);
+  font-size: 0.92rem;
+  line-height: 1.2;
+  margin: 0.2rem 0;
+}
+
+.workflow-node-kind {
+  color: var(--rb-automation);
+}
+
+.workflow-canvas .workflow-node.selected,
+.workflow-canvas .workflow-node--matched {
+  border-color: var(--rb-accent);
+  background: var(--rb-accent-tint);
+}
+
+.workflow-edge--matched .react-flow__edge-path {
+  stroke: var(--rb-accent);
+  stroke-width: 2px;
+}
+
+.workflow-settings {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 0.9rem;
+  padding: 1rem;
+  background: var(--rb-surface-raised);
+  border-left: 1px solid var(--rb-border);
+}
+
+.workflow-settings h2 {
+  font-family: 'Manrope Variable', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 730;
+}
+
+.workflow-settings .workflow-actions {
+  gap: 0.45rem;
+}
+
+.workflow-action-fields {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  padding-block: 0.45rem 0.7rem;
+  border-bottom: 1px solid var(--rb-border);
+}
+
+.workflow-action-fields legend {
+  color: var(--rb-ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.workflow-text-button {
+  color: var(--rb-accent);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  font-size: 0.78rem;
+  padding: 0.4rem 0;
+  width: fit-content;
+}
+
+.workflow-mobile-outline {
+  display: none;
+}
+
+.workflow-outline {
+  padding: 0.8rem 0;
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-workbench-map > div > .workflow-outline {
+  padding: 1rem;
+}
+
+.workflow-outline ul,
+.workflow-outline ol {
+  margin: 0.45rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.workflow-outline li {
+  margin-bottom: 0.25rem;
+}
+
+.workflow-outline ol {
+  list-style: decimal;
+}
+
+.workflow-branch-list > li > span {
+  color: var(--rb-ink-muted);
+  font-size: 0.76rem;
+}
+
+.workflow-outline-match > strong {
+  color: var(--rb-accent);
+}
+
+.workflow-outline-button {
+  display: inline-block;
+  text-align: left;
+  min-height: 2rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.35rem;
+  color: var(--rb-ink);
+}
+
+.workflow-outline-button:hover,
+.workflow-outline-button[aria-pressed='true'] {
+  background: var(--rb-accent-tint);
+  color: var(--rb-accent);
+}
+
+.workflow-review,
+.workflow-feedback,
+.workflow-publish,
+.workflow-funds {
+  display: grid;
+  gap: 0.65rem;
+  justify-items: start;
+}
+
+.workflow-feedback:empty {
+  display: none;
+}
+
+.workflow-error {
+  color: var(--rb-danger);
+  overflow-wrap: anywhere;
+}
+
+.workflow-market-filters {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) repeat(3, minmax(7rem, 1fr));
+  gap: 0.8rem;
+}
+
+.workflow-market-results {
+  overflow: hidden;
+}
+
+.workflow-market-table {
+  border-collapse: collapse;
+  width: 100%;
+  text-align: left;
+  color: var(--rb-ink-muted);
+  font-size: 0.8rem;
+}
+
+.workflow-market-table th,
+.workflow-market-table td {
+  padding: 0.8rem 0.9rem;
+  vertical-align: top;
+}
+
+.workflow-market-table th {
+  background: var(--rb-surface-inset);
+  color: var(--rb-ink);
+  font-weight: 650;
+}
+
+.workflow-market-table td {
+  border-top: 1px solid var(--rb-border);
+  font-variant-numeric: tabular-nums;
+}
+
+.workflow-market-table td:first-child {
+  width: 35%;
+  overflow-wrap: anywhere;
+}
+
+.workflow-market-title {
+  color: var(--rb-ink);
+  font-size: 0.94rem;
+  font-weight: 700;
+}
+
+.workflow-market-title:hover {
+  color: var(--rb-accent);
+  text-decoration: underline;
+}
+
+.workflow-market-table td p {
+  margin-top: 0.25rem;
+  line-height: 1.35;
+}
+
+.workflow-tags {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.workflow-tags button,
+.workflow-status {
+  padding: 0.18rem 0.35rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.35rem;
+  color: var(--rb-ink);
+}
+
+.workflow-tags button[aria-pressed='true'],
+.workflow-tags button:hover {
+  border-color: var(--rb-accent);
+  color: var(--rb-accent);
+}
+
+.workflow-mobile-label {
+  display: none;
+}
+
+.workflow-listing-meta {
+  font-size: 0.85rem;
+  color: var(--rb-ink-muted);
+}
+
+.workflow-workspace-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid var(--rb-border);
+  font-size: 0.85rem;
+}
+
+.workflow-workspace-row:last-child {
+  border-bottom: 0;
+}
+
+.workflow-workspace-row:hover {
+  background: var(--rb-surface-inset);
+}
+
+.workflow-balances {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.workflow-balances dd {
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+}
+
+.workflow-balances dt {
+  color: var(--rb-ink-muted);
+  font-size: 0.78rem;
+}
+
+.workflow-address {
+  font-family: 'Geist Mono Variable', monospace;
+  font-size: 0.78rem;
+}
+
+.workflow-receipts,
+.workflow-settled-steps {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+  font-size: 0.87rem;
+}
+
+.workflow-settled-steps {
+  list-style: decimal inside;
+}
+
+@media (max-width: 900px) {
+  .workflow-market-filters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .workflow-market-filters > :first-child {
+    grid-column: 1 / -1;
+  }
+
+  .workflow-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workflow-workbench-map .workflow-canvas,
+  .workflow-view-toggle {
+    display: none;
+  }
+
+  .workflow-mobile-outline {
+    display: block;
+  }
+
+  .workflow-settings {
+    border-left: 0;
+    border-top: 1px solid var(--rb-border);
+  }
+}
+
+@media (max-width: 660px) {
+  .workflow-balances {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workflow-market-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+
+  .workflow-market-table,
+  .workflow-market-table tbody {
+    display: block;
+  }
+
+  .workflow-market-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.9rem;
+    padding: 0.85rem;
+    border-bottom: 1px solid var(--rb-border);
+  }
+
+  .workflow-market-table td {
+    border: 0;
+    padding: 0;
+  }
+
+  .workflow-market-table td:first-child {
+    width: 100%;
+  }
+
+  .workflow-market-table td:nth-child(2) {
+    flex-basis: 100%;
+  }
+
+  .workflow-mobile-label {
+    display: inline;
+  }
+
+  .workflow-canvas {
+    height: 24rem;
+  }
+}

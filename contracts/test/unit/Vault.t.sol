@@ -77,7 +77,11 @@ contract VaultTest is Test {
 
     function test_executeRejectsWrongFirstArgument() public {
         vm.prank(address(proxy));
-        vm.expectRevert(abi.encodeWithSelector(CallbackSenderMismatch.selector, address(agentRegistry), address(0xBAD)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                CallbackSenderMismatch.selector, address(agentRegistry), address(0xBAD)
+            )
+        );
         vault.execute(address(0xBAD), 1, "");
     }
 
@@ -114,7 +118,9 @@ contract VaultTest is Test {
         vm.expectRevert(InvalidTemplateParams.selector);
         vault.setLimits(10e6, address(0), address(weth));
 
-        vm.expectRevert(abi.encodeWithSelector(TokenMismatch.selector, address(usdc), address(usdc)));
+        vm.expectRevert(
+            abi.encodeWithSelector(TokenMismatch.selector, address(usdc), address(usdc))
+        );
         vault.setLimits(10e6, address(usdc), address(usdc));
 
         vault.setLimits(20e6, address(usdc), address(weth));
@@ -182,7 +188,14 @@ contract VaultTest is Test {
         address router_
     ) internal returns (Vault deployed) {
         deployed = new Vault(
-            IPayable(payable(address(proxy))), owner_, agent_, router_, tokenIn_, tokenOut_, cap_, false
+            IPayable(payable(address(proxy))),
+            owner_,
+            agent_,
+            router_,
+            tokenIn_,
+            tokenOut_,
+            cap_,
+            false
         );
     }
 
@@ -199,7 +212,9 @@ contract VaultTest is Test {
         vm.expectRevert(InvalidTemplateParams.selector);
         _deployVault(USER, AGENT, address(0), address(weth), 1, address(0x1234));
 
-        vm.expectRevert(abi.encodeWithSelector(TokenMismatch.selector, address(usdc), address(usdc)));
+        vm.expectRevert(
+            abi.encodeWithSelector(TokenMismatch.selector, address(usdc), address(usdc))
+        );
         _deployVault(USER, AGENT, address(usdc), address(usdc), 1, address(0x1234));
 
         vm.expectRevert(InvalidAmount.selector);
@@ -333,7 +348,14 @@ contract VaultExecutionTest is Test {
         router = new MockRouter();
         router.setPair(address(pair));
         vault = new Vault(
-            IPayable(payable(address(proxy))), USER, AGENT, address(router), address(usdc), address(weth), CAP, false
+            IPayable(payable(address(proxy))),
+            USER,
+            AGENT,
+            address(router),
+            address(usdc),
+            address(weth),
+            CAP,
+            false
         );
         usdc.mint(USER, 50e6);
         vm.startPrank(USER);
@@ -343,11 +365,14 @@ contract VaultExecutionTest is Test {
         weth.mint(address(router), 100e18);
     }
 
-    function _payload(uint16 template, address pair_, uint256 threshold, uint256 amountIn, uint64 expiry, uint256 extra)
-        internal
-        view
-        returns (bytes memory)
-    {
+    function _payload(
+        uint16 template,
+        address pair_,
+        uint256 threshold,
+        uint256 amountIn,
+        uint64 expiry,
+        uint256 extra
+    ) internal view returns (bytes memory) {
         return abi.encode(
             template,
             pair_,
@@ -566,7 +591,9 @@ contract VaultExecutionTest is Test {
 
     function test_failedRouterPreservesPrincipal() public {
         _setPrice(1e18);
-        vm.mockCallRevert(address(router), abi.encodePacked(MockRouter.swapExactTokensForTokens.selector), "");
+        vm.mockCallRevert(
+            address(router), abi.encodePacked(MockRouter.swapExactTokensForTokens.selector), ""
+        );
         vm.expectPartialRevert(SlippageExceeded.selector);
         _execute(1, _payload(1, address(pair), 0, 10e6, 0, 0));
         assertEq(vault.principalOf(address(usdc)), 50e6);
@@ -593,7 +620,9 @@ contract VaultExecutionTest is Test {
 
     function test_refusesAnERC20PullReturningFalse() public {
         vm.mockCall(
-            address(usdc), abi.encodeCall(IERC20.transferFrom, (SOURCE, address(vault), 5e6)), abi.encode(false)
+            address(usdc),
+            abi.encodeCall(IERC20.transferFrom, (SOURCE, address(vault), 5e6)),
+            abi.encode(false)
         );
         vm.expectRevert(TransferFailed.selector);
         _execute(9, _payload(9, address(0), 60e6, 5e6, 0, uint256(uint160(SOURCE))));
@@ -617,7 +646,9 @@ contract VaultExecutionTest is Test {
         bytes memory data = _payload(7, address(0), 0, 5e6, 0, uint256(uint160(RECIPIENT)));
         vm.prank(USER);
         vault.setLimits(CAP, address(weth), address(usdc));
-        vm.expectRevert(abi.encodeWithSelector(TokenMismatch.selector, address(weth), address(usdc)));
+        vm.expectRevert(
+            abi.encodeWithSelector(TokenMismatch.selector, address(weth), address(usdc))
+        );
         _execute(7, data);
     }
 

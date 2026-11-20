@@ -29,20 +29,20 @@ export function LandingPage() {
             </div>
 
             <h1 className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.2s_both] mb-6 text-balance text-4xl font-medium leading-[1.05] tracking-tight text-white sm:text-5xl lg:text-[3.5rem]">
-              Automate trades, transfers, and alerts
+              Build workflows that run on their own
             </h1>
 
             <p className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.3s_both] mx-auto mb-9 max-w-xl text-pretty text-base font-light md:text-lg leading-relaxed text-neutral-300 tracking-tight">
-              Pick a template and fill in the blanks. Your rule can be as simple as “Buy 10 USDC
-              worth of WETH every week.”
+              Choose what starts your workflow, then tell it what to do in each situation. Set aside
+              part of a payment, buy on a schedule, or act when a price crosses your target.
             </p>
 
             <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
               <Link
-                to={appRoutes.create}
+                to={appRoutes.newWorkflow}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
               >
-                <span>Create your first rule</span>
+                <span>Build a workflow</span>
                 <HugeiconsIcon
                   icon={ArrowRight02Icon}
                   size={16}

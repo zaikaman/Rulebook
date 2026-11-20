@@ -18,20 +18,20 @@ const steps = [
   {
     icon: Book02Icon,
     image: landingImages.condition,
-    title: 'Choose a template',
-    body: 'Set the amount, schedule, or price limit and review what the rule will do.',
+    title: 'Build your workflow',
+    body: 'Choose a trigger, add conditions, and decide what should happen on each path.',
   },
   {
     icon: SecurityCheckIcon,
     image: landingImages.execute,
     title: 'Review and sign',
-    body: 'Check the sentence and sign on Reactive Lasna to add the rule to your automation account.',
+    body: 'Read the workflow in plain English. Approve it on Unichain Sepolia, then enable it on Reactive Lasna.',
   },
   {
     icon: Coins01Icon,
     image: landingImages.custody,
-    title: 'Manage your rules',
-    body: 'Open a rule to see its execution history, pause it, resume it, or cancel it.',
+    title: 'Check your runs',
+    body: 'See which path ran and follow its transaction receipts. You can pause, edit, or cancel a workflow from your account.',
   },
 ] as const;
 

@@ -46,7 +46,9 @@ library RuleLib {
 
     /// @notice Packs a rule into its canonical eight-slot representation.
     function pack(Rule memory rule) internal pure returns (bytes32[8] memory slots) {
-        slots[0] = bytes32(uint256(rule.template) | (uint256(rule.chainId) << 8) | (uint256(rule.flags) << 24));
+        slots[0] = bytes32(
+            uint256(rule.template) | (uint256(rule.chainId) << 8) | (uint256(rule.flags) << 24)
+        );
         slots[1] = bytes32(uint256(uint160(rule.pair)));
         slots[2] = bytes32(uint256(uint160(rule.tokenIn)));
         slots[3] = bytes32(uint256(uint160(rule.tokenOut)));
@@ -113,7 +115,8 @@ library RuleLib {
             revert InvalidTemplateParams();
         }
         if (isCronTemplate(rule.template)) {
-            uint256 interval = rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
+            uint256 interval =
+                rule.template == 2 || rule.template == 10 ? rule.threshold : rule.secondary;
             if (interval != 0 && (interval < 1 hours || interval > 30 days)) {
                 revert InvalidSecondary();
             }
@@ -158,8 +161,8 @@ library RuleLib {
 
     /// @notice Templates whose condition uses a numeric threshold.
     function isThresholdTemplate(uint8 template) internal pure returns (bool) {
-        return template == 3 || template == 4 || template == 5 || template == 6 || template == 8 || template == 9
-            || template == 11 || template == 12 || template == 13;
+        return template == 3 || template == 4 || template == 5 || template == 6 || template == 8
+            || template == 9 || template == 11 || template == 12 || template == 13;
     }
 
     /// @notice Templates whose `secondary` value is a basis-point band or trailing tolerance.

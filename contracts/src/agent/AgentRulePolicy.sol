@@ -28,14 +28,17 @@ struct Subscription {
 
 /// @notice Stateless validation and subscription criteria used by an Agent implementation.
 contract AgentRulePolicy {
-    uint256 private constant ANY_TOPIC = 0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
+    uint256 private constant ANY_TOPIC =
+        0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
     bytes32 private constant SYNC_TOPIC = keccak256("Sync(uint112,uint112)");
     bytes32 private constant HOURLY_CRON_TOPIC = keccak256("Cron100(uint256)");
     bytes32 private constant DAILY_CRON_TOPIC = keccak256("Cron10000(uint256)");
     bytes32 private constant GRID_SETTLED_TOPIC = keccak256("GridSettled(uint256,uint32)");
     bytes32 private constant TRANSFER_TOPIC = keccak256("Transfer(address,address,uint256)");
-    bytes32 private constant BALANCES_TOPIC = keccak256("Balances(address,uint256,address,uint256)");
-    bytes32 private constant SWAP_FUNDS_TOPIC = keccak256("ScheduledSwapFunds(address,uint256,uint256,uint256,uint32)");
+    bytes32 private constant BALANCES_TOPIC =
+        keccak256("Balances(address,uint256,address,uint256)");
+    bytes32 private constant SWAP_FUNDS_TOPIC =
+        keccak256("ScheduledSwapFunds(address,uint256,uint256,uint256,uint32)");
 
     function validate(RuleLib.Rule calldata rule) external pure {
         RuleLib.validate(rule);
@@ -44,11 +47,12 @@ contract AgentRulePolicy {
     /// @dev Which system subscriptions a rule needs, at most three per template.
     /// @dev Subscription keys are shared, so two rules on the same pair (or the same cron tick)
     /// hold one system subscription between them (T167).
-    function subscriptionsFor(uint256 ruleId, RuleLib.Rule calldata rule, address vault, address owner)
-        external
-        pure
-        returns (Subscription[3] memory subs)
-    {
+    function subscriptionsFor(
+        uint256 ruleId,
+        RuleLib.Rule calldata rule,
+        address vault,
+        address owner
+    ) external pure returns (Subscription[3] memory subs) {
         uint256 slot;
         if (RuleLib.isCronTemplate(rule.template)) {
             uint256 schedule = RuleLib.schedule(rule);
@@ -126,8 +130,8 @@ contract AgentRulePolicy {
         address tokenIn
     ) external view returns (RuleLib.Rule memory source) {
         if (
-            leaderChainId != ChainConfig.UNICHAIN_SEPOLIA || followerVault == address(0) || leaderVault == address(0)
-                || leaderAgent.code.length == 0
+            leaderChainId != ChainConfig.UNICHAIN_SEPOLIA || followerVault == address(0)
+                || leaderVault == address(0) || leaderAgent.code.length == 0
         ) revert InvalidTemplateParams();
         if (leaderAgent == msg.sender || leaderVault == followerVault) {
             revert MirrorDepthNotAllowed();

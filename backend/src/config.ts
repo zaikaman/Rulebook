@@ -1,6 +1,7 @@
 import { addressSchema, type Address } from '@rulebook/shared';
 import { zeroAddress } from 'viem';
 import { z } from 'zod';
+import type { WorkflowDeployment } from './workflows/indexer.js';
 
 /**
  * Every environment variable the backend reads. Validation happens once, at boot, so a missing
@@ -34,6 +35,10 @@ const envSchema = z.object({
     .optional(),
   TELEGRAM_APP_ORIGIN: z.string().url().optional(),
   TELEGRAM_AGENT_FACTORIES: z.string().optional(),
+  WORKFLOW_DIRECTORY_ADDRESS: addressSchema.optional(),
+  WORKFLOW_VAULT_FACTORY_ADDRESS: addressSchema.optional(),
+  WORKFLOW_START_BLOCK_LASNA: z.coerce.number().int().positive().optional(),
+  WORKFLOW_START_BLOCK_UNICHAIN: z.coerce.number().int().positive().optional(),
 });
 
 export interface TelegramConfig {
@@ -56,6 +61,7 @@ export interface AppConfig {
   readonly INDEXER_START_BLOCK_UNICHAIN: number;
   readonly corsOrigins: readonly string[];
   readonly telegram?: TelegramConfig;
+  readonly workflows?: WorkflowDeployment;
 }
 
 /** Error thrown when the environment is incomplete or malformed. */
@@ -81,6 +87,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
     TELEGRAM_APP_ORIGIN: appOrigin,
     TELEGRAM_AGENT_FACTORIES: factoryList,
+    WORKFLOW_DIRECTORY_ADDRESS: directory,
+    WORKFLOW_VAULT_FACTORY_ADDRESS: vaultFactory,
+    WORKFLOW_START_BLOCK_LASNA: lasnaStart,
+    WORKFLOW_START_BLOCK_UNICHAIN: unichainStart,
     ...base
   } = data;
   const corsOrigins = base.CORS_ORIGINS.split(',')
@@ -124,5 +134,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...base,
     corsOrigins,
     telegram,
+    workflows:
+      directory && vaultFactory && lasnaStart && unichainStart
+        ? { directory, vaultFactory, lasnaStart, unichainStart }
+        : undefined,
   };
 }

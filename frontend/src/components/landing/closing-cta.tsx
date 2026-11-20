@@ -25,10 +25,10 @@ export function ClosingCta() {
           Get test tokens, set up your account, and create your first automation.
         </p>
         <Link
-          to={appRoutes.create}
+          to={appRoutes.newWorkflow}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
-          <span>Create your first rule</span>
+          <span>Build a workflow</span>
           <HugeiconsIcon
             icon={ArrowRight02Icon}
             size={16}

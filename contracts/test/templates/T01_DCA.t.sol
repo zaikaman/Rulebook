@@ -105,7 +105,9 @@ contract T01_DCATest is TemplateTestBase {
 
         vm.warp(start + 30 minutes);
         IReactive.LogRecord memory funded = _fundingLog(VAULT, rule.amountIn);
-        funded.data = abi.encode(address(usdc), rule.amountIn, vm.getBlockTimestamp() + 1, uint256(0), uint32(0));
+        funded.data = abi.encode(
+            address(usdc), rule.amountIn, vm.getBlockTimestamp() + 1, uint256(0), uint32(0)
+        );
         _react(funded);
         _react(empty); // A delayed delivery cannot overwrite the newer deposit.
         _react(_tick(HOURLY_CRON_TOPIC));
@@ -173,7 +175,10 @@ contract T01_DCATest is TemplateTestBase {
         assertEq(_runs(finalId), 1);
     }
 
-    function _fundingLog(address origin, uint256 balance) internal returns (IReactive.LogRecord memory) {
+    function _fundingLog(address origin, uint256 balance)
+        internal
+        returns (IReactive.LogRecord memory)
+    {
         return _log(
             origin,
             keccak256("ScheduledSwapFunds(address,uint256,uint256,uint256,uint32)"),

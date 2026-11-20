@@ -33,12 +33,12 @@ async function audit(page: Page, context: string | undefined = undefined) {
 test('audits the public and workspace routes', async ({ page }) => {
   test.setTimeout(90_000);
   for (const [path, heading] of [
-    ['/', 'Automate trades, transfers, and alerts'],
+    ['/', 'Build workflows that run on their own'],
     ['/rules', 'Your rules'],
     ['/create', 'Connect your wallet'],
     ['/proof', 'Execution proof'],
     ['/marketplace', 'Marketplace'],
-    ['/leaderboard', 'Automation leaderboard'],
+    ['/workflows', 'Workflows'],
     ['/account', 'Connect your wallet'],
     ['/cost', 'Cost & custody model'],
   ] as const) {
@@ -102,7 +102,7 @@ test('audits the connected composer, rule detail and both wallet prompts', async
   await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
   await page.getByLabel('Amount to spend').fill('10');
-  await page.getByLabel('Schedule').fill('1');
+  await page.getByLabel('Schedule', { exact: true }).fill('1');
   await audit(page);
 
   await page.getByRole('button', { name: 'Review and create rule' }).click();

@@ -18,6 +18,8 @@ import { registerRoutes } from './api/routes/index.js';
 import { PublicAccountChain } from './sponsor/accountChain.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
 import { TelegramWorker } from './telegram/worker.js';
+import { WorkflowIndexer } from './workflows/indexer.js';
+import { registerWorkflowRoutes } from './workflows/routes.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -107,13 +109,19 @@ export async function startServer(): Promise<void> {
     ],
   });
 
+  registerWorkflowRoutes(app, supabase);
+  const workflowIndexer =
+    config.workflows && config.INDEXER_ENABLED
+      ? new WorkflowIndexer(supabase, clients, config.workflows, app.log)
+      : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
+  void workflowIndexer?.run();
 
   const worker =
     telegram && telegramDb ? new TelegramWorker(telegramDb, telegram, app.log) : undefined;
   const workerRun = worker?.run();
   let poller: IndexerPoller | undefined;
-  if (config.INDEXER_ENABLED) {
+  if (config.INDEXER_ENABLED && !config.workflows) {
     const startBlocks = {
       [lasnaChain.id]: config.INDEXER_START_BLOCK_LASNA,
       [unichainSepoliaChain.id]: config.INDEXER_START_BLOCK_UNICHAIN,
@@ -134,6 +142,7 @@ export async function startServer(): Promise<void> {
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       poller?.stop();
+      workflowIndexer?.stop();
       worker?.stop();
       void Promise.all([app.close(), workerRun]).then(() => process.exit(0));
     });

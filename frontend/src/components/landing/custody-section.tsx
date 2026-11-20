@@ -26,7 +26,7 @@ export function CustodySection() {
             <div>
               <dt className="text-sm font-medium text-white">Network fees</dt>
               <dd className="mt-1.5 text-sm leading-relaxed text-neutral-400">
-                Add test REACT for monitoring and test ETH for running your rules.
+                Add test REACT for watching and test ETH for running your workflows.
               </dd>
             </div>
             <div>

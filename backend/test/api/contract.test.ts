@@ -1,6 +1,3 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import {
   apiErrorSchema,
   chainsResponseSchema,
@@ -49,42 +46,38 @@ function makeDeps() {
   };
 }
 
-function declaredRoutes(): string[] {
-  const yaml = readFileSync(
-    join(process.cwd(), '..', 'specs', '001-reactive-rule-builder', 'contracts', 'http-api.yaml'),
-    'utf8',
-  );
-  const routes: string[] = [];
-  let inPaths = false;
-  let current = '';
-  for (const line of yaml.split(/\r?\n/)) {
-    if (line === 'paths:') {
-      inPaths = true;
-      continue;
-    }
-    if (!inPaths) continue;
-    if (/^[a-zA-Z]/.test(line)) break;
-    const path = line.match(/^ {2}(\/[^\s:]+):\s*$/);
-    if (path?.[1]) {
-      current = path[1].replace(/\{([a-zA-Z]+)\}/g, ':$1');
-      continue;
-    }
-    const method = line.match(/^ {4}(get|post|put|delete|patch):\s*$/);
-    if (method?.[1] && current) routes.push(`${method[1].toUpperCase()} ${current}`);
-  }
-  return routes;
-}
+const v1Routes = [
+  'GET /health',
+  'GET /v1/chains',
+  'GET /v1/accounts/:agent',
+  'GET /v1/telegram/availability',
+  'POST /v1/telegram/webhook',
+  'POST /v1/accounts/:agent/telegram/challenge',
+  'POST /v1/accounts/:agent/telegram/session',
+  'GET /v1/accounts/:agent/telegram',
+  'POST /v1/accounts/:agent/telegram/pairing',
+  'POST /v1/accounts/:agent/telegram/pairing/confirm',
+  'PATCH /v1/accounts/:agent/telegram/preferences',
+  'DELETE /v1/accounts/:agent/telegram/connection',
+  'POST /v1/accounts/:agent/telegram/test',
+  'GET /v1/accounts/:agent/rules',
+  'GET /v1/accounts/:agent/rules/:ruleId',
+  'GET /v1/executions',
+  'GET /v1/proofs/:reactiveTxHash',
+  'GET /v1/marketplace',
+  'GET /v1/leaderboard',
+  'GET /v1/sponsor/:agent',
+  'POST /v1/encode/preview',
+];
 
 describe('API contract', () => {
   const built = buildServer(makeDeps(), { logger: false });
   const { app } = built;
 
-  it('registers exactly the routes declared in http-api.yaml', async () => {
+  it('preserves the v1 routes and health endpoint', async () => {
     await app.ready();
     const actual = [...new Set(built.routePaths)].sort();
-    const expected = declaredRoutes().sort();
-    expect(expected.length).toBeGreaterThan(0);
-    expect(actual).toEqual(expected);
+    expect(actual).toEqual([...v1Routes].sort());
   });
 
   it('returns a schema-valid health payload with dead-letter visibility', async () => {

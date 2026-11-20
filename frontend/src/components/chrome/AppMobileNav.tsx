@@ -2,18 +2,25 @@ import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 
 import { cx } from '@/lib/cx';
-import { appRoutes, isActiveRoute } from '@/lib/routes';
+import { appRoutes, isActiveRoute, legacyWorkspace } from '@/lib/routes';
 import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
 
 const items = [
-  { label: 'Rules', href: appRoutes.rules, exact: false },
-  { label: 'Create', href: appRoutes.create, exact: true },
+  {
+    label: legacyWorkspace ? 'Rules' : 'Workflows',
+    href: legacyWorkspace ? appRoutes.rules : appRoutes.workflows,
+    exact: false,
+  },
+  {
+    label: 'Create',
+    href: legacyWorkspace ? appRoutes.create : appRoutes.newWorkflow,
+    exact: true,
+  },
   { label: 'Marketplace', href: appRoutes.marketplace, exact: true },
-  { label: 'Leaderboard', href: appRoutes.leaderboard, exact: true },
-  { label: 'Proof', href: appRoutes.proof, exact: false },
+  ...(legacyWorkspace ? [{ label: 'Proof', href: appRoutes.proof, exact: false }] : []),
   { label: 'Account', href: appRoutes.account, exact: true },
-  { label: 'Cost', href: appRoutes.cost, exact: true },
+  ...(legacyWorkspace ? [{ label: 'Cost', href: appRoutes.cost, exact: true }] : []),
 ] as const;
 
 export function AppMobileNav() {

@@ -20,6 +20,10 @@ const CONTRACTS = [
   { name: 'AgentFactory', exportName: 'agentFactoryAbi' },
   { name: 'VaultFactory', exportName: 'vaultFactoryAbi' },
   { name: 'RuleRegistry', exportName: 'ruleRegistryAbi' },
+  { name: 'WorkflowAgent', exportName: 'workflowAgentAbi' },
+  { name: 'WorkflowVault', exportName: 'workflowVaultAbi' },
+  { name: 'WorkflowDirectory', exportName: 'workflowDirectoryAbi' },
+  { name: 'WorkflowVaultFactory', exportName: 'workflowVaultFactoryAbi' },
 ] as const;
 
 if (!existsSync(OUT_DIR)) {

@@ -14,7 +14,7 @@
     "start": "node --env-file-if-exists=.env dist/server.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "migrate": "node --env-file-if-exists=.env --import tsx scripts/migrate.ts",
+    "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
     "telegram:webhook": "node --env-file-if-exists=.env --import tsx scripts/telegram-webhook.ts",
     "reindex": "node --env-file-if-exists=.env --import tsx src/indexer/backfill.ts",
     "seed:marketplace": "tsx scripts/seed-marketplace.ts",

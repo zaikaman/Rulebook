@@ -1,8 +1,11 @@
 # Rulebook
 
-Build personal on-chain automations from a sentence such as “Every Friday, buy 10 USDC
-worth of WETH.” Your wallet owns the Agent that evaluates the rule and the Vault that
-holds your funds. Use your own testnet tokens for setup, network fees, and trades.
+Build personal on-chain workflows for payments, schedules, and price changes. Choose
+conditions and add steps to each path, then read the whole workflow before signing.
+Your wallet owns the Agent that chooses the path and the Vault that holds your funds.
+Use testnet tokens for setup, network fees, and trades. [Workflows and deployment](./docs/workflows.md)
+
+The architecture and evidence below describe the earlier single-action release.
 
 ## Architecture
 
@@ -88,6 +91,9 @@ and fixture API. It exercises onboarding, rule creation, controls, cloning, proo
 and accessibility without spending testnet funds.
 
 ## Deployment and operations
+
+GitHub Actions releases the tested commit to Heroku, checks the API, then publishes the
+frontend to Vercel. [Production release setup](./docs/runbooks/production-release.md)
 
 | Component       | Host                       | Setup                                                                                                                                                     |
 | --------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |

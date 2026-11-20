@@ -1,9 +1,12 @@
+export const legacyWorkspace = import.meta.env.VITE_LEGACY_WORKSPACE === 'true';
+
 export const appRoutes = {
   landing: '/',
   rules: '/rules',
   create: '/create',
+  workflows: '/workflows',
+  newWorkflow: '/workflows/new',
   marketplace: '/marketplace',
-  leaderboard: '/leaderboard',
   proof: '/proof',
   account: '/account',
   cost: '/cost',

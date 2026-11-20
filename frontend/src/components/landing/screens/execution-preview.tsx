@@ -1,6 +1,6 @@
 const executionSteps = [
   { chain: 'Unichain', event: 'Price below limit' },
-  { chain: 'Lasna', event: 'Rule evaluated' },
+  { chain: 'Lasna', event: 'Path selected' },
   { chain: 'Unichain', event: 'Swap confirmed' },
 ] as const;
 

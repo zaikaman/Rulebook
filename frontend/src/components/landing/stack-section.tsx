@@ -6,7 +6,7 @@ const services = [
   {
     name: 'Reactive Network',
     logo: reactiveLogo,
-    role: 'Your automation account watches for triggers and evaluates your rules on Lasna.',
+    role: 'Your Agent watches for triggers and chooses a workflow path on Lasna.',
   },
   {
     name: 'Uniswap V2',

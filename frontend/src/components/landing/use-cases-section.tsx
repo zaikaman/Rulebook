@@ -4,12 +4,12 @@ const examples = [
     body: 'Spend a set amount each week, or buy when the pool price falls below the limit you set.',
   },
   {
-    title: 'Schedule a transfer',
-    body: 'Send a fixed amount to a wallet you choose every hour, day, or week.',
+    title: 'Save part of a payment',
+    body: 'Set aside a different percentage for big and small USDC payments, then record what happened.',
   },
   {
-    title: 'Watch a price range',
-    body: 'Record an alert when a pool price moves outside the range you set. See it in your rule’s activity.',
+    title: 'Watch a price target',
+    body: 'Record an on-chain alert when a pool price crosses your target. See it in the workflow’s run history.',
   },
 ] as const;
 

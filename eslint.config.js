@@ -9,6 +9,7 @@ export default [
   {
     ignores: [
       '**/node_modules/**',
+      '**/.vercel/**',
       '**/dist/**',
       '**/build/**',
       '**/out/**',
@@ -16,6 +17,7 @@ export default [
       '**/broadcast/**',
       '**/coverage/**',
       '**/*.min.js',
+      '.agents/skills/**',
       'contracts/lib/**',
       'packages/shared/src/generated/**',
       'playwright-report/**',

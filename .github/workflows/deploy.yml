@@ -1,0 +1,86 @@
+name: Deploy production
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: rulebook-production
+      cancel-in-progress: false
+    environment: production
+    env:
+      HEROKU_APP_NAME: ${{ vars.HEROKU_APP_NAME }}
+      HEROKU_FIRST_WEB_DYNO: ${{ vars.HEROKU_FIRST_WEB_DYNO }}
+      HEROKU_API_URL: ${{ vars.HEROKU_API_URL }}
+      PRODUCTION_WEB_URL: ${{ vars.PRODUCTION_WEB_URL }}
+      VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+      VERCEL_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Check current production commit
+        id: revision
+        run: |
+          set -euo pipefail
+          latest="$(git ls-remote origin refs/heads/main | cut -f1)"
+          test -n "$latest"
+          if [ "$latest" = "$RELEASE_SHA" ] && [ "$(git rev-parse HEAD)" = "$RELEASE_SHA" ]; then
+            echo 'current=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'A newer commit is on main. Skipping this release.'
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.revision.outputs.current == 'true'
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check deployment configuration
+        if: steps.revision.outputs.current == 'true'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/deploy-production.mjs preflight
+      - name: Prepare frontend build
+        if: steps.revision.outputs.current == 'true'
+        run: |
+          npm ci
+          npm run build -w packages/shared
+          npm install --global vercel@53.2.0
+      - name: Pull Vercel project settings and build
+        if: steps.revision.outputs.current == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+          vercel build --prod --token="$VERCEL_TOKEN"
+      - name: Release Heroku and verify the API
+        if: steps.revision.outputs.current == 'true'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: node scripts/deploy-production.mjs backend
+      - name: Publish frontend on Vercel
+        if: steps.revision.outputs.current == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+      - name: Check public Marketplace and API
+        if: steps.revision.outputs.current == 'true'
+        run: node scripts/deploy-production.mjs smoke

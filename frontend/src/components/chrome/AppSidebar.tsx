@@ -1,6 +1,5 @@
 import {
   ArrowLeft01Icon,
-  Award01Icon,
   Book02Icon,
   Coins01Icon,
   DocumentValidationIcon,
@@ -10,7 +9,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import { Link } from 'react-router';
 
-import { appRoutes } from '@/lib/routes';
+import { appRoutes, legacyWorkspace } from '@/lib/routes';
 import { SidebarSection } from './SidebarSection.js';
 import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
@@ -28,11 +27,15 @@ export function AppSidebar() {
 
       <nav aria-label="Workspace" className="space-y-1 flex-1">
         <SidebarSection
-          label="Rules"
-          href={appRoutes.rules}
+          label={legacyWorkspace ? 'Rules' : 'Workflows'}
+          href={legacyWorkspace ? appRoutes.rules : appRoutes.workflows}
           icon={Book02Icon}
           nested
-          items={[{ label: 'Compose sentence', href: appRoutes.create }]}
+          items={[
+            legacyWorkspace
+              ? { label: 'Compose sentence', href: appRoutes.create }
+              : { label: 'New workflow', href: appRoutes.newWorkflow },
+          ]}
         />
         <SidebarSection
           label="Marketplace"
@@ -40,26 +43,24 @@ export function AppSidebar() {
           icon={Store01Icon}
           items={[]}
         />
-        <SidebarSection
-          label="Leaderboard"
-          href={appRoutes.leaderboard}
-          icon={Award01Icon}
-          items={[]}
-        />
-        <SidebarSection
-          label="Proof Explorer"
-          href={appRoutes.proof}
-          icon={DocumentValidationIcon}
-          nested
-          items={[]}
-        />
+        {legacyWorkspace && (
+          <SidebarSection
+            label="Proof Explorer"
+            href={appRoutes.proof}
+            icon={DocumentValidationIcon}
+            nested
+            items={[]}
+          />
+        )}
         <SidebarSection
           label="Account & Vault"
           href={appRoutes.account}
           icon={Wallet01Icon}
           items={[]}
         />
-        <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} items={[]} />
+        {legacyWorkspace && (
+          <SidebarSection label="Cost Model" href={appRoutes.cost} icon={Coins01Icon} items={[]} />
+        )}
       </nav>
 
       <div className="app-divider mt-auto space-y-4 pt-6">

@@ -25,7 +25,8 @@ contract AgentControlTest is Test {
     address internal constant USER = address(0xA11CE);
     address internal constant STRANGER = address(0xB0B);
 
-    bytes32 internal constant EVALUATION_DEFERRED_TOPIC = keccak256("EvaluationDeferred(uint256,uint256)");
+    bytes32 internal constant EVALUATION_DEFERRED_TOPIC =
+        keccak256("EvaluationDeferred(uint256,uint256)");
     bytes32 internal constant BUDGET_LOW_TOPIC = keccak256("BudgetLow(uint256,uint256)");
 
     MockSystemContract internal system;
@@ -39,7 +40,9 @@ contract AgentControlTest is Test {
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
         pair = new MockPair(address(usdc), address(weth));
-        agent = new Agent(USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this));
+        agent = new Agent(
+            USER, IReactiveSystem(address(system)), IRuleRegistry(address(0)), address(this)
+        );
     }
 
     function _rule() internal view returns (RuleLib.Rule memory rule) {
@@ -233,7 +236,9 @@ contract AgentControlTest is Test {
         uint256 evaluated;
         uint256 deferred;
         for (uint256 i = 0; i < logs.length; ++i) {
-            if (logs[i].topics[0] == keccak256("RuleEvaluated(uint256,uint256,bytes32,uint32,bool)")) {
+            if (
+                logs[i].topics[0] == keccak256("RuleEvaluated(uint256,uint256,bytes32,uint32,bool)")
+            ) {
                 evaluated += 1;
             }
             if (logs[i].topics[0] == EVALUATION_DEFERRED_TOPIC) deferred += 1;
@@ -351,7 +356,9 @@ contract AgentControlTest is Test {
         uint256 active = _addRule();
         IReactive.LogRecord memory log = _plainLog();
         vm.expectEmit(true, true, false, true, address(agent));
-        emit Agent.RuleEvaluated(active, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false);
+        emit Agent.RuleEvaluated(
+            active, log.chain_id, bytes32(log.tx_hash), uint32(log.log_index), false
+        );
         vm.prank(address(system));
         agent.react{gas: 140_000}(log);
     }

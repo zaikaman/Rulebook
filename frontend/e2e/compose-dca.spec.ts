@@ -103,7 +103,7 @@ test('composes a USDC→WETH DCA sentence, matches the fixture, and signs once',
   await page.getByLabel('Pay with').selectOption({ label: 'USDC' });
   await page.getByLabel('Receive', { exact: true }).selectOption({ label: 'WETH' });
   await page.getByLabel('Amount to spend').fill('0.1');
-  await page.getByLabel('Schedule').fill('1');
+  await page.getByLabel('Schedule', { exact: true }).fill('1');
 
   await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '4');
   await expect(page.getByTestId('composer-sentence')).toHaveText(

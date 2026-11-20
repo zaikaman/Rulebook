@@ -6,6 +6,7 @@ import { AppScrollArea } from './chrome/AppScrollArea.js';
 import { AppSidebar } from './chrome/AppSidebar.js';
 import { IndexerStatus } from './IndexerStatus.js';
 import { OfflineState } from './OfflineState.js';
+import { legacyWorkspace } from '../lib/routes.js';
 import '../styles/workspace.css';
 
 export function AppShell({
@@ -24,7 +25,7 @@ export function AppShell({
           <AppScrollArea>
             <div className={focused ? 'app-workspace' : 'app-workspace py-6 lg:py-8'}>
               <OfflineState />
-              {!focused && <IndexerStatus />}
+              {!focused && legacyWorkspace && <IndexerStatus />}
               {children ?? <Outlet />}
             </div>
           </AppScrollArea>

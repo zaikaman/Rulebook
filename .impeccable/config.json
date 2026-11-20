@@ -19,6 +19,12 @@
         ],
         "createdAt": "2026-11-19T04:51:16.629Z",
         "reason": "Agent: The existing Rules onboarding example uses the neutral panel border as an internal divider between adjacent regions. At narrow widths the same divider runs across the top."
+      },
+      {
+        "rule": "overused-font",
+        "value": "geist mono",
+        "createdAt": "2026-11-20T00:42:57.104Z",
+        "reason": "Agent: frontend/DESIGN.md specifies Geist Mono Variable for transaction metadata. The workflow style uses it for blockchain addresses."
       }
     ]
   }
