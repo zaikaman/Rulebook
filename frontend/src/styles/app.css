@@ -1148,6 +1148,8 @@
   text-underline-offset: 0.2em;
 }
 
+/* Loading: one shimmer for every placeholder, one ring for every in-flight action. */
+
 .rb-skeleton-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 21rem), 1fr));
@@ -1155,21 +1157,202 @@
 }
 
 .rb-skeleton {
-  min-block-size: 8.75rem;
-  border: 1px solid var(--rb-border);
-  border-radius: 0.8125rem;
+  block-size: 1rem;
+  border-radius: 0.375rem;
   background: linear-gradient(
     100deg,
-    var(--rb-surface-raised) 30%,
-    color-mix(in oklch, var(--rb-surface-raised) 82%, var(--rb-ink)) 50%,
-    var(--rb-surface-raised) 70%
+    color-mix(in oklch, var(--rb-surface-raised) 88%, var(--rb-ink)) 30%,
+    color-mix(in oklch, var(--rb-surface-raised) 74%, var(--rb-ink)) 50%,
+    color-mix(in oklch, var(--rb-surface-raised) 88%, var(--rb-ink)) 70%
   );
   background-size: 240% 100%;
   animation: rb-shimmer 1.6s linear infinite;
 }
 
-.rb-skeleton--tall {
+.rb-skeleton--line {
+  block-size: 0.625rem;
+}
+
+.rb-skeleton--title {
+  block-size: 0.9375rem;
+  border-radius: 0.4375rem;
+}
+
+.rb-skeleton--short {
+  inline-size: 42%;
+}
+
+.rb-skeleton--medium {
+  inline-size: 68%;
+}
+
+.rb-skeleton--link {
+  block-size: 0.5625rem;
+  inline-size: 5.5rem;
+}
+
+.rb-skeleton--icon {
+  inline-size: 2.125rem;
+  block-size: 2.125rem;
+  flex: none;
+  border-radius: 0.5625rem;
+}
+
+.rb-skeleton--chip {
+  inline-size: 4.5rem;
+  block-size: 1.5rem;
+  flex: none;
+  border-radius: 999px;
+}
+
+.rb-skeleton--metric-value {
+  block-size: 1.75rem;
+  inline-size: 34%;
+  border-radius: 0.4375rem;
+}
+
+.rb-skeleton--balance {
+  block-size: 1.5rem;
+  inline-size: 55%;
+  border-radius: 0.4375rem;
+}
+
+.rb-skeleton--run-marker {
+  inline-size: 2.125rem;
+  block-size: 2.125rem;
+  border-radius: 0.5625rem;
+}
+
+.rb-skeleton--row {
+  block-size: 6rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+}
+
+.rb-skeleton--table-row {
+  block-size: 3.25rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.75rem;
+}
+
+.rb-skeleton--listing {
+  block-size: 15rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 1rem;
+}
+
+.rb-skeleton--panel {
+  block-size: 8.75rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+}
+
+.rb-skeleton--record {
+  block-size: 11rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+}
+
+.rb-skeleton--proof-row {
+  block-size: 7rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+}
+
+.rb-skeleton--canvas {
+  block-size: 22rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+}
+
+.rb-skeleton--toolbar {
+  block-size: 2.375rem;
+  border-radius: 0.5625rem;
+}
+
+.rb-panel-skeleton {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rb-card-skeleton {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
   min-block-size: 11.5rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.8125rem;
+  padding: 1.125rem;
+  background: var(--rb-surface-raised);
+}
+
+.rb-card-skeleton-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.rb-card-skeleton-copy {
+  display: grid;
+  flex: 1;
+  gap: 0.5rem;
+}
+
+.rb-card-skeleton-body {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.rb-card-skeleton-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-block-start: auto;
+  padding-block-start: 0.75rem;
+  border-block-start: 1px solid var(--rb-border);
+}
+
+.rb-page-skeleton {
+  display: grid;
+  gap: 1rem;
+}
+
+.rb-page-skeleton-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rb-builder-skeleton-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 64rem) {
+  .rb-builder-skeleton-grid {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+  }
+}
+
+.rb-spinner {
+  display: inline-block;
+  inline-size: var(--rb-spinner-size, 0.875rem);
+  block-size: var(--rb-spinner-size, 0.875rem);
+  flex: none;
+  border: 1.5px solid color-mix(in oklch, currentColor 24%, transparent);
+  border-block-start-color: currentColor;
+  border-radius: 50%;
+  animation: rb-spin 640ms linear infinite;
+}
+
+.rb-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--rb-ink-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
 }
 
 @keyframes rb-shimmer {
@@ -1179,6 +1362,12 @@
 
   to {
     background-position: -30% 0;
+  }
+}
+
+@keyframes rb-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
@@ -2974,6 +3163,10 @@
   .app-live-dot::after,
   .rb-skeleton {
     animation: none;
+  }
+
+  .rb-spinner {
+    animation-duration: 2s;
   }
 
   .rb-card,

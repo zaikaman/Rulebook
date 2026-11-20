@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 
 import { ErrorState } from '@/components/ErrorState';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { ListingReadError } from './listingV2';
 
 export function ListingStatusV2({
@@ -58,9 +59,16 @@ export function ListingStatusV2({
           onRetry={checkAgain}
         />
       ) : (
-        <p className="app-copy" role="status">
-          {loading}
-        </p>
+        <LoadingRegion label={loading} className="rb-page-skeleton">
+          <div className="rb-page-skeleton-toolbar">
+            <Skeleton className="rb-skeleton--line rb-skeleton--short" />
+            <Skeleton className="rb-skeleton--chip" />
+          </div>
+          <div className="rb-split">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </div>
+        </LoadingRegion>
       )}
     </section>
   );

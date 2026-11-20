@@ -9,6 +9,7 @@ import {
 
 import { AddressLink } from './AddressLink.js';
 import { NetworkBadge } from './NetworkBadge.js';
+import { Skeleton } from './chrome/Skeleton.js';
 
 function BalanceFigure({ value }: { readonly value: string }) {
   const separator = value.lastIndexOf(' ');
@@ -118,6 +119,43 @@ export function BalanceTrio({
             </div>
           ) : null}
         </section>
+      </div>
+    </section>
+  );
+}
+
+/** Holds the trio's layout while the three balances are read, so the page does not shift. */
+export function BalanceTrioSkeleton() {
+  return (
+    <section className="app-panel app-balance-trio">
+      <span role="status" className="sr-only">
+        Reading your balances…
+      </span>
+      <div className="app-balance-trio-head app-panel-pad">
+        <Skeleton className="rb-skeleton--title" />
+        <Skeleton className="rb-skeleton--line" />
+        <Skeleton className="rb-skeleton--line rb-skeleton--medium" />
+      </div>
+      <div className="app-balance-lanes" aria-hidden="true">
+        {[0, 1].map((lane) => (
+          <div className="app-balance-lane" key={lane}>
+            <div className="app-balance-lane-head">
+              <Skeleton className="rb-skeleton--icon" />
+              <div className="app-balance-lane-identity">
+                <Skeleton className="rb-skeleton--title" />
+                <Skeleton className="rb-skeleton--line rb-skeleton--short" />
+              </div>
+            </div>
+            <div className="app-balance-figures">
+              {(lane === 0 ? [0, 1] : [0]).map((figure) => (
+                <div key={figure}>
+                  <Skeleton className="rb-skeleton--line rb-skeleton--short" />
+                  <Skeleton className="rb-skeleton--balance" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </section>
   );

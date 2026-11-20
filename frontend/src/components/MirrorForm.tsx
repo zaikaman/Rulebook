@@ -15,6 +15,7 @@ import { useAccount } from 'wagmi';
 
 import { useRuleControl } from '../hooks/useRuleControl.js';
 import { useSetupWallet } from '../hooks/useSetupWallet.js';
+import { Spinner } from './chrome/Spinner.js';
 import { api } from '../lib/api.js';
 import { RuleFundingError } from '../lib/ruleFunding.js';
 import { appRoutes } from '../lib/routes.js';
@@ -154,7 +155,8 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
       <h2 className="app-panel-heading">Mirror a trade</h2>
       {!owner ? <p className="app-copy">Connect the wallet that owns your mirror vault.</p> : null}
       {owner && follower.isPending ? (
-        <p role="status" className="app-copy">
+        <p role="status" className="rb-loading">
+          <Spinner />
           Checking your vault…
         </p>
       ) : null}
@@ -194,7 +196,8 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
             </select>
           </label>
           {options.length === 0 ? (
-            <p className="app-copy" role="status">
+            <p className="app-copy rb-loading" role="status">
+              {sources.some((query) => query.isPending) && <Spinner />}
               {sources.some((query) => query.isPending)
                 ? 'Checking public swaps…'
                 : 'No matching leader swaps are shown.'}
@@ -249,6 +252,7 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
               className="app-button app-button--primary"
               disabled={!source || mutation.isPending}
             >
+              {mutation.isPending && <Spinner />}
               {mutation.isPending ? 'Waiting for confirmation…' : 'Attach mirror'}
             </button>
           </div>
@@ -298,6 +302,7 @@ export function DetachMirror({ detach }: { readonly detach: () => Promise<void> 
         disabled={mutation.isPending || mutation.isSuccess}
         onClick={() => mutation.mutate()}
       >
+        {mutation.isPending && <Spinner />}
         {mutation.isPending ? 'Waiting for confirmation…' : 'Detach mirror'}
       </button>
       {mutation.isSuccess ? (

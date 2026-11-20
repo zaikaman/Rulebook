@@ -8,6 +8,8 @@ import { ListingCard } from '../components/ListingCard.js';
 import { MirrorForm } from '../components/MirrorForm.js';
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { LoadingRegion, Skeleton } from '../components/chrome/Skeleton.js';
+import { Spinner } from '../components/chrome/Spinner.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { api } from '../lib/api.js';
 import { MIRROR_ENABLED } from '../lib/contracts.js';
@@ -93,11 +95,11 @@ export function Marketplace() {
       </div>
 
       {query.isLoading ? (
-        <div aria-label="Loading public rules" aria-busy="true" className="app-listing-grid">
+        <LoadingRegion label="Loading public rules" className="app-listing-grid">
           {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="app-skeleton app-listing-skeleton animate-pulse" />
+            <Skeleton className="rb-skeleton--listing" key={index} />
           ))}
-        </div>
+        </LoadingRegion>
       ) : query.error ? (
         <ErrorState
           message="The marketplace could not be loaded."
@@ -141,7 +143,8 @@ export function Marketplace() {
                 onClick={() => void query.fetchNextPage()}
                 className="app-button"
               >
-                {query.isFetchingNextPage ? 'Loading more…' : 'Load more rules'}
+                {query.isFetchingNextPage && <Spinner />}
+                {query.isFetchingNextPage ? 'Loading more rules' : 'Load more rules'}
               </button>
             </div>
           ) : null}

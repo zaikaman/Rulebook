@@ -13,6 +13,7 @@ import { AppShell } from './AppShell.js';
 import { ErrorState } from './ErrorState.js';
 import { RuleFundingSetup } from './RuleFundingSetup.js';
 import { PageHeading } from './chrome/PageHeading.js';
+import { Spinner } from './chrome/Spinner.js';
 
 function readFundingProgress(key: string) {
   try {
@@ -63,7 +64,8 @@ export function AccountSetupGate({
               onRetry={() => void setup.refetch()}
             />
           ) : (
-            <p className="app-copy" role="status">
+            <p className="rb-loading" role="status">
+              <Spinner />
               {isReconnecting ? 'Reconnecting your wallet…' : 'Checking for an existing account…'}
             </p>
           )}

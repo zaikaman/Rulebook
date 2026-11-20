@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { LoadingRegion, Skeleton } from '../components/chrome/Skeleton.js';
 import { ChainOnlyProof } from '../components/ChainOnlyProof.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { HowItWorks } from '../components/chrome/HowItWorks.js';
@@ -144,9 +145,11 @@ export function Proof() {
           description="Reading the chain…"
           breadcrumb={breadcrumb}
         />
-        {[0, 1, 2].map((index) => (
-          <div key={index} className="app-skeleton h-28 animate-pulse" />
-        ))}
+        <LoadingRegion label="Reading the chain…" className="rb-page-skeleton">
+          {[0, 1, 2].map((index) => (
+            <Skeleton className="rb-skeleton--proof-row" key={index} />
+          ))}
+        </LoadingRegion>
       </section>
     );
   }

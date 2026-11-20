@@ -7,6 +7,8 @@ import { Link, useParams } from 'react-router';
 
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { CardGridSkeleton, LoadingRegion } from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { WorkflowProgramSummary } from './BuilderV2';
 import { ListingStatusV2 } from './ListingStatusV2';
 import { workflowV2Deployment } from './chainV2';
@@ -85,16 +87,9 @@ export function WorkflowMarketplaceV2() {
       )}
 
       {query.isPending && Boolean(workflowV2Deployment) && (
-        <div className="rb-skeleton-grid" aria-hidden="true">
-          <div className="rb-skeleton rb-skeleton--tall" />
-          <div className="rb-skeleton rb-skeleton--tall" />
-          <div className="rb-skeleton rb-skeleton--tall" />
-        </div>
-      )}
-      {query.isPending && Boolean(workflowV2Deployment) && (
-        <span className="sr-only" role="status">
-          Loading Marketplace…
-        </span>
+        <LoadingRegion label="Loading Marketplace…">
+          <CardGridSkeleton count={3} />
+        </LoadingRegion>
       )}
 
       {query.isSuccess && !items.length && (
@@ -157,7 +152,8 @@ export function WorkflowMarketplaceV2() {
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          Load more listings
+          {query.isFetchingNextPage && <Spinner />}
+          {query.isFetchingNextPage ? 'Loading more listings' : 'Load more listings'}
         </button>
       )}
     </section>

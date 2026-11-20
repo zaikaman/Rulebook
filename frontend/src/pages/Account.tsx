@@ -5,8 +5,8 @@ import { useAccount, useReadContract } from 'wagmi';
 import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, vaultAbi } from '@rulebook/shared';
 
 import { AccountFunding, useExecutionCredit } from '../components/AccountFunding.js';
+import { BalanceTrio, BalanceTrioSkeleton } from '../components/BalanceTrio.js';
 import { AccountSetupGate } from '../components/AccountSetupGate.js';
-import { BalanceTrio } from '../components/BalanceTrio.js';
 import { NetworkBadge } from '../components/NetworkBadge.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
 import { ErrorState } from '../components/ErrorState.js';
@@ -38,24 +38,28 @@ function FundedAccount({ agent, vault }: { agent: Address; vault: Address }) {
 
   return (
     <>
-      <BalanceTrio
-        accounts={{ agent, vault }}
-        principal={displayBalance(
-          principal.data,
-          (value) => `${formatUnits(value, 6)} USDC`,
-          principal.isError,
-        )}
-        executionCost={displayBalance(
-          execution.data,
-          (value) => `${formatEther(value)} ETH`,
-          execution.isError,
-        )}
-        watchingCredit={displayBalance(
-          watching.data,
-          (value) => `${formatEther(value)} REACT`,
-          watching.isError,
-        )}
-      />
+      {principal.isLoading || execution.isLoading || watching.isLoading ? (
+        <BalanceTrioSkeleton />
+      ) : (
+        <BalanceTrio
+          accounts={{ agent, vault }}
+          principal={displayBalance(
+            principal.data,
+            (value) => `${formatUnits(value, 6)} USDC`,
+            principal.isError,
+          )}
+          executionCost={displayBalance(
+            execution.data,
+            (value) => `${formatEther(value)} ETH`,
+            execution.isError,
+          )}
+          watchingCredit={displayBalance(
+            watching.data,
+            (value) => `${formatEther(value)} REACT`,
+            watching.isError,
+          )}
+        />
+      )}
       <AccountFunding agent={agent} vault={vault} onConfirmed={refreshBalances} />
       {(principal.isError || execution.isError || watching.isError) && (
         <ErrorState message="Some balances could not be loaded." onRetry={refreshBalances} />

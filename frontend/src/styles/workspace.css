@@ -715,17 +715,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.app-skeleton {
-  min-block-size: 4.25rem;
-  border-radius: 0.75rem;
-  background: var(--rb-surface-inset);
-}
-
-.app-listing-skeleton {
-  min-block-size: 15rem;
-  border-radius: 1rem;
-}
-
 .app-alert {
   border: 1px solid var(--rb-border);
   border-radius: 0.75rem;
@@ -1736,10 +1725,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-shell .animate-pulse {
-    animation: none;
-  }
-
   .app-button,
   .wallet-trigger {
     transition: none;

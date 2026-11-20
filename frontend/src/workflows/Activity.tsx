@@ -7,6 +7,8 @@ import { useAccount } from 'wagmi';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { LoadingRegion, PanelSkeleton } from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { appRoutes } from '@/lib/routes';
 import { workflowApi } from './api';
 
@@ -37,7 +39,7 @@ export function WorkflowActivity() {
       <PageHeading title="Activity" description="See what ran while you were away." />
       {!address &&
         (isConnecting || isReconnecting ? (
-          <p role="status">Connecting wallet…</p>
+          <Spinner label="Connecting wallet…" />
         ) : (
           <EmptyState
             icon={Activity01Icon}
@@ -64,7 +66,11 @@ export function WorkflowActivity() {
               <option value="attention">Needs attention</option>
             </select>
           </div>
-          {query.isPending && <p role="status">Loading workflow runs…</p>}
+          {query.isPending && (
+            <LoadingRegion label="Loading workflow runs…">
+              <PanelSkeleton rows={3} />
+            </LoadingRegion>
+          )}
           {query.isError && (
             <div className="workflow-feedback" role="alert">
               <p>Couldn’t load workflow runs. Try again in a moment.</p>
@@ -136,6 +142,7 @@ export function WorkflowActivity() {
                 disabled={query.isFetching}
                 onClick={() => void query.fetchNextPage()}
               >
+                {query.isFetchingNextPage && <Spinner />}
                 {query.isFetchingNextPage
                   ? 'Loading more runs…'
                   : query.isFetchNextPageError

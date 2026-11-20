@@ -33,6 +33,7 @@ import { testnetTokens } from '../lib/testnetTokens.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import { ErrorState } from './ErrorState.js';
 import { TxLink } from './TxLink.js';
+import { Spinner } from './chrome/Spinner.js';
 
 export function TestnetFaucets() {
   return (
@@ -407,6 +408,7 @@ export function AccountFunding({
       className="app-button app-button--primary"
       disabled={!address || !sufficient || parsed <= 0n || locked}
     >
+      {deposit.isPending && <Spinner />}
       {deposit.isPending
         ? 'Waiting for confirmation…'
         : isVault
@@ -442,7 +444,8 @@ export function AccountFunding({
       </header>
       {updatingFeeBalance && submitted && (
         <div className="space-y-3">
-          <p role="status" className="app-copy">
+          <p role="status" className="app-copy rb-loading">
+            {deposit.isPending && <Spinner />}
             {deposit.isPending
               ? 'Deposit confirmed. Updating your fee balance…'
               : 'Deposit confirmed. The fee balance is taking longer to update.'}{' '}

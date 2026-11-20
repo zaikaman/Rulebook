@@ -14,6 +14,8 @@ import { useAccount, useReadContract } from 'wagmi';
 import { BudgetAtRiskBanner } from '../components/BudgetAtRiskBanner.js';
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { LoadingRegion, Skeleton } from '../components/chrome/Skeleton.js';
+import { Spinner } from '../components/chrome/Spinner.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { RuleOrderList } from '../components/RuleOrderList.js';
 import { StatusPill } from '../components/StatusPill.js';
@@ -140,14 +142,11 @@ export function Home() {
           title="Your rules"
           description="Manage the automations owned by your wallet."
         />
-        <span role="status" className="sr-only">
-          Loading rules
-        </span>
-        <div className="space-y-2">
+        <LoadingRegion label="Loading rules" className="space-y-2">
           {[0, 1, 2].map((index) => (
-            <div key={index} className="app-skeleton h-24 animate-pulse" />
+            <Skeleton className="rb-skeleton--row" key={index} />
           ))}
-        </div>
+        </LoadingRegion>
       </section>
     );
   }
@@ -294,9 +293,7 @@ export function Home() {
               </button>
             </div>
           ) : !order ? (
-            <p className="app-copy" role="status">
-              Loading the on-chain order…
-            </p>
+            <Spinner label="Loading the on-chain order…" />
           ) : order.ids.length === 0 ? (
             <p className="app-copy">No rules are enabled for evaluation.</p>
           ) : (

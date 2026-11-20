@@ -19,6 +19,7 @@ import { bytesToHex, type Hex } from 'viem';
 import { z } from 'zod';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { workflowApi } from './api';
 import {
   getVaultProgram,
@@ -95,11 +96,31 @@ export function WorkflowBuilder() {
         <WalletControl setup />
       </div>
     );
-  if (routeId && account.isPending) return <p role="status">Reading your workflow account…</p>;
+  if (routeId && account.isPending)
+    return (
+      <section className="app-page">
+        <PageHeading title="Edit workflow" description="Reading your workflow account." />
+        <LoadingRegion label="Reading your workflow account…" className="rb-page-skeleton">
+          <Skeleton className="rb-skeleton--toolbar" />
+          <Skeleton className="rb-skeleton--canvas" />
+        </LoadingRegion>
+      </section>
+    );
   if (routeId && !account.data?.linked)
     return <p role="alert">Connect the wallet that owns this workflow.</p>;
   if ((routeId && original.isPending) || (source && listing.isPending))
-    return <p role="status">Loading the workflow…</p>;
+    return (
+      <section className="app-page">
+        <PageHeading title={routeId ? 'Edit workflow' : 'Build a workflow'} />
+        <LoadingRegion label="Loading the workflow…" className="rb-page-skeleton">
+          <Skeleton className="rb-skeleton--toolbar" />
+          <div className="rb-builder-skeleton-grid">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </div>
+        </LoadingRegion>
+      </section>
+    );
   const error = original.error ?? listing.error;
   const recovered = Boolean(
     source &&

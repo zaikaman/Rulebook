@@ -7,6 +7,7 @@ import { Link } from 'react-router';
 import { useCloneRule } from '../hooks/useCloneRule.js';
 import { appRoutes } from '../lib/routes.js';
 import { listingTitle } from '../lib/listings.js';
+import { Spinner } from './chrome/Spinner.js';
 
 export interface CloneButtonProps {
   readonly listing: Listing;
@@ -44,7 +45,8 @@ export function CloneButton({ listing }: CloneButtonProps) {
       </p>
 
       {clone.loading ? (
-        <p role="status" className="app-copy">
+        <p role="status" className="rb-loading">
+          <Spinner />
           Loading the published rule…
         </p>
       ) : null}
@@ -105,6 +107,9 @@ export function CloneButton({ listing }: CloneButtonProps) {
           onClick={() => void clone.clone()}
           className="app-button app-button--primary"
         >
+          {(clone.status === 'simulating' ||
+            clone.status === 'signing' ||
+            clone.status === 'confirming') && <Spinner />}
           {clone.status === 'simulating'
             ? 'Checking your account…'
             : clone.status === 'signing'

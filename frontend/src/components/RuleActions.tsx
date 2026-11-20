@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { describeError } from '../lib/errors.js';
 import { STATUS_LABELS, type RuleStatus } from './StatusPill.js';
+import { Spinner } from './chrome/Spinner.js';
 
 export interface RuleActionsProps {
   readonly status: RuleStatus;
@@ -41,6 +42,7 @@ export function RuleActions({
   const [display, setDisplay] = useState<RuleStatus>(status);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'pause' | 'resume' | 'cancel' | 'rearm'>();
   const [confirmingCancel, setConfirmingCancel] = useState(false);
 
   useEffect(() => {
@@ -51,11 +53,16 @@ export function RuleActions({
     onStatusChange?.(display);
   }, [display, onStatusChange]);
 
-  const run = async (next: RuleStatus, action: () => Promise<unknown>): Promise<void> => {
+  const run = async (
+    next: RuleStatus,
+    action: () => Promise<unknown>,
+    kind?: 'pause' | 'resume' | 'cancel' | 'rearm',
+  ): Promise<void> => {
     const previous = display;
     setDisplay(next);
     setError(null);
     setPending(true);
+    setPendingAction(kind);
     try {
       await action();
     } catch (cause) {
@@ -63,6 +70,7 @@ export function RuleActions({
       setError(reasonFor(cause));
     } finally {
       setPending(false);
+      setPendingAction(undefined);
     }
   };
 
@@ -79,8 +87,9 @@ export function RuleActions({
           type="button"
           className="app-button"
           disabled={pending}
-          onClick={() => void run('active', onResume)}
+          onClick={() => void run('active', onResume, 'resume')}
         >
+          {pendingAction === 'resume' && <Spinner />}
           Resume rule
         </button>
       ) : null}
@@ -90,8 +99,9 @@ export function RuleActions({
           type="button"
           className="app-button"
           disabled={pending}
-          onClick={() => void run('active', onRearm)}
+          onClick={() => void run('active', onRearm, 'rearm')}
         >
+          {pendingAction === 'rearm' && <Spinner />}
           Rearm rule
         </button>
       ) : null}
@@ -101,8 +111,9 @@ export function RuleActions({
           type="button"
           className="app-button"
           disabled={pending}
-          onClick={() => void run('paused', onPause)}
+          onClick={() => void run('paused', onPause, 'pause')}
         >
+          {pendingAction === 'pause' && <Spinner />}
           Pause rule
         </button>
       ) : null}
@@ -119,9 +130,10 @@ export function RuleActions({
                 disabled={pending}
                 onClick={() => {
                   setConfirmingCancel(false);
-                  void run('cancelled', onCancel);
+                  void run('cancelled', onCancel, 'cancel');
                 }}
               >
+                {pendingAction === 'cancel' && <Spinner />}
                 Confirm cancel
               </button>
               <button

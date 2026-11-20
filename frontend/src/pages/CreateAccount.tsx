@@ -30,6 +30,7 @@ import { useAccount, useBalance, useConfig, useReadContract } from 'wagmi';
 import { getAccount } from 'wagmi/actions';
 
 import { WalletControl } from '../components/chrome/WalletControl.js';
+import { Spinner } from '../components/chrome/Spinner.js';
 import { AccountSetupFrame } from '../components/AccountSetupFrame.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { TxLink } from '../components/TxLink.js';
@@ -550,9 +551,15 @@ export function CreateAccount({
             </span>
             <div>
               {connected ? (
-                <p role="status">Checking your wallet’s networks…</p>
+                <p className="rb-loading" role="status">
+                  <Spinner />
+                  Checking your wallet’s networks…
+                </p>
               ) : isReconnecting ? (
-                <p role="status">Reconnecting your wallet…</p>
+                <p className="rb-loading" role="status">
+                  <Spinner />
+                  Reconnecting your wallet…
+                </p>
               ) : (
                 <>
                   <h2>Choose a wallet</h2>
@@ -566,7 +573,10 @@ export function CreateAccount({
         {stage === 'networks' && (
           <div className="account-setup__section account-setup__stack">
             {checkingNetworks ? (
-              <p role="status">Checking your wallet’s networks…</p>
+              <p className="rb-loading" role="status">
+                <Spinner />
+                Checking your wallet’s networks…
+              </p>
             ) : (
               <>
                 <p id="setup-network-instructions">
@@ -590,6 +600,7 @@ export function CreateAccount({
                       }
                     }}
                   >
+                    {walletAccess.isPending && <Spinner />}
                     {walletAccess.isPending
                       ? 'Waiting for wallet…'
                       : networkCheck.isError || connector?.type === 'walletConnect'
@@ -602,7 +613,8 @@ export function CreateAccount({
               </>
             )}
             {networkAccess && walletAccess.isPending && (
-              <p role="status">
+              <p className="rb-loading" role="status">
+                <Spinner />
                 Approve each request in your wallet. If asked, allow Rulebook on both networks.
               </p>
             )}
@@ -776,6 +788,7 @@ export function CreateAccount({
                         disabled={walletAccess.isPending}
                         onClick={() => walletAccess.mutate('refresh-access')}
                       >
+                        {!networkAccess && walletAccess.isPending && <Spinner />}
                         {!networkAccess && walletAccess.isPending
                           ? 'Waiting for wallet…'
                           : 'Refresh wallet access'}

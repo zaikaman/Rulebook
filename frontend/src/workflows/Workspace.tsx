@@ -13,6 +13,8 @@ import { Link, useLocation, useParams } from 'react-router';
 import { formatUnits, zeroAddress, zeroHash, type Address, type Hex } from 'viem';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { LoadingRegion, PanelSkeleton, Skeleton } from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { appRoutes } from '@/lib/routes';
 import { unichainPublicClient } from '@/lib/wagmi';
 import { Field } from './Builder';
@@ -74,14 +76,16 @@ export function Workflows() {
           The builder is available. Activation requires a configured testnet deployment.
         </p>
       )}
-      <QueryStatus
-        pending={Boolean(
-          wallet.owner &&
-          workflowDeploymentReady &&
-          (account.isPending || (account.data?.linked && rows.isPending)),
-        )}
-        error={account.error ?? rows.error}
-      />
+      <QueryStatus error={account.error ?? rows.error} />
+      {Boolean(
+        wallet.owner &&
+        workflowDeploymentReady &&
+        (account.isPending || (account.data?.linked && rows.isPending)),
+      ) && (
+        <LoadingRegion label="Reading your workflows…">
+          <PanelSkeleton rows={2} />
+        </LoadingRegion>
+      )}
       {rows.data?.length === 0 && (
         <p className="app-copy">No workflows have been activated from this wallet.</p>
       )}
@@ -156,11 +160,13 @@ export function WorkflowDetail() {
         <PageHeading title="Workflow" />
         {!wallet.owner ? (
           <WalletControl setup />
+        ) : query.isPending || account.isPending ? (
+          <LoadingRegion label="Reading your workflow…" className="rb-page-skeleton">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </LoadingRegion>
         ) : (
-          <QueryStatus
-            pending={Boolean((addresses?.linked && query.isPending) || account.isPending)}
-            error={query.error ?? account.error}
-          />
+          <QueryStatus error={query.error ?? account.error} />
         )}
         {wallet.owner && !account.isPending && !addresses?.linked && (
           <Link className="app-link" to="/account">
@@ -285,7 +291,12 @@ export function WorkflowDetail() {
       )}
       <section className="app-panel app-panel-pad" aria-label="Recent runs">
         <h2 className="app-panel-heading">Recent runs</h2>
-        <QueryStatus pending={history.isPending} error={history.error} />
+        <QueryStatus error={history.error} />
+        {history.isPending && (
+          <LoadingRegion label="Loading recent runs…">
+            <PanelSkeleton rows={2} />
+          </LoadingRegion>
+        )}
         {history.data?.runs.length === 0 && (
           <p className="app-copy">Runs will appear here after the Agent sees a matching event.</p>
         )}
@@ -321,7 +332,14 @@ export function WorkflowRunDetail() {
     return (
       <section className="app-page workflow-page">
         <PageHeading title="Run proof" breadcrumb={breadcrumb} />
-        <QueryStatus pending={query.isPending} error={query.error} />
+        {query.isPending ? (
+          <LoadingRegion label="Reading the run proof…" className="rb-page-skeleton">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </LoadingRegion>
+        ) : (
+          <QueryStatus error={query.error} />
+        )}
       </section>
     );
   const draft = decodeWorkflow(run.program, 'Workflow');
@@ -447,7 +465,12 @@ export function WorkflowAccount() {
       )}
       {wallet.owner && workflowDeploymentReady && (
         <>
-          <QueryStatus pending={account.isPending} error={account.error} />
+          <QueryStatus error={account.error} />
+          {account.isPending && (
+            <LoadingRegion label="Reading your workflow account…">
+              <PanelSkeleton rows={3} />
+            </LoadingRegion>
+          )}
           {addresses && !ready && (
             <button
               type="button"
@@ -495,7 +518,12 @@ export function WorkflowAccount() {
               <dd>{balance(balances.data?.walletUsdc, 6, 'USDC')}</dd>
             </div>
           </dl>
-          <QueryStatus pending={balances.isPending} error={balances.error} />
+          <QueryStatus error={balances.error} />
+          {balances.isPending && (
+            <LoadingRegion label="Reading your balances…">
+              <PanelSkeleton rows={3} rowClassName="rb-skeleton--table-row" />
+            </LoadingRegion>
+          )}
           <div className="workflow-actions">
             <a
               className="app-link"
@@ -634,12 +662,12 @@ function AccountLink({ chain, address }: { chain: number; address: Address }) {
   );
 }
 
-function QueryStatus({ pending, error }: { pending: boolean; error: Error | null }) {
+function QueryStatus({ pending = false, error }: { pending?: boolean; error: Error | null }) {
   return error ? (
     <p role="alert" className="workflow-error">
       {error.message.split('\n')[0]}
     </p>
   ) : pending ? (
-    <p role="status">Loading…</p>
+    <Spinner label="Loading…" />
   ) : null;
 }

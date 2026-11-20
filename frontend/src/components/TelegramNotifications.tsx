@@ -12,6 +12,7 @@ import { Link } from 'react-router';
 import { useSignTypedData } from 'wagmi';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
+import { Spinner } from './chrome/Spinner.js';
 import { api, ApiError } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 
@@ -177,7 +178,8 @@ function TelegramSettingsPanel({
         </div>
       )}
       {authorized && !current && !settings.isError && (
-        <p className="app-copy" role="status">
+        <p className="app-copy rb-loading" role="status">
+          <Spinner />
           Loading Telegram settings…
         </p>
       )}
@@ -393,7 +395,8 @@ function TelegramSettingsPanel({
         </>
       )}
       {busy && (
-        <p className="app-copy" role="status">
+        <p className="rb-loading" role="status">
+          <Spinner />
           {busy}
         </p>
       )}

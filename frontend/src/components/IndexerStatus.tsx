@@ -2,6 +2,7 @@ import { getChain } from '@rulebook/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '../lib/api.js';
+import { Spinner } from './chrome/Spinner.js';
 
 const HEALTH_KEY = ['health'] as const;
 
@@ -41,6 +42,7 @@ export function IndexerStatus() {
         disabled={health.isFetching}
         onClick={() => void client.invalidateQueries()}
       >
+        {health.isFetching && <Spinner />}
         {health.isFetching ? 'Checking…' : 'Retry connection'}
       </button>
     </div>

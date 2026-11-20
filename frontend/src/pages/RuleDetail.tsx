@@ -18,6 +18,7 @@ import { AddressLink } from '../components/AddressLink.js';
 import { BudgetAtRiskBanner } from '../components/BudgetAtRiskBanner.js';
 import { BudgetMeter } from '../components/BudgetMeter.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { LoadingRegion, Skeleton } from '../components/chrome/Skeleton.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { ExecutionTable } from '../components/ExecutionTable.js';
 import { DetachMirror } from '../components/MirrorForm.js';
@@ -184,8 +185,10 @@ export function RuleDetail() {
     return (
       <section aria-busy="true" className="app-page">
         <PageHeading title="Rule details" breadcrumb={breadcrumb} />
-        <div className="app-skeleton h-40 animate-pulse" />
-        <div className="app-skeleton h-24 animate-pulse" />
+        <LoadingRegion label="Loading rule details" className="rb-page-skeleton">
+          <Skeleton className="rb-skeleton--record" />
+          <Skeleton className="rb-skeleton--panel" />
+        </LoadingRegion>
       </section>
     );
   }

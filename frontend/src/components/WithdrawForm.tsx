@@ -8,6 +8,7 @@ import { signatureDetails } from '../lib/signatures.js';
 
 import { ErrorState } from './ErrorState.js';
 import { NetworkBadge } from './NetworkBadge.js';
+import { Spinner } from './chrome/Spinner.js';
 import { TxLink } from './TxLink.js';
 
 export interface WithdrawFormProps {
@@ -185,6 +186,7 @@ export function WithdrawForm({
           onClick={() => void submit()}
           className="app-button app-button--primary"
         >
+          {(submitting || receipt.isLoading) && <Spinner />}
           {submitting || receipt.isLoading ? 'Confirming on Unichain…' : 'Withdraw'}
         </button>
       </div>

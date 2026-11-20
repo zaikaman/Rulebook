@@ -8,6 +8,8 @@ import {
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { LoadingRegion, PanelSkeleton, Skeleton } from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { AddressLink } from '@/components/AddressLink';
 import { Field } from './Builder';
 import { WorkflowGraph, WorkflowOutline } from './Graph';
@@ -114,7 +116,11 @@ export function WorkflowMarketplace() {
           </select>
         </Field>
       </div>
-      {query.isPending ? <p role="status">Loading public workflows…</p> : null}
+      {query.isPending ? (
+        <LoadingRegion label="Loading public workflows…">
+          <PanelSkeleton rows={4} rowClassName="rb-skeleton--table-row" />
+        </LoadingRegion>
+      ) : null}
       {query.isError ? (
         <div className="workflow-feedback" role="alert">
           <p>{query.error.message}</p>
@@ -210,7 +216,8 @@ export function WorkflowMarketplace() {
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          {query.isFetchingNextPage ? 'Loading…' : 'Load more workflows'}
+          {query.isFetchingNextPage && <Spinner />}
+          {query.isFetchingNextPage ? 'Loading more workflows' : 'Load more workflows'}
         </button>
       )}
     </section>
@@ -235,9 +242,14 @@ export function WorkflowListingDetail() {
         <Link className="app-link" to="/marketplace">
           Back to Marketplace
         </Link>
-        <p role={query.isError ? 'alert' : 'status'}>
-          {query.error?.message ?? 'Loading the workflow…'}
-        </p>
+        {query.isError ? (
+          <p role="alert">{query.error.message}</p>
+        ) : (
+          <LoadingRegion label="Loading the workflow…" className="rb-page-skeleton">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </LoadingRegion>
+        )}
       </section>
     );
   const draft = decodeWorkflow(item.program, item.title);

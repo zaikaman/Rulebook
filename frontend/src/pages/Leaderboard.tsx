@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 
 import { EmptyState } from '../components/chrome/EmptyState.js';
 import { PageHeading } from '../components/chrome/PageHeading.js';
+import { LoadingRegion, PanelSkeleton } from '../components/chrome/Skeleton.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { api } from '../lib/api.js';
 import { shortAddress } from '../lib/listings.js';
@@ -102,11 +103,9 @@ export function Leaderboard() {
       />
 
       {query.isLoading ? (
-        <div aria-label="Loading rankings" aria-busy="true" className="space-y-2">
-          {[0, 1, 2].map((index) => (
-            <div key={index} className="app-skeleton animate-pulse" />
-          ))}
-        </div>
+        <LoadingRegion label="Loading rankings">
+          <PanelSkeleton rows={3} rowClassName="rb-skeleton--table-row" />
+        </LoadingRegion>
       ) : query.error ? (
         <ErrorState
           message="The leaderboard could not be loaded."

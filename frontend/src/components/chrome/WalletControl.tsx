@@ -12,6 +12,7 @@ import { useId, useRef, useState, useSyncExternalStore, type CSSProperties } fro
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi';
 
 import { isWalletRejection } from '@/lib/errors';
+import { Spinner } from './Spinner';
 
 function subscribeToBrowserWallet(onChange: () => void) {
   window.addEventListener('ethereum#initialized', onChange);
@@ -110,7 +111,11 @@ export function WalletControl({ setup = false }: { setup?: boolean }) {
           </>
         ) : (
           <>
-            <HugeiconsIcon icon={Wallet01Icon} size={18} aria-hidden="true" />
+            {connecting ? (
+              <Spinner size={16} />
+            ) : (
+              <HugeiconsIcon icon={Wallet01Icon} size={18} aria-hidden="true" />
+            )}
             <span>
               {connecting ? 'Connecting…' : setup ? 'Connect wallet to start' : 'Connect wallet'}
             </span>
@@ -178,6 +183,7 @@ export function WalletControl({ setup = false }: { setup?: boolean }) {
                       data-tone={CHAIN_CONFIGS.get(candidate.id)?.role}
                       aria-hidden="true"
                     />
+                    {switching && <Spinner />}
                     <span>{switching ? `Switching to ${candidate.name}…` : candidate.name}</span>
                     {current && <HugeiconsIcon icon={Tick02Icon} size={16} aria-hidden="true" />}
                   </button>
@@ -215,7 +221,11 @@ export function WalletControl({ setup = false }: { setup?: boolean }) {
                 disabled={disconnection.isPending || network.isPending}
                 onClick={() => disconnection.disconnect({ connector }, { onSuccess: closePanel })}
               >
-                <HugeiconsIcon icon={Logout03Icon} size={16} aria-hidden="true" />
+                {disconnection.isPending ? (
+                  <Spinner size={16} />
+                ) : (
+                  <HugeiconsIcon icon={Logout03Icon} size={16} aria-hidden="true" />
+                )}
                 <span>{disconnection.isPending ? 'Disconnecting…' : 'Disconnect'}</span>
               </button>
               {disconnection.error && (

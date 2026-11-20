@@ -28,6 +28,7 @@ import { PageHeading } from '../components/chrome/PageHeading.js';
 import { useCreateRule } from '../hooks/useCreateRule.js';
 import { appRoutes } from '../lib/routes.js';
 import { formatRuleSentence } from '../lib/rules.js';
+import { Spinner } from '../components/chrome/Spinner.js';
 import { unichainPublicClient } from '../lib/wagmi.js';
 import '../styles/composer.css';
 
@@ -182,7 +183,8 @@ export function CreateRuleForm({
             </div>
           </div>
           {waitingForVault && (
-            <p role="status" className="rule-composer__hint">
+            <p role="status" className="rule-composer__hint rb-loading">
+              <Spinner size={14} />
               Checking vault limits…
             </p>
           )}
@@ -226,6 +228,7 @@ export function CreateRuleForm({
             disabled={busy || waitingForVault || vaultUnavailable}
             className="rule-composer__submit"
           >
+            {busy && <Spinner />}
             {status === 'simulating'
               ? 'Simulating…'
               : status === 'signing'

@@ -44,6 +44,14 @@ import { WalletControl } from '@/components/chrome/WalletControl';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { HowItWorks } from '@/components/chrome/HowItWorks';
+import {
+  CardGridSkeleton,
+  FeedSkeleton,
+  LoadingRegion,
+  MetricsSkeleton,
+  Skeleton,
+} from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
@@ -159,15 +167,10 @@ export function WorkflowsV2() {
       )}
 
       {!!owner && Boolean(workflowV2Deployment) && rows.isPending && (
-        <div className="rb-skeleton-grid" aria-hidden="true">
-          <div className="rb-skeleton rb-skeleton--tall" />
-          <div className="rb-skeleton rb-skeleton--tall" />
-        </div>
-      )}
-      {!!owner && Boolean(workflowV2Deployment) && rows.isFetching && !rows.data && (
-        <span className="sr-only" role="status">
-          Reading your workflows…
-        </span>
+        <LoadingRegion label="Reading your workflows…" className="rb-page-skeleton">
+          <MetricsSkeleton />
+          <CardGridSkeleton count={2} />
+        </LoadingRegion>
       )}
 
       {!!owner && rows.data?.length === 0 && (
@@ -261,7 +264,24 @@ export function WorkflowDetailV2() {
         {data.error.message}
       </p>
     );
-  if (!data.data) return <p role="status">Reading your workflow…</p>;
+  if (!data.data)
+    return (
+      <section className="app-page">
+        <PageHeading
+          eyebrow="Workflow"
+          title="Workflow"
+          description="Reading the program, its activation state, and the path it settles through."
+        />
+        <LoadingRegion label="Reading your workflow…" className="rb-page-skeleton">
+          <div className="rb-page-skeleton-toolbar">
+            <Skeleton className="rb-skeleton--chip" />
+            <Skeleton className="rb-skeleton--chip" />
+          </div>
+          <Skeleton className="rb-skeleton--canvas" />
+          <Skeleton className="rb-skeleton--panel" />
+        </LoadingRegion>
+      </section>
+    );
   const item = data.data;
   const program = decodeWorkflowV2(item.program);
   const payout = program.nodes.some((node) =>
@@ -520,6 +540,7 @@ export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
   const { id: requestedId } = useParams();
   const [filter, setFilter] = useState<ActivityFilter>('all');
+  const [refreshing, setRefreshing] = useState(false);
   const requested = workflowIdSchema.safeParse(requestedId);
   const query = useInfiniteQuery({
     queryKey: ['workflow-v2', 'activity', wallet.owner, requestedId],
@@ -554,11 +575,18 @@ export function WorkflowActivityV2() {
             <button
               type="button"
               className="app-button"
-              disabled={query.isFetching}
-              onClick={() => void query.refetch()}
+              disabled={refreshing}
+              onClick={() => {
+                setRefreshing(true);
+                void query.refetch().finally(() => setRefreshing(false));
+              }}
             >
-              <HugeiconsIcon icon={RefreshIcon} size={15} aria-hidden="true" />
-              Refresh
+              {refreshing ? (
+                <Spinner />
+              ) : (
+                <HugeiconsIcon icon={RefreshIcon} size={15} aria-hidden="true" />
+              )}
+              {refreshing ? 'Refreshing' : 'Refresh'}
             </button>
           </>
         }
@@ -614,15 +642,14 @@ export function WorkflowActivityV2() {
       )}
 
       {query.isPending && Boolean(wallet.owner) && Boolean(workflowV2Deployment) && (
-        <div className="rb-skeleton-grid" aria-hidden="true">
-          <div className="rb-skeleton" />
-          <div className="rb-skeleton" />
-        </div>
-      )}
-      {query.isPending && Boolean(wallet.owner) && Boolean(workflowV2Deployment) && (
-        <span className="sr-only" role="status">
-          Loading workflow activity…
-        </span>
+        <LoadingRegion label="Loading workflow activity…" className="rb-page-skeleton">
+          <div className="rb-page-skeleton-toolbar">
+            {[0, 1, 2, 3].map((index) => (
+              <Skeleton className="rb-skeleton--chip" key={index} />
+            ))}
+          </div>
+          <FeedSkeleton count={3} />
+        </LoadingRegion>
       )}
 
       {!!wallet.owner && query.isSuccess && rows.length > 0 && (
@@ -742,7 +769,8 @@ export function WorkflowActivityV2() {
           disabled={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
-          Load more runs
+          {query.isFetchingNextPage && <Spinner />}
+          {query.isFetchingNextPage ? 'Loading more runs' : 'Load more runs'}
         </button>
       )}
       <V2Feedback wallet={wallet} />
@@ -764,7 +792,7 @@ function RunPath({ run }: { run: z.infer<typeof runSchema> }) {
     },
   });
   if (query.error) return <p role="alert">The historical workflow path could not be read.</p>;
-  if (!query.data) return <p role="status">Reading the workflow version…</p>;
+  if (!query.data) return <Spinner label="Reading the workflow version…" />;
   return (
     <WorkflowCanvas
       draft={diagramV2(toDraft(query.data, run.title)).canvas}
@@ -1138,16 +1166,21 @@ export function WorkflowAccountV2() {
       )}
 
       {!!wallet.owner && Boolean(settlementFactory()) && data.isPending && (
-        <div className="rb-skeleton-grid" aria-hidden="true">
-          <div className="rb-skeleton" />
-          <div className="rb-skeleton" />
-          <div className="rb-skeleton" />
-        </div>
-      )}
-      {!!wallet.owner && Boolean(settlementFactory()) && data.isPending && (
-        <span className="sr-only" role="status">
-          Reading your testnet account…
-        </span>
+        <LoadingRegion label="Reading your testnet account…" className="rb-page-skeleton">
+          <div className="rb-balance-grid" aria-hidden="true">
+            {[0, 1, 2].map((index) => (
+              <div className="rb-balance" key={index}>
+                <Skeleton className="rb-skeleton--line rb-skeleton--short" />
+                <Skeleton className="rb-skeleton--balance" />
+                <Skeleton className="rb-skeleton--line" />
+              </div>
+            ))}
+          </div>
+          <div className="rb-split" aria-hidden="true">
+            <Skeleton className="rb-skeleton--panel" />
+            <Skeleton className="rb-skeleton--panel" />
+          </div>
+        </LoadingRegion>
       )}
 
       {wallet.owner && funds?.vault === zeroAddress && (

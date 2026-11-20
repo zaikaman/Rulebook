@@ -44,6 +44,8 @@ import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
+import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { diagramV2, replacePath } from './diagramV2';
@@ -163,7 +165,12 @@ function Input({
 export function V2Feedback({ wallet }: { wallet: ReturnType<typeof useWorkflowV2Wallet> }) {
   return (
     <div className="workflow-feedback" aria-live="polite">
-      {wallet.status && <p>{wallet.status}</p>}
+      {wallet.status && (
+        <p className={wallet.busy ? 'rb-loading' : undefined}>
+          {wallet.busy && <Spinner size={13} />}
+          {wallet.status}
+        </p>
+      )}
       {wallet.error && (
         <p className="workflow-error" role="alert">
           {wallet.error}
@@ -568,7 +575,19 @@ export function WorkflowBuilderV2() {
         <WalletControl setup />
       </section>
     );
-  if (raw && query.isPending) return <p role="status">Reading your workflow…</p>;
+  if (raw && query.isPending)
+    return (
+      <section className="app-page">
+        <PageHeading title="Edit workflow" description="Reading the program you saved." />
+        <LoadingRegion label="Reading your workflow…" className="rb-page-skeleton">
+          <Skeleton className="rb-skeleton--toolbar" />
+          <div className="rb-builder-skeleton-grid">
+            <Skeleton className="rb-skeleton--canvas" />
+            <Skeleton className="rb-skeleton--panel" />
+          </div>
+        </LoadingRegion>
+      </section>
+    );
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (copy && !copyId.success) return <p role="alert">This listing link is invalid.</p>;
   const recipe = workflowV2Recipes.find((item) => item.id === params.get('recipe'))?.id;

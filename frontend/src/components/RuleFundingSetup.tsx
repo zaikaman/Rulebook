@@ -13,6 +13,7 @@ import { roundUpFee } from '../lib/setupFees.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
 import { AccountFunding } from './AccountFunding.js';
 import { ACCOUNT_SETUP_STEPS, AccountSetupFrame } from './AccountSetupFrame.js';
+import { Spinner } from './chrome/Spinner.js';
 import { ErrorState } from './ErrorState.js';
 
 const setupFees = ['watching', 'execution'] as const;
@@ -195,9 +196,11 @@ export function RuleFundingSetup({
                       className="account-setup__status"
                       data-tone={hasCredit ? 'positive' : 'neutral'}
                     >
-                      {hasCredit && (
+                      {hasCredit ? (
                         <HugeiconsIcon icon={Tick02Icon} size={14} aria-hidden="true" />
-                      )}
+                      ) : status === 'Checking…' || status === 'Updating balance' ? (
+                        <Spinner size={12} />
+                      ) : null}
                       {status}
                     </span>
                     {balance !== undefined && (
