@@ -46,6 +46,7 @@ export class WorkflowV2Indexer {
     clients: { lasna: PublicClient; unichain: PublicClient },
     config: WorkflowV2Deployment,
     private readonly logger: FastifyBaseLogger,
+    private readonly stageTelegram = false,
   ) {
     this.deployment = config.lasna.factory.toLowerCase();
     this.sources = [
@@ -164,6 +165,26 @@ export class WorkflowV2Indexer {
     const activations = [];
     const runs = [];
     const outcomes = [];
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const blockTimes = new Map<bigint, number>();
+    async function timeAt(blockNumber: bigint) {
+      const cached = blockTimes.get(blockNumber);
+      if (cached !== undefined) return cached;
+      const block = await client.getBlock({ blockNumber });
+      const time = Number(block.timestamp) * 1000;
+      blockTimes.set(blockNumber, time);
+      return time;
+    }
+    // A backfill range entirely outside the delivery window needs no per-event header reads.
+    const stageTelegram =
+      this.stageTelegram &&
+      events.some(
+        (log) =>
+          log.eventName === 'Outcome' &&
+          log.args.status === 1 &&
+          trusted.has(log.address.toLowerCase()),
+      ) &&
+      (await timeAt(toBlock)) > cutoff;
     for (const log of events) {
       const address = log.address.toLowerCase();
       if (!trusted.has(address)) continue;
@@ -196,6 +217,8 @@ export class WorkflowV2Indexer {
           expires_at: Number(a.expiresAt),
         });
       } else {
+        const blockTime =
+          stageTelegram && log.args.status === 1 ? await timeAt(log.blockNumber) : 0;
         outcomes.push({
           ...row,
           chain,
@@ -207,6 +230,7 @@ export class WorkflowV2Indexer {
           status: log.args.status,
           path: log.args.path === 255 ? null : log.args.path,
           reason: log.args.reason,
+          ...(blockTime > cutoff ? { telegram_block_time: new Date(blockTime).toISOString() } : {}),
         });
       }
     }

@@ -59,9 +59,17 @@ async function readSetup(owner: Address, wallet: SetupWallet) {
 }
 
 /** Read the factories on-chain before each retry so confirmed steps are never submitted twice. */
-export function useAccountSetup({ owner, wallet }: { owner?: Address; wallet: SetupWallet }) {
+export function useAccountSetup({
+  owner,
+  wallet,
+  scope,
+}: {
+  owner?: Address;
+  wallet: SetupWallet;
+  scope?: string;
+}) {
   const queryClient = useQueryClient();
-  const key = ['wallet-setup', owner];
+  const key = ['wallet-setup', owner, scope];
   const account = useQuery({
     queryKey: key,
     enabled: !!owner,
@@ -99,6 +107,7 @@ export function useAccountSetup({ owner, wallet }: { owner?: Address; wallet: Se
         queryClient.invalidateQueries({ queryKey: ['balance'] }),
         queryClient.invalidateQueries({ queryKey: ['readContract'] }),
         queryClient.invalidateQueries({ queryKey: ['mirror-account', owner] }),
+        scope && queryClient.invalidateQueries({ queryKey: ['workflow-v2'] }),
       ]);
     },
   });

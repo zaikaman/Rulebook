@@ -1,7 +1,7 @@
 import { useLocation } from 'react-router';
 import { Link } from 'react-router';
 
-import { appRoutes } from '@/lib/routes';
+import { appRoutes, legacyWorkspace } from '@/lib/routes';
 import { WalletControl } from './WalletControl.js';
 
 function pageLabel(pathname: string): string {
@@ -9,14 +9,16 @@ function pageLabel(pathname: string): string {
   if (/^\/workflows\/[^/]+\/edit$/.test(pathname)) return 'Edit workflow';
   if (/^\/workflows\/[^/]+$/.test(pathname)) return 'Workflow';
   if (pathname === appRoutes.workflows) return 'Workflows';
-  if (pathname === appRoutes.activity || pathname.startsWith(`${appRoutes.runs}/`)) {
-    return 'Activity';
-  }
+  if (pathname === appRoutes.activity) return 'Activity';
+  if (pathname.startsWith(`${appRoutes.runs}/`))
+    return legacyWorkspace ? 'Activity' : 'Workflow proof';
   if (/^\/marketplace\/[^/]+$/.test(pathname)) return 'Listing';
   if (pathname === appRoutes.marketplace) return 'Marketplace';
-  if (pathname === appRoutes.account) return 'Account & Vault';
-  if (pathname.startsWith(appRoutes.proof)) return 'Proof Explorer';
-  if (pathname === appRoutes.cost) return 'Cost Model';
+  if (pathname === appRoutes.account || pathname === appRoutes.accountFunds)
+    return 'Account & Vault';
+  if (pathname.startsWith(appRoutes.proof))
+    return legacyWorkspace ? 'Proof Explorer' : 'Workflow proof';
+  if (pathname === appRoutes.cost) return legacyWorkspace ? 'Cost Model' : 'Workflow costs';
   if (pathname.startsWith(appRoutes.rules)) return 'Rules';
   return 'Workspace';
 }

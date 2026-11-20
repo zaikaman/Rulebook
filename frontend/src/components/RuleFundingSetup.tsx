@@ -56,10 +56,11 @@ function feeBalanceOptions(fee: RuleFee, beneficiary: Address) {
   });
 }
 
-function recommendedDeposit(fee: RuleFee, balance: bigint, debt: bigint) {
+function recommendedDeposit(fee: RuleFee, balance: bigint, debt: bigint, workflow: boolean) {
   const minimum = feeCreditWarningThreshold(ruleFees[fee].token.network.chainId);
   const dailyMonitoring = parseEther(costModel.dailyDca.monitoringReactPerYear) / 365n;
-  const target = fee === 'watching' && dailyMonitoring > minimum ? dailyMonitoring : minimum;
+  const target =
+    !workflow && fee === 'watching' && dailyMonitoring > minimum ? dailyMonitoring : minimum;
   const deposit = debt + (balance < target ? target - balance : 0n);
   return deposit > 0n ? formatEther(roundUpFee(deposit)) : undefined;
 }
@@ -68,11 +69,13 @@ export function RuleFundingSetup({
   agent,
   vault,
   fee,
+  workflow = false,
   onCompose,
 }: {
   agent: Address;
   vault: Address;
   fee?: RuleFee;
+  workflow?: boolean;
   onCompose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -156,8 +159,9 @@ export function RuleFundingSetup({
   const current = choice && choice !== 'vault' ? feeBalances[choice].data : undefined;
   const suggestedAmount =
     current && choice && choice !== 'vault'
-      ? recommendedDeposit(choice, current.balance, current.debt)
+      ? recommendedDeposit(choice, current.balance, current.debt, workflow)
       : undefined;
+  const item = workflow ? 'workflow' : 'rule';
 
   return (
     <AccountSetupFrame
@@ -165,16 +169,21 @@ export function RuleFundingSetup({
       description={
         fee
           ? 'Top up this fee balance directly from your testnet wallet.'
-          : 'Add the testnet fees your rules need to run.'
+          : `Add the testnet fees your ${item}s need to run.`
       }
       step={fee ? undefined : ACCOUNT_SETUP_STEPS}
       connected
       focusOnMount
       compact
+      workflow={workflow}
+      manageAccount={workflow && !progress?.busy}
     >
       <section className="app-panel" aria-labelledby="account-setup-title">
         <div className="account-setup__section">
-          <ul className="account-setup__fees" aria-label="Rule fee balances">
+          <ul
+            className="account-setup__fees"
+            aria-label={workflow ? 'Workflow fee balances' : 'Rule fee balances'}
+          >
             {balances.map(({ key, status, balance, debt }) => {
               const { title, token } = ruleFees[key];
               const hasCredit = status === 'Funded';
@@ -232,6 +241,7 @@ export function RuleFundingSetup({
               key={choice}
               agent={agent}
               vault={vault}
+              workflow={workflow}
               guided={{ choice, suggestedAmount, debt: current?.debt, onRefresh: refresh }}
               onFeeConfirmed={
                 choice === 'vault' ? undefined : (block) => reconcileFee(choice, block)
@@ -250,8 +260,8 @@ export function RuleFundingSetup({
               {funded ? (
                 <>
                   <div>
-                    <h2>Your rule fees are funded</h2>
-                    <p>Add test USDC if your first rule will spend it.</p>
+                    <h2>Your {item} fees are funded</h2>
+                    <p>Add test USDC if your first {item} will spend it.</p>
                   </div>
                   <button
                     type="button"
@@ -264,7 +274,7 @@ export function RuleFundingSetup({
                   </button>
                 </>
               ) : !progress?.busy ? (
-                <p>You can still create a rule and add fees before you expect it to run.</p>
+                <p>You can still create a {item} and add fees before you expect it to run.</p>
               ) : null}
               <button
                 ref={footer}
@@ -273,7 +283,13 @@ export function RuleFundingSetup({
                 disabled={progress?.busy}
                 onClick={onCompose}
               >
-                {funded ? 'Compose your first rule' : 'Compose and fund later'}
+                {workflow
+                  ? funded
+                    ? 'Build your first workflow'
+                    : 'Build a workflow and fund later'
+                  : funded
+                    ? 'Compose your first rule'
+                    : 'Compose and fund later'}
                 {funded && <HugeiconsIcon icon={ArrowRight02Icon} size={17} aria-hidden="true" />}
               </button>
             </>

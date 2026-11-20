@@ -5,6 +5,7 @@ import {
   readAmount,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowIdSchema,
+  workflowV2RunStatusSchema,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowVaultV2Abi,
@@ -29,8 +30,8 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useEffect, useRef, useState } from 'react';
+import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import {
   encodeFunctionData,
   erc20Abi,
@@ -43,6 +44,8 @@ import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { WalletAccountSetupGate } from '@/components/AccountSetupGate';
+import { AppShell } from '@/components/AppShell';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { HowItWorks } from '@/components/chrome/HowItWorks';
@@ -54,7 +57,10 @@ import {
   Skeleton,
 } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
+import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
+import { TelegramNotifications } from '@/components/TelegramNotifications';
+import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
   readFundsV2,
@@ -65,12 +71,14 @@ import {
   v2Explorer,
   v2Network,
   workflowV2Deployment,
+  workflowActivationEnabled,
   workflowClient,
 } from './chainV2';
 import { toDraft } from './modelV2';
 import { WorkflowCanvas } from './Graph';
 import { canvasLeaf, diagramV2 } from './diagramV2';
 import { v2ApiBase } from './listingV2';
+import { WorkflowCreditNotice } from './WorkflowCredit';
 
 export function WorkflowsV2() {
   const { owner } = useWorkflowV2Wallet();
@@ -81,9 +89,9 @@ export function WorkflowsV2() {
     refetchInterval: 12_000,
   });
   const workflows = rows.data ?? [];
-  const watching = workflows.filter((row) => row.active).length;
+  const activeCount = workflows.filter((row) => row.active).length;
   const awaiting = workflows.filter((row) => !row.active && row.staged && row.auth[3]).length;
-  const paused = workflows.length - watching - awaiting;
+  const paused = workflows.length - activeCount - awaiting;
 
   return (
     <section className="app-page">
@@ -148,6 +156,8 @@ export function WorkflowsV2() {
         </div>
       )}
 
+      {workflows.length > 0 && <WorkflowCreditNotice owner={owner} />}
+
       {!!owner && !!rows.data && (
         <div className="rb-metrics">
           <div className="rb-metric">
@@ -156,9 +166,9 @@ export function WorkflowsV2() {
             <p className="rb-metric-note">Saved in this vault</p>
           </div>
           <div className="rb-metric" data-tone="active">
-            <p className="rb-metric-label">Watching</p>
-            <p className="rb-metric-value">{watching}</p>
-            <p className="rb-metric-note">Evaluating triggers on Lasna</p>
+            <p className="rb-metric-label">Active</p>
+            <p className="rb-metric-value">{activeCount}</p>
+            <p className="rb-metric-note">Enabled on Lasna</p>
           </div>
           <div className="rb-metric">
             <p className="rb-metric-label">Needs attention</p>
@@ -354,10 +364,11 @@ export function WorkflowDetailV2() {
             Check in
           </button>
         )}
-        <Link to="/activity" className="app-button">
+        <Link to={`${appRoutes.activity}?workflow=${item.id}`} className="app-button">
           Activity
         </Link>
       </div>
+      {!item.closed && <WorkflowCreditNotice owner={wallet.owner} />}
       <div className="rb-canvas-panel">
         <WorkflowCanvas draft={diagramV2(toDraft(program, item.title)).canvas} />
         <div className="rb-panel-body">
@@ -365,6 +376,14 @@ export function WorkflowDetailV2() {
         </div>
       </div>
       {!item.staged && <Publication item={item} wallet={wallet} />}
+      {item.entry[1] > 0n && (
+        <TelegramNotifications
+          workflow
+          agent={item.agent}
+          owner={wallet.owner}
+          workflowId={item.id}
+        />
+      )}
       <V2Feedback wallet={wallet} />
     </section>
   );
@@ -625,7 +644,7 @@ const runSchema = z.object({
   lasnaTransaction: workflowIdSchema,
   destinationTransaction: workflowIdSchema.nullable(),
   expiresAt: z.number().int(),
-  status: z.enum(['pending', 'confirmed', 'skipped', 'expired', 'failed', 'in grace period']),
+  status: workflowV2RunStatusSchema,
   reason: z.string().nullable(),
   path: z.number().int().nullable(),
   agent: z
@@ -670,18 +689,25 @@ const activityFilterStatuses = {
 
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
-  const { id: requestedId } = useParams();
+  const [params] = useSearchParams();
+  const run = params.get('run');
+  const workflow = params.get('workflow');
+  const scopes = z
+    .object({ run: workflowIdSchema.nullable(), workflow: workflowIdSchema.nullable() })
+    .safeParse({ run, workflow });
+  const requestedId = scopes.data?.run;
+  const workflowId = scopes.data?.workflow;
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
-  const requested = workflowIdSchema.safeParse(requestedId);
   const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'activity', wallet.owner, requestedId],
-    enabled: Boolean(wallet.owner && workflowV2Deployment && (!requestedId || requested.success)),
+    queryKey: ['workflow-v2', 'activity', wallet.owner, workflowId, requestedId],
+    enabled: Boolean(wallet.owner && workflowV2Deployment && scopes.success),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({
         owner: wallet.owner!,
-        ...(requested.data ? { id: requested.data } : {}),
+        ...(requestedId ? { id: requestedId } : {}),
+        ...(workflowId ? { workflow: workflowId } : {}),
         ...(pageParam ? { after: pageParam } : {}),
       });
       const response = await fetch(`${v2ApiBase}/v3/activity?${params}`, { signal });
@@ -691,15 +717,27 @@ export function WorkflowActivityV2() {
     getNextPageParam: (page) => page.nextCursor,
     refetchInterval: (state) => ((state.state.data?.pages.length ?? 0) <= 1 ? 12_000 : false),
   });
-  if (requestedId && !requested.success) return <p role="alert">This run link is invalid.</p>;
+  if (!scopes.success) {
+    return (
+      <section className="app-page">
+        <ErrorState message="The Activity filter is invalid.">
+          <Link className="app-link" to={appRoutes.activity}>
+            Open Activity
+          </Link>
+        </ErrorState>
+      </section>
+    );
+  }
   const rows = query.data?.pages.flatMap((page) => page.runs) ?? [];
   const visible =
-    filter === 'all' ? rows : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
+    requestedId || filter === 'all'
+      ? rows
+      : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
   return (
     <section className="app-page">
       <PageHeading
         eyebrow="Automation"
-        title="Activity"
+        title={requestedId ? 'Run details' : workflowId ? 'Workflow activity' : 'Activity'}
         description="Follow each run from the origin event through the Lasna decision to settlement."
         aside={
           <>
@@ -707,7 +745,7 @@ export function WorkflowActivityV2() {
             <button
               type="button"
               className="app-button"
-              disabled={refreshing}
+              disabled={refreshing || !wallet.owner || !workflowV2Deployment}
               onClick={() => {
                 setRefreshing(true);
                 void query.refetch().finally(() => setRefreshing(false));
@@ -723,6 +761,19 @@ export function WorkflowActivityV2() {
           </>
         }
       />
+
+      {(workflowId || requestedId) && (
+        <div className="rb-inline">
+          {workflowId && (
+            <Link className="app-link" to={`${appRoutes.workflows}/${workflowId}`}>
+              {rows[0]?.title ?? 'Open workflow'}
+            </Link>
+          )}
+          <Link className="app-link" to={appRoutes.activity}>
+            All activity
+          </Link>
+        </div>
+      )}
 
       {!wallet.owner && (
         <div className="rb-callout">
@@ -784,7 +835,7 @@ export function WorkflowActivityV2() {
         </LoadingRegion>
       )}
 
-      {!!wallet.owner && query.isSuccess && rows.length > 0 && (
+      {!!wallet.owner && !requestedId && query.isSuccess && rows.length > 0 && (
         <div className="rb-toolbar">
           <div className="rb-filters" role="group" aria-label="Filter runs">
             {activityFilters.map((option) => (
@@ -811,14 +862,31 @@ export function WorkflowActivityV2() {
       {query.isSuccess && !rows.length && (
         <EmptyState
           icon={Clock01Icon}
-          title="No runs yet"
-          description="Runs appear here once a trigger fires and the agent evaluates the workflow's conditions."
+          title={requestedId ? 'Run unavailable for this wallet' : 'No runs yet'}
+          description={
+            requestedId
+              ? 'Open the public proof to check whether this run has been indexed.'
+              : 'Runs appear here once a trigger fires and the agent evaluates the workflow’s conditions.'
+          }
           action={
-            <Link className="app-button" to="/workflows">
-              View workflows
+            <Link
+              className="app-button"
+              to={
+                requestedId
+                  ? `${appRoutes.runs}/${requestedId}`
+                  : workflowId
+                    ? `${appRoutes.workflows}/${workflowId}`
+                    : appRoutes.workflows
+              }
+            >
+              {requestedId ? 'Open public proof' : workflowId ? 'Open workflow' : 'View workflows'}
             </Link>
           }
-          steps={['Trigger fires on Lasna', 'Checks are evaluated', 'Vault settles on Unichain']}
+          steps={
+            requestedId
+              ? undefined
+              : ['Trigger fires on Lasna', 'Checks are evaluated', 'Vault settles on Unichain']
+          }
         />
       )}
 
@@ -875,8 +943,9 @@ export function WorkflowActivityV2() {
                       hash={run.destinationTransaction}
                       label="Settlement transaction"
                     />
+                    <Link to={`${appRoutes.runs}/${run.id}`}>Public proof</Link>
                     {!requestedId && (
-                      <Link to={`/runs/${run.id}`}>
+                      <Link to={`${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}`}>
                         Run details
                         <HugeiconsIcon icon={ArrowRight01Icon} size={12} aria-hidden="true" />
                       </Link>
@@ -1117,10 +1186,45 @@ function exactUnits(value: bigint, decimals: number) {
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
-export function WorkflowAccountV2() {
+export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflow?: boolean }) {
+  const { setupWallet } = useWorkflowV2Wallet();
+  const [params] = useSearchParams();
+  const credit = params.get('credit');
+  const funding = credit === 'watching' || credit === 'execution' ? credit : undefined;
+  const deployment = workflowV2Deployment;
+  const builder = <Navigate to={appRoutes.newWorkflow} replace />;
+  const account = (
+    <AppShell>
+      <WorkflowAccountV2 key={funding} funding={funding} />
+    </AppShell>
+  );
+  if (!deployment) return startWorkflow ? builder : account;
+  if (startWorkflow && !workflowActivationEnabled) return builder;
+
+  return (
+    <WalletAccountSetupGate
+      title="Account & Vault"
+      wallet={setupWallet}
+      workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}`}
+      manageFunds={funding !== undefined && !startWorkflow}
+    >
+      {() => (startWorkflow ? builder : account)}
+    </WalletAccountSetupGate>
+  );
+}
+
+export function WorkflowAccountV2({
+  manage = false,
+  funding,
+}: {
+  manage?: boolean;
+  funding?: 'watching' | 'execution';
+}) {
   const wallet = useWorkflowV2Wallet();
   const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
-  const [operation, setOperation] = useState<FundsOperation>('add-usdc');
+  const [operation, setOperation] = useState<FundsOperation>(
+    funding === 'watching' ? 'watch-credit' : funding === 'execution' ? 'run-credit' : 'add-usdc',
+  );
   const [amount, setAmount] = useState('');
   const amountRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -1131,6 +1235,10 @@ export function WorkflowAccountV2() {
     refetchInterval: 12_000,
   });
   const funds = data.data;
+  const vaultReady = !!funds && funds.vault !== zeroAddress;
+  useEffect(() => {
+    if (funding && vaultReady) amountRef.current?.focus();
+  }, [funding, vaultReady]);
   const showRecovery = Boolean(funds && funds.native > 0n);
   const activeOperation = operation === 'withdraw-eth' && !showRecovery ? 'add-usdc' : operation;
   const action = fundingActions[activeOperation];
@@ -1248,7 +1356,15 @@ export function WorkflowAccountV2() {
         eyebrow="Manage"
         title="Account & Vault"
         description="Track testnet balances, watching credit, and execution credit from one place."
-        aside={<span className="rb-chip rb-chip--plain">Unichain Sepolia</span>}
+        aside={
+          manage ? (
+            <Link to={appRoutes.account} className="app-button">
+              Back to account
+            </Link>
+          ) : (
+            <span className="rb-chip rb-chip--plain">Unichain Sepolia</span>
+          )
+        }
       />
 
       {!wallet.owner && (
@@ -1315,48 +1431,12 @@ export function WorkflowAccountV2() {
         </LoadingRegion>
       )}
 
-      {wallet.owner && funds?.vault === zeroAddress && (
-        <section className="rb-setup">
-          <div className="rb-setup-head">
-            <p className="app-eyebrow">Testnet onboarding</p>
-            <h2 className="rb-setup-title">Create your agent and vault</h2>
-            <p className="app-heading-copy">
-              Rulebook creates a wallet-owned agent on Reactive Lasna and a vault on Unichain
-              Sepolia. Both are required before a workflow can be activated.
-            </p>
-          </div>
-          <div className="rb-setup-steps">
-            <p className="rb-setup-step">
-              <b aria-hidden="true">1</b>
-              Approve the agent on Reactive Lasna.
-            </p>
-            <p className="rb-setup-step">
-              <b aria-hidden="true">2</b>
-              Approve the vault on Unichain Sepolia.
-            </p>
-            <p className="rb-setup-step">
-              <b aria-hidden="true">3</b>
-              Fund vault principal and execution credit.
-            </p>
-          </div>
-          <div className="rb-action-row">
-            <button
-              className="app-button app-button--primary"
-              type="button"
-              disabled={wallet.busy}
-              onClick={() =>
-                void wallet.perform(async (signer) => {
-                  await wallet.ensure(signer, chain);
-                })
-              }
-            >
-              Create your testnet accounts
-            </button>
-          </div>
-        </section>
+      {manage && funds?.vault === zeroAddress && (
+        <p className="rb-note">This wallet has no vault. Create one through account setup.</p>
       )}
       {funds && funds.vault !== zeroAddress && (
         <>
+          <WorkflowCreditNotice owner={wallet.owner} />
           <div className="rb-balance-grid">
             <div className="rb-balance" data-role="funds">
               <p className="rb-balance-head">
@@ -1540,6 +1620,10 @@ export function WorkflowAccountV2() {
               </div>
             </div>
           </div>
+
+          {wallet.owner && funds.agent !== zeroAddress && (
+            <TelegramNotifications workflow agent={funds.agent} owner={wallet.owner} />
+          )}
 
           <div className="app-panel">
             <div className="rb-panel-head">

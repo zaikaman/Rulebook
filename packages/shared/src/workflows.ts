@@ -9,6 +9,7 @@ import {
   type Hex,
 } from 'viem';
 import { z } from 'zod';
+import { UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
 
 const PROG = [
   {
@@ -260,6 +261,32 @@ export const workflowIdSchema = z
   .string()
   .regex(/^0x[0-9a-f]{64}$/i)
   .transform((hex) => hex.toLowerCase() as Hex);
+
+export const workflowV2RunStatusSchema = z.enum([
+  'pending',
+  'confirmed',
+  'skipped',
+  'expired',
+  'failed',
+  'in grace period',
+]);
+
+export const workflowV2RunProofSchema = z.object({
+  id: workflowIdSchema,
+  chain: z.literal(UNICHAIN_SEPOLIA_CHAIN_ID),
+  programHash: workflowIdSchema,
+  originChain: z.number().int(),
+  originTransaction: workflowIdSchema,
+  originLogIndex: z.string().regex(/^\d+$/),
+  lasnaTransaction: workflowIdSchema,
+  destinationTransaction: workflowIdSchema.nullable(),
+  expiresAt: z.number().int().nonnegative().safe(),
+  status: workflowV2RunStatusSchema,
+  path: z.number().int().nonnegative().nullable(),
+  reason: z.string().nullable(),
+});
+
+export type WorkflowV2RunProof = z.infer<typeof workflowV2RunProofSchema>;
 export const workflowListingSchema = z.object({
   id: z.string().regex(/^[1-9]\d*$/),
   author: z.string(),

@@ -65,6 +65,7 @@ const envSchema = z.object({
     .optional(),
   TELEGRAM_APP_ORIGIN: z.string().url().optional(),
   TELEGRAM_AGENT_FACTORIES: z.string().optional(),
+  TELEGRAM_UPDATES: z.enum(['webhook', 'polling']).default('webhook'),
   WORKFLOW_DIRECTORY_ADDRESS: addressSchema.optional(),
   WORKFLOW_VAULT_FACTORY_ADDRESS: addressSchema.optional(),
   WORKFLOW_START_BLOCK_LASNA: z.coerce.number().int().positive().optional(),
@@ -78,6 +79,7 @@ export interface TelegramConfig {
   readonly webhookSecret: string;
   readonly appOrigin: string;
   readonly factories: readonly Address[];
+  readonly updates?: 'webhook' | 'polling';
 }
 
 export interface AppConfig {
@@ -119,6 +121,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
     TELEGRAM_APP_ORIGIN: appOrigin,
     TELEGRAM_AGENT_FACTORIES: factoryList,
+    TELEGRAM_UPDATES: telegramUpdates,
     WORKFLOW_DIRECTORY_ADDRESS: directory,
     WORKFLOW_VAULT_FACTORY_ADDRESS: vaultFactory,
     WORKFLOW_START_BLOCK_LASNA: lasnaStart,
@@ -130,19 +133,36 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     .map((origin) => origin.trim())
     .filter(Boolean);
   let telegram: TelegramConfig | undefined;
-  if (botToken || botUsername || webhookSecret || appOrigin || factoryList) {
-    if (!botToken || !botUsername || !webhookSecret || !appOrigin || !factoryList) {
+  if (
+    botToken ||
+    botUsername ||
+    webhookSecret ||
+    appOrigin ||
+    factoryList ||
+    telegramUpdates === 'polling'
+  ) {
+    if (!botToken || !botUsername || !webhookSecret || !appOrigin) {
       throw new ConfigError(['Set all TELEGRAM_* configuration values together']);
     }
+    const configuredFactories = factoryList?.trim()
+      ? factoryList.split(',').map((address) => address.trim())
+      : [];
+    if (workflowsV2) configuredFactories.push(workflowsV2.lasna.factory);
     const factories = z
       .array(addressSchema.refine((address) => address !== zeroAddress))
       .nonempty()
-      .safeParse(factoryList.split(',').map((address) => address.trim()));
+      .safeParse(configuredFactories);
     if (!factories.success)
       throw new ConfigError([
-        'TELEGRAM_AGENT_FACTORIES must list the trusted Lasna AgentFactory addresses',
+        'Configure WORKFLOW_V2_DEPLOYMENT or list trusted Lasna factories in TELEGRAM_AGENT_FACTORIES',
       ]);
     const url = new URL(appOrigin);
+    if (
+      telegramUpdates === 'polling' &&
+      (base.NODE_ENV !== 'development' || url.hostname !== 'localhost')
+    ) {
+      throw new ConfigError(['Telegram polling requires a localhost frontend in development']);
+    }
     if (
       url.origin !== appOrigin ||
       !corsOrigins.includes(appOrigin) ||
@@ -161,6 +181,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       webhookSecret,
       appOrigin,
       factories: [...new Set(factories.data)],
+      updates: telegramUpdates,
     };
   }
   return {

@@ -4,12 +4,14 @@ import {
   telegramDefaultSchema,
   telegramPreferenceSchema,
   uint256Schema,
+  workflowIdSchema,
 } from '@rulebook/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 
 import type { ServerDeps } from '../../deps.js';
 import { sameSecret, type TelegramService } from '../../telegram/service.js';
+import { handleTelegramUpdate } from '../../telegram/updates.js';
 import { sendError } from './errors.js';
 
 const base = '/v1/accounts/:agent/telegram';
@@ -35,21 +37,8 @@ const preferencesBody = z.union([
       preference: telegramPreferenceSchema,
     })
     .strict(),
+  z.object({ workflowId: workflowIdSchema, preference: telegramPreferenceSchema }).strict(),
 ]);
-const privateMessage = z.object({
-  update_id: z.number().int().nonnegative().safe(),
-  message: z.object({
-    chat: z.object({ id: z.number().int().positive().safe(), type: z.literal('private') }),
-    from: z.object({
-      id: z.number().int().positive().safe(),
-      is_bot: z.literal(false),
-      username: z.string().optional(),
-      first_name: z.string(),
-    }),
-    text: z.string(),
-  }),
-});
-
 function unavailable(reply: FastifyReply) {
   return sendError(reply, 503, 'telegram_unavailable', 'Telegram notifications are unavailable.');
 }
@@ -95,9 +84,10 @@ async function authenticate(
 
 export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
   const service = deps.telegram;
-  app.get('/v1/telegram/availability', async (_request, reply) => {
+  app.get('/v1/telegram/availability', async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    return { available: (await service?.ready().catch(() => false)) ?? false };
+    const workflow = z.object({ workflow: z.literal('true') }).safeParse(request.query).success;
+    return { available: (await service?.ready(workflow).catch(() => false)) ?? false };
   });
   app.post(`${base}/challenge`, { bodyLimit: 1024 }, async (request, reply) => {
     const route = context(request, reply, service);
@@ -188,7 +178,7 @@ export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
         reply,
         409,
         'telegram_preference_unavailable',
-        'Connect Telegram first and select a current rule.',
+        'Connect Telegram first and select a current rule or workflow.',
       );
     }
     return route.service.status(route.agent, route.session.hash);
@@ -219,28 +209,14 @@ export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
     ) {
       return sendError(reply, 403, 'telegram_webhook_forbidden', 'Invalid webhook credentials.');
     }
-    const payload = privateMessage.safeParse(request.body);
-    if (!payload.success) return { ok: true };
-    const { update_id, message } = payload.data;
-    if (message.chat.id !== message.from.id) return { ok: true };
-    const startCode = /^\/start\s+([A-Za-z0-9_-]{43})$/.exec(message.text)?.[1];
-    const stop = message.text === '/stop';
-    if (!startCode && !stop) return { ok: true };
-    const profile =
-      (message.from.username ? `@${message.from.username}` : message.from.first_name.trim()).slice(
-        0,
-        100,
-      ) || 'Telegram user';
-    const handled = await service.webhook(update_id, message.chat.id, profile, startCode ?? null);
-    if (!handled) return { ok: true };
+    const response = await handleTelegramUpdate(service, request.body);
+    if (!response) return { ok: true };
     // Telegram executes a method returned in the webhook response. The settings page owns the
     // pairing state; losing this acknowledgement does not undo the database operation.
     return {
       method: 'sendMessage',
-      chat_id: message.chat.id,
-      text: stop
-        ? 'Telegram alerts from Rulebook have been disconnected for this chat.'
-        : 'Return to Rulebook and confirm this Telegram account to finish connecting.',
+      chat_id: response.chatId,
+      text: response.text,
     };
   });
 }

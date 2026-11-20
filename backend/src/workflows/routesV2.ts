@@ -1,6 +1,8 @@
 import {
   addressSchema,
   workflowIdSchema,
+  workflowV2RunProofSchema,
+  workflowV2RunStatusSchema,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
 } from '@rulebook/shared';
@@ -19,6 +21,7 @@ const cursor = z.object({
 const query = z.object({
   owner: addressSchema,
   id: workflowIdSchema.optional(),
+  workflow: workflowIdSchema.optional(),
   after: z.string().max(250).optional(),
 });
 const listingId = z.string().regex(/^[1-9]\d{0,77}$/);
@@ -56,8 +59,23 @@ const run = z.object({
   destination_transaction: workflowIdSchema.nullable(),
   reason: z.string().nullable(),
   path: z.number().int().nonnegative().nullable(),
-  status: z.enum(['pending', 'confirmed', 'skipped', 'expired', 'failed', 'in grace period']),
+  status: workflowV2RunStatusSchema,
 });
+const proofRow = run.pick({
+  id: true,
+  chain: true,
+  program_hash: true,
+  origin_chain: true,
+  origin_transaction: true,
+  origin_log_index: true,
+  lasna_transaction: true,
+  destination_transaction: true,
+  expires_at: true,
+  status: true,
+  path: true,
+  reason: true,
+});
+const proofColumns = Object.keys(proofRow.shape).join(',');
 
 const reasons = new Map<string, string>([
   [toFunctionSelector('InvalidAuthorization()'), 'The workflow authorization is no longer active.'],
@@ -86,6 +104,25 @@ function readCursor(value: string | undefined) {
   } catch {
     throw Object.assign(new Error('This activity page link is invalid.'), { statusCode: 400 });
   }
+}
+
+function runProof(row: z.infer<typeof proofRow>) {
+  return workflowV2RunProofSchema.parse({
+    id: row.id,
+    chain: row.chain,
+    programHash: row.program_hash,
+    originChain: row.origin_chain,
+    originTransaction: row.origin_transaction,
+    originLogIndex: row.origin_log_index,
+    lasnaTransaction: row.lasna_transaction,
+    destinationTransaction: row.destination_transaction,
+    expiresAt: row.expires_at,
+    status: row.status,
+    path: row.path,
+    reason: row.reason
+      ? (reasons.get(row.reason) ?? 'Settlement returned a contract error.')
+      : null,
+  });
 }
 
 export function registerWorkflowV2Routes(
@@ -154,7 +191,7 @@ export function registerWorkflowV2Routes(
 
   app.get('/v3/activity', async (request, reply) => {
     const input = query.safeParse(request.query);
-    if (!input.success) return reply.code(400).send({ message: 'Enter a wallet address.' });
+    if (!input.success) return reply.code(400).send({ message: 'Check the activity filters.' });
     const after = readCursor(input.data.after);
     const limit = 24;
     let pageQuery = db
@@ -162,6 +199,7 @@ export function registerWorkflowV2Routes(
       .select('*')
       .match({ deployment, owner: input.data.owner.toLowerCase() });
     if (input.data.id) pageQuery = pageQuery.eq('id', input.data.id);
+    if (input.data.workflow) pageQuery = pageQuery.eq('workflow_id', input.data.workflow);
     if (after) {
       const equalBlock = `lasna_block.eq.${after.block}`;
       pageQuery = pageQuery.or(
@@ -178,24 +216,11 @@ export function registerWorkflowV2Routes(
     const last = rows[limit - 1];
     return {
       runs: rows.slice(0, limit).map((row) => ({
-        id: row.id,
-        chain: row.chain,
+        ...runProof(row),
         agent: row.agent,
         workflowId: row.workflow_id,
         title: row.title,
-        programHash: row.program_hash,
         epoch: row.epoch,
-        originChain: row.origin_chain,
-        originTransaction: row.origin_transaction,
-        originLogIndex: row.origin_log_index,
-        lasnaTransaction: row.lasna_transaction,
-        destinationTransaction: row.destination_transaction,
-        expiresAt: row.expires_at,
-        status: row.status,
-        path: row.path,
-        reason: row.reason
-          ? (reasons.get(row.reason) ?? 'Settlement returned a contract error.')
-          : null,
         reasonCode: row.reason,
       })),
       nextCursor:
@@ -205,5 +230,20 @@ export function registerWorkflowV2Routes(
             ).toString('base64url')
           : null,
     };
+  });
+
+  app.get('/v3/runs/:id', async (request, reply) => {
+    const params = z.object({ id: workflowIdSchema }).safeParse(request.params);
+    if (!params.success) return reply.code(400).send({ message: 'This run ID is invalid.' });
+    const { data, error } = await db
+      .from('workflow_v2_activity')
+      .select(proofColumns)
+      .match({ deployment, chain: UNICHAIN_SEPOLIA_CHAIN_ID, id: params.data.id })
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return reply.code(404).send({ message: 'This run has not been indexed.' });
+    const proof = runProof(proofRow.parse(data));
+    reply.header('cache-control', proof.status === 'confirmed' ? 'public, max-age=60' : 'no-cache');
+    return proof;
   });
 }

@@ -1,5 +1,4 @@
 import {
-  Activity01Icon,
   ArrowLeft01Icon,
   Book02Icon,
   Coins01Icon,
@@ -14,6 +13,7 @@ import { Link, useLocation } from 'react-router';
 import { appRoutes, isActiveRoute, legacyWorkspace } from '@/lib/routes';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { Wordmark } from './Wordmark.js';
+import { workflowNavigation } from './workflowNavigation.js';
 
 interface RailItem {
   readonly label: string;
@@ -26,23 +26,21 @@ interface RailItem {
 const groups: readonly { readonly label: string; readonly items: readonly RailItem[] }[] = [
   {
     label: 'Automation',
-    items: [
-      { label: 'Workflows', href: appRoutes.workflows, icon: Book02Icon, exact: false },
-      {
-        label: 'Activity',
-        href: appRoutes.activity,
-        icon: Activity01Icon,
-        activeOn: [appRoutes.runs],
-      },
-    ],
+    items: workflowNavigation.filter(
+      ({ href }) => href === appRoutes.workflows || href === appRoutes.activity,
+    ),
   },
   {
     label: 'Discover',
-    items: [{ label: 'Marketplace', href: appRoutes.marketplace, icon: Store01Icon }],
+    items: workflowNavigation.filter(
+      ({ href }) => href === appRoutes.marketplace || href === appRoutes.proof,
+    ),
   },
   {
     label: 'Manage',
-    items: [{ label: 'Account & Vault', href: appRoutes.account, icon: Wallet01Icon }],
+    items: workflowNavigation.filter(
+      ({ href }) => href === appRoutes.account || href === appRoutes.cost,
+    ),
   },
 ];
 

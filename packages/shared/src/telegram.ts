@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { LASNA_CHAIN_ID } from './chains.js';
 import { getTemplate } from './generated/templates.js';
 import { templateIdSchema, txHashSchema } from './schemas.js';
+import { workflowIdSchema } from './workflows.js';
 
 export const telegramDefaultSchema = z.enum(['all', 'selected']);
 export const telegramPreferenceSchema = z.enum(['inherit', 'send', 'mute']);
@@ -34,6 +35,15 @@ export const telegramSettingsSchema = z.object({
       preference: telegramPreferenceSchema,
     }),
   ),
+  workflows: z
+    .array(
+      z.object({
+        id: workflowIdSchema,
+        title: z.string(),
+        preference: telegramPreferenceSchema,
+      }),
+    )
+    .optional(),
 });
 
 export type TelegramChallenge = z.infer<typeof telegramChallengeSchema>;

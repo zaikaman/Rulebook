@@ -2,6 +2,17 @@
   min-inline-size: 0;
 }
 
+.app-workspace--focused .account-setup[data-workflow] {
+  padding-inline: clamp(1rem, 3vw, 2.5rem);
+}
+
+.account-setup__links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 1rem;
+}
+
 .account-setup__toolbar {
   display: flex;
   align-items: center;

@@ -48,6 +48,7 @@ import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
+import { WorkflowCreditNotice } from './WorkflowCredit';
 import { diagramV2, replacePath } from './diagramV2';
 import { ListingStatusV2 } from './ListingStatusV2';
 import { copyListingDraft, v2ListingId, v2ListingQuery } from './listingV2';
@@ -1449,6 +1450,7 @@ function Editor({
               {(!settlementFactory() || !workflowActivationEnabled) && (
                 <p className="rb-alert">Testnet activation is disabled.</p>
               )}
+              {workflowActivationEnabled && <WorkflowCreditNotice owner={wallet.owner} review />}
               {wallet.owner ? (
                 <button
                   className="app-button app-button--primary rb-full"
@@ -1476,8 +1478,8 @@ function Editor({
                 <WalletControl setup />
               )}
               <p className="rb-activation-note">
-                Activation signs one Lasna transaction from your wallet. You can pause the workflow
-                at any time.
+                Your wallet approves vault authorization on Unichain Sepolia and activation on
+                Reactive Lasna. First-time setup can require additional approvals.
               </p>
               <V2Feedback wallet={wallet} />
             </div>

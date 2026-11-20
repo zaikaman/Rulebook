@@ -11,6 +11,7 @@ export const appRoutes = {
   marketplace: '/marketplace',
   proof: '/proof',
   account: '/account',
+  accountFunds: '/account/funds',
   cost: '/cost',
 } as const;
 

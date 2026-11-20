@@ -1,6 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
+import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { createClient } from '@supabase/supabase-js';
+import Fastify from 'fastify';
 import { expect, it } from 'vitest';
+import { registerWorkflowV2Routes } from '../src/workflows/routesV2.js';
 
 it('reads the confirmed branch only from the matching deployment, owner, workflow and epoch', async () => {
   const db = new PGlite();
@@ -56,5 +60,79 @@ it('reads the confirmed branch only from the matching deployment, owner, workflo
     ]);
   } finally {
     await db.close();
+  }
+});
+
+it('scopes Activity by wallet and workflow and exposes only chain evidence in public proofs', async () => {
+  const factory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const agent = '0xcccccccccccccccccccccccccccccccccccccccc';
+  const runId = `0x${'1'.repeat(64)}`;
+  const workflowId = `0x${'2'.repeat(64)}`;
+  const hash = `0x${'3'.repeat(64)}`;
+  const requests: URL[] = [];
+  const row = {
+    owner,
+    agent,
+    id: runId,
+    workflow_id: workflowId,
+    chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+    title: 'Personal workflow',
+    program_hash: hash,
+    epoch: '1',
+    origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+    origin_transaction: hash,
+    origin_log_index: '5',
+    lasna_transaction: hash,
+    lasna_block: 10,
+    expires_at: 100,
+    destination_transaction: hash,
+    reason: null,
+    path: 2,
+    status: 'confirmed',
+  };
+  const db = createClient('https://database.example', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        return Response.json(
+          url.searchParams.has('id') && url.searchParams.get('id') !== `eq.${runId}` ? [] : [row],
+        );
+      },
+    },
+  });
+  const app = Fastify();
+  registerWorkflowV2Routes(app, db, factory);
+  try {
+    const scoped = await app.inject({ url: `/v3/activity?owner=${owner}&workflow=${workflowId}` });
+    expect(scoped.statusCode).toBe(200);
+    expect(scoped.json().runs[0]).toMatchObject({ workflowId, title: row.title });
+    expect(requests[0]?.searchParams.get('owner')).toBe(`eq.${owner}`);
+    expect(requests[0]?.searchParams.get('workflow_id')).toBe(`eq.${workflowId}`);
+
+    const published = await app.inject({ url: `/v3/runs/${runId}` });
+    expect(published.statusCode).toBe(200);
+    expect(published.json()).toEqual({
+      id: runId,
+      chain: row.chain,
+      programHash: hash,
+      originChain: row.origin_chain,
+      originTransaction: hash,
+      originLogIndex: '5',
+      lasnaTransaction: hash,
+      destinationTransaction: hash,
+      expiresAt: 100,
+      status: 'confirmed',
+      path: 2,
+      reason: null,
+    });
+    expect(requests[1]?.searchParams.get('deployment')).toBe(`eq.${factory}`);
+    expect(requests[1]?.searchParams.get('id')).toBe(`eq.${runId}`);
+    expect(requests[1]?.searchParams.get('select')).not.toContain('title');
+    expect((await app.inject({ url: '/v3/runs/invalid' })).statusCode).toBe(400);
+    expect((await app.inject({ url: `/v3/runs/${hash}` })).statusCode).toBe(404);
+  } finally {
+    await app.close();
   }
 });

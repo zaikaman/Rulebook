@@ -99,6 +99,7 @@ function TokenRow({
   balance,
   minimum,
   estimating = false,
+  walletEstimatesFee = false,
 }: {
   token: Token;
   purpose: string;
@@ -107,6 +108,7 @@ function TokenRow({
   balance: Balance;
   minimum?: bigint;
   estimating?: boolean;
+  walletEstimatesFee?: boolean;
 }) {
   const short = required && needsTopUp(balance.value, minimum);
   let status = required ? 'Required for setup' : 'For later';
@@ -161,7 +163,13 @@ function TokenRow({
           </p>
         )}
         {required && connected && minimum === undefined && (
-          <p>{estimating ? 'Estimating setup fee…' : 'Setup fee estimate unavailable.'}</p>
+          <p>
+            {estimating
+              ? 'Estimating setup fee…'
+              : walletEstimatesFee
+                ? 'Your wallet shows the network fee before you sign.'
+                : 'Setup fee estimate unavailable.'}
+          </p>
         )}
         {!required && (
           <p className="account-setup__minimum">
@@ -218,15 +226,21 @@ function SetupReview({
   steps,
   running,
   mirror,
+  workflow,
 }: {
   steps: readonly SetupStep[];
   running: boolean;
   mirror: boolean;
+  workflow: boolean;
 }) {
   const actions = {
     agent: { label: 'Create your automation account', network: testnetTokens.react.network.name },
     vault: {
-      label: mirror ? 'Sign and create your mirror-only vault' : 'Sign and create your vault',
+      label: workflow
+        ? 'Create your vault'
+        : mirror
+          ? 'Sign and create your mirror-only vault'
+          : 'Sign and create your vault',
       network: testnetTokens.eth.network.name,
     },
     link: {
@@ -243,7 +257,7 @@ function SetupReview({
             <span>{actions[step].label}</span>
             <small>
               {actions[step].network}
-              {step === 'vault' && ' · 2 approvals'}
+              {step === 'vault' && !workflow && ' · 2 approvals'}
             </small>
           </li>
         ))}
@@ -260,9 +274,11 @@ function SetupReview({
 export function CreateAccount({
   setup,
   onBegin,
+  workflow = false,
 }: {
   setup: ReturnType<typeof useAccountSetup>;
   onBegin?: () => void;
+  workflow?: boolean;
 }) {
   const { address, connector, isReconnecting } = useAccount();
   const config = useConfig();
@@ -289,7 +305,7 @@ export function CreateAccount({
   const hasAgent = !!setup.data?.agent;
   const hasVault = !!setup.data?.vault;
   const walletSteps = setup.data ? remainingSetupSteps(setup.data) : [];
-  const configured = !!AGENT_FACTORY_ADDRESS && !!VAULT_FACTORY_ADDRESS;
+  const configured = workflow || (!!AGENT_FACTORY_ADDRESS && !!VAULT_FACTORY_ADDRESS);
   const query = { enabled: connected, refetchOnWindowFocus: 'always' } as const;
   const react = useBalance({ address, chainId: LASNA_CHAIN_ID, query });
   const eth = useBalance({ address, chainId: UNICHAIN_SEPOLIA_CHAIN_ID, query });
@@ -304,8 +320,8 @@ export function CreateAccount({
 
   const checkingAccount = setup.isLoading || isReconnecting;
   const feeQuery = { retry: false, refetchOnWindowFocus: 'always' } as const;
-  const checkReactFee = connected && configured && !!setup.data && !setup.resuming;
-  const checkEthFee = connected && configured && !hasVault && !setup.resuming;
+  const checkReactFee = !workflow && connected && configured && !!setup.data && !setup.resuming;
+  const checkEthFee = !workflow && connected && configured && !hasVault && !setup.resuming;
   const reactFee = useQuery({
     ...feeQuery,
     queryKey: ['lasna-setup-fee', address, hasAgent],
@@ -539,6 +555,8 @@ export function CreateAccount({
   return (
     <AccountSetupFrame
       title={current.title}
+      workflow={workflow}
+      manageAccount={workflow && hasVault}
       description={current.description}
       step={current.number}
       connected={connected}
@@ -689,6 +707,7 @@ export function CreateAccount({
                   connected={connected}
                   minimum={reactFee.data}
                   estimating={reactFee.isFetching || checkingAccount}
+                  walletEstimatesFee={workflow}
                   balance={{
                     value: react.data?.value,
                     decimals: react.data?.decimals ?? 18,
@@ -706,6 +725,7 @@ export function CreateAccount({
                   connected={connected}
                   minimum={ethFee.data}
                   estimating={ethFee.isFetching}
+                  walletEstimatesFee={workflow}
                   balance={{
                     value: eth.data?.value,
                     decimals: eth.data?.decimals ?? 18,
@@ -714,7 +734,7 @@ export function CreateAccount({
                 />
                 <TokenRow
                   token={testnetTokens.usdc}
-                  purpose="Optional. You can deposit it during funding if a rule spends USDC."
+                  purpose={`Optional. You can deposit it during funding if a ${workflow ? 'workflow' : 'rule'} spends USDC.`}
                   required={false}
                   connected={connected}
                   balance={{ value: usdc.data, decimals: 6, failed: usdc.isError }}
@@ -738,7 +758,7 @@ export function CreateAccount({
 
         {stage === 'create' && (
           <div className="account-setup__section account-setup__stack">
-            {MIRROR_ENABLED && !checkingAccount && !setup.isError && !hasVault && (
+            {!workflow && MIRROR_ENABLED && !checkingAccount && !setup.isError && !hasVault && (
               <label className="app-field">
                 Vault mode
                 <select
@@ -827,7 +847,12 @@ export function CreateAccount({
               </ErrorState>
             )}
             {walletSteps.length > 0 && (
-              <SetupReview steps={walletSteps} running={setup.resuming} mirror={mirrorVault} />
+              <SetupReview
+                steps={walletSteps}
+                running={setup.resuming}
+                mirror={mirrorVault}
+                workflow={workflow}
+              />
             )}
             <div className="account-setup__action account-setup__action--split">
               {!setup.resuming && (

@@ -19,12 +19,14 @@ import { InMemoryStore } from '../../src/db/store.js';
 import { CursorStore } from '../../src/indexer/cursors.js';
 import { buildServer } from '../../src/server.js';
 import { TelegramService, type TelegramDatabase } from '../../src/telegram/service.js';
+import { TelegramPoller } from '../../src/telegram/poller.js';
 import { sendTelegramMessage } from '../../src/telegram/worker.js';
 
 const agent = '0x1111111111111111111111111111111111111111' as const;
 const otherAgent = '0x2222222222222222222222222222222222222222' as const;
 const vault = '0x3333333333333333333333333333333333333333' as const;
 const unavailableVault = '0x4444444444444444444444444444444444444444' as const;
+const deployment = '0x5555555555555555555555555555555555555555' as const;
 const owner = privateKeyToAccount(generatePrivateKey());
 const wrongWallet = privateKeyToAccount(generatePrivateKey());
 const telegramConfig = {
@@ -93,6 +95,7 @@ const telegram = new TelegramService(
       verifyTypedData({ address: signer, signature, ...telegramSignIn(target, challenge) }),
   },
   repositories,
+  deployment,
 );
 const { app } = buildServer(
   {
@@ -217,7 +220,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.exec(
-    'truncate executions, rule_events, telegram_alert_outbox, telegram_deliveries, telegram_rule_preferences, telegram_accounts, telegram_sessions, telegram_pairings, telegram_updates;',
+    'truncate executions, rule_events, telegram_alert_outbox, telegram_deliveries, telegram_rule_preferences, telegram_workflow_preferences, telegram_accounts, telegram_sessions, telegram_pairings, telegram_updates, workflow_v2_accounts, workflow_v2_activations, workflow_v2_runs, workflow_v2_outcomes;',
   );
 });
 
@@ -227,6 +230,132 @@ afterAll(async () => {
 });
 
 describe('Telegram account and delivery', () => {
+  it('explains how to pair on a plain start without changing a connection', async () => {
+    const chat = 2 ** 40;
+    const response = await sendUpdate(update(1, chat, '/start'));
+    expect(response.json()).toMatchObject({ method: 'sendMessage', chat_id: chat });
+    expect(response.json().text).toContain('Account & Vault');
+    expect(response.json().text).toContain(`${telegramConfig.appOrigin}/account`);
+    expect((await db.query('select agent from telegram_accounts')).rows).toEqual([]);
+    expect((await sendUpdate(update(2, chat, '/start', 'group'))).json()).toEqual({ ok: true });
+  });
+
+  it('replies to a private update through polling and acknowledges it by advancing the offset', async () => {
+    const chat = 2 ** 40;
+    const offsets: unknown[] = [];
+    const replies: unknown[] = [];
+    const transport: typeof fetch = async (input, options) => {
+      const path = new URL(String(input)).pathname;
+      const body = JSON.parse(String(options?.body));
+      if (path.endsWith('/sendMessage')) {
+        replies.push(body);
+        return Response.json({ ok: true });
+      }
+      offsets.push(body.offset);
+      if (offsets.length === 1) {
+        return Response.json({
+          ok: true,
+          result: [update(10, chat, '/start', 'group'), update(11, chat, '/start')],
+        });
+      }
+      poller.stop();
+      return Response.json({ ok: true, result: [] });
+    };
+    const poller = new TelegramPoller(telegram, { info() {}, warn() {} }, transport);
+    await poller.run();
+    expect(offsets).toEqual([undefined, 12]);
+    expect(replies).toEqual([
+      expect.objectContaining({
+        chat_id: String(chat),
+        text: expect.stringContaining('Account & Vault'),
+      }),
+    ]);
+  });
+
+  it('queues confirmed workflows after both chains are indexed and honors delivery preferences', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    expect((await app.inject({ url: '/v1/telegram/availability?workflow=true' })).json()).toEqual({
+      available: true,
+    });
+    const id = `0x${'a'.repeat(64)}`;
+    const run = `0x${'b'.repeat(64)}`;
+    const tx = `0x${'c'.repeat(64)}`;
+    const ownerAddress = owner.address.toLowerCase();
+    const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
+    const apply = (payload: object) =>
+      app.inject({ method: 'PATCH', url: `${base}/preferences`, headers, payload });
+    expect((await apply({ workflowId: id, preference: 'send' })).statusCode).toBe(409);
+    await db.query(
+      `insert into workflow_v2_accounts (deployment, chain, address, owner, agent)
+        values ($1, $2, $4, $5, $4), ($1, $3, $6, $5, $4), ($1, $3, $7, $8, $4)`,
+      [deployment, LASNA_CHAIN_ID, chain, agent, ownerAddress, vault, unavailableVault, otherAgent],
+    );
+    await db.query(
+      `insert into workflow_v2_activations values
+        ($1, $2, $3, $4, '2', $5, 'Recurring transfer'),
+        ($1, $2, $3, $4, '1', $5, 'Previous title')`,
+      [deployment, chain, agent, id, tx],
+    );
+    expect((await app.inject({ url: base, headers })).json().workflows).toEqual([
+      { id, title: 'Recurring transfer', preference: 'inherit' },
+    ]);
+    await db.query(
+      `insert into workflow_v2_outcomes (deployment, chain, run_id, workflow_id, vault, epoch,
+        transaction_hash, block_number, log_index, status, reason, telegram_block_time)
+      values ($1, $2, $3, $4, $5, '2', $6, 10, 1, 1, '0x00000000', now() + interval '2 seconds'),
+        ($1, $2, $3, $4, $7, '2', $6, 10, 2, 1, '0x00000000', now() + interval '2 seconds'),
+        ($1, $2, $3, $4, $5, '2', $6, 10, 3, 4, '0x00000000', now() + interval '2 seconds'),
+        ($1, $2, $3, $4, $5, '2', $6, 10, 4, 1, '0x00000000', now() - interval '2 days'),
+        ($1, $2, $3, $4, $5, '1', $6, 10, 5, 1, '0x00000000', now() + interval '2 seconds')`,
+      [deployment, chain, run, id, vault, tx, unavailableVault],
+    );
+    await telegram.processNotifications();
+    expect(await dbJobs()).toEqual([]);
+    await db.query(
+      `insert into workflow_v2_runs values ($1, $2, $3, $4, $5, $6, '2', $2, $6, '1', $6, 5, 100)`,
+      [deployment, chain, run, agent, id, tx],
+    );
+    await telegram.processNotifications();
+    await telegram.processNotifications();
+    const processed = await db.query(
+      'select log_index from workflow_v2_outcomes where telegram_processed_at is not null order by log_index',
+    );
+    expect(processed.rows).toEqual([{ log_index: 1 }, { log_index: 4 }]);
+    const jobs = await db.query(
+      'select workflow_id, log_index, message from telegram_deliveries order by log_index',
+    );
+    expect(jobs.rows).toEqual([
+      {
+        workflow_id: id,
+        log_index: 1,
+        message: [
+          'Rulebook · Workflow confirmed',
+          'Recurring transfer',
+          `${telegramConfig.appOrigin}/runs/${run}`,
+          `${getChain(chain).explorerUrl}/tx/${tx}`,
+        ].join('\n'),
+      },
+    ]);
+    expect((await app.inject({ url: base, headers })).json().testDelivery).toBeNull();
+    expect(
+      (await apply({ workflowId: id, preference: 'mute' })).json().workflows[0].preference,
+    ).toBe('mute');
+    // Treat the confirmed outcome as older than the preference saved before the worker sent it.
+    await db.query(`update telegram_deliveries set block_time = now() - interval '1 second'`);
+    const [claimed] = await databaseAdapter.rpc('telegram_claim', {}, z.array(claimedSchema));
+    expect(
+      await databaseAdapter.rpc(
+        'telegram_prepare',
+        { p_id: claimed!.id, p_lease: claimed!.lease },
+        z.array(z.unknown()),
+      ),
+    ).toEqual([]);
+    expect(
+      (await app.inject({ method: 'POST', url: `${base}/test`, headers })).json().testDelivery,
+    ).toBe('pending');
+  });
+
   it('notifies for confirmed swaps, transfers, deposits and mirrors while respecting preferences and vault ownership', async () => {
     const headers = await signIn();
     const result = await pair(headers);

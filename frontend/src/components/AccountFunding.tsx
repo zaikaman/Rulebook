@@ -133,10 +133,12 @@ export function AccountFunding({
   onConfirmed,
   onFeeConfirmed,
   guided,
+  workflow = false,
   onProgressChange,
 }: {
   agent: Address;
   vault: Address;
+  workflow?: boolean;
   onConfirmed?: () => void | Promise<void>;
   onFeeConfirmed?: (block: Pick<TransactionReceipt, 'blockHash' | 'blockNumber'>) => Promise<void>;
   guided?: {
@@ -155,9 +157,10 @@ export function AccountFunding({
   const [chosen, setChoice] = useState<FundingChoice>('watching');
   const queryClient = useQueryClient();
   const choice = guided?.choice ?? chosen;
+  const item = workflow ? 'workflow' : 'rule';
   const options = {
     watching: {
-      label: 'Rule monitoring fees',
+      label: `${workflow ? 'Workflow' : 'Rule'} monitoring fees`,
       chainId: LASNA_CHAIN_ID,
       target: ruleFees.watching.target,
       beneficiary: agent,
@@ -166,7 +169,7 @@ export function AccountFunding({
       client: lasnaPublicClient,
     },
     execution: {
-      label: 'Rule execution fees',
+      label: `${workflow ? 'Workflow' : 'Rule'} execution fees`,
       chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
       target: ruleFees.execution.target,
       beneficiary: vault,
@@ -233,7 +236,7 @@ export function AccountFunding({
     balance.data !== undefined &&
     balance.data.value > 0n &&
     (isVault ? token.data !== undefined && parsed <= token.data : parsed < balance.data.value);
-  const estimate = fundingEstimate(choice, parsed - (guided?.debt ?? 0n));
+  const estimate = workflow ? null : fundingEstimate(choice, parsed - (guided?.debt ?? 0n));
 
   const deposit = useMutation({
     retry: false,
@@ -313,7 +316,25 @@ export function AccountFunding({
         });
       const display = `${formatUnits(parsed, selected.decimals)} test ${selected.symbol}`;
       let hash: Hex;
-      if (isVault) {
+      if (isVault && workflow) {
+        hash = await requestFundingSignature(
+          {
+            chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+            target: DEMO_USDC,
+            targetLabel: 'Test USDC',
+            effect: 'Transfer test USDC directly to your workflow vault.',
+            amount: display,
+          },
+          (client) =>
+            writeContract(client, {
+              account: address,
+              address: DEMO_USDC,
+              abi: erc20Abi,
+              functionName: 'transfer',
+              args: [vault, parsed],
+            }),
+        );
+      } else if (isVault) {
         const allowance = await unichainPublicClient.readContract({
           address: DEMO_USDC,
           abi: erc20Abi,
@@ -386,6 +407,7 @@ export function AccountFunding({
       if (onFeeConfirmed) void balance.refetch();
       else await Promise.all([balance.refetch(), isVault && token.refetch(), onConfirmed?.()]);
       setAmount(guided ? undefined : '');
+      if (workflow) void queryClient.invalidateQueries({ queryKey: ['workflow-v2'] });
       void queryClient.invalidateQueries({
         predicate: ({ queryKey: [type, account] }) =>
           (type === 'sponsor' || type === 'rule') &&
@@ -433,7 +455,11 @@ export function AccountFunding({
         {guided ? (
           <p>
             {fundingToken.network.name} ·{' '}
-            {isVault ? 'Deposit USDC if your first rule spends it.' : ruleFees[choice].description}
+            {isVault
+              ? `Deposit USDC if your first ${item} spends it.`
+              : workflow && choice === 'watching'
+                ? 'REACT pays for checking when your workflows should run.'
+                : ruleFees[choice].description}
           </p>
         ) : (
           <p className="app-copy">

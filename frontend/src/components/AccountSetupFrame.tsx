@@ -17,6 +17,8 @@ export function AccountSetupFrame({
   connected,
   focusOnMount = false,
   compact = false,
+  workflow = false,
+  manageAccount = false,
   children,
 }: {
   title: string;
@@ -25,6 +27,8 @@ export function AccountSetupFrame({
   connected: boolean;
   focusOnMount?: boolean;
   compact?: boolean;
+  workflow?: boolean;
+  manageAccount?: boolean;
   children: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -35,7 +39,7 @@ export function AccountSetupFrame({
   }, [focusOnMount, step]);
 
   return (
-    <div className="account-setup">
+    <div className="account-setup" data-workflow={workflow || undefined}>
       <header className="account-setup__toolbar">
         <Link to={appRoutes.landing} className="account-setup__brand" aria-label="Rulebook home">
           <Wordmark />
@@ -77,10 +81,20 @@ export function AccountSetupFrame({
           </div>
         </header>
         {children}
-        <Link to={appRoutes.rules} className="account-setup__exit">
-          <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
-          Back to rules
-        </Link>
+        <div className="account-setup__links">
+          <Link
+            to={workflow ? appRoutes.workflows : appRoutes.rules}
+            className="account-setup__exit"
+          >
+            <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
+            {workflow ? 'Back to workflows' : 'Back to rules'}
+          </Link>
+          {manageAccount && (
+            <Link className="account-setup__exit" to={appRoutes.accountFunds}>
+              Manage vault funds
+            </Link>
+          )}
+        </div>
       </div>
     </div>
   );

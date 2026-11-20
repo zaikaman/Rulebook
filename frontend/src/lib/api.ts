@@ -131,8 +131,11 @@ export class ApiClient {
     return this.request(`/v1/sponsor/${agent}`, sponsorStatusSchema);
   }
 
-  telegramAvailability() {
-    return this.request('/v1/telegram/availability', telegramAvailabilitySchema);
+  telegramAvailability(workflow = false) {
+    return this.request(
+      workflow ? '/v1/telegram/availability?workflow=true' : '/v1/telegram/availability',
+      telegramAvailabilitySchema,
+    );
   }
 
   telegramChallenge(agent: string, owner: string) {
@@ -180,7 +183,8 @@ export class ApiClient {
     token: string,
     preference:
       | { enabled?: boolean; defaultMode?: TelegramDefault }
-      | { ruleId: string; preference: TelegramPreference },
+      | { ruleId: string; preference: TelegramPreference }
+      | { workflowId: string; preference: TelegramPreference },
   ) {
     return this.request(
       `/v1/accounts/${agent}/telegram/preferences`,

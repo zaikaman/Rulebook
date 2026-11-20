@@ -8,6 +8,8 @@ const result = z.object({ ok: z.literal(true), result: z.unknown() });
 async function main() {
   const config = loadConfig().telegram;
   if (!config) throw new Error('Configure the Telegram backend settings first.');
+  if (config.updates === 'polling')
+    throw new Error('Set TELEGRAM_UPDATES=webhook before registering a webhook.');
   const argument = process.argv[2];
   if (!argument) throw new Error('Pass the public HTTPS origin of the Rulebook backend.');
   const api = new URL(argument);

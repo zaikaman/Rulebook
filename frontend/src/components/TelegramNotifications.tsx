@@ -6,6 +6,14 @@ import {
   type TelegramPreference,
   type TelegramSettings,
 } from '@rulebook/shared';
+import {
+  Alert02Icon,
+  CheckmarkCircle02Icon,
+  Link01Icon,
+  SecurityCheckIcon,
+  TelegramIcon,
+} from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
@@ -18,27 +26,76 @@ import { appRoutes } from '../lib/routes.js';
 
 type Session = Awaited<ReturnType<typeof api.telegramSession>>;
 type Pairing = Awaited<ReturnType<typeof api.telegramPair>>;
-type RuleSetting = TelegramSettings['rules'][number];
+type DeliverySetting = {
+  id: string;
+  title: string;
+  preference: TelegramPreference;
+};
+type NotificationProps = { agent: Address; owner: Address } & (
+  { workflow?: false; ruleId?: string } | { workflow: true; workflowId?: string }
+);
 
-export function TelegramNotifications(props: { agent: Address; owner: Address; ruleId?: string }) {
+export function TelegramNotifications(props: NotificationProps) {
+  const workflow = props.workflow === true;
+  const heading = useId();
   const availability = useQuery({
-    queryKey: ['telegram-availability'],
-    queryFn: () => api.telegramAvailability(),
+    queryKey: ['telegram-availability', workflow],
+    queryFn: () => api.telegramAvailability(workflow),
     staleTime: 60_000,
   });
-  if (!availability.data?.available) return null;
+  if (!availability.data?.available) {
+    if (!workflow || props.workflowId || availability.isPending) return null;
+    return (
+      <section className="app-panel rb-notify" aria-labelledby={heading}>
+        <header className="rb-panel-head">
+          <div className="rb-notify-heading">
+            <span className="rb-notify-mark" aria-hidden="true">
+              <HugeiconsIcon icon={TelegramIcon} size={18} strokeWidth={1.7} />
+            </span>
+            <div>
+              <h2 id={heading} className="rb-panel-title">
+                Telegram notifications
+              </h2>
+              <p className="rb-panel-copy">Delivery for workflows owned by this wallet.</p>
+            </div>
+          </div>
+          <span className="rb-chip">Unavailable</span>
+        </header>
+        <div className="rb-panel-body">
+          {availability.isError ? (
+            <div className="rb-notify-callout" data-tone="error">
+              <span className="rb-notify-callout-icon" aria-hidden="true">
+                <HugeiconsIcon icon={Alert02Icon} size={17} strokeWidth={1.7} />
+              </span>
+              <div className="rb-notify-callout-copy">
+                <p className="rb-notify-title">Availability could not be checked.</p>
+                <p className="rb-notify-copy">Try again before configuring delivery.</p>
+              </div>
+              <button
+                type="button"
+                className="app-button"
+                onClick={() => void availability.refetch()}
+              >
+                Check again
+              </button>
+            </div>
+          ) : (
+            <p className="rb-notify-copy">
+              Telegram notifications are unavailable on this deployment.
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
   return <TelegramSettingsPanel key={`${props.agent}:${props.owner}`} {...props} />;
 }
 
-function TelegramSettingsPanel({
-  agent,
-  owner,
-  ruleId,
-}: {
-  agent: Address;
-  owner: Address;
-  ruleId?: string;
-}) {
+function TelegramSettingsPanel(props: NotificationProps) {
+  const { agent, owner } = props;
+  const workflow = props.workflow === true;
+  const itemId = props.workflow ? props.workflowId : props.ruleId;
+  const name = workflow ? 'workflow' : 'rule';
   const heading = useId();
   const queryClient = useQueryClient();
   const sessionKey = ['telegram-session', agent.toLowerCase(), owner.toLowerCase()];
@@ -142,286 +199,401 @@ function TelegramSettingsPanel({
     queryClient.setQueryData(sessionKey, verified);
   }
 
-  function patchRule(rule: RuleSetting, preference: TelegramPreference) {
+  function patchDelivery(item: DeliverySetting, preference: TelegramPreference) {
     if (authorized)
       void run('Saving preference…', () =>
-        api.telegramPreferences(agent, authorized.token, { ruleId: rule.id, preference }),
+        api.telegramPreferences(
+          agent,
+          authorized.token,
+          workflow ? { workflowId: item.id, preference } : { ruleId: item.id, preference },
+        ),
       );
   }
 
-  const rule = current?.rules.find(({ id }) => id === ruleId);
+  const items = workflow
+    ? (current?.workflows ?? [])
+    : (current?.rules.map(({ id, template, preference }) => ({
+        id,
+        title: `Rule #${id} · ${telegramRuleName(template)}`,
+        preference,
+      })) ?? []);
+  const selected = items.find(({ id }) => id === itemId);
   const connected = current?.connection === 'connected';
+  const blocked = current?.connection === 'blocked';
   const candidate = expired ? null : current?.pendingPairing;
+  const state = !authorized
+    ? 'verify'
+    : settings.isError
+      ? 'error'
+      : !current
+        ? 'loading'
+        : connected
+          ? 'connected'
+          : blocked
+            ? 'blocked'
+            : 'disconnected';
+  const chipLabel = {
+    verify: 'Verify wallet',
+    error: 'Unavailable',
+    loading: 'Checking',
+    connected: 'Connected',
+    blocked: 'Blocked',
+    disconnected: 'Not connected',
+  }[state];
+  const chipTone =
+    state === 'connected'
+      ? ('active' as const)
+      : state === 'error' || state === 'blocked'
+        ? ('danger' as const)
+        : state === 'verify' || state === 'loading'
+          ? ('info' as const)
+          : undefined;
+  const subtitle =
+    state === 'verify'
+      ? 'Verify the owner wallet to manage delivery for this account.'
+      : state === 'error'
+        ? 'Telegram settings could not be loaded. Retry below.'
+        : state === 'loading'
+          ? 'Checking the Telegram connection for this wallet.'
+          : state === 'connected'
+            ? `Messages go to ${current?.profile ?? 'your connected chat'}.`
+            : state === 'blocked'
+              ? 'Telegram blocked the bot. Unblock it, then reconnect.'
+              : `Connect Telegram to receive ${name} messages.`;
+  const connectionIcon = connected ? CheckmarkCircle02Icon : blocked ? Alert02Icon : Link01Icon;
 
   return (
     <section
       aria-labelledby={heading}
       aria-busy={Boolean(busy)}
-      className="app-panel app-panel-pad space-y-4"
+      className="app-panel rb-notify"
+      data-state={state}
     >
-      <h2 id={heading} className="app-panel-heading">
-        Telegram notifications
-      </h2>
-      {!authorized && (
-        <div className="space-y-3">
-          <p className="app-copy">
-            Verify your wallet to connect Telegram or manage delivery preferences.
-          </p>
-          <button
-            className="app-button"
-            type="button"
-            disabled={Boolean(busy)}
-            onClick={() => void run('Verifying wallet…', verifyWallet)}
-          >
-            Verify wallet
-          </button>
-        </div>
-      )}
-      {authorized && !current && !settings.isError && (
-        <p className="app-copy rb-loading" role="status">
-          <Spinner />
-          Loading Telegram settings…
-        </p>
-      )}
-      {authorized && settings.isError && (
-        <button type="button" className="app-button" onClick={() => void settings.refetch()}>
-          Retry loading Telegram settings
-        </button>
-      )}
-      {authorized && current && ruleId && (
-        <>
-          {rule && current.configured && (
-            <RuleDelivery
-              rule={rule}
-              settings={current}
-              disabled={Boolean(busy)}
-              onChange={patchRule}
-            />
-          )}
-          {!rule && (
-            <p className="app-copy">
-              Delivery preferences appear after Rulebook indexes this rule.
-            </p>
-          )}
-          {!connected && (
-            <Link className="app-link" to={appRoutes.account}>
-              Connect Telegram in Account
-            </Link>
-          )}
-        </>
-      )}
-      {authorized && current && !ruleId && (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="app-copy" role="status">
-              {connected
-                ? `Connected to ${current.profile}`
-                : current.connection === 'blocked'
-                  ? 'Bot blocked. Unblock it in Telegram, then reconnect.'
-                  : 'Telegram is disconnected.'}
-            </p>
-            {current.connection !== 'disconnected' && (
-              <button
-                className="app-button"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() =>
-                  void run('Disconnecting…', async () => {
-                    const updated = await api.telegramDisconnect(agent, authorized.token);
-                    setPairing(undefined);
-                    return updated;
-                  })
-                }
-              >
-                Disconnect
-              </button>
-            )}
+      <header className="rb-panel-head">
+        <div className="rb-notify-heading">
+          <span className="rb-notify-mark" data-tone={chipTone} aria-hidden="true">
+            <HugeiconsIcon icon={TelegramIcon} size={18} strokeWidth={1.7} />
+          </span>
+          <div>
+            <h2 id={heading} className="rb-panel-title">
+              Telegram notifications
+            </h2>
+            <p className="rb-panel-copy">{subtitle}</p>
           </div>
-          {!connected && candidate && (
-            <div className="space-y-2">
-              <p className="app-copy">
-                Confirm {candidate.profile}.{' '}
-                {current.configured
-                  ? 'Your saved delivery preferences will apply.'
-                  : 'All rules will send Telegram messages when they complete or raise an alert.'}
+        </div>
+        <span className="rb-chip" data-tone={chipTone}>
+          {chipLabel}
+        </span>
+      </header>
+      <div className="rb-panel-body rb-notify-body">
+        {!authorized && (
+          <div className="rb-notify-callout">
+            <span className="rb-notify-callout-icon" aria-hidden="true">
+              <HugeiconsIcon icon={SecurityCheckIcon} size={17} strokeWidth={1.7} />
+            </span>
+            <div className="rb-notify-callout-copy">
+              <p className="rb-notify-title">Verify wallet ownership</p>
+              <p className="rb-notify-copy">
+                Telegram settings are tied to the wallet that owns this account.
               </p>
-              <button
-                className="app-button app-button--primary"
-                type="button"
+            </div>
+            <button
+              className="app-button app-button--primary"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void run('Verifying wallet…', verifyWallet)}
+            >
+              Verify wallet
+            </button>
+          </div>
+        )}
+        {authorized && !current && !settings.isError && (
+          <p className="app-copy rb-loading" role="status">
+            <Spinner />
+            Loading Telegram settings…
+          </p>
+        )}
+        {authorized && settings.isError && (
+          <div className="rb-notify-callout" data-tone="error">
+            <span className="rb-notify-callout-icon" aria-hidden="true">
+              <HugeiconsIcon icon={Alert02Icon} size={17} strokeWidth={1.7} />
+            </span>
+            <div className="rb-notify-callout-copy">
+              <p className="rb-notify-title">Telegram settings are unavailable.</p>
+              <p className="rb-notify-copy">The connection could not be read.</p>
+            </div>
+            <button type="button" className="app-button" onClick={() => void settings.refetch()}>
+              Retry loading Telegram settings
+            </button>
+          </div>
+        )}
+        {authorized && current && itemId && (
+          <>
+            {selected && current.configured && (
+              <DeliveryPreference
+                item={selected}
+                workflow={workflow}
+                settings={current}
                 disabled={Boolean(busy)}
-                onClick={() =>
-                  void run('Connecting Telegram…', async () => {
-                    const updated = await api.telegramConfirm(
-                      agent,
-                      authorized.token,
-                      candidate.id,
-                    );
-                    setPairing(undefined);
-                    return updated;
-                  })
-                }
-              >
-                {current.configured
-                  ? 'Confirm Telegram connection'
-                  : 'Connect and enable notifications'}
-              </button>
-            </div>
-          )}
-          {!connected && !candidate && pairing && (
-            <div className="space-y-2">
+                onChange={patchDelivery}
+              />
+            )}
+            {!selected && (
               <p className="app-copy">
-                Open the bot, tap Start, then return here to confirm the account.
+                Delivery preferences appear after Rulebook indexes this {name}.
               </p>
-              <a
-                className="app-button app-button--primary"
-                href={pairing.url}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Telegram bot
-              </a>
-            </div>
-          )}
-          {!connected && !candidate && !pairing && (
-            <div className="space-y-2">
-              {expired && (
-                <p className="app-copy" role="status">
-                  This pairing link expired. Get a new link to try again.
+            )}
+            {!connected && (
+              <Link className="app-link" to={appRoutes.account}>
+                Connect Telegram in Account
+              </Link>
+            )}
+          </>
+        )}
+        {authorized && current && !itemId && (
+          <>
+            <div
+              className="rb-notify-connection"
+              data-tone={connected ? 'connected' : blocked ? 'blocked' : 'disconnected'}
+            >
+              <span className="rb-notify-state-icon" aria-hidden="true">
+                <HugeiconsIcon icon={connectionIcon} size={17} strokeWidth={1.8} />
+              </span>
+              <div className="rb-notify-connection-copy">
+                <p className="rb-notify-title" role="status">
+                  {connected
+                    ? `Connected to ${current.profile}`
+                    : blocked
+                      ? 'Bot blocked'
+                      : 'Telegram is disconnected.'}
                 </p>
-              )}
-              <button
-                className="app-button app-button--primary"
-                type="button"
-                disabled={Boolean(busy)}
-                onClick={() =>
-                  void run('Creating pairing link…', async () => {
-                    setPairing(await api.telegramPair(agent, authorized.token));
-                    setExpired(false);
-                  })
-                }
-              >
-                {expired
-                  ? 'Get a new pairing link'
-                  : current.configured
-                    ? 'Reconnect Telegram'
-                    : 'Connect Telegram'}
-              </button>
-            </div>
-          )}
-          {current.configured && (
-            <fieldset className="app-divider min-w-0 space-y-4 pt-4" disabled={Boolean(busy)}>
-              <legend className="sr-only">Telegram delivery preferences</legend>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="app-field">
-                  <span id={`${heading}-delivery`}>Telegram delivery</span>
-                  <select
-                    className="app-input"
-                    aria-labelledby={`${heading}-delivery`}
-                    value={String(current.enabled)}
-                    onChange={(event) => {
-                      const enabled = event.currentTarget.value === 'true';
-                      void run('Saving delivery status…', () =>
-                        api.telegramPreferences(agent, authorized.token, { enabled }),
-                      );
-                    }}
-                  >
-                    <option value="true">On</option>
-                    <option value="false">Off</option>
-                  </select>
-                </label>
-                <label className="app-field">
-                  <span id={`${heading}-default`}>Default for rules</span>
-                  <select
-                    className="app-input"
-                    aria-labelledby={`${heading}-default`}
-                    value={current.defaultMode}
-                    onChange={(event) => {
-                      const defaultMode = event.currentTarget.value === 'all' ? 'all' : 'selected';
-                      void run('Saving account default…', () =>
-                        api.telegramPreferences(agent, authorized.token, { defaultMode }),
-                      );
-                    }}
-                  >
-                    <option value="all">All rules</option>
-                    <option value="selected">Only selected rules</option>
-                  </select>
-                </label>
+                <p className="rb-notify-copy">
+                  {connected
+                    ? current.enabled
+                      ? `Delivery is on by default for ${name}s.`
+                      : 'Delivery is paused for this account.'
+                    : blocked
+                      ? 'Unblock the Rulebook bot in Telegram, then reconnect.'
+                      : candidate
+                        ? `Confirm ${candidate.profile} to finish connecting.`
+                        : pairing
+                          ? 'Open the bot, tap Start, then return here to confirm.'
+                          : `Connect the bot to receive a message when a ${name} run is confirmed.`}
+                </p>
               </div>
-              {current.rules.length > 0 ? (
-                <ul className="space-y-2">
-                  {current.rules.map((item) => (
-                    <li key={item.id}>
-                      <RuleDelivery
-                        rule={item}
-                        settings={current}
-                        onChange={patchRule}
-                        disabled={Boolean(busy)}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="app-copy">Your rules will appear here once you create them.</p>
-              )}
-            </fieldset>
-          )}
-          {connected && (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                className="app-button"
-                type="button"
-                disabled={Boolean(busy) || current.testDelivery === 'pending'}
-                onClick={() =>
-                  void run('Queueing test message…', () =>
-                    api.telegramTest(agent, authorized.token),
-                  )
-                }
-              >
-                Send test message
-              </button>
-              {current.testDelivery && (
-                <p className="app-copy" role="status">
-                  {
-                    {
-                      pending: 'Test message queued.',
-                      sent: 'Test message sent.',
-                      failed: 'Test message failed. Try again.',
-                    }[current.testDelivery]
+              {current.connection !== 'disconnected' && (
+                <button
+                  className="app-button"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run('Disconnecting…', async () => {
+                      const updated = await api.telegramDisconnect(agent, authorized.token);
+                      setPairing(undefined);
+                      return updated;
+                    })
                   }
-                </p>
+                >
+                  Disconnect
+                </button>
               )}
             </div>
-          )}
-        </>
-      )}
+            {!connected && candidate && (
+              <div className="rb-notify-step">
+                <p className="app-copy">
+                  Confirm {candidate.profile}.{' '}
+                  {current.configured
+                    ? 'Your saved delivery preferences will apply.'
+                    : workflow
+                      ? 'All workflows will send a Telegram message when a run is confirmed.'
+                      : 'All rules will send Telegram messages when they complete or raise an alert.'}
+                </p>
+                <button
+                  className="app-button app-button--primary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run('Connecting Telegram…', async () => {
+                      const updated = await api.telegramConfirm(
+                        agent,
+                        authorized.token,
+                        candidate.id,
+                      );
+                      setPairing(undefined);
+                      return updated;
+                    })
+                  }
+                >
+                  {current.configured
+                    ? 'Confirm Telegram connection'
+                    : 'Connect and enable notifications'}
+                </button>
+              </div>
+            )}
+            {!connected && !candidate && pairing && (
+              <div className="rb-notify-step">
+                <p className="app-copy">
+                  Open the bot, tap Start, then return here to confirm the account.
+                </p>
+                <a
+                  className="app-button app-button--primary"
+                  href={pairing.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open Telegram bot
+                </a>
+              </div>
+            )}
+            {!connected && !candidate && !pairing && (
+              <div className="rb-notify-step">
+                {expired && (
+                  <p className="app-copy" role="status">
+                    This pairing link expired. Get a new link to try again.
+                  </p>
+                )}
+                <button
+                  className="app-button app-button--primary"
+                  type="button"
+                  disabled={Boolean(busy)}
+                  onClick={() =>
+                    void run('Creating pairing link…', async () => {
+                      setPairing(await api.telegramPair(agent, authorized.token));
+                      setExpired(false);
+                    })
+                  }
+                >
+                  {expired
+                    ? 'Get a new pairing link'
+                    : current.configured
+                      ? 'Reconnect Telegram'
+                      : 'Connect Telegram'}
+                </button>
+              </div>
+            )}
+            {current.configured && (
+              <fieldset className="rb-notify-preferences" disabled={Boolean(busy)}>
+                <legend className="sr-only">Telegram delivery preferences</legend>
+                <div className="rb-notify-preference-grid">
+                  <label className="app-field">
+                    <span id={`${heading}-delivery`}>Telegram delivery</span>
+                    <select
+                      className="app-input rb-notify-select"
+                      aria-labelledby={`${heading}-delivery`}
+                      value={String(current.enabled)}
+                      onChange={(event) => {
+                        const enabled = event.currentTarget.value === 'true';
+                        void run('Saving delivery status…', () =>
+                          api.telegramPreferences(agent, authorized.token, { enabled }),
+                        );
+                      }}
+                    >
+                      <option value="true">On</option>
+                      <option value="false">Off</option>
+                    </select>
+                  </label>
+                  <label className="app-field">
+                    <span id={`${heading}-default`}>Default for {name}s</span>
+                    <select
+                      className="app-input rb-notify-select"
+                      aria-labelledby={`${heading}-default`}
+                      value={current.defaultMode}
+                      onChange={(event) => {
+                        const defaultMode =
+                          event.currentTarget.value === 'all' ? 'all' : 'selected';
+                        void run('Saving account default…', () =>
+                          api.telegramPreferences(agent, authorized.token, { defaultMode }),
+                        );
+                      }}
+                    >
+                      <option value="all">All {name}s</option>
+                      <option value="selected">Only selected {name}s</option>
+                    </select>
+                  </label>
+                </div>
+                {items.length > 0 ? (
+                  <ul className="rb-notify-list">
+                    {items.map((item) => (
+                      <li key={item.id}>
+                        <DeliveryPreference
+                          item={item}
+                          workflow={workflow}
+                          settings={current}
+                          onChange={patchDelivery}
+                          disabled={Boolean(busy)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="app-copy">
+                    {workflow
+                      ? 'Workflows appear here after activation is indexed.'
+                      : 'Your rules will appear here once you create them.'}
+                  </p>
+                )}
+              </fieldset>
+            )}
+            {connected && (
+              <div className="rb-notify-test">
+                <button
+                  className="app-button"
+                  type="button"
+                  disabled={Boolean(busy) || current.testDelivery === 'pending'}
+                  onClick={() =>
+                    void run('Queueing test message…', () =>
+                      api.telegramTest(agent, authorized.token),
+                    )
+                  }
+                >
+                  Send test message
+                </button>
+                {current.testDelivery && (
+                  <p className="app-copy" role="status">
+                    {
+                      {
+                        pending: 'Test message queued.',
+                        sent: 'Test message sent.',
+                        failed: 'Test message failed. Try again.',
+                      }[current.testDelivery]
+                    }
+                  </p>
+                )}
+              </div>
+            )}
+          </>
+        )}
+        {error && (
+          <p className="app-alert" data-tone="error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
       {busy && (
-        <p className="rb-loading" role="status">
+        <p className="rb-notify-progress" role="status">
           <Spinner />
           {busy}
-        </p>
-      )}
-      {error && (
-        <p className="app-alert" data-tone="error" role="alert">
-          {error}
         </p>
       )}
     </section>
   );
 }
 
-function RuleDelivery({
-  rule,
+function DeliveryPreference({
+  item,
+  workflow,
   settings,
   disabled,
   onChange,
 }: {
-  rule: RuleSetting;
+  item: DeliverySetting;
+  workflow: boolean;
   settings: TelegramSettings;
   disabled: boolean;
-  onChange: (rule: RuleSetting, preference: TelegramPreference) => void;
+  onChange: (item: DeliverySetting, preference: TelegramPreference) => void;
 }) {
   const shouldSend =
-    rule.preference === 'send' || (rule.preference === 'inherit' && settings.defaultMode === 'all');
+    item.preference === 'send' || (item.preference === 'inherit' && settings.defaultMode === 'all');
   const status =
     settings.connection === 'blocked'
       ? 'Telegram bot blocked'
@@ -432,22 +604,28 @@ function RuleDelivery({
           : shouldSend
             ? 'Sends to Telegram'
             : 'Muted';
-  const title = `Rule #${rule.id} · ${telegramRuleName(rule.template)}`;
+  const tone =
+    settings.connection === 'blocked' ||
+    settings.connection === 'disconnected' ||
+    !settings.enabled ||
+    !shouldSend
+      ? 'muted'
+      : 'active';
   return (
-    <label className="app-field app-divider items-center gap-x-4 gap-y-2 py-2 sm:grid-cols-[1fr_minmax(10rem,auto)]">
-      <span>
-        {title}
-        <span className="app-copy mt-1 block">{status}</span>
+    <label className="rb-delivery-row" data-tone={tone}>
+      <span className="rb-delivery-copy">
+        <span className="rb-delivery-title">{item.title}</span>
+        <span className="rb-delivery-status">{status}</span>
       </span>
       <select
-        className="app-input"
-        aria-label={`Telegram delivery for rule #${rule.id}`}
-        value={rule.preference}
+        className="app-input rb-delivery-select"
+        aria-label={`Telegram delivery for ${workflow ? item.title : `rule #${item.id}`}`}
+        value={item.preference}
         disabled={disabled}
         onChange={(event) => {
           const preference = event.currentTarget.value;
           if (preference === 'inherit' || preference === 'send' || preference === 'mute')
-            onChange(rule, preference);
+            onChange(item, preference);
         }}
       >
         <option value="inherit">Use account default</option>

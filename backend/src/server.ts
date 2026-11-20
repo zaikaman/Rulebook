@@ -17,6 +17,7 @@ import { IndexerPoller } from './indexer/poller.js';
 import { registerRoutes } from './api/routes/index.js';
 import { PublicAccountChain } from './sponsor/accountChain.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
+import { TelegramPoller } from './telegram/poller.js';
 import { TelegramWorker } from './telegram/worker.js';
 import { WorkflowIndexer } from './workflows/indexer.js';
 import { WorkflowV2Indexer } from './workflows/indexerV2.js';
@@ -86,6 +87,7 @@ export async function startServer(): Promise<void> {
   const repositories = createRepositories(store);
   const cursors = new CursorStore(store);
   const clients = createChainClients(config);
+  const v2 = config.workflowsV2;
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
   const telegram =
     config.telegram && telegramDb
@@ -94,6 +96,7 @@ export async function startServer(): Promise<void> {
           telegramDb,
           telegramOwnership(clients, config.telegram.factories),
           repositories,
+          v2?.lasna.factory,
         )
       : undefined;
   const { app } = buildServer({
@@ -116,11 +119,10 @@ export async function startServer(): Promise<void> {
     config.workflows && config.INDEXER_ENABLED
       ? new WorkflowIndexer(supabase, clients, config.workflows, app.log)
       : undefined;
-  const v2 = config.workflowsV2;
   if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory);
   const workflowV2Indexer =
     v2 && config.INDEXER_ENABLED
-      ? new WorkflowV2Indexer(supabase, clients, v2, app.log)
+      ? new WorkflowV2Indexer(supabase, clients, v2, app.log, telegram !== undefined)
       : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   void workflowIndexer?.run();
@@ -129,6 +131,9 @@ export async function startServer(): Promise<void> {
   const worker =
     telegram && telegramDb ? new TelegramWorker(telegramDb, telegram, app.log) : undefined;
   const workerRun = worker?.run();
+  const telegramPoller =
+    telegram?.config.updates === 'polling' ? new TelegramPoller(telegram, app.log) : undefined;
+  const telegramPolling = telegramPoller?.run();
   let poller: IndexerPoller | undefined;
   if (config.INDEXER_ENABLED && !config.workflows) {
     const startBlocks = {
@@ -154,7 +159,8 @@ export async function startServer(): Promise<void> {
       workflowIndexer?.stop();
       workflowV2Indexer?.stop();
       worker?.stop();
-      void Promise.all([app.close(), workerRun]).then(() => process.exit(0));
+      telegramPoller?.stop();
+      void Promise.all([app.close(), workerRun, telegramPolling]).then(() => process.exit(0));
     });
   }
 }

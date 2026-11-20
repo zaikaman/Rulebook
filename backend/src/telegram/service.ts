@@ -195,6 +195,7 @@ export class TelegramService {
     private readonly db: Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>,
     private readonly ownership: TelegramOwnership,
     private readonly repositories: Repositories,
+    private readonly workflowDeployment?: Address,
   ) {}
 
   private challengeProof(agent: Address, owner: Address, nonce: Hex, expiresAt: number) {
@@ -244,6 +245,13 @@ export class TelegramService {
   }
 
   status(agent: Address, session: string) {
+    if (this.workflowDeployment) {
+      return this.db.rpc(
+        'telegram_workflow_status',
+        { p_deployment: this.workflowDeployment, p_agent: agent, p_session: session },
+        telegramSettingsSchema,
+      );
+    }
     return this.db.rpc(
       'telegram_notification_status',
       { p_agent: agent, p_session: session },
@@ -251,8 +259,10 @@ export class TelegramService {
     );
   }
 
-  ready() {
-    return this.db.rpc('telegram_notifications_ready', {}, z.boolean());
+  ready(workflow = false) {
+    if (workflow && !this.workflowDeployment) return Promise.resolve(false);
+    const rpc = workflow ? 'telegram_workflows_ready' : 'telegram_notifications_ready';
+    return this.db.rpc(rpc, {}, z.boolean());
   }
 
   async pair(agent: Address, session: { hash: string; expiresAt: number }) {
@@ -287,8 +297,27 @@ export class TelegramService {
 
   preferences(
     agent: Address,
-    body: { enabled?: boolean; defaultMode?: string; ruleId?: string; preference?: string },
+    body: {
+      enabled?: boolean;
+      defaultMode?: string;
+      ruleId?: string;
+      workflowId?: string;
+      preference?: string;
+    },
   ) {
+    if (body.workflowId) {
+      if (!this.workflowDeployment) return Promise.resolve(false);
+      return this.db.rpc(
+        'telegram_set_workflow_preference',
+        {
+          p_deployment: this.workflowDeployment,
+          p_agent: agent,
+          p_workflow: body.workflowId,
+          p_preference: body.preference,
+        },
+        z.boolean(),
+      );
+    }
     return this.db.rpc(
       'telegram_set_preferences',
       {
@@ -333,6 +362,26 @@ export class TelegramService {
   }
 
   async processNotifications() {
+    const results = await Promise.allSettled([
+      this.processRuleNotifications(),
+      this.workflowDeployment &&
+        this.db.rpc(
+          'telegram_process_workflow_notifications',
+          {
+            p_deployment: this.workflowDeployment,
+            p_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            p_origin: this.config.appOrigin,
+            p_explorer: CHAIN_CONFIGS.get(UNICHAIN_SEPOLIA_CHAIN_ID)!.explorerUrl,
+          },
+          z.null(),
+        ),
+    ]);
+    if (results.some(({ status }) => status === 'rejected')) {
+      throw new Error('One or more Telegram notifications remain staged for retry.');
+    }
+  }
+
+  private async processRuleNotifications() {
     let failed = false;
     for (const event of await this.db.rpc(
       'telegram_pending_notifications',
