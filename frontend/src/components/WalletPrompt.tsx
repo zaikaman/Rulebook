@@ -1,7 +1,10 @@
+import { Shield01Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useEffect, useId, useRef, type KeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { NetworkBadge } from './NetworkBadge.js';
+import { Spinner } from './chrome/Spinner.js';
 
 export interface WalletPromptActions {
   readonly onCancel: () => void;
@@ -11,6 +14,7 @@ export interface WalletPromptActions {
 
 export function WalletPrompt({
   title,
+  eyebrow,
   chainId,
   children,
   confirmLabel,
@@ -19,6 +23,7 @@ export function WalletPrompt({
   busy = false,
 }: WalletPromptActions & {
   readonly title: string;
+  readonly eyebrow: string;
   readonly chainId: number;
   readonly children: ReactNode;
   readonly confirmLabel: string;
@@ -81,23 +86,28 @@ export function WalletPrompt({
         event.preventDefault();
         if (!busy) onCancel();
       }}
-      className="app-dialog app-panel app-panel-pad m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-auto text-ink shadow-2xl backdrop:bg-surface backdrop:opacity-80"
+      className="app-dialog rb-wallet-prompt"
     >
-      <div className="space-y-2">
+      <header className="rb-wallet-prompt__head">
+        <span className="rb-wallet-prompt__mark" aria-hidden="true">
+          <HugeiconsIcon icon={Shield01Icon} size={19} strokeWidth={1.7} />
+        </span>
+        <div className="rb-wallet-prompt__heading">
+          <span className="rb-wallet-prompt__eyebrow">{eyebrow}</span>
+          <h2 id={titleId}>{title}</h2>
+        </div>
         <NetworkBadge chainId={chainId} />
-        <h2 id={titleId} className="app-panel-heading text-lg leading-snug">
-          {title}
-        </h2>
-      </div>
-      <div id={descriptionId} className="mt-4 space-y-3 break-words text-sm text-ink-muted">
+      </header>
+      <div id={descriptionId} className="rb-wallet-prompt__body">
         {children}
       </div>
       {busy ? (
-        <p ref={waitingRef} tabIndex={-1} role="status" className="app-alert mt-5 text-sm">
+        <p ref={waitingRef} tabIndex={-1} role="status" className="rb-wallet-prompt__waiting">
+          <Spinner />
           Confirm the request in your wallet.
         </p>
       ) : (
-        <div className="app-divider mt-5 flex flex-wrap justify-end gap-2 pt-4">
+        <footer className="rb-wallet-prompt__foot">
           <button ref={cancelRef} type="button" onClick={onCancel} className="app-button">
             Cancel
           </button>
@@ -109,7 +119,7 @@ export function WalletPrompt({
           >
             {confirmLabel}
           </button>
-        </div>
+        </footer>
       )}
     </dialog>,
     document.body,

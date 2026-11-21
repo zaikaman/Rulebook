@@ -17,31 +17,29 @@ export interface ErrorStateProps {
 /** Renders a failure with its network and its underlying chain reason (FR-051). */
 export function ErrorState({ message, detail, chainId, onRetry, children }: ErrorStateProps) {
   return (
-    <div role="alert" className="app-alert" data-tone="error">
-      <div className="flex flex-wrap items-center gap-2">
-        <HugeiconsIcon
-          icon={AlertCircleIcon}
-          size={18}
-          className="shrink-0 text-silent"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 font-semibold text-ink">{message}</span>
-        {chainId !== undefined ? <NetworkBadge chainId={chainId} /> : null}
+    <div role="alert" className="rb-error">
+      <span className="rb-error-mark" aria-hidden="true">
+        <HugeiconsIcon icon={AlertCircleIcon} size={18} strokeWidth={1.8} />
+      </span>
+      <div className="rb-error-body">
+        <div className="rb-error-head">
+          <p className="rb-error-title">{message}</p>
+          {chainId !== undefined ? <NetworkBadge chainId={chainId} /> : null}
+        </div>
+        {detail ? (
+          <code data-testid="error-detail" className="rb-error-detail">
+            {detail}
+          </code>
+        ) : null}
+        {children ? <div className="rb-error-extra">{children}</div> : null}
+        {onRetry ? (
+          <div className="rb-error-actions">
+            <button type="button" onClick={onRetry} className="app-button">
+              Try again
+            </button>
+          </div>
+        ) : null}
       </div>
-      {detail ? (
-        <code
-          data-testid="error-detail"
-          className="mt-2 block break-all font-mono text-xs text-ink-muted"
-        >
-          {detail}
-        </code>
-      ) : null}
-      {onRetry ? (
-        <button type="button" onClick={onRetry} className="app-button mt-3">
-          Try again
-        </button>
-      ) : null}
-      {children}
     </div>
   );
 }

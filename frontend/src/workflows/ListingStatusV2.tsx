@@ -20,6 +20,12 @@ export function ListingStatusV2({
   if (query.isPaused) loading = 'Waiting for a connection…';
   else if (query.failureReason) loading = 'Retrying the Marketplace request…';
 
+  const status = query.isPaused
+    ? 'Checking will resume when you reconnect.'
+    : query.isError
+      ? 'The Marketplace is taking longer than usual to sync it.'
+      : 'This page will update when it appears in the Marketplace.';
+
   return (
     <section className="app-page">
       <PageHeading
@@ -31,23 +37,37 @@ export function ListingStatusV2({
         }
       />
       {syncing ? (
-        <div className="app-panel app-panel-pad space-y-3">
-          <div className="space-y-2" role="status">
-            <h2 className="app-panel-heading">Syncing listing</h2>
-            <p className="app-copy">
-              This workflow is public on Reactive Lasna.{' '}
-              {query.isPaused
-                ? 'Checking will resume when you reconnect.'
-                : query.isError
-                  ? 'The Marketplace is taking longer than usual to sync it.'
-                  : 'This page will update when it appears in the Marketplace.'}
+        <div className="app-panel rb-sync">
+          <header className="rb-panel-head">
+            <div className="rb-sync-heading" role="status">
+              <span className="rb-sync-mark" aria-hidden="true">
+                <span className="rb-sync-pulse" />
+              </span>
+              <div>
+                <h2 className="rb-panel-title">Syncing listing</h2>
+                <p className="rb-panel-copy">This workflow is public on Reactive Lasna. {status}</p>
+              </div>
+            </div>
+            <span className="rb-chip" data-tone="info">
+              Indexing
+            </span>
+          </header>
+          <div className="rb-panel-body rb-sync-body">
+            <div className="rb-sync-track" aria-hidden="true">
+              <span />
+            </div>
+            <p className="rb-sync-note">
+              The indexer checks for confirmed blocks every few seconds. You can leave this page
+              open or return to the Marketplace.
             </p>
+            {query.isError && (
+              <div className="rb-sync-actions">
+                <button type="button" className="app-button" onClick={checkAgain}>
+                  Check again
+                </button>
+              </div>
+            )}
           </div>
-          {query.isError && (
-            <button type="button" className="app-button" onClick={checkAgain}>
-              Check again
-            </button>
-          )}
         </div>
       ) : query.error && !query.isFetching ? (
         <ErrorState

@@ -11,21 +11,27 @@ export function SignatureSummary({
   return (
     <WalletPrompt
       {...actions}
+      eyebrow="Signature review"
       title={`Review signature on ${network.name}`}
       confirmLabel="Continue to wallet"
       chainId={network.chainId}
     >
-      <p className="text-ink">{details.effect}</p>
-      <dl className="space-y-3 border-t border-border pt-3">
+      <p className="rb-wallet-prompt__lede">{details.effect}</p>
+      <dl className="rb-wallet-prompt__facts">
         <div>
-          <dt className="font-medium text-ink">{details.targetLabel}</dt>
-          <dd className="break-all font-mono text-xs">{details.target}</dd>
+          <dt>{details.targetLabel}</dt>
+          <dd>
+            <code>{details.target}</code>
+          </dd>
         </div>
         <div>
-          <dt className="font-medium text-ink">{details.amountLabel ?? 'Principal'}</dt>
+          <dt>{details.amountLabel ?? 'Principal'}</dt>
           <dd>{details.amount}</dd>
         </div>
       </dl>
+      <p className="rb-wallet-prompt__hint">
+        Your wallet shows the final request and fee before anything is signed.
+      </p>
     </WalletPrompt>
   );
 }

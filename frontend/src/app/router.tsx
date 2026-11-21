@@ -82,9 +82,15 @@ export function AppRouter() {
               path="rules"
               element={legacyWorkspace ? <Home /> : <Navigate to="/workflows" replace />}
             />
-            <Route path="rules/:agent/:ruleId" element={<RuleDetail />} />
+            <Route
+              path="rules/:agent/:ruleId"
+              element={legacyWorkspace ? <RuleDetail /> : <Navigate to="/workflows" replace />}
+            />
             <Route path="proof" element={legacyWorkspace ? <Proof /> : <WorkflowProofLookup />} />
-            <Route path="proof/:reactiveTxHash" element={<Proof />} />
+            <Route
+              path="proof/:reactiveTxHash"
+              element={legacyWorkspace ? <Proof /> : <Navigate to="/proof" replace />}
+            />
             <Route
               path="marketplace"
               element={legacyWorkspace ? <Marketplace /> : <WorkflowMarketplaceV2 />}

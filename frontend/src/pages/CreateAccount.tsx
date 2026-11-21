@@ -3,6 +3,8 @@ import {
   ArrowUpRight01Icon,
   CircleArrowReload01Icon,
   Copy01Icon,
+  InformationCircleIcon,
+  LockKeyIcon,
   Tick02Icon,
   Wallet01Icon,
 } from '@hugeicons/core-free-icons';
@@ -565,9 +567,9 @@ export function CreateAccount({
         {stage === 'wallet' && (
           <div className="account-setup__section account-setup__wallet">
             <span className="account-setup__wallet-icon" aria-hidden="true">
-              <HugeiconsIcon icon={Wallet01Icon} size={22} />
+              <HugeiconsIcon icon={Wallet01Icon} size={24} strokeWidth={1.6} />
             </span>
-            <div>
+            <div className="account-setup__wallet-copy">
               {connected ? (
                 <p className="rb-loading" role="status">
                   <Spinner />
@@ -581,8 +583,42 @@ export function CreateAccount({
               ) : (
                 <>
                   <h2>Choose a wallet</h2>
-                  <p>Use the same wallet throughout setup.</p>
-                  <WalletControl setup />
+                  <p>
+                    Use the same wallet throughout setup. Rulebook never takes custody of your
+                    funds.
+                  </p>
+                  <ul className="account-setup__wallet-facts">
+                    <li>
+                      <HugeiconsIcon
+                        icon={Tick02Icon}
+                        size={13}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                      />
+                      Same wallet for both testnets
+                    </li>
+                    <li>
+                      <HugeiconsIcon
+                        icon={LockKeyIcon}
+                        size={13}
+                        strokeWidth={1.9}
+                        aria-hidden="true"
+                      />
+                      Keys stay in your wallet
+                    </li>
+                    <li>
+                      <HugeiconsIcon
+                        icon={InformationCircleIcon}
+                        size={13}
+                        strokeWidth={1.9}
+                        aria-hidden="true"
+                      />
+                      Testnet only
+                    </li>
+                  </ul>
+                  <div className="account-setup__connect">
+                    <WalletControl setup />
+                  </div>
                 </>
               )}
             </div>

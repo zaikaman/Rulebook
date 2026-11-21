@@ -10,13 +10,22 @@ export function ChainSwitchPrompt({
   const network = getChain(details.chainId);
   const label = `Switch to ${network.name}`;
   return (
-    <WalletPrompt {...actions} title={label} confirmLabel={label} chainId={network.chainId}>
-      <p>
-        This action needs {network.name} because it targets your {details.targetLabel.toLowerCase()}
-        {network.role === 'automation' ? ', where you manage rules.' : ', where your funds live.'}
-      </p>
-      <p>{details.effect}</p>
-      <p>You can review the signature after switching.</p>
+    <WalletPrompt
+      {...actions}
+      eyebrow="Network switch"
+      title={label}
+      confirmLabel={label}
+      chainId={network.chainId}
+    >
+      <div className="rb-wallet-prompt__copy">
+        <p>
+          This action needs {network.name} because it targets your{' '}
+          {details.targetLabel.toLowerCase()}
+          {network.role === 'automation' ? ', where you manage rules.' : ', where your funds live.'}
+        </p>
+        <p>{details.effect}</p>
+      </div>
+      <p className="rb-wallet-prompt__hint">You can review the signature after switching.</p>
     </WalletPrompt>
   );
 }

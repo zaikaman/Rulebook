@@ -5,8 +5,10 @@ import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-qu
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 
+import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { NetworkBadge } from '@/components/NetworkBadge';
 import { CardGridSkeleton, LoadingRegion } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
 import { WorkflowProgramSummary } from './BuilderV2';
@@ -193,22 +195,47 @@ export function WorkflowListingV2() {
             <WorkflowProgramSummary draft={toDraft(decodeWorkflowV2(item.program), item.title)} />
           </div>
         </div>
-        <div className="app-panel">
+        <div className="app-panel rb-listing-details">
           <div className="rb-panel-head">
-            <h2 className="rb-panel-title">Details</h2>
+            <div className="rb-listing-details-heading">
+              <span className="rb-listing-details-mark" aria-hidden="true">
+                <HugeiconsIcon icon={Store01Icon} size={18} strokeWidth={1.7} />
+              </span>
+              <div>
+                <h2 className="rb-panel-title">Listing details</h2>
+                <p className="rb-panel-copy">Published on the testnet Marketplace.</p>
+              </div>
+            </div>
           </div>
           <div className="rb-panel-body">
-            <dl className="rb-summary">
+            <dl className="rb-spec-facts rb-listing-facts">
               <div>
                 <dt>Published by</dt>
-                <dd className="font-mono text-xs">{item.owner}</dd>
+                <dd className="rb-listing-address">
+                  <code title={item.owner}>{shortAddress(item.owner)}</code>
+                  <CopyButton value={item.owner} label="publisher address" />
+                </dd>
               </div>
               <div>
-                <dt>Listing ID</dt>
-                <dd className="font-mono text-xs">{item.id}</dd>
+                <dt>Listing</dt>
+                <dd className="rb-listing-id">#{item.id}</dd>
+              </div>
+              <div>
+                <dt>Settlement</dt>
+                <dd>
+                  <NetworkBadge chainId={item.chain} />
+                </dd>
+              </div>
+              <div>
+                <dt>Visibility</dt>
+                <dd>
+                  <span className="rb-chip" data-tone="active">
+                    Public
+                  </span>
+                </dd>
               </div>
             </dl>
-            <p className="app-copy">
+            <p className="rb-listing-note">
               Copying creates a private draft in the builder. Review each node and the spending
               limits before activating it from your own vault.
             </p>

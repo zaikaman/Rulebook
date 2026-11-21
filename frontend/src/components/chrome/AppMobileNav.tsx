@@ -25,11 +25,15 @@ export function AppMobileNav() {
     const nav = navRef.current;
     const active = nav?.querySelector<HTMLElement>('[aria-current]');
     if (!nav || !active) return;
-    const navBox = nav.getBoundingClientRect();
-    const itemBox = active.getBoundingClientRect();
-    if (itemBox.right > navBox.right || itemBox.left < navBox.left) {
-      nav.scrollLeft += itemBox.left - navBox.left - 16;
-    }
+    const frame = requestAnimationFrame(() => {
+      const navBox = nav.getBoundingClientRect();
+      const itemBox = active.getBoundingClientRect();
+      if (itemBox.left >= navBox.left + 16 && itemBox.right <= navBox.right - 16) return;
+      const target =
+        nav.scrollLeft + itemBox.left - navBox.left - (navBox.width - itemBox.width) / 2;
+      nav.scrollLeft = Math.min(Math.max(target, 0), nav.scrollWidth - nav.clientWidth);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [pathname]);
 
   return (
