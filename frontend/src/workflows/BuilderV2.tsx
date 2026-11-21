@@ -22,6 +22,7 @@ import {
   Search01Icon,
   Settings02Icon,
   Shield01Icon,
+  SparklesIcon,
   TradeUpIcon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
@@ -49,6 +50,11 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
+import {
+  hasRulewrightBaseline,
+  RulewrightDialog,
+  type RulewrightSession,
+} from './RulewrightDialog';
 import { diagramV2, replacePath } from './diagramV2';
 import { ListingStatusV2 } from './ListingStatusV2';
 import { copyListingDraft, v2ListingId, v2ListingQuery } from './listingV2';
@@ -644,6 +650,7 @@ function Editor({
   storageKey: string;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const { address } = useAccount();
   const navigate = useNavigate();
   const [saved] = useState(() => loadDraft(storageKey));
   const [draft, setDraft] = useState<V2Draft>(() => saved?.draft ?? original ?? emptyDraft());
@@ -659,6 +666,8 @@ function Editor({
     () => id ?? saved?.id ?? bytesToHex(crypto.getRandomValues(new Uint8Array(32))),
   );
   const [recipes, setRecipes] = useState(!original && !saved);
+  const [rulewrightOpen, setRulewrightOpen] = useState(false);
+  const rulewrightSession = useRef<RulewrightSession>(undefined);
   const [selected, pick] = useState<NodeTool>();
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
@@ -666,6 +675,9 @@ function Editor({
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
+  useEffect(() => {
+    if (rulewrightSession.current?.owner !== address) rulewrightSession.current = undefined;
+  }, [address]);
   useLayoutEffect(() => {
     inspectorBody.current?.scrollTo({ top: 0 });
   }, [canvasSelection, canvasStep, inspectorView]);
@@ -832,7 +844,11 @@ function Editor({
   const hasPayout = spendKinds.includes(A.inactivityPayout);
   const selectedEntry =
     typeof canvasSelection === 'number' ? diagram.paths[canvasSelection] : undefined;
-  const headingAside = recipes ? undefined : program ? (
+  const headingAside = recipes ? (
+    <button type="button" className="app-button" onClick={() => setRulewrightOpen(true)}>
+      Draft with Rulewright
+    </button>
+  ) : program ? (
     <div className="rb-action-row">
       <button type="button" className="app-button" onClick={() => review(undefined)}>
         Back to editing
@@ -1490,10 +1506,24 @@ function Editor({
           <section className="rb-canvas-panel" aria-label="Workflow graph">
             <div className="rb-canvas-toolbar">
               <h2 className="rb-panel-title">Canvas</h2>
-              <button type="button" className="app-button app-button--quiet" onClick={showWorkflow}>
-                <HugeiconsIcon icon={Settings02Icon} size={15} aria-hidden="true" />
-                Workflow settings
-              </button>
+              <div className="rb-action-row">
+                <button
+                  type="button"
+                  className="app-button app-button--quiet"
+                  onClick={() => setRulewrightOpen(true)}
+                >
+                  <HugeiconsIcon icon={SparklesIcon} size={14} aria-hidden="true" />
+                  Ask Rulewright
+                </button>
+                <button
+                  type="button"
+                  className="app-button app-button--quiet"
+                  onClick={showWorkflow}
+                >
+                  <HugeiconsIcon icon={Settings02Icon} size={15} aria-hidden="true" />
+                  Workflow settings
+                </button>
+              </div>
             </div>
             <WorkflowCanvas
               draft={diagram.canvas}
@@ -1551,6 +1581,27 @@ function Editor({
             </div>
           </aside>
         </div>
+      )}
+      {rulewrightOpen && (
+        <RulewrightDialog
+          key={address ?? 'disconnected'}
+          draft={id || hasRulewrightBaseline(draft) ? draft : undefined}
+          session={rulewrightSession}
+          close={() => setRulewrightOpen(false)}
+          summary={(next) => <WorkflowProgramSummary draft={next} />}
+          apply={(next) => {
+            const pathShape = ({ paths }: ReturnType<typeof diagramV2>) =>
+              paths.map(({ path, anchor }) => [anchor, 'steps' in path ? path.steps.length : null]);
+            if (JSON.stringify(pathShape(diagram)) !== JSON.stringify(pathShape(diagramV2(next))))
+              setPositions({});
+            update(next);
+            setRecipes(false);
+            setRulewrightOpen(false);
+            pick(undefined);
+            showWorkflow();
+            setStatus('Rulewright draft applied. Review the workflow when you’re ready.');
+          }}
+        />
       )}
       {program && !error && <span className="sr-only">{formatWorkflowCaps(program)}</span>}
     </section>

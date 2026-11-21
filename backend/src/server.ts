@@ -23,6 +23,7 @@ import { WorkflowIndexer } from './workflows/indexer.js';
 import { WorkflowV2Indexer } from './workflows/indexerV2.js';
 import { registerWorkflowRoutes } from './workflows/routes.js';
 import { registerWorkflowV2Routes } from './workflows/routesV2.js';
+import { RulewrightService } from './rulewright/service.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -88,6 +89,11 @@ export async function startServer(): Promise<void> {
   const cursors = new CursorStore(store);
   const clients = createChainClients(config);
   const v2 = config.workflowsV2;
+  const rulewright =
+    config.gemini && v2
+      ? new RulewrightService(supabase, clients, v2.unichain.factory, config.gemini)
+      : undefined;
+  const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
   const telegram =
     config.telegram && telegramDb
@@ -104,6 +110,7 @@ export async function startServer(): Promise<void> {
     repositories,
     cursors,
     telegram,
+    rulewright,
     accountChain: new PublicAccountChain(clients),
     proofSource: createProofSource(clients),
     sponsorSource: new PublicSponsorSource(clients),
@@ -125,6 +132,7 @@ export async function startServer(): Promise<void> {
       ? new WorkflowV2Indexer(supabase, clients, v2, app.log, telegram !== undefined)
       : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
+  const rulewrightRun = rulewright?.run(app.log, rulewrightShutdown.signal);
   void workflowIndexer?.run();
   void workflowV2Indexer?.run();
 
@@ -155,12 +163,15 @@ export async function startServer(): Promise<void> {
   }
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
+      rulewrightShutdown.abort();
       poller?.stop();
       workflowIndexer?.stop();
       workflowV2Indexer?.stop();
       worker?.stop();
       telegramPoller?.stop();
-      void Promise.all([app.close(), workerRun, telegramPolling]).then(() => process.exit(0));
+      void Promise.all([app.close(), workerRun, telegramPolling, rulewrightRun]).then(() =>
+        process.exit(0),
+      );
     });
   }
 }

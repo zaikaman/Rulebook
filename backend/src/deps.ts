@@ -5,6 +5,7 @@ import type { Repositories } from './db/repositories/index.js';
 import type { CursorStore } from './indexer/cursors.js';
 import type { AccountChain } from './sponsor/accountChain.js';
 import type { TelegramService } from './telegram/service.js';
+import type { RulewrightService } from './rulewright/service.js';
 
 /** Everything the HTTP layer needs, injected so tests can run without Supabase or RPC. */
 export interface ServerDeps {
@@ -20,4 +21,5 @@ export interface ServerDeps {
   /** Reads execution-credit reserves/debt; absent when no chain client is configured. */
   readonly sponsorSource?: SponsorSource;
   readonly telegram?: TelegramService;
+  readonly rulewright?: RulewrightService;
 }

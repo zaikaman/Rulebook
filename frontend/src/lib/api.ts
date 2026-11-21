@@ -9,6 +9,10 @@ import {
   proofSchema,
   ruleDetailResponseSchema,
   rulesResponseSchema,
+  rulewrightChallengeSchema,
+  rulewrightJobIdSchema,
+  rulewrightJobSchema,
+  rulewrightSessionSchema,
   sponsorStatusSchema,
   telegramAvailabilitySchema,
   telegramChallengeSchema,
@@ -20,12 +24,13 @@ import {
   type LeaderboardResponse,
   type Proof,
   type Rule,
+  type RulewrightRequest,
   type SponsorStatus,
   type TelegramChallenge,
   type TelegramDefault,
   type TelegramPreference,
 } from '@rulebook/shared';
-import type { z } from 'zod';
+import { z } from 'zod';
 
 /** A failed API call; always carries the machine code, raw detail, and HTTP status. */
 export class ApiError extends Error {
@@ -79,6 +84,44 @@ export class ApiClient {
 
   health(): Promise<Health> {
     return this.request('/health', healthSchema);
+  }
+
+  rulewrightAvailability(signal?: AbortSignal) {
+    return this.request('/v2/rulewright/availability', z.object({ available: z.boolean() }), {
+      signal,
+    });
+  }
+
+  rulewrightChallenge(owner: string, signal: AbortSignal) {
+    return this.request(
+      '/v2/rulewright/challenge',
+      rulewrightChallengeSchema,
+      rulewrightRequest('POST', signal, { owner }),
+    );
+  }
+
+  rulewrightSession(nonce: string, signature: string, signal: AbortSignal) {
+    return this.request(
+      '/v2/rulewright/session',
+      rulewrightSessionSchema,
+      rulewrightRequest('POST', signal, { nonce, signature }),
+    );
+  }
+
+  rulewrightEnqueue(input: RulewrightRequest, token: string, signal: AbortSignal) {
+    return this.request(
+      '/v2/rulewright/jobs',
+      z.object({ id: rulewrightJobIdSchema }),
+      rulewrightRequest('POST', signal, input, token),
+    );
+  }
+
+  rulewrightJob(id: string, token: string, signal: AbortSignal) {
+    return this.request(
+      `/v2/rulewright/jobs/${encodeURIComponent(id)}`,
+      rulewrightJobSchema,
+      rulewrightRequest('GET', signal, undefined, token),
+    );
   }
 
   chains() {
@@ -222,6 +265,20 @@ function telegramRequest(method: string, token?: string, body?: object): Request
   if (token) headers.authorization = `Bearer ${token}`;
   if (body) headers['content-type'] = 'application/json';
   return { method, headers, body: body ? JSON.stringify(body) : undefined, cache: 'no-store' };
+}
+
+function rulewrightRequest(
+  method: string,
+  signal: AbortSignal,
+  body?: object,
+  token?: string,
+): RequestInit {
+  const request = telegramRequest(method, token, body);
+  return {
+    ...request,
+    headers: { ...request.headers, 'x-rulewright-origin': window.location.origin },
+    signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
+  };
 }
 
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8787';

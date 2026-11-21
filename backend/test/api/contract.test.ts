@@ -68,6 +68,11 @@ const v1Routes = [
   'GET /v1/leaderboard',
   'GET /v1/sponsor/:agent',
   'POST /v1/encode/preview',
+  'GET /v2/rulewright/availability',
+  'POST /v2/rulewright/challenge',
+  'POST /v2/rulewright/session',
+  'POST /v2/rulewright/jobs',
+  'GET /v2/rulewright/jobs/:id',
 ];
 
 describe('API contract', () => {

@@ -100,9 +100,12 @@ export async function installWallet(
           params?: unknown[];
         }): Promise<unknown> {
           if (
-            ['wallet_switchEthereumChain', 'eth_signTypedData_v4', 'eth_sendTransaction'].includes(
-              method,
-            )
+            [
+              'wallet_switchEthereumChain',
+              'eth_signTypedData_v4',
+              'personal_sign',
+              'eth_sendTransaction',
+            ].includes(method)
           ) {
             walletRequests.push({ method, chainId: Number.parseInt(chainId, 16) });
           }

@@ -2,6 +2,7 @@ import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance } from 'fastify';
 
 import type { ServerDeps } from '../../deps.js';
+import { registerRulewrightRoutes } from '../../rulewright/routes.js';
 import { registerAccountRoutes } from './accounts.js';
 import { registerChainRoutes } from './chains.js';
 import { registerEncodeRoutes } from './encode.js';
@@ -27,5 +28,9 @@ export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
   void app.register(async (telegram) => {
     await telegram.register(rateLimit, { global: false });
     registerTelegramRoutes(telegram, deps);
+  });
+  void app.register(async (rulewright) => {
+    await rulewright.register(rateLimit, { global: false });
+    registerRulewrightRoutes(rulewright, deps);
   });
 }

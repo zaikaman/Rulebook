@@ -9,7 +9,9 @@ export * from './schemas.js';
 export * from './telegram.js';
 export * from './workflows.js';
 export * from './workflowsV2.js';
+export * from './workflowV2Draft.js';
 export * from './workflowV2Recipes.js';
+export * from './rulewright.js';
 export {
   agentAbi,
   agentFactoryAbi,

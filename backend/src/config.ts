@@ -71,7 +71,16 @@ const envSchema = z.object({
   WORKFLOW_START_BLOCK_LASNA: z.coerce.number().int().positive().optional(),
   WORKFLOW_START_BLOCK_UNICHAIN: z.coerce.number().int().positive().optional(),
   WORKFLOW_V2_DEPLOYMENT: workflowV2DeploymentJson.optional(),
+  GEMINI_MODEL: z.string().optional(),
+  GEMINI_BASE_URL: z.string().optional(),
+  GEMINI_API_KEY: z.string().optional(),
 });
+
+export interface GeminiConfig {
+  readonly model: string;
+  readonly endpoint: URL;
+  readonly apiKey: string;
+}
 
 export interface TelegramConfig {
   readonly botToken: string;
@@ -96,6 +105,7 @@ export interface AppConfig {
   readonly telegram?: TelegramConfig;
   readonly workflows?: WorkflowDeployment;
   readonly workflowsV2?: WorkflowV2Deployment;
+  readonly gemini?: GeminiConfig;
 }
 
 /** Error thrown when the environment is incomplete or malformed. */
@@ -127,11 +137,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     WORKFLOW_START_BLOCK_LASNA: lasnaStart,
     WORKFLOW_START_BLOCK_UNICHAIN: unichainStart,
     WORKFLOW_V2_DEPLOYMENT: workflowsV2,
+    GEMINI_MODEL: geminiModel,
+    GEMINI_BASE_URL: geminiBase,
+    GEMINI_API_KEY: geminiKey,
     ...base
   } = data;
   const corsOrigins = base.CORS_ORIGINS.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  let gemini: GeminiConfig | undefined;
+  if (geminiModel?.trim() && geminiKey?.trim() && geminiBase) {
+    const endpoint = URL.parse(geminiBase);
+    if (
+      endpoint?.protocol === 'https:' &&
+      !endpoint.username &&
+      !endpoint.password &&
+      !endpoint.search &&
+      !endpoint.hash
+    ) {
+      const path = endpoint.pathname.replace(/\/+$/, '');
+      endpoint.pathname = path.endsWith('/chat/completions') ? path : `${path}/chat/completions`;
+      gemini = { model: geminiModel.trim(), apiKey: geminiKey.trim(), endpoint };
+    }
+  }
   let telegram: TelegramConfig | undefined;
   if (
     botToken ||
@@ -189,6 +217,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     corsOrigins,
     telegram,
     workflowsV2,
+    gemini,
     workflows:
       directory && vaultFactory && lasnaStart && unichainStart
         ? { directory, vaultFactory, lasnaStart, unichainStart }
