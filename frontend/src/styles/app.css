@@ -363,6 +363,9 @@
 /* Scroll area and workspace */
 
 .app-scroll {
+  /* Containing block for absolutely positioned content (for example sr-only labels) so it
+     cannot escape the scroll area and stretch the document below the fixed shell. */
+  position: relative;
   flex: 1;
   min-block-size: 0;
 }
