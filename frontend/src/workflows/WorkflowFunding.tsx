@@ -1,0 +1,89 @@
+import type { WeeklyBudgetAmounts, WorkflowV2Program } from '@rulebook/shared';
+import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router';
+import type { Address } from 'viem';
+
+import { appRoutes } from '@/lib/routes';
+import { Button, Callout, PanelCopy } from '@/ui';
+import { readFundsV2, settlementFactory, type SettlementChain } from './chainV2';
+import { workflowFundingIssues } from './fundingV2';
+
+export function useWorkflowFunding(
+  owner: Address | undefined,
+  program: WorkflowV2Program | undefined,
+  budget: WeeklyBudgetAmounts | undefined,
+) {
+  const query = useQuery({
+    queryKey: ['workflow-v2', 'funding-check', owner?.toLowerCase(), program?.chain],
+    enabled: Boolean(owner && program && budget && settlementFactory()),
+    queryFn: () => readFundsV2(owner!, program!.chain as SettlementChain),
+    refetchInterval: 12_000,
+    retry: 1,
+  });
+  const issues =
+    query.data && program && budget ? workflowFundingIssues(program, budget, query.data) : [];
+  const blocked =
+    Boolean(owner && program && budget) && (query.isPending || query.isError || issues.length > 0);
+  return { query, issues, blocked };
+}
+
+export function WorkflowFundingNotice({
+  owner,
+  funding,
+  onEdit,
+}: {
+  owner?: Address;
+  funding: ReturnType<typeof useWorkflowFunding>;
+  onEdit: () => void;
+}) {
+  if (!owner || !settlementFactory()) return null;
+  const { query, issues } = funding;
+
+  if (query.isPending) {
+    return <PanelCopy role="status">Checking Vault funding…</PanelCopy>;
+  }
+
+  if (query.isError) {
+    return (
+      <Callout
+        title="Could not check Vault funding"
+        action={
+          <Button onClick={() => void query.refetch()} disabled={query.isFetching}>
+            {query.isFetching ? 'Checking…' : 'Check again'}
+          </Button>
+        }
+      >
+        <p>Activation is paused until the Vault balances can be read.</p>
+      </Callout>
+    );
+  }
+
+  if (!issues.length) return null;
+
+  const account = issues.some((issue) => issue.recovery === 'account');
+  const limits = issues.some((issue) => issue.recovery === 'limits');
+  const title = account
+    ? limits
+      ? 'Fund the Vault and fix the limits'
+      : 'Fund the Vault before activation'
+    : 'Fix the limits before activation';
+
+  return (
+    <Callout
+      title={title}
+      action={
+        account ? (
+          <Link className="app-button" to={appRoutes.account}>
+            Open Account &amp; Vault
+          </Link>
+        ) : (
+          <Button onClick={onEdit}>Edit workflow</Button>
+        )
+      }
+    >
+      {issues.map((issue) => (
+        <p key={issue.code}>{issue.message}</p>
+      ))}
+    </Callout>
+  );
+}

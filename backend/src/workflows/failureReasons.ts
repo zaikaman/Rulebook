@@ -32,6 +32,13 @@ const reasons = new Map<string, FailureReason>([
     { message: 'The configured testnet market is unavailable.' },
   ],
   [
+    toFunctionSelector('Error(string)'),
+    {
+      message: 'A token transfer or swap failed. Check the Vault balances and the market.',
+      recovery: 'balances',
+    },
+  ],
+  [
     toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)'),
     {
       message: 'The wallet or Vault had insufficient tokens.',

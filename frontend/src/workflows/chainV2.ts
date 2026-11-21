@@ -29,11 +29,12 @@ import {
 import { useAccount, useSendTransaction } from 'wagmi';
 import { z } from 'zod';
 
-import { useChainGuard } from '@/hooks/useChainGuard';
 import type { SetupWallet } from '@/hooks/useAccountSetup';
+import { useChainGuard } from '@/hooks/useChainGuard';
 import { SetupTransactionError } from '@/lib/errors';
 import { type SignatureDetails } from '@/lib/signatures';
 import { lasnaPublicClient as lasna, unichainPublicClient } from '@/lib/wagmi';
+import { workflowFundingIssues } from './fundingV2';
 
 export type SettlementChain = typeof UNICHAIN_SEPOLIA_CHAIN_ID;
 type WalletChain = SignatureDetails['chainId'];
@@ -579,6 +580,9 @@ export function useWorkflowV2Wallet() {
       const encoded = encodeWorkflowV2(program);
       await validateV2Program(encoded);
       const { agent, vault } = await ensure(signer, chain);
+      const funds = await readFundsV2(signer, chain);
+      const fundingIssues = workflowFundingIssues(program, budget, funds);
+      if (fundingIssues.length) throw new Error(fundingIssues[0]!.message);
       const [entry, auth] = await Promise.all([
         v2Entry(agent, id),
         v2Authorization(chain, vault, id),

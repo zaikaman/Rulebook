@@ -53,6 +53,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
+import { useWorkflowFunding, WorkflowFundingNotice } from './WorkflowFunding';
 import {
   hasRulewrightBaseline,
   RulewrightDialog,
@@ -751,6 +752,7 @@ function Editor({
   const [error, setError] = useState<string>();
   const [program, review] = useState<WorkflowV2Program>();
   const [budget, setBudget] = useState<WeeklyBudgetAmounts>();
+  const funding = useWorkflowFunding(wallet.owner, program, budget);
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
@@ -1571,6 +1573,13 @@ function Editor({
                 <p className="rb-alert">Testnet activation is disabled.</p>
               )}
               {workflowActivationEnabled && <WorkflowCreditNotice owner={wallet.owner} review />}
+              {workflowActivationEnabled && (
+                <WorkflowFundingNotice
+                  owner={wallet.owner}
+                  funding={funding}
+                  onEdit={() => review(undefined)}
+                />
+              )}
               {wallet.owner ? (
                 <button
                   className="app-button app-button--primary rb-full"
@@ -1580,6 +1589,7 @@ function Editor({
                     !workflowActivationEnabled ||
                     !settlementFactory() ||
                     !budget ||
+                    funding.blocked ||
                     (hasPayout && !consent)
                   }
                   onClick={async () => {
