@@ -579,10 +579,17 @@ export function useWorkflowV2Wallet() {
       if (!factory) throw new Error('This testnet deployment is unavailable.');
       const encoded = encodeWorkflowV2(program);
       await validateV2Program(encoded);
+      const existingVault = await readVault(signer, chain);
       const { agent, vault } = await ensure(signer, chain);
-      const funds = await readFundsV2(signer, chain);
-      const fundingIssues = workflowFundingIssues(program, budget, funds);
-      if (fundingIssues.length) throw new Error(fundingIssues[0]!.message);
+      // The first activation creates the Vault, so its empty balance cannot block this call.
+      // Once a Vault exists, an underfunded balance stops activation before any signatures.
+      if (existingVault !== zeroAddress) {
+        const funds = await readFundsV2(signer, chain);
+        const fundingIssue = workflowFundingIssues(program, budget, funds).find(
+          (issue) => issue.code !== 'vault-missing',
+        );
+        if (fundingIssue) throw new Error(fundingIssue.message);
+      }
       const [entry, auth] = await Promise.all([
         v2Entry(agent, id),
         v2Authorization(chain, vault, id),

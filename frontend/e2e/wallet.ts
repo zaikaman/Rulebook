@@ -6,6 +6,7 @@ import {
   UNICHAIN_SEPOLIA_CHAIN_ID,
   vaultAbi,
   vaultFactoryAbi,
+  workflowVaultFactoryV2Abi,
 } from '@rulebook/shared';
 import {
   createPublicClient,
@@ -23,6 +24,7 @@ import {
   SPONSOR_ADDRESS,
   USER_ADDRESS,
   VAULT_FACTORY_ADDRESS,
+  WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig.js';
 
 type WalletRequest = { readonly method: string; readonly chainId: number };
@@ -248,6 +250,43 @@ export async function approveSignature(
 export async function skipRuleFunding(page: Page) {
   await page.getByRole('button', { name: 'Compose and fund later' }).click();
   await page.getByRole('button', { name: 'Skip guide' }).click();
+}
+
+/** Funds the V2 workflow vault that account setup creates for this owner. */
+export async function fundFixtureWorkflowVault(owner: Address, amount: bigint) {
+  const transport = http(ANVIL_RPC_URL);
+  const client = createPublicClient({ transport });
+  const wallet = createWalletClient({ transport });
+  const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
+  const vault = await client.readContract({
+    address: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+    abi: workflowVaultFactoryV2Abi,
+    functionName: 'vaultOf',
+    args: [owner],
+  });
+  if (vault === zeroAddress) throw new Error('Fixture workflow vault has not been deployed.');
+
+  const mint = await wallet.writeContract({
+    address: token,
+    abi: parseAbi(['function mint(address to, uint256 amount)']),
+    functionName: 'mint',
+    args: [owner, amount],
+    account: SPONSOR_ADDRESS,
+    chain: null,
+  });
+  // The V2 Vault holds its principal directly, so funding is a plain token transfer.
+  const transfer = await wallet.writeContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: 'transfer',
+    args: [vault, amount],
+    account: owner,
+    chain: null,
+  });
+  for (const hash of [mint, transfer]) {
+    const receipt = await client.waitForTransactionReceipt({ hash });
+    if (receipt.status !== 'success') throw new Error('Fixture workflow vault funding reverted.');
+  }
 }
 
 export async function fundFixtureVault(owner: Address, amount: bigint) {

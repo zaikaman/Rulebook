@@ -1,7 +1,7 @@
-import { isAddress, zeroAddress, type Address } from 'viem';
+import { formatUnits, zeroAddress, type Address } from 'viem';
 
 import { UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
-import { readAmount } from './workflows.js';
+import { readField, workflowFieldSpecs, type WorkflowFieldName } from './workflowFields.js';
 import {
   workflowV2Action as action,
   workflowV2Check as check,
@@ -61,8 +61,7 @@ class RecipeBuilder {
     this.program = {
       chain: UNICHAIN_SEPOLIA_CHAIN_ID,
       trigger: recipe.trigger,
-      interval:
-        recipe.trigger === schedule ? Number(this.integer('intervalSeconds', 120n, 2_592_000n)) : 0,
+      interval: recipe.trigger === schedule ? Number(this.amount('intervalSeconds')) : 0,
       expires: 0n,
       source: zeroAddress,
       subject: zeroAddress,
@@ -73,32 +72,27 @@ class RecipeBuilder {
     };
   }
 
-  amount(name: string, decimals = 6, maximum = (1n << 128n) - 1n): bigint {
-    return this.integer(name, 1n, maximum, decimals);
+  amount(name: WorkflowFieldName): bigint {
+    const spec = workflowFieldSpecs[name];
+    if (spec.kind !== 'number') throw new Error(`${spec.label} is not a numeric setting.`);
+    return readField(spec, this.values[name]);
   }
 
-  integer(name: string, minimum: bigint, maximum: bigint, decimals = 0): bigint {
-    const value = readAmount(this.values[name] ?? '', decimals, name);
-    if (value < minimum || value > maximum) throw new Error(`Check the value for ${name}.`);
-    return value;
-  }
-
-  address(name: string): Address {
-    const value = this.values[name]?.trim();
-    if (!value || !isAddress(value, { strict: false }) || value.toLowerCase() === zeroAddress)
-      throw new Error(`Enter a valid address for ${name}.`);
-    return value;
+  address(name: WorkflowFieldName): Address {
+    const spec = workflowFieldSpecs[name];
+    if (spec.kind !== 'address') throw new Error(`${spec.label} is not an address setting.`);
+    return readField(spec, this.values[name]);
   }
 
   expiry() {
-    this.program.expires = this.amount('expiresAt', 0, (1n << 64n) - 1n);
+    this.program.expires = this.amount('expiresAt');
   }
 
   swap(kind: typeof action.buy | typeof action.sell) {
-    this.program.slippage = Number(this.amount('slippagePercent', 2, 1_000n));
+    this.program.slippage = Number(this.amount('slippagePercent'));
     const buying = kind === action.buy;
     return {
-      actions: [fixed(kind, this.amount(buying ? 'buyUsdc' : 'sellWeth', buying ? 6 : 18))],
+      actions: [fixed(kind, this.amount(buying ? 'buyUsdc' : 'sellWeth'))],
     };
   }
 
@@ -138,7 +132,7 @@ const recipes = {
     title: 'Buy more on a dip',
     category: 'Trading',
     trigger: schedule,
-    build: (b) => when(check.dipBy, b.amount('dipPercent', 2, 9_999n), b.swap(action.buy)),
+    build: (b) => when(check.dipBy, b.amount('dipPercent'), b.swap(action.buy)),
   },
   'limit-buy': {
     title: 'Limit buy',
@@ -147,7 +141,7 @@ const recipes = {
     build: (b) => {
       b.expiry();
       b.program.once = true;
-      return when(check.priceAtMost, b.amount('limitPrice', 18), b.swap(action.buy));
+      return when(check.priceAtMost, b.amount('limitPrice'), b.swap(action.buy));
     },
   },
   'take-profit': {
@@ -157,7 +151,7 @@ const recipes = {
     build: (b) => {
       b.expiry();
       b.program.once = true;
-      return when(check.priceAtLeast, b.amount('targetPrice', 18), b.swap(action.sell));
+      return when(check.priceAtLeast, b.amount('targetPrice'), b.swap(action.sell));
     },
   },
   'trailing-stop': {
@@ -169,9 +163,9 @@ const recipes = {
       const sell = b.swap(action.sell);
       return when(
         check.priceAtMost,
-        b.amount('stopPrice', 18),
+        b.amount('stopPrice'),
         sell,
-        when(check.trailing, b.amount('trailPercent', 2, 9_999n), sell),
+        when(check.trailing, b.amount('trailPercent'), sell),
       );
     },
   },
@@ -180,8 +174,8 @@ const recipes = {
     category: 'Trading',
     trigger: price,
     build: (b) => {
-      const band = b.amount('bandPercent', 2, 9_999n);
-      const reference = b.amount('referencePrice', 18);
+      const band = b.amount('bandPercent');
+      const reference = b.amount('referencePrice');
       return when(
         check.aboveReference,
         band,
@@ -204,19 +198,30 @@ const recipes = {
     build: (b) => {
       const floor = b.amount('minimumPaymentUsdc');
       const send = b.send();
+      const usdc = (value: bigint) => `${formatUnits(value, 6)} USDC`;
       if (send.actions[0].amount > floor)
-        throw new Error('Set the sweep amount at or below the minimum payment.');
-      if (!b.values.smallPaymentUsdc && !b.values.smallSweepUsdc)
+        throw new Error(
+          `Set the sweep at or below the ${usdc(floor)} minimum payment, or raise the minimum payment.`,
+        );
+      if (!b.values.smallPaymentUsdc?.trim() && !b.values.smallSweepUsdc?.trim())
         return when(check.amountAtLeast, floor, send);
+      if (Boolean(b.values.smallPaymentUsdc?.trim()) !== Boolean(b.values.smallSweepUsdc?.trim()))
+        throw new Error(
+          'Enter both the smaller payment threshold and the smaller sweep, or leave both blank.',
+        );
       const smallerPayment = b.amount('smallPaymentUsdc');
       const smallerSweep = b.amount('smallSweepUsdc');
-      if (
-        smallerPayment >= floor ||
-        smallerSweep > smallerPayment ||
-        smallerSweep >= send.actions[0].amount
-      )
+      if (smallerPayment >= floor)
         throw new Error(
-          'Set a lower payment threshold and a smaller sweep that fits that payment.',
+          `Set the smaller payment threshold below the ${usdc(floor)} minimum payment.`,
+        );
+      if (smallerSweep > smallerPayment)
+        throw new Error(
+          `Set the smaller sweep at or below the ${usdc(smallerPayment)} smaller payment threshold.`,
+        );
+      if (smallerSweep >= send.actions[0].amount)
+        throw new Error(
+          `Set the smaller sweep below the ${usdc(send.actions[0].amount)} main sweep.`,
         );
       return when(
         check.amountAtLeast,
@@ -245,11 +250,7 @@ const recipes = {
       if (!options.inactivityPayout)
         throw new Error('Confirm the fixed inactivity payout before proceeding.');
       b.program.once = true;
-      return when(
-        check.inactivity,
-        b.integer('inactivitySeconds', 86_400n, (1n << 128n) - 1n),
-        b.send(action.inactivityPayout),
-      );
+      return when(check.inactivity, b.amount('inactivitySeconds'), b.send(action.inactivityPayout));
     },
   },
   'price-alert': {
@@ -263,7 +264,7 @@ const recipes = {
         throw new Error('Select which side of the target should alert.');
       return when(
         direction === 'rising' ? check.priceAtLeast : check.priceAtMost,
-        b.amount('targetPrice', 18),
+        b.amount('targetPrice'),
         alert,
       );
     },
@@ -274,8 +275,8 @@ const recipes = {
     trigger: price,
     build: (b) => {
       b.program.once = true;
-      const lower = b.amount('lowerPrice', 18);
-      const upper = b.amount('upperPrice', 18);
+      const lower = b.amount('lowerPrice');
+      const upper = b.amount('upperPrice');
       if (upper <= lower) throw new Error('Set an upper price above the lower price.');
       return when(check.priceOutside, lower, alert, skip, upper);
     },
@@ -287,7 +288,7 @@ const recipes = {
     build: (b) => {
       b.program.source = b.address('token');
       b.program.once = true;
-      return when(check.amountAbove, b.amount('minimumTransferRaw', 0), alert);
+      return when(check.amountAbove, b.amount('minimumTransferRaw'), alert);
     },
   },
 } satisfies Record<string, Recipe>;

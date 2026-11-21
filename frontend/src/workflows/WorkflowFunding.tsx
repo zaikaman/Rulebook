@@ -22,8 +22,12 @@ export function useWorkflowFunding(
   });
   const issues =
     query.data && program && budget ? workflowFundingIssues(program, budget, query.data) : [];
+  // Activation creates a missing Vault, so only an existing Vault that cannot cover a run blocks
+  // activation. A missing Vault is still surfaced so the owner can fund it before the first run.
+  const blocking = issues.filter((issue) => issue.code !== 'vault-missing');
   const blocked =
-    Boolean(owner && program && budget) && (query.isPending || query.isError || issues.length > 0);
+    Boolean(owner && program && budget) &&
+    (query.isPending || query.isError || blocking.length > 0);
   return { query, issues, blocked };
 }
 
@@ -62,11 +66,14 @@ export function WorkflowFundingNotice({
 
   const account = issues.some((issue) => issue.recovery === 'account');
   const limits = issues.some((issue) => issue.recovery === 'limits');
-  const title = account
-    ? limits
-      ? 'Fund the Vault and fix the limits'
-      : 'Fund the Vault before activation'
-    : 'Fix the limits before activation';
+  const missingVault = issues.every((issue) => issue.code === 'vault-missing');
+  const title = missingVault
+    ? 'Your Vault will be created on activation'
+    : account
+      ? limits
+        ? 'Fund the Vault and fix the limits'
+        : 'Fund the Vault before activation'
+      : 'Fix the limits before activation';
 
   return (
     <Callout

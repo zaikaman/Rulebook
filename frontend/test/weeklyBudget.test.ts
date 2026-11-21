@@ -22,9 +22,9 @@ describe('weekly spending budgets', () => {
     expect(readWeeklyLimit('', 'USDC')).toBe(0n);
     expect(readWeeklyLimit('10', 'USDC')).toBe(10_000_000n);
     expect(readWeeklyLimit('0.1', 'WETH')).toBe(100_000_000_000_000_000n);
-    expect(() => readWeeklyLimit('0', 'USDC')).toThrow(/positive/);
-    expect(() => readWeeklyLimit('1.0000001', 'USDC')).toThrow(/valid/);
-    expect(() => readWeeklyLimit('1.0000000000000000001', 'WETH')).toThrow(/valid/);
+    expect(() => readWeeklyLimit('0', 'USDC')).toThrow(/between 0.000001 USDC/);
+    expect(() => readWeeklyLimit('1.0000001', 'USDC')).toThrow(/6 decimal places/);
+    expect(() => readWeeklyLimit('1.0000000000000000001', 'WETH')).toThrow(/18 decimal places/);
   });
 
   it('rejects a limit above the Vault uint96 bound', () => {

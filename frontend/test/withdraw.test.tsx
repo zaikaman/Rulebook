@@ -71,9 +71,9 @@ describe('WithdrawForm', () => {
     await user.type(screen.getByLabelText(/destination address/i), '0x1234');
     await user.click(screen.getByRole('checkbox'));
 
-    expect(screen.getByText(/enter an amount up to/i)).toBeInTheDocument();
+    expect(screen.getByText(/withdraw at most 10 usdc/i)).toBeInTheDocument();
     await user.clear(screen.getByLabelText(/withdrawal amount/i));
-    expect(screen.getByText(/valid destination/i)).toBeInTheDocument();
+    expect(screen.getByText(/destination address as a 0x value/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /withdraw/i })).toBeDisabled();
     expect(mocks.writeContractAsync).not.toHaveBeenCalled();
   });

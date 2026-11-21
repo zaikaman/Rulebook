@@ -6,7 +6,7 @@ import {
 } from '@rulebook/shared';
 
 import { ANVIL_RPC_URL, FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
-import { approveSignature, installWallet } from './wallet';
+import { approveSignature, fundFixtureWorkflowVault, installWallet } from './wallet';
 
 const owner = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
 const title = 'Recurring transfer';
@@ -19,6 +19,7 @@ test('warns about low credits and opens the right funding action and workflow Ac
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
   await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeVisible();
+  await fundFixtureWorkflowVault(owner, 10_000_000n);
   await page.goto(FIXTURE_V2_FRONTEND_URL + '/account?credit=execution');
   await expect(page.getByLabel('Funding action')).toHaveValue('run-credit');
   await page.goBack();

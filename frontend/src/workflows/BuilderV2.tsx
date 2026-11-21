@@ -1,9 +1,14 @@
 import {
+  addressIssue,
+  amountIssue,
   createWorkflowV2Recipe,
   decodeWorkflowV2,
   encodeWorkflowV2,
+  fieldIssue,
   readWeeklyLimit,
   weeklyBudgetFromDraft,
+  workflowFieldSpecs,
+  workflowGuardrailFields,
   workflowIdSchema,
   workflowLimits,
   workflowV2Action as A,
@@ -11,7 +16,10 @@ import {
   workflowV2Recipes,
   workflowV2Trigger as T,
   workflowV2Unit as U,
+  type AmountFieldRules,
+  type DraftStep,
   type WeeklyBudgetAmounts,
+  type WorkflowFieldName,
   type WorkflowV2Program,
   type WorkflowV2RecipeId,
 } from '@rulebook/shared';
@@ -47,6 +55,7 @@ import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { Field } from '@/ui';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
@@ -79,8 +88,8 @@ import {
   checks,
   emptyDraft,
   emptyPath,
+  checkDecimals,
   recipeFields,
-  recipeLabels,
   toDraft,
   toProgram,
   triggers,
@@ -154,12 +163,9 @@ export function V2Field({
   children: ReactNode;
 }) {
   return (
-    <label className="app-field">
-      <span>{name}</span>
+    <Field label={name} hint={hint} error={error}>
       {children}
-      {hint ? <span className="rb-field-hint">{hint}</span> : null}
-      {error ? <span className="rb-field-error">{error}</span> : null}
-    </label>
+    </Field>
   );
 }
 
@@ -182,26 +188,52 @@ function Input({
   change,
   hint,
   error,
+  placeholder,
+  required = true,
   text = false,
+  onBlur,
 }: {
   name: string;
   value: string;
   change: (value: string) => void;
   hint?: ReactNode;
   error?: ReactNode;
+  placeholder?: string;
+  required?: boolean;
   text?: boolean;
+  onBlur?: () => void;
 }) {
   return (
-    <V2Field name={name} hint={hint} error={error}>
-      <input
-        className="app-input"
-        value={value}
-        inputMode={text ? 'text' : 'decimal'}
-        aria-invalid={Boolean(error) || undefined}
-        onChange={(event) => change(event.target.value)}
-      />
-    </V2Field>
+    <Field label={name} hint={hint} error={error}>
+      {(ids) => (
+        <input
+          className="app-input"
+          value={value}
+          inputMode={text ? 'text' : 'decimal'}
+          placeholder={placeholder}
+          aria-invalid={Boolean(error) || undefined}
+          aria-required={required || undefined}
+          aria-describedby={[ids.hint, ids.error].filter(Boolean).join(' ') || undefined}
+          onChange={(event) => change(event.target.value)}
+          onBlur={onBlur}
+        />
+      )}
+    </Field>
   );
+}
+
+function stepAmountRules(
+  asset: 'USDC' | 'WETH' | 'ETH',
+  unit: DraftStep['unit'],
+): AmountFieldRules {
+  const percent = unit === U.percent;
+  return {
+    subject: 'The step amount',
+    noun: 'an amount',
+    decimals: percent ? 2 : asset === 'USDC' ? 6 : 18,
+    unit: percent ? '%' : asset,
+    minimum: 1n,
+  };
 }
 
 export function V2Feedback({ wallet }: { wallet: ReturnType<typeof useWorkflowV2Wallet> }) {
@@ -249,6 +281,8 @@ function RecipePicker({
   const [values, setValues] = useState<Record<string, string>>({ direction: 'rising' });
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState<string>();
+  const [touched, setTouched] = useState<ReadonlySet<string>>(() => new Set());
+  const [attempted, setAttempted] = useState(false);
   const configurator = useRef<HTMLFormElement>(null);
 
   function choose(item: WorkflowV2RecipeId) {
@@ -256,6 +290,8 @@ function RecipePicker({
     setValues({ direction: 'rising' });
     setConsent(false);
     setError(undefined);
+    setTouched(new Set());
+    setAttempted(false);
     if (window.matchMedia('(max-width: 63.99rem)').matches) {
       requestAnimationFrame(() =>
         configurator.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
@@ -269,9 +305,29 @@ function RecipePicker({
       `${item.title} ${item.category}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
+  function recipeFieldIssue(field: string) {
+    const spec = workflowFieldSpecs[field as WorkflowFieldName];
+    return spec ? fieldIssue(spec, values[field]) : undefined;
+  }
+
+  function shownIssue(field: string) {
+    if (!attempted && !touched.has(field)) return undefined;
+    return recipeFieldIssue(field);
+  }
+
   function useRecipe(event: FormEvent) {
     event.preventDefault();
     if (!recipe) return;
+    setAttempted(true);
+    const invalid = recipeFields[recipe.id].find((field) => Boolean(recipeFieldIssue(field)));
+    if (invalid) {
+      configurator.current
+        ?.querySelector<HTMLElement>(
+          `[data-recipe-field="${invalid}"] input, [data-recipe-field="${invalid}"] select`,
+        )
+        ?.focus();
+      return;
+    }
     try {
       const program = createWorkflowV2Recipe(recipe.id, values, { inactivityPayout: consent });
       open(toDraft(program, recipe.title));
@@ -368,30 +424,51 @@ function RecipePicker({
             <>
               <div className="rb-configurator-body">
                 <div className="rb-configurator-fields">
-                  {recipeFields[recipe.id].map((field) =>
-                    field === 'direction' ? (
-                      <V2Field key={field} name="Alert when the price is">
-                        <select
-                          className="app-input"
-                          value={values.direction}
-                          onChange={(event) =>
-                            setValues({ ...values, direction: event.target.value })
+                  {recipeFields[recipe.id].map((field) => {
+                    const spec = workflowFieldSpecs[field];
+                    if (!spec) return null;
+                    const hint = 'hint' in spec ? spec.hint : undefined;
+                    const issue = shownIssue(field);
+                    if (spec.kind === 'direction') {
+                      return (
+                        <div key={field} data-recipe-field={field}>
+                          <V2Field name={spec.label} hint={hint} error={issue}>
+                            <select
+                              className="app-input"
+                              value={values[field] ?? 'rising'}
+                              aria-invalid={Boolean(issue) || undefined}
+                              onChange={(event) =>
+                                setValues((current) => ({
+                                  ...current,
+                                  [field]: event.target.value,
+                                }))
+                              }
+                              onBlur={() => setTouched((current) => new Set(current).add(field))}
+                            >
+                              <option value="rising">At or above target</option>
+                              <option value="falling">At or below target</option>
+                            </select>
+                          </V2Field>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={field} data-recipe-field={field}>
+                        <Input
+                          name={spec.label}
+                          value={values[field] ?? ''}
+                          text={spec.kind === 'address'}
+                          placeholder={spec.placeholder}
+                          hint={hint}
+                          error={issue}
+                          change={(value) =>
+                            setValues((current) => ({ ...current, [field]: value }))
                           }
-                        >
-                          <option value="rising">At or above target</option>
-                          <option value="falling">At or below target</option>
-                        </select>
-                      </V2Field>
-                    ) : (
-                      <Input
-                        key={field}
-                        name={recipeLabels[field] ?? field}
-                        value={values[field] ?? ''}
-                        text={/recipient|address/i.test(recipeLabels[field] ?? '')}
-                        change={(value) => setValues({ ...values, [field]: value })}
-                      />
-                    ),
-                  )}
+                          onBlur={() => setTouched((current) => new Set(current).add(field))}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
                 {recipe.id === 'inactivity-payout' && (
                   <label className="rb-consent">
@@ -972,7 +1049,15 @@ function Editor({
             subtitle="Name and limits"
           />
           <div className="rb-inspector-section">
-            <V2Field name="Workflow name">
+            <V2Field
+              name="Workflow name"
+              hint="Up to 80 bytes. Shown in your workspace and on-chain records."
+              error={
+                new TextEncoder().encode(draft.title.trim()).length > 80
+                  ? 'Use a workflow name of up to 80 bytes.'
+                  : undefined
+              }
+            >
               <input
                 className="app-input"
                 value={draft.title}
@@ -989,13 +1074,27 @@ function Editor({
             </div>
             <div className="rb-inspector-fields">
               <Input
-                name="Maximum USDC per run"
+                name={workflowGuardrailFields.usdcCap.label}
                 value={draft.usdcCap}
+                hint={workflowGuardrailFields.usdcCap.hint}
+                placeholder={workflowGuardrailFields.usdcCap.placeholder}
+                error={
+                  draft.usdcCap.trim()
+                    ? fieldIssue(workflowGuardrailFields.usdcCap, draft.usdcCap)
+                    : undefined
+                }
                 change={(usdcCap) => update({ usdcCap })}
               />
               <Input
-                name="Maximum WETH per run"
+                name={workflowGuardrailFields.wethCap.label}
                 value={draft.wethCap}
+                hint={workflowGuardrailFields.wethCap.hint}
+                placeholder={workflowGuardrailFields.wethCap.placeholder}
+                error={
+                  draft.wethCap.trim()
+                    ? fieldIssue(workflowGuardrailFields.wethCap, draft.wethCap)
+                    : undefined
+                }
                 change={(wethCap) => update({ wethCap })}
               />
               <Input
@@ -1013,13 +1112,27 @@ function Editor({
                 error={weeklyError(draft.wethWeeklyBudget, 'WETH')}
               />
               <Input
-                name="Maximum swap slippage (%)"
+                name={workflowGuardrailFields.slippage.label}
                 value={draft.slippage}
+                hint={workflowGuardrailFields.slippage.hint}
+                placeholder={workflowGuardrailFields.slippage.placeholder}
+                error={
+                  draft.slippage.trim()
+                    ? fieldIssue(workflowGuardrailFields.slippage, draft.slippage)
+                    : undefined
+                }
                 change={(slippage) => update({ slippage })}
               />
               <Input
-                name="Expires at (Unix seconds)"
+                name={workflowGuardrailFields.expires.label}
                 value={draft.expires}
+                hint={workflowGuardrailFields.expires.hint}
+                placeholder={workflowGuardrailFields.expires.placeholder}
+                error={
+                  draft.expires.trim()
+                    ? fieldIssue(workflowGuardrailFields.expires, draft.expires)
+                    : undefined
+                }
                 change={(expires) => update({ expires })}
               />
             </div>
@@ -1076,15 +1189,29 @@ function Editor({
             <div className="rb-inspector-fields">
               {draft.trigger === T.schedule && (
                 <Input
-                  name="Interval in seconds"
+                  name={workflowGuardrailFields.interval.label}
                   value={draft.interval}
+                  hint={workflowGuardrailFields.interval.hint}
+                  placeholder={workflowGuardrailFields.interval.placeholder}
+                  error={
+                    draft.interval.trim()
+                      ? fieldIssue(workflowGuardrailFields.interval, draft.interval)
+                      : undefined
+                  }
                   change={(interval) => update({ interval })}
                 />
               )}
               {draft.trigger === T.transfer && (
                 <Input
-                  name="Token contract address"
+                  name={workflowFieldSpecs.token.label}
                   value={draft.source}
+                  hint={workflowFieldSpecs.token.hint}
+                  placeholder={workflowFieldSpecs.token.placeholder}
+                  error={
+                    draft.source.trim()
+                      ? fieldIssue(workflowFieldSpecs.token, draft.source)
+                      : undefined
+                  }
                   change={(source) => update({ source })}
                   text
                 />
@@ -1095,6 +1222,13 @@ function Editor({
                   <Input
                     name="Watched wallet address"
                     value={draft.subject}
+                    hint="Optional. Limits the live check to activity from this wallet."
+                    placeholder="0x…"
+                    error={
+                      draft.subject.trim()
+                        ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
+                        : undefined
+                    }
                     change={(subject) => update({ subject })}
                     text
                   />
@@ -1130,6 +1264,17 @@ function Editor({
                 <Input
                   name={`${metadata.name} threshold`}
                   value={path.value}
+                  hint="The value this condition compares against."
+                  error={
+                    path.value.trim()
+                      ? amountIssue(path.value, {
+                          subject: 'The condition threshold',
+                          noun: 'a threshold',
+                          decimals: checkDecimals(path.check, draft.trigger),
+                          minimum: 1n,
+                        })
+                      : undefined
+                  }
                   change={(value) => changePath({ ...path, value })}
                 />
               )}
@@ -1137,6 +1282,17 @@ function Editor({
                 <Input
                   name={metadata.upper}
                   value={path.upper}
+                  hint="Must be above the lower price."
+                  error={
+                    path.upper.trim()
+                      ? amountIssue(path.upper, {
+                          subject: 'The upper price',
+                          noun: 'an upper price',
+                          decimals: 18,
+                          minimum: 1n,
+                        })
+                      : undefined
+                  }
                   change={(upper) => changePath({ ...path, upper })}
                 />
               )}
@@ -1231,6 +1387,16 @@ function Editor({
                             : `Amount in ${metadata.asset}`
                         }
                         value={step.amount}
+                        hint={
+                          step.unit === U.percent
+                            ? 'A share of the incoming payment.'
+                            : `${metadata.asset} is spent from your vault.`
+                        }
+                        error={
+                          step.amount.trim()
+                            ? amountIssue(step.amount, stepAmountRules(metadata.asset, step.unit))
+                            : undefined
+                        }
                         change={(amount) => updateStep({ ...step, amount })}
                       />
                     </>
@@ -1239,6 +1405,13 @@ function Editor({
                     <Input
                       name="Recipient address"
                       value={step.recipient}
+                      hint="A wallet other than your vault."
+                      placeholder="0x…"
+                      error={
+                        step.recipient.trim()
+                          ? addressIssue(step.recipient, { noun: 'a recipient address' })
+                          : undefined
+                      }
                       change={(recipient) => updateStep({ ...step, recipient })}
                       text
                     />

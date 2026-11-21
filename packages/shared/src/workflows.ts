@@ -98,11 +98,19 @@ export const workflowActionLabels: Record<WorkflowAction['kind'], string> = {
 };
 
 export function readAmount(value: string, decimals: number, name: string) {
-  const pattern = decimals === 0 ? /^\d+$/ : /^\d+(\.\d+)?$/;
-  if (!pattern.test(value.trim()) || (value.trim().split('.')[1]?.length ?? 0) > decimals) {
-    throw new Error('Enter a valid ' + name + '.');
+  const text = value.trim();
+  if (!text) throw new Error('Enter ' + name + '.');
+  if (!/^\d+(?:\.\d+)?$/.test(text)) {
+    throw new Error(
+      decimals === 0
+        ? 'Enter ' + name + ' as a whole number.'
+        : 'Enter ' + name + ' using digits and a decimal point.',
+    );
   }
-  return parseUnits(value.trim(), decimals);
+  if ((text.split('.')[1]?.length ?? 0) > decimals) {
+    throw new Error('Use up to ' + decimals + ' decimal places for ' + name + '.');
+  }
+  return parseUnits(text, decimals);
 }
 
 export function encodeWorkflow(input: WorkflowDraft, vault?: Address): Hex {

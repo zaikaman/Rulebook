@@ -1,6 +1,12 @@
-import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address, vaultAbi } from '@rulebook/shared';
+import {
+  addressIssue,
+  amountIssue,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+  vaultAbi,
+} from '@rulebook/shared';
 import { useEffect, useState } from 'react';
-import { formatUnits, isAddress, parseUnits, type Hex } from 'viem';
+import { formatUnits, parseUnits, type Hex } from 'viem';
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
@@ -51,19 +57,33 @@ export function WithdrawForm({
   });
 
   let amountWei: bigint | undefined;
-  try {
-    amountWei = amount ? parseUnits(amount, tokenDecimals) : undefined;
-  } catch {
-    amountWei = undefined;
+  let amountError: string | undefined;
+  if (amount.trim()) {
+    amountError = amountIssue(amount, {
+      subject: 'The withdrawal amount',
+      noun: 'an amount',
+      decimals: tokenDecimals,
+      unit: tokenSymbol,
+      minimum: 1n,
+    });
+    if (!amountError) {
+      amountWei = parseUnits(amount.trim(), tokenDecimals);
+      if (amountWei > principal) {
+        amountError = `Withdraw at most ${formatUnits(principal, tokenDecimals)} ${tokenSymbol}.`;
+      }
+    }
   }
-
-  const destinationValid = isAddress(destination);
-  const amountValid = amountWei !== undefined && amountWei > 0n && amountWei <= principal;
+  const destinationError = destination.trim()
+    ? destination.toLowerCase() === vault.toLowerCase()
+      ? 'Choose a destination other than the vault.'
+      : addressIssue(destination, { noun: 'a destination address' })
+    : undefined;
   const canSubmit =
     Boolean(address) &&
     principal > 0n &&
-    amountValid &&
-    destinationValid &&
+    amountWei !== undefined &&
+    !amountError &&
+    !destinationError &&
     confirmed &&
     !submitting &&
     !receipt.isLoading;
@@ -71,15 +91,6 @@ export function WithdrawForm({
   useEffect(() => {
     if (receipt.data?.status === 'success') onConfirmed?.();
   }, [receipt.data, onConfirmed]);
-
-  const validation =
-    principal === 0n
-      ? 'There is no principal to withdraw.'
-      : amount && !amountValid
-        ? `Enter an amount up to ${formatUnits(principal, tokenDecimals)} ${tokenSymbol}.`
-        : destination && !destinationValid
-          ? 'Enter a valid destination address.'
-          : null;
 
   async function submit(): Promise<void> {
     if (!canSubmit || amountWei === undefined) return;
@@ -137,23 +148,33 @@ export function WithdrawForm({
       </p>
 
       <div className="grid gap-3 sm:grid-cols-[minmax(9rem,1fr)_minmax(0,2fr)]">
-        <Field label={`Amount (${tokenSymbol})`}>
-          <input
-            aria-label="Withdrawal amount"
-            value={amount}
-            onChange={(event) => setAmount(event.target.value)}
-            inputMode="decimal"
-            className="app-input"
-          />
+        <Field label={`Amount (${tokenSymbol})`} error={amountError}>
+          {(ids) => (
+            <input
+              aria-label="Withdrawal amount"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              inputMode="decimal"
+              placeholder={`Up to ${formatUnits(principal, tokenDecimals)}`}
+              aria-invalid={Boolean(amountError) || undefined}
+              aria-describedby={ids.error}
+              className="app-input"
+            />
+          )}
         </Field>
 
-        <Field label="Destination">
-          <input
-            aria-label="Destination address"
-            value={destination}
-            onChange={(event) => setDestination(event.target.value)}
-            className="app-input font-mono"
-          />
+        <Field label="Destination" error={destinationError}>
+          {(ids) => (
+            <input
+              aria-label="Destination address"
+              value={destination}
+              onChange={(event) => setDestination(event.target.value)}
+              placeholder="0x…"
+              aria-invalid={Boolean(destinationError) || undefined}
+              aria-describedby={ids.error}
+              className="app-input font-mono"
+            />
+          )}
         </Field>
       </div>
 
@@ -167,9 +188,7 @@ export function WithdrawForm({
         I confirm this destination. Withdrawals are final and the operator cannot reverse them.
       </label>
 
-      {validation ? (
-        <p className={principal === 0n ? 'app-copy' : 'text-sm text-silent'}>{validation}</p>
-      ) : null}
+      {principal === 0n ? <p className="app-copy">There is no principal to withdraw.</p> : null}
       {error ? (
         <ErrorState
           message="Withdrawal failed"

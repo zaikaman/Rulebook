@@ -7,10 +7,11 @@ import {
   type WorkflowV2Branch,
   type WorkflowV2Program,
 } from './workflowsV2.js';
-import { formatUnits, getAddress, isAddress, zeroAddress, type Address } from 'viem';
+import { formatUnits, zeroAddress, type Address } from 'viem';
 import { z } from 'zod';
 import { UNICHAIN_SEPOLIA_CHAIN_ID as UNICHAIN } from './chains.js';
-import { readAmount } from './workflows.js';
+import { readField, workflowFieldSpecs, workflowGuardrailFields } from './workflowFields.js';
+import { readAddressField, readAmountField } from './workflowValidation.js';
 
 type Code<T> = T[keyof T];
 export type TriggerCode = Code<typeof T>;
@@ -220,27 +221,40 @@ export function toDraft(p: WorkflowV2Program, title: string): V2Draft {
   };
 }
 
-function amount(value: string, decimals: number, label: string, optional = false) {
-  return !value.trim() && optional ? 0n : readAmount(value, decimals, label);
+function stepAmount(value: string, decimals: number) {
+  return readAmountField(value, {
+    subject: 'The step amount',
+    noun: 'a step amount',
+    decimals,
+    minimum: 1n,
+  });
 }
 
-function account(value: string, label: string, required = false): Address {
-  const address = value.trim();
-  if (!address && !required) return zeroAddress;
-  if (!isAddress(address, { strict: false }) || address.toLowerCase() === zeroAddress)
-    throw new Error(`Enter a valid ${label}.`);
-  return getAddress(address);
+function conditionThreshold(value: string, decimals: number) {
+  return readAmountField(value, {
+    subject: 'The condition threshold',
+    noun: 'a threshold',
+    decimals,
+    minimum: 1n,
+  });
+}
+
+function account(value: string, noun: string, required = false): Address {
+  return readAddressField(value, { noun, optional: !required });
 }
 
 /** Reads one optional weekly limit, rejecting zero, over-precision, and values above uint96. */
 export function readWeeklyLimit(value: string, asset: 'USDC' | 'WETH') {
-  if (!value.trim()) return 0n;
-  const amount = readAmount(value, asset === 'USDC' ? 6 : 18, `${asset} weekly limit`);
-  if (amount === 0n) throw new Error(`Enter a positive ${asset} weekly limit or leave it blank.`);
-  if (amount > weeklyBudgetCeiling) {
-    throw new Error(`The ${asset} weekly limit is above the contract maximum.`);
-  }
-  return amount;
+  return readAmountField(value, {
+    subject: `The weekly ${asset} budget`,
+    noun: `a ${asset} weekly budget`,
+    decimals: asset === 'USDC' ? 6 : 18,
+    unit: asset,
+    minimum: 1n,
+    maximum: weeklyBudgetCeiling,
+    maximumText: 'the contract maximum',
+    optional: true,
+  });
 }
 
 export function weeklyBudgetFromDraft(
@@ -263,10 +277,10 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
           kind: step.kind,
           unit: step.unit,
           amount: actions[step.kind].asset
-            ? amount(step.amount, actionDecimals(step.kind, step.unit), 'step amount')
+            ? stepAmount(step.amount, actionDecimals(step.kind, step.unit))
             : 0n,
           account: actions[step.kind].recipient
-            ? account(step.recipient, 'recipient address', true)
+            ? account(step.recipient, 'a recipient address', true)
             : zeroAddress,
         })),
       };
@@ -275,9 +289,15 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
       value:
         checks[path.check].decimals === undefined
           ? 0n
-          : amount(path.value, checkDecimals(path.check, draft.trigger), 'check threshold'),
+          : conditionThreshold(path.value, checkDecimals(path.check, draft.trigger)),
       upper: checks[path.check].upper
-        ? amount(path.upper, 18, 'upper value', path.check !== C.priceOutside)
+        ? readAmountField(path.upper, {
+            subject: 'The upper value',
+            noun: 'an upper value',
+            decimals: 18,
+            minimum: path.check === C.priceOutside ? 1n : undefined,
+            optional: path.check !== C.priceOutside,
+          })
         : 0n,
       yes: build(path.yes),
       no: build(path.no),
@@ -287,24 +307,19 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
   if (!nodes.some((node) => node.actions.length))
     throw new Error('Add at least one action or notification.');
   const interval =
-    draft.trigger === T.schedule ? amount(draft.interval, 0, 'schedule interval') : 0n;
-  if (draft.trigger === T.schedule && (interval < 120n || interval > 2_592_000n))
-    throw new Error('Set a schedule between 120 seconds and 30 days.');
-  const expires = amount(draft.expires, 0, 'expiry', true);
-  if (expires && expires <= BigInt(Math.floor(Date.now() / 1_000)))
-    throw new Error('Choose a future expiry time.');
-  const slippage = amount(draft.slippage, 2, 'slippage', true);
-  if (slippage > 1_000n) throw new Error('Swap slippage can be at most 10%.');
+    draft.trigger === T.schedule
+      ? readField(workflowFieldSpecs.intervalSeconds, draft.interval)
+      : 0n;
   return {
     chain: draft.chain,
     trigger: draft.trigger,
     interval: Number(interval),
-    expires,
-    source: account(draft.source, 'source token address', draft.trigger === T.transfer),
-    subject: account(draft.subject, 'watched wallet address'),
-    usdcCap: amount(draft.usdcCap, 6, 'USDC cap', true),
-    wethCap: amount(draft.wethCap, 18, 'WETH cap', true),
-    slippage: Number(slippage),
+    expires: readField(workflowGuardrailFields.expires, draft.expires),
+    source: account(draft.source, 'a source token address', draft.trigger === T.transfer),
+    subject: account(draft.subject, 'a watched wallet address'),
+    usdcCap: readField(workflowGuardrailFields.usdcCap, draft.usdcCap),
+    wethCap: readField(workflowGuardrailFields.wethCap, draft.wethCap),
+    slippage: Number(readField(workflowGuardrailFields.slippage, draft.slippage)),
     once: draft.once,
     nodes,
   };

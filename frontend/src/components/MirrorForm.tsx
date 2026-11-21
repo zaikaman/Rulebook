@@ -1,5 +1,6 @@
 import {
   agentAbi,
+  amountIssue,
   getTemplate,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -21,6 +22,8 @@ import { RuleFundingError } from '../lib/ruleFunding.js';
 import { appRoutes } from '../lib/routes.js';
 import { knownToken } from '../lib/signatures.js';
 import { lasnaPublicClient, unichainPublicClient } from '../lib/wagmi.js';
+import { Field } from '../ui/index.js';
+
 import { ErrorState } from './ErrorState.js';
 
 function listingKey(listing: Listing): string {
@@ -104,28 +107,39 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
     return [{ listing, vault: detail.mirror_source, tokenIn: currentAccount.tokenIn }];
   });
   const source = options.find(({ listing }) => listingKey(listing) === selected);
+  const token = knownToken(UNICHAIN_SEPOLIA_CHAIN_ID, currentAccount?.tokenIn);
+  const capError = cap.trim()
+    ? amountIssue(cap, {
+        subject: 'The per-run cap',
+        noun: 'a per-run cap',
+        decimals: token?.decimals ?? 0,
+        unit: token?.symbol,
+        minimum: 1n,
+      })
+    : undefined;
+  const scaleError =
+    scale.trim() && (!/^\d+$/.test(scale.trim()) || Number(scale) < 1 || Number(scale) > 10_000)
+      ? 'Enter a whole number of basis points from 1 to 10,000.'
+      : undefined;
+  const hourlyError =
+    hourly.trim() && (!/^\d+$/.test(hourly.trim()) || Number(hourly) < 1 || Number(hourly) > 10)
+      ? 'Enter a whole number of trades per hour from 1 to 10.'
+      : undefined;
   const control = useRuleControl(currentAccount?.agent ?? null);
   const mutation = useMutation({
     mutationFn: async () => {
       if (!source || !currentAccount || !compatible)
         throw new Error('Select an eligible leader rule.');
       const decimals = knownToken(UNICHAIN_SEPOLIA_CHAIN_ID, source.tokenIn)?.decimals ?? 0;
-      if (!/^\d+(\.\d+)?$/.test(cap) || (cap.split('.')[1]?.length ?? 0) > decimals) {
-        throw new Error('Enter a positive per-run cap using the displayed token units.');
-      }
-      const perRunCap = parseUnits(cap, decimals);
+      if (!cap.trim()) throw new Error('Enter a per-run cap.');
+      if (capError) throw new Error(capError);
+      if (!scale.trim()) throw new Error('Enter a scale in basis points.');
+      if (scaleError) throw new Error(scaleError);
+      if (!hourly.trim()) throw new Error('Enter the maximum trades per hour.');
+      if (hourlyError) throw new Error(hourlyError);
+      const perRunCap = parseUnits(cap.trim(), decimals);
       const scaleBps = Number(scale);
       const hourlyCap = Number(hourly);
-      if (
-        perRunCap <= 0n ||
-        !Number.isInteger(scaleBps) ||
-        scaleBps < 1 ||
-        scaleBps > 10_000 ||
-        !Number.isInteger(hourlyCap) ||
-        hourlyCap < 1 ||
-        hourlyCap > 10
-      )
-        throw new Error('Check the scale and both spending limits.');
       const ruleId = await lasnaPublicClient.readContract({
         address: currentAccount.agent,
         abi: agentAbi,
@@ -204,43 +218,62 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
             </p>
           ) : null}
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="app-field">
-              Scale (bps)
-              <input
-                className="app-input"
-                type="number"
-                required
-                min={1}
-                max={10_000}
-                value={scale}
-                onChange={(event) => setScale(event.target.value)}
-              />
-            </label>
-            <label className="app-field">
-              Per-run cap (
-              {knownToken(UNICHAIN_SEPOLIA_CHAIN_ID, currentAccount?.tokenIn)?.symbol ??
-                'base units'}
-              )
-              <input
-                className="app-input"
-                required
-                inputMode="decimal"
-                value={cap}
-                onChange={(event) => setCap(event.target.value)}
-              />
-            </label>
-            <label className="app-field">
-              Trades per hour
-              <input
-                className="app-input"
-                type="number"
-                required
-                min={1}
-                max={10}
-                value={hourly}
-                onChange={(event) => setHourly(event.target.value)}
-              />
-            </label>
+            <Field
+              label="Scale (bps)"
+              hint="1 to 10,000 basis points of the leader size. 5,000 mirrors at half size."
+              error={scaleError}
+            >
+              {(ids) => (
+                <input
+                  className="app-input"
+                  type="number"
+                  required
+                  min={1}
+                  max={10_000}
+                  value={scale}
+                  onChange={(event) => setScale(event.target.value)}
+                  aria-invalid={Boolean(scaleError) || undefined}
+                  aria-describedby={ids.error ?? ids.hint}
+                />
+              )}
+            </Field>
+            <Field
+              label={`Per-run cap (${token?.symbol ?? 'base units'})`}
+              hint="The most one mirrored trade may spend."
+              error={capError}
+            >
+              {(ids) => (
+                <input
+                  className="app-input"
+                  required
+                  inputMode="decimal"
+                  value={cap}
+                  onChange={(event) => setCap(event.target.value)}
+                  placeholder="0.00"
+                  aria-invalid={Boolean(capError) || undefined}
+                  aria-describedby={ids.error ?? ids.hint}
+                />
+              )}
+            </Field>
+            <Field
+              label="Trades per hour"
+              hint="From 1 to 10 mirrored trades each hour."
+              error={hourlyError}
+            >
+              {(ids) => (
+                <input
+                  className="app-input"
+                  type="number"
+                  required
+                  min={1}
+                  max={10}
+                  value={hourly}
+                  onChange={(event) => setHourly(event.target.value)}
+                  aria-invalid={Boolean(hourlyError) || undefined}
+                  aria-describedby={ids.error ?? ids.hint}
+                />
+              )}
+            </Field>
           </div>
           <p className="app-alert" data-tone="warning">
             Thin pools can move between trades. Your mirror skips the swap if its live quote falls
@@ -250,7 +283,13 @@ export function MirrorForm({ listings }: { readonly listings: readonly Listing[]
             <button
               type="submit"
               className="app-button app-button--primary"
-              disabled={!source || mutation.isPending}
+              disabled={
+                !source ||
+                mutation.isPending ||
+                Boolean(scaleError) ||
+                Boolean(capError) ||
+                Boolean(hourlyError)
+              }
             >
               {mutation.isPending && <Spinner />}
               {mutation.isPending ? 'Waiting for confirmation…' : 'Attach mirror'}

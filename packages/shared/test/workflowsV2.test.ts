@@ -67,6 +67,31 @@ describe('V2 recipe programs', () => {
     expect(payout.nodes[1]?.actions[0]?.account).toBe(recipient);
   });
 
+  it('names the accepted range when a recipe input is out of bounds', () => {
+    expect(() =>
+      createWorkflowV2Recipe('scheduled-buy', { ...values, intervalSeconds: '1' }),
+    ).toThrow(
+      'The interval must be between 2 minutes (120 seconds) and 30 days (2,592,000 seconds).',
+    );
+    expect(() => createWorkflowV2Recipe('scheduled-buy', { ...values, buyUsdc: '0' })).toThrow(
+      'The USDC amount must be between 0.000001 USDC and the contract maximum.',
+    );
+    expect(() => createWorkflowV2Recipe('limit-buy', { ...values, limitPrice: '0' })).toThrow(
+      'The limit price must be greater than zero.',
+    );
+    expect(() =>
+      createWorkflowV2Recipe('limit-buy', {
+        ...values,
+        expiresAt: String(Math.floor(Date.now() / 1_000) - 60),
+      }),
+    ).toThrow('Choose an expiry time in the future.');
+    expect(() =>
+      createWorkflowV2Recipe('income-sweep', { ...values, smallPaymentUsdc: '5' }),
+    ).toThrow(
+      'Enter both the smaller payment threshold and the smaller sweep, or leave both blank.',
+    );
+  });
+
   it('retains both trading caps and supports two qualifying sweep paths', () => {
     const sweep = createWorkflowV2Recipe('income-sweep', {
       ...values,

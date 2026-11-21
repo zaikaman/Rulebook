@@ -2,7 +2,12 @@ import { expect, test } from '@playwright/test';
 import type { TelegramPreference, TelegramSettings } from '@rulebook/shared';
 
 import { FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
-import { approveSignature, installWallet, walletRequests } from './wallet';
+import {
+  approveSignature,
+  fundFixtureWorkflowVault,
+  installWallet,
+  walletRequests,
+} from './wallet';
 
 const OWNER = '0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65';
 const title = 'Recurring transfer';
@@ -114,7 +119,10 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await page.goto(FIXTURE_V2_FRONTEND_URL + '/create');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await page.getByRole('button', { name: 'Build a workflow and fund later' }).click();
+  const buildLater = page.getByRole('button', { name: 'Build a workflow and fund later' });
+  await expect(buildLater).toBeVisible();
+  await fundFixtureWorkflowVault(OWNER, 10_000_000n);
+  await buildLater.click();
   await page.getByRole('button', { name: title, exact: false }).click();
   await page.getByLabel('Interval in seconds').fill('3600');
   await page.getByLabel('USDC to send').fill('0.02');

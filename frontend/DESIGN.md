@@ -303,6 +303,7 @@ Rules that apply across components:
 - Destructive actions use `Button variant="danger"` or `danger-solid`; they never use accent blue.
 - Wallet dialogs own the focus trap and restore focus to the trigger. While busy, Tab is contained and the waiting status is announced.
 - A fact list keeps a visible label for every value. Never render a bare address with no term.
+- `Field` renders its hint and error outside the label so a control's accessible name stays the field name; controls receive the hint and error ids to set `aria-describedby`.
 - If a new pattern is genuinely missing, add it to `src/ui`, document it here, then use it.
 
 ### Adding a UI surface

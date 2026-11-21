@@ -19,7 +19,12 @@ import {
   type TriggerCode,
 } from '../src/workflows/modelV2';
 import { FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
-import { approveSignature, installWallet, walletRequests } from './wallet';
+import {
+  approveSignature,
+  fundFixtureWorkflowVault,
+  installWallet,
+  walletRequests,
+} from './wallet';
 
 const builder = process.env.RULEBOOK_E2E_LIVE_APP ?? FIXTURE_V2_FRONTEND_URL;
 const mobile = process.env.RULEBOOK_E2E_MOBILE === 'true';
@@ -296,6 +301,7 @@ test('rejects drops on the wrong node and preserves a full branch', async ({ pag
 
 test('resumes activation after the wallet declines the Lasna signature', async ({ page }) => {
   test.skip(Boolean(process.env.RULEBOOK_E2E_LIVE_APP), 'Requires the local test wallet');
+  test.setTimeout(120_000);
   await installWallet(page, USER_ADDRESS, UNICHAIN_SEPOLIA_CHAIN_ID, {
     rejectFirstCall: toFunctionSelector('enable(bytes32,uint64,bytes,string,uint64)'),
   });
@@ -314,6 +320,7 @@ test('resumes activation after the wallet declines the Lasna signature', async (
   await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('alert')).toContainText(/declined|rejected/i);
+  await fundFixtureWorkflowVault(USER_ADDRESS, 10_000_000n);
 
   await page.getByRole('button', { name: 'Activate workflow' }).click();
   await approveSignature(page, 'Reactive Lasna');

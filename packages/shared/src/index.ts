@@ -8,6 +8,8 @@ export * from './generated/templates.js';
 export * from './schemas.js';
 export * from './telegram.js';
 export * from './workflows.js';
+export * from './workflowValidation.js';
+export * from './workflowFields.js';
 export * from './workflowsV2.js';
 export * from './workflowV2Draft.js';
 export * from './workflowV2Recipes.js';
