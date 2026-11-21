@@ -65,6 +65,7 @@ it('reads the confirmed branch only from the matching deployment, owner, workflo
 
 it('scopes Activity by wallet and workflow and exposes only chain evidence in public proofs', async () => {
   const factory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const archived = '0xdddddddddddddddddddddddddddddddddddddddd';
   const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   const agent = '0xcccccccccccccccccccccccccccccccccccccccc';
   const runId = `0x${'1'.repeat(64)}`;
@@ -103,7 +104,7 @@ it('scopes Activity by wallet and workflow and exposes only chain evidence in pu
     },
   });
   const app = Fastify();
-  registerWorkflowV2Routes(app, db, factory);
+  registerWorkflowV2Routes(app, db, factory, [archived]);
   try {
     const scoped = await app.inject({ url: `/v3/activity?owner=${owner}&workflow=${workflowId}` });
     expect(scoped.statusCode).toBe(200);
@@ -127,7 +128,7 @@ it('scopes Activity by wallet and workflow and exposes only chain evidence in pu
       path: 2,
       reason: null,
     });
-    expect(requests[1]?.searchParams.get('deployment')).toBe(`eq.${factory}`);
+    expect(requests[1]?.searchParams.get('deployment')).toBe(`in.(${factory},${archived})`);
     expect(requests[1]?.searchParams.get('id')).toBe(`eq.${runId}`);
     expect(requests[1]?.searchParams.get('select')).not.toContain('title');
     expect((await app.inject({ url: '/v3/runs/invalid' })).statusCode).toBe(400);

@@ -33,6 +33,18 @@ const workflowV2DeploymentJson = z
       .strict(),
   );
 
+const archivedDeploymentsJson = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'Enter a JSON array of factory addresses' });
+      return z.NEVER;
+    }
+  })
+  .pipe(z.array(addressSchema.refine((factory) => factory !== zeroAddress)));
+
 /**
  * Every environment variable the backend reads. Validation happens once, at boot, so a missing
  * variable fails loudly instead of turning into a silent `undefined` deep in the indexer.
@@ -71,6 +83,7 @@ const envSchema = z.object({
   WORKFLOW_START_BLOCK_LASNA: z.coerce.number().int().positive().optional(),
   WORKFLOW_START_BLOCK_UNICHAIN: z.coerce.number().int().positive().optional(),
   WORKFLOW_V2_DEPLOYMENT: workflowV2DeploymentJson.optional(),
+  WORKFLOW_V2_ARCHIVED_DEPLOYMENTS: archivedDeploymentsJson.optional(),
   GEMINI_MODEL: z.string().optional(),
   GEMINI_BASE_URL: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
@@ -105,6 +118,8 @@ export interface AppConfig {
   readonly telegram?: TelegramConfig;
   readonly workflows?: WorkflowDeployment;
   readonly workflowsV2?: WorkflowV2Deployment;
+  /** Factory addresses whose public run proofs stay readable after a cutover. */
+  readonly workflowV2Archived: readonly Address[];
   readonly gemini?: GeminiConfig;
 }
 
@@ -137,6 +152,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     WORKFLOW_START_BLOCK_LASNA: lasnaStart,
     WORKFLOW_START_BLOCK_UNICHAIN: unichainStart,
     WORKFLOW_V2_DEPLOYMENT: workflowsV2,
+    WORKFLOW_V2_ARCHIVED_DEPLOYMENTS: archivedWorkflowV2Deployments,
     GEMINI_MODEL: geminiModel,
     GEMINI_BASE_URL: geminiBase,
     GEMINI_API_KEY: geminiKey,
@@ -217,6 +233,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     corsOrigins,
     telegram,
     workflowsV2,
+    workflowV2Archived: archivedWorkflowV2Deployments ?? [],
     gemini,
     workflows:
       directory && vaultFactory && lasnaStart && unichainStart

@@ -11,6 +11,7 @@ import {
   workflowV2Action,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
+  type WeeklyBudgetAmounts,
   type WorkflowV2Program,
 } from '@rulebook/shared';
 import { useQueryClient } from '@tanstack/react-query';
@@ -71,11 +72,20 @@ export function v2Explorer(chain: number, hash: Hex) {
   return `${v2Network(chain).explorerUrl}/tx/${hash}`;
 }
 
-export function formatWorkflowCaps(program: WorkflowV2Program) {
-  return [
+export function weeklyLimitLabel(amount: bigint, decimals: number, asset: string) {
+  return amount === 0n ? `${asset} unlimited` : `${formatUnits(amount, decimals)} ${asset}`;
+}
+
+export function formatWorkflowCaps(program: WorkflowV2Program, budget?: WeeklyBudgetAmounts) {
+  const caps = [
     `${formatUnits(program.usdcCap, 6)} USDC per run`,
     `${formatUnits(program.wethCap, 18)} WETH per run`,
-  ].join(', ');
+  ];
+  if (budget) {
+    caps.push(`${weeklyLimitLabel(budget.usdc, 6, 'USDC')} weekly`);
+    caps.push(`${weeklyLimitLabel(budget.weth, 18, 'WETH')} weekly`);
+  }
+  return caps.join(', ');
 }
 
 export async function validateV2Program(encoded: Hex) {
@@ -136,6 +146,41 @@ export function v2Authorization(chain: SettlementChain, vault: Address, id: Hex)
     functionName: 'authorizations',
     args: [id],
   });
+}
+
+export interface WorkflowWeeklyBudget {
+  readonly usdcLimit: bigint;
+  readonly wethLimit: bigint;
+  readonly usdcSpent: bigint;
+  readonly wethSpent: bigint;
+  readonly usdcRemaining: bigint;
+  readonly wethRemaining: bigint;
+  readonly resetsAt: bigint;
+  readonly revision: number;
+}
+
+/** The Vault view is the source of truth for weekly limits, usage, and the reset time. */
+export async function readWorkflowWeeklyBudget(
+  chain: SettlementChain,
+  vault: Address,
+  id: Hex,
+): Promise<WorkflowWeeklyBudget> {
+  const result = await workflowClient(chain).readContract({
+    address: vault,
+    abi: workflowVaultV2Abi,
+    functionName: 'weeklyBudget',
+    args: [id],
+  });
+  return {
+    usdcLimit: result[0],
+    wethLimit: result[1],
+    usdcSpent: result[2],
+    wethSpent: result[3],
+    usdcRemaining: result[4],
+    wethRemaining: result[5],
+    resetsAt: result[6],
+    revision: result[7],
+  };
 }
 
 async function workflowVersion(agent: Address, vault: Address, id: Hex) {
@@ -519,7 +564,12 @@ export function useWorkflowV2Wallet() {
       linkVault(agent, vault, reviewedConnector),
   };
 
-  function activate(id: Hex, title: string, program: WorkflowV2Program) {
+  function activate(
+    id: Hex,
+    title: string,
+    program: WorkflowV2Program,
+    budget: WeeklyBudgetAmounts,
+  ) {
     return perform(async (signer) => {
       if (!workflowActivationEnabled) throw new Error('New activations are disabled.');
       const chain = program.chain as SettlementChain;
@@ -536,10 +586,14 @@ export function useWorkflowV2Wallet() {
       if (entry[1] > 0n && entry[5] !== chain)
         throw new Error('Create a new workflow to change settlement networks.');
       const hash = keccak256(encoded);
+      const stagedBudget = await readWorkflowWeeklyBudget(chain, vault, id);
+      // A retry can only reuse a staged authorization whose program and budget both match.
       const staged =
         auth[3] &&
         auth[0] === hash &&
         auth[1] > entry[1] &&
+        stagedBudget.usdcLimit === budget.usdc &&
+        stagedBudget.wethLimit === budget.weth &&
         title ===
           (await client.readContract({
             address: vault,
@@ -565,11 +619,11 @@ export function useWorkflowV2Wallet() {
           vault,
           encodeFunctionData({
             abi: workflowVaultV2Abi,
-            functionName: 'authorize',
-            args: [id, epoch, encoded, title],
+            functionName: 'authorizeWithWeeklyBudget',
+            args: [id, epoch, encoded, title, budget.usdc, budget.weth],
           }),
           `Authorize ${title} on ${v2Network(chain).name}.`,
-          formatWorkflowCaps(program),
+          formatWorkflowCaps(program, budget),
         );
       }
       if (
@@ -602,8 +656,19 @@ export function useWorkflowV2Wallet() {
           );
       }
       const confirmed = await waitForState(
-        () => v2Authorization(chain, vault, id),
-        (state) => state[3] && state[0] === hash && state[1] === epoch,
+        async () => {
+          const [state, weekly] = await Promise.all([
+            v2Authorization(chain, vault, id),
+            readWorkflowWeeklyBudget(chain, vault, id),
+          ]);
+          return { state, weekly };
+        },
+        ({ state, weekly }) =>
+          state[3] &&
+          state[0] === hash &&
+          state[1] === epoch &&
+          weekly.usdcLimit === budget.usdc &&
+          weekly.wethLimit === budget.weth,
       );
       await send(
         LASNA_CHAIN_ID,
@@ -611,10 +676,36 @@ export function useWorkflowV2Wallet() {
         encodeFunctionData({
           abi: workflowAgentV2Abi,
           functionName: 'enable',
-          args: [id, epoch, encoded, title, confirmed[2]],
+          args: [id, epoch, encoded, title, confirmed.state[2]],
         }),
         `Enable ${title} on Reactive Lasna.`,
-        formatWorkflowCaps(program),
+        formatWorkflowCaps(program, budget),
+      );
+    });
+  }
+
+  /** Edits only the weekly limits; the schedule, inactivity window, and recorded spend stay. */
+  function setWeeklyBudget(
+    item: Pick<Awaited<ReturnType<typeof readWorkflowV2>>, 'chain' | 'vault' | 'id'>,
+    usdc: bigint,
+    weth: bigint,
+  ) {
+    return perform(async () => {
+      const [auth, staged] = await Promise.all([
+        v2Authorization(item.chain, item.vault, item.id),
+        readWorkflowWeeklyBudget(item.chain, item.vault, item.id),
+      ]);
+      if (auth[1] === 0n) throw new Error('Authorize this workflow before editing its budget.');
+      await send(
+        item.chain,
+        item.vault,
+        encodeFunctionData({
+          abi: workflowVaultV2Abi,
+          functionName: 'setWeeklyBudget',
+          args: [item.id, auth[1], staged.revision, usdc, weth],
+        }),
+        'Change the weekly spending budget. Spending already recorded this week still counts.',
+        `${weeklyLimitLabel(usdc, 6, 'USDC')} · ${weeklyLimitLabel(weth, 18, 'WETH')}`,
       );
     });
   }
@@ -651,5 +742,17 @@ export function useWorkflowV2Wallet() {
     });
   }
 
-  return { owner, busy, status, error, transaction, perform, send, activate, pause, setupWallet };
+  return {
+    owner,
+    busy,
+    status,
+    error,
+    transaction,
+    perform,
+    send,
+    activate,
+    pause,
+    setWeeklyBudget,
+    setupWallet,
+  };
 }

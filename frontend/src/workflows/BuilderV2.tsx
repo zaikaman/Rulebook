@@ -2,6 +2,8 @@ import {
   createWorkflowV2Recipe,
   decodeWorkflowV2,
   encodeWorkflowV2,
+  readWeeklyLimit,
+  weeklyBudgetFromDraft,
   workflowIdSchema,
   workflowLimits,
   workflowV2Action as A,
@@ -9,6 +11,7 @@ import {
   workflowV2Recipes,
   workflowV2Trigger as T,
   workflowV2Unit as U,
+  type WeeklyBudgetAmounts,
   type WorkflowV2Program,
   type WorkflowV2RecipeId,
 } from '@rulebook/shared';
@@ -39,7 +42,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { bytesToHex, type Hex } from 'viem';
+import { bytesToHex, formatUnits, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
@@ -63,6 +66,7 @@ import {
   formatWorkflowCaps,
   workflowActivationEnabled,
   readWorkflowV2,
+  readWorkflowWeeklyBudget,
   settlementFactory,
   useWorkflowV2Wallet,
   validateV2Program,
@@ -137,32 +141,62 @@ const recipeSummaries = {
   'large-transfer-alert': 'Record an alert when a token transfer exceeds an amount.',
 } as const satisfies Record<WorkflowV2RecipeId, string>;
 
-export function V2Field({ name, children }: { name: string; children: ReactNode }) {
+export function V2Field({
+  name,
+  hint,
+  error,
+  children,
+}: {
+  name: string;
+  hint?: ReactNode;
+  error?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <label className="app-field">
       <span>{name}</span>
       {children}
+      {hint ? <span className="rb-field-hint">{hint}</span> : null}
+      {error ? <span className="rb-field-error">{error}</span> : null}
     </label>
   );
+}
+
+function weeklyError(value: string, asset: 'USDC' | 'WETH') {
+  try {
+    readWeeklyLimit(value, asset);
+    return undefined;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : 'Enter a valid limit.';
+  }
+}
+
+function weeklyLabel(amount: bigint, decimals: number, asset: string) {
+  return amount === 0n ? `${asset} unlimited` : `${formatUnits(amount, decimals)} ${asset}`;
 }
 
 function Input({
   name,
   value,
   change,
+  hint,
+  error,
   text = false,
 }: {
   name: string;
   value: string;
   change: (value: string) => void;
+  hint?: ReactNode;
+  error?: ReactNode;
   text?: boolean;
 }) {
   return (
-    <V2Field name={name}>
+    <V2Field name={name} hint={hint} error={error}>
       <input
         className="app-input"
         value={value}
         inputMode={text ? 'text' : 'decimal'}
+        aria-invalid={Boolean(error) || undefined}
         onChange={(event) => change(event.target.value)}
       />
     </V2Field>
@@ -442,7 +476,13 @@ function InspectorHead({
   );
 }
 
-export function WorkflowProgramSummary({ draft }: { draft: V2Draft }) {
+export function WorkflowProgramSummary({
+  draft,
+  weekly,
+}: {
+  draft: V2Draft;
+  weekly?: WeeklyBudgetAmounts;
+}) {
   function show(path: DraftPath): ReactNode {
     if ('steps' in path)
       return path.steps.length ? (
@@ -526,6 +566,14 @@ export function WorkflowProgramSummary({ draft }: { draft: V2Draft }) {
               {draft.usdcCap || '0'} USDC · {draft.wethCap || '0'} WETH
             </dd>
           </div>
+          {weekly && (
+            <div>
+              <dt>Weekly budget</dt>
+              <dd>
+                {weeklyLabel(weekly.usdc, 6, 'USDC')} · {weeklyLabel(weekly.weth, 18, 'WETH')}
+              </dd>
+            </div>
+          )}
           {Number(draft.slippage) > 0 && (
             <div>
               <dt>Maximum swap slippage</dt>
@@ -574,6 +622,11 @@ export function WorkflowBuilderV2() {
     enabled: Boolean(id.success && address),
     queryFn: () => readWorkflowV2(address!, id.data!),
   });
+  const budgetQuery = useQuery({
+    queryKey: ['workflow-v2', 'weekly-budget', address, raw],
+    enabled: Boolean(id.success && address && query.data),
+    queryFn: () => readWorkflowWeeklyBudget(query.data!.chain, query.data!.vault, id.data!),
+  });
   if (raw && !id.success) return <p role="alert">This workflow link is invalid.</p>;
   if (raw && !address)
     return (
@@ -596,6 +649,21 @@ export function WorkflowBuilderV2() {
       </section>
     );
   if (query.error) return <p role="alert">{query.error.message}</p>;
+  if (raw && budgetQuery.isPending)
+    return (
+      <section className="app-page">
+        <PageHeading title="Edit workflow" description="Reading the weekly spending budget." />
+        <LoadingRegion label="Reading the weekly budget…" className="rb-page-skeleton">
+          <Skeleton className="rb-skeleton--panel" />
+        </LoadingRegion>
+      </section>
+    );
+  if (raw && budgetQuery.error)
+    return (
+      <p className="workflow-error" role="alert">
+        The weekly budget could not be read. Reopen this workflow before editing it.
+      </p>
+    );
   if (copy && !copyId.success) return <p role="alert">This listing link is invalid.</p>;
   const recipe = workflowV2Recipes.find((item) => item.id === params.get('recipe'))?.id;
   if (!raw && copyId.success)
@@ -606,7 +674,17 @@ export function WorkflowBuilderV2() {
       key={`${raw ? address : 'new'}:${raw ?? 'new'}:${copy ?? recipe ?? ''}`}
       id={id.data}
       storageKey={`rulebook-v2-draft:${raw ?? copy ?? recipe ?? 'new'}`}
-      original={query.data && toDraft(decodeWorkflowV2(query.data.program), query.data.title)}
+      original={
+        query.data && budgetQuery.data
+          ? {
+              ...toDraft(decodeWorkflowV2(query.data.program), query.data.title),
+              usdcWeeklyBudget:
+                budgetQuery.data.usdcLimit > 0n ? formatUnits(budgetQuery.data.usdcLimit, 6) : '',
+              wethWeeklyBudget:
+                budgetQuery.data.wethLimit > 0n ? formatUnits(budgetQuery.data.wethLimit, 18) : '',
+            }
+          : undefined
+      }
       recipe={recipe}
     />
   );
@@ -672,6 +750,7 @@ function Editor({
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [program, review] = useState<WorkflowV2Program>();
+  const [budget, setBudget] = useState<WeeklyBudgetAmounts>();
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
@@ -694,6 +773,7 @@ function Editor({
     setDraft((current) => ({ ...current, ...fields }));
     setError(undefined);
     review(undefined);
+    setBudget(undefined);
     setConsent(false);
   }
 
@@ -823,9 +903,11 @@ function Editor({
     setValidating(true);
     try {
       const next = toProgram(draft);
+      const nextBudget = weeklyBudgetFromDraft(draft);
       await validateV2Program(encodeWorkflowV2(next));
       if (current !== revision.current) return;
       review(next);
+      setBudget(nextBudget);
       setStatus(undefined);
       setError(undefined);
     } catch (cause) {
@@ -913,6 +995,20 @@ function Editor({
                 name="Maximum WETH per run"
                 value={draft.wethCap}
                 change={(wethCap) => update({ wethCap })}
+              />
+              <Input
+                name="Weekly USDC budget (optional)"
+                value={draft.usdcWeeklyBudget}
+                change={(usdcWeeklyBudget) => update({ usdcWeeklyBudget })}
+                hint="Resets Monday 00:00 UTC. Blank means unlimited."
+                error={weeklyError(draft.usdcWeeklyBudget, 'USDC')}
+              />
+              <Input
+                name="Weekly WETH budget (optional)"
+                value={draft.wethWeeklyBudget}
+                change={(wethWeeklyBudget) => update({ wethWeeklyBudget })}
+                hint="Resets Monday 00:00 UTC. Blank means unlimited."
+                error={weeklyError(draft.wethWeeklyBudget, 'WETH')}
               />
               <Input
                 name="Maximum swap slippage (%)"
@@ -1419,7 +1515,7 @@ function Editor({
               <span className="rb-chip rb-chip--plain">{v2Network(draft.chain).name}</span>
             </div>
             <div className="rb-panel-body">
-              <WorkflowProgramSummary draft={draft} />
+              <WorkflowProgramSummary draft={draft} weekly={budget} />
             </div>
           </section>
 
@@ -1452,6 +1548,14 @@ function Editor({
                     {draft.usdcCap || '0'} USDC · {draft.wethCap || '0'} WETH
                   </dd>
                 </div>
+                {budget && (
+                  <div>
+                    <dt>Weekly budget</dt>
+                    <dd>
+                      {weeklyLabel(budget.usdc, 6, 'USDC')} · {weeklyLabel(budget.weth, 18, 'WETH')}
+                    </dd>
+                  </div>
+                )}
               </dl>
               {hasPayout && (
                 <label className="rb-consent">
@@ -1475,10 +1579,12 @@ function Editor({
                     wallet.busy ||
                     !workflowActivationEnabled ||
                     !settlementFactory() ||
+                    !budget ||
                     (hasPayout && !consent)
                   }
                   onClick={async () => {
-                    if (await wallet.activate(workflowId, draft.title.trim(), program)) {
+                    if (!budget) return;
+                    if (await wallet.activate(workflowId, draft.title.trim(), program, budget)) {
                       try {
                         localStorage.removeItem(storageKey);
                       } catch {

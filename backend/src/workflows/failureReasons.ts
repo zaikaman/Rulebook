@@ -24,6 +24,10 @@ const reasons = new Map<string, FailureReason>([
     { message: 'The run exceeded the approved spending limit.', recovery: 'limits' },
   ],
   [
+    toFunctionSelector('WeeklyBudgetExceeded()'),
+    { message: 'Run would exceed the weekly spending budget', recovery: 'limits' },
+  ],
+  [
     toFunctionSelector('InvalidMarket()'),
     { message: 'The configured testnet market is unavailable.' },
   ],

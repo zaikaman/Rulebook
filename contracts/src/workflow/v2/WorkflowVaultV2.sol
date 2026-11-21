@@ -22,12 +22,25 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     uint8 private constant NO_PATH = type(uint8).max;
     uint64 public constant PAYOUT_GRACE = 24 hours;
     uint64 private constant PRICE_MAX_AGE = 1 hours;
+    uint64 private constant WEEK = 7 days;
+    // Unix time zero is a Thursday. Monday 00:00 UTC therefore falls on a weekly remainder of
+    // four days, which this shift removes before flooring to the start of the week.
+    uint64 private constant MONDAY_SHIFT = 3 days;
 
     struct Authorization {
         bytes32 programHash;
         uint64 epoch;
         uint64 originAfter;
         bool active;
+    }
+
+    struct WeeklyBudget {
+        uint96 usdcLimit;
+        uint96 wethLimit;
+        uint128 usdcSpent;
+        uint128 wethSpent;
+        uint64 weekStart;
+        uint32 revision;
     }
 
     struct Memory {
@@ -46,16 +59,22 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         uint256 refillThreshold;
         bool dipAvailable;
         bool dip;
+        bool swapped;
     }
 
     error Unauthorized();
     error InvalidAuthorization();
+    error StaleBudget();
     error CapExceeded();
+    error WeeklyBudgetExceeded();
     error DuplicateOrigin();
     error StaleObservation();
     error SettlementInterrupted();
 
     event Authorized(bytes32 indexed workflow, bytes32 indexed programHash, uint64 epoch);
+    event WeeklyBudgetSet(
+        bytes32 indexed workflow, uint96 usdcLimit, uint96 wethLimit, uint32 revision
+    );
     event Revoked(bytes32 indexed workflow, uint64 epoch);
     event CheckIn(bytes32 indexed workflow, uint64 timestamp);
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
@@ -83,6 +102,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     WorkflowProgramValidatorV2 public immutable validator;
     bytes32 public paymentWorkflow;
     mapping(bytes32 => Authorization) public authorizations;
+    mapping(bytes32 => WeeklyBudget) private weeklyBudgets;
     mapping(bytes32 => bytes) public programs;
     mapping(bytes32 => string) public titles;
     bytes32[] private knownWorkflows;
@@ -118,12 +138,82 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         return knownWorkflows;
     }
 
+    /// @notice Returns the current week's limits, spend, remaining amounts, reset, and revision.
+    /// @dev A zero limit is unlimited. Spend is reported as zero once the week has rolled over,
+    /// even before the next settlement writes the new week start.
+    function weeklyBudget(bytes32 workflow)
+        external
+        view
+        returns (
+            uint96 usdcLimit,
+            uint96 wethLimit,
+            uint128 usdcSpent,
+            uint128 wethSpent,
+            uint128 usdcRemaining,
+            uint128 wethRemaining,
+            uint64 resetsAt,
+            uint32 revision
+        )
+    {
+        WeeklyBudget storage budget = weeklyBudgets[workflow];
+        uint64 start = _weekStart(block.timestamp);
+        usdcLimit = budget.usdcLimit;
+        wethLimit = budget.wethLimit;
+        revision = budget.revision;
+        resetsAt = start + WEEK;
+        if (budget.weekStart == start) {
+            usdcSpent = budget.usdcSpent;
+            wethSpent = budget.wethSpent;
+        }
+        usdcRemaining = _remaining(usdcLimit, usdcSpent);
+        wethRemaining = _remaining(wethLimit, wethSpent);
+    }
+
     function authorize(
         bytes32 workflow,
         uint64 epoch,
         bytes calldata encoded,
         string calldata title
     ) external onlyOwner {
+        _authorize(workflow, epoch, encoded, title);
+    }
+
+    /// @notice Authorizes a program and stages its weekly limits in one transaction.
+    function authorizeWithWeeklyBudget(
+        bytes32 workflow,
+        uint64 epoch,
+        bytes calldata encoded,
+        string calldata title,
+        uint96 usdcLimit,
+        uint96 wethLimit
+    ) external onlyOwner {
+        _authorize(workflow, epoch, encoded, title);
+        _writeBudget(workflow, usdcLimit, wethLimit);
+    }
+
+    /// @notice Changes only the weekly limits. The schedule and inactivity window are untouched.
+    /// @dev `expectedEpoch` and `expectedRevision` reject an edit prepared before a newer
+    /// authorization or budget change confirmed.
+    function setWeeklyBudget(
+        bytes32 workflow,
+        uint64 expectedEpoch,
+        uint32 expectedRevision,
+        uint96 usdcLimit,
+        uint96 wethLimit
+    ) external onlyOwner {
+        if (authorizations[workflow].epoch != expectedEpoch || expectedEpoch == 0) {
+            revert InvalidAuthorization();
+        }
+        if (weeklyBudgets[workflow].revision != expectedRevision) revert StaleBudget();
+        _writeBudget(workflow, usdcLimit, wethLimit);
+    }
+
+    function _authorize(
+        bytes32 workflow,
+        uint64 epoch,
+        bytes calldata encoded,
+        string calldata title
+    ) private {
         P.Program memory program = validator.validateProgram(encoded);
         Authorization storage auth = authorizations[workflow];
         Memory storage memory_ = workflowMemory[workflow];
@@ -150,7 +240,38 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         memory_.eligibleAt = 0;
         memory_.lastCheckIn = uint64(block.timestamp);
         authorizations[workflow] = Authorization(hash, epoch, uint64(block.number), true);
+        // Start the first budget week when the workflow is first authorized.
+        if (weeklyBudgets[workflow].weekStart == 0) {
+            weeklyBudgets[workflow].weekStart = _weekStart(block.timestamp);
+        }
         emit Authorized(workflow, hash, epoch);
+    }
+
+    function _writeBudget(bytes32 workflow, uint96 usdcLimit, uint96 wethLimit) private {
+        WeeklyBudget storage budget = weeklyBudgets[workflow];
+        uint64 start = _weekStart(block.timestamp);
+        if (budget.weekStart != start) {
+            budget.weekStart = start;
+            budget.usdcSpent = 0;
+            budget.wethSpent = 0;
+        }
+        budget.usdcLimit = usdcLimit;
+        budget.wethLimit = wethLimit;
+        budget.revision += 1;
+        emit WeeklyBudgetSet(workflow, usdcLimit, wethLimit, budget.revision);
+    }
+
+    /// @notice Monday 00:00 UTC at or before `timestamp`.
+    /// @dev Timestamps before the first Monday of the Unix epoch have no earlier Monday; they
+    /// share week zero rather than underflowing.
+    function _weekStart(uint256 timestamp) private pure returns (uint64) {
+        uint256 remainder = (timestamp + MONDAY_SHIFT) % WEEK;
+        return uint64(timestamp >= remainder ? timestamp - remainder : 0);
+    }
+
+    function _remaining(uint96 limit, uint128 spent) private pure returns (uint128) {
+        if (limit == 0 || spent >= limit) return 0;
+        return uint128(limit) - spent;
     }
 
     function revoke(bytes32 workflow, uint64 epoch) external onlyOwner {
@@ -208,6 +329,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             bytes4 reason = data.length >= 4 ? bytes4(data) : bytes4(0);
             uint8 status = reason == NoLongerEligible.selector
                 || reason == StaleObservation.selector || reason == DuplicateOrigin.selector
+                || reason == WeeklyBudgetExceeded.selector
                 ? SKIPPED
                 : FAILED;
             _outcome(workflow, runId, run.epoch, status, NO_PATH, reason);
@@ -292,7 +414,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             if (consumedPayments[origin]) revert DuplicateOrigin();
             consumedPayments[origin] = true;
         }
-        _actions(program, run, runId, actions, memory_, ctx);
+        _actions(_settlementBudget(workflow), program, run, runId, actions, ctx);
+        if (ctx.swapped) memory_.referencePrice = uint128(ctx.price);
         if (ctx.dip) consumedDips[workflow][run.observationId] = true;
         if (program.once) {
             memory_.closed = true;
@@ -370,11 +493,11 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     }
 
     function _actions(
+        WeeklyBudget storage budget,
         P.Program memory program,
         P.Run calldata run,
         bytes32 runId,
         P.Action[] memory actions,
-        Memory storage memory_,
         Context memory ctx
     ) private {
         uint256 usdcSpent;
@@ -389,13 +512,22 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             }
             if (action.kind == P.SELL) {
                 wethSpent += amount;
-            } else if (action.kind == P.REFILL) {
-                uint256 balance = IERC20(usdc).balanceOf(address(this));
-                if (balance >= ctx.refillThreshold) revert NoLongerEligible();
-                amount = Math.min(amount, ctx.refillThreshold - balance);
-                usdcSpent += amount;
+                if (budget.wethLimit != 0 && budget.wethSpent + wethSpent > budget.wethLimit) {
+                    revert WeeklyBudgetExceeded();
+                }
             } else {
+                if (action.kind == P.REFILL) {
+                    uint256 balance = IERC20(usdc).balanceOf(address(this));
+                    if (balance >= ctx.refillThreshold) revert NoLongerEligible();
+                    amount = Math.min(amount, ctx.refillThreshold - balance);
+                }
                 usdcSpent += amount;
+                if (
+                    action.kind != P.ALERT && budget.usdcLimit != 0
+                        && budget.usdcSpent + usdcSpent > budget.usdcLimit
+                ) {
+                    revert WeeklyBudgetExceeded();
+                }
             }
 
             if (
@@ -403,20 +535,56 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                     || (program.trigger == P.PAYMENT && usdcSpent > run.observed)
             ) revert CapExceeded();
 
-            uint256 received;
-            address account = action.account;
-            if (action.kind == P.SEND || action.kind == P.INACTIVITY_PAYOUT) {
-                if (account == address(this)) revert InvalidAuthorization();
-                IERC20(usdc).safeTransfer(account, amount);
-            } else if (action.kind == P.BUY || action.kind == P.SELL) {
-                received = _swap(action.kind == P.SELL, amount, program.slippage, run.expiresAt);
-                account = address(this);
-                if (program.trigger == P.PRICE) memory_.referencePrice = uint128(ctx.price);
-            } else if (action.kind == P.REFILL) {
-                IERC20(usdc).safeTransferFrom(owner, address(this), amount);
-                account = address(this);
-            }
-            emit Step(runId, index, action.kind, amount, received, account);
+            _execute(program, run, runId, action, amount, index, ctx);
+        }
+        // Commit only after every action succeeded. A revert above rolls the whole run back.
+        if (usdcSpent != 0) budget.usdcSpent = uint128(budget.usdcSpent + usdcSpent);
+        if (wethSpent != 0) budget.wethSpent = uint128(budget.wethSpent + wethSpent);
+    }
+
+    function _execute(
+        P.Program memory program,
+        P.Run calldata run,
+        bytes32 runId,
+        P.Action memory action,
+        uint256 amount,
+        uint8 index,
+        Context memory ctx
+    ) private {
+        uint256 received;
+        address account = action.account;
+        if (action.kind == P.SEND || action.kind == P.INACTIVITY_PAYOUT) {
+            if (account == address(this)) revert InvalidAuthorization();
+            IERC20(usdc).safeTransfer(account, amount);
+        } else if (action.kind == P.BUY || action.kind == P.SELL) {
+            received = _swap(action.kind == P.SELL, amount, program.slippage, run.expiresAt);
+            account = address(this);
+            if (program.trigger == P.PRICE) ctx.swapped = true;
+        } else if (action.kind == P.REFILL) {
+            IERC20(usdc).safeTransferFrom(owner, address(this), amount);
+            account = address(this);
+        }
+        _step(runId, index, action.kind, amount, received, account);
+    }
+
+    function _step(
+        bytes32 runId,
+        uint8 index,
+        uint8 kind,
+        uint256 amount,
+        uint256 received,
+        address account
+    ) private {
+        emit Step(runId, index, kind, amount, received, account);
+    }
+
+    function _settlementBudget(bytes32 workflow) private returns (WeeklyBudget storage budget) {
+        budget = weeklyBudgets[workflow];
+        uint64 start = _weekStart(block.timestamp);
+        if (budget.weekStart != start) {
+            budget.weekStart = start;
+            budget.usdcSpent = 0;
+            budget.wethSpent = 0;
         }
     }
 }

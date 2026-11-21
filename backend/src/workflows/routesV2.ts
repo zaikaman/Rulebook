@@ -107,8 +107,14 @@ export function registerWorkflowV2Routes(
   app: FastifyInstance,
   db: SupabaseClient,
   factory: Address,
+  archivedFactories: readonly Address[] = [],
 ) {
   const deployment = factory.toLowerCase();
+  // Public run IDs keep resolving after a factory cutover; the indexer only writes the current
+  // deployment, so archived rows are whatever the previous deployment indexed.
+  const proofDeployments = [
+    ...new Set([deployment, ...archivedFactories.map((address) => address.toLowerCase())]),
+  ];
   app.get('/v3/marketplace', async (request, reply) => {
     const params = z
       .object({ q: z.string().max(160).default(''), after: z.string().max(250).optional() })
@@ -216,7 +222,10 @@ export function registerWorkflowV2Routes(
     const { data, error } = await db
       .from('workflow_v2_activity')
       .select(proofColumns)
-      .match({ deployment, chain: UNICHAIN_SEPOLIA_CHAIN_ID, id: params.data.id })
+      .in('deployment', proofDeployments)
+      .match({ chain: UNICHAIN_SEPOLIA_CHAIN_ID, id: params.data.id })
+      .order('lasna_block', { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (error) throw error;
     if (!data) return reply.code(404).send({ message: 'This run has not been indexed.' });

@@ -85,10 +85,15 @@ export type V2Draft = {
   subject: string;
   usdcCap: string;
   wethCap: string;
+  usdcWeeklyBudget: string;
+  wethWeeklyBudget: string;
   slippage: string;
   once: boolean;
   root: DraftPath;
 };
+
+export const weeklyBudgetCeiling = (1n << 96n) - 1n;
+export type WeeklyBudgetAmounts = { readonly usdc: bigint; readonly weth: bigint };
 
 export const emptyPath = (): DraftPath => ({ steps: [] });
 export const emptyDraft = (): V2Draft => ({
@@ -101,6 +106,8 @@ export const emptyDraft = (): V2Draft => ({
   subject: '',
   usdcCap: '',
   wethCap: '',
+  usdcWeeklyBudget: '',
+  wethWeeklyBudget: '',
   slippage: '',
   once: false,
   root: emptyPath(),
@@ -134,7 +141,7 @@ const pathSchema: z.ZodType<DraftPath> = z.lazy(() =>
   ]),
 );
 
-export const v2DraftSchema: z.ZodType<V2Draft> = z.object({
+const draftObject = z.object({
   title: z.string(),
   chain: z.literal(UNICHAIN),
   trigger: code(Object.values(T)),
@@ -144,10 +151,18 @@ export const v2DraftSchema: z.ZodType<V2Draft> = z.object({
   subject: z.string(),
   usdcCap: z.string(),
   wethCap: z.string(),
+  usdcWeeklyBudget: z.string(),
+  wethWeeklyBudget: z.string(),
   slippage: z.string(),
   once: z.boolean(),
   root: pathSchema,
 });
+
+/** Older local drafts and Marketplace copies predate weekly budgets; blank means unlimited. */
+export const v2DraftSchema = z.preprocess((value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  return { usdcWeeklyBudget: '', wethWeeklyBudget: '', ...(value as Record<string, unknown>) };
+}, draftObject);
 
 export function actionDecimals(kind: ActionCode, unit: DraftStep['unit']) {
   if (unit === U.percent) return 2;
@@ -197,6 +212,8 @@ export function toDraft(p: WorkflowV2Program, title: string): V2Draft {
     subject: p.subject === zeroAddress ? '' : p.subject,
     usdcCap: formatUnits(p.usdcCap, 6),
     wethCap: formatUnits(p.wethCap, 18),
+    usdcWeeklyBudget: '',
+    wethWeeklyBudget: '',
     slippage: formatUnits(BigInt(p.slippage), 2),
     once: p.once,
     root: branch(0),
@@ -213,6 +230,26 @@ function account(value: string, label: string, required = false): Address {
   if (!isAddress(address, { strict: false }) || address.toLowerCase() === zeroAddress)
     throw new Error(`Enter a valid ${label}.`);
   return getAddress(address);
+}
+
+/** Reads one optional weekly limit, rejecting zero, over-precision, and values above uint96. */
+export function readWeeklyLimit(value: string, asset: 'USDC' | 'WETH') {
+  if (!value.trim()) return 0n;
+  const amount = readAmount(value, asset === 'USDC' ? 6 : 18, `${asset} weekly limit`);
+  if (amount === 0n) throw new Error(`Enter a positive ${asset} weekly limit or leave it blank.`);
+  if (amount > weeklyBudgetCeiling) {
+    throw new Error(`The ${asset} weekly limit is above the contract maximum.`);
+  }
+  return amount;
+}
+
+export function weeklyBudgetFromDraft(
+  draft: Pick<V2Draft, 'usdcWeeklyBudget' | 'wethWeeklyBudget'>,
+): WeeklyBudgetAmounts {
+  return {
+    usdc: readWeeklyLimit(draft.usdcWeeklyBudget, 'USDC'),
+    weth: readWeeklyLimit(draft.wethWeeklyBudget, 'WETH'),
+  };
 }
 
 export function toProgram(draft: V2Draft): WorkflowV2Program {

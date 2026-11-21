@@ -147,7 +147,7 @@ export async function startServer(): Promise<void> {
     config.workflows && config.INDEXER_ENABLED
       ? new WorkflowIndexer(supabase, clients, config.workflows, app.log)
       : undefined;
-  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory);
+  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory, config.workflowV2Archived);
   const workflowV2Indexer =
     v2 && config.INDEXER_ENABLED
       ? new WorkflowV2Indexer(supabase, clients, v2, app.log, telegram !== undefined)

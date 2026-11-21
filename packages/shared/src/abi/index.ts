@@ -6014,6 +6014,44 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "authorizeWithWeeklyBudget",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "chain",
     "inputs": [],
     "outputs": [
@@ -6268,6 +6306,39 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "setWeeklyBudget",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expectedEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "expectedRevision",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "settle",
     "inputs": [
       {
@@ -6418,6 +6489,60 @@ export const workflowVaultV2Abi = [
         "name": "",
         "type": "address",
         "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "weeklyBudget",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "usdcSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "wethSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "usdcRemaining",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "wethRemaining",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "resetsAt",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "revision",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -6714,6 +6839,37 @@ export const workflowVaultV2Abi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "WeeklyBudgetSet",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "revision",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "CapExceeded",
     "inputs": []
@@ -6771,12 +6927,22 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "StaleBudget",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "StaleObservation",
     "inputs": []
   },
   {
     "type": "error",
     "name": "Unauthorized",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "WeeklyBudgetExceeded",
     "inputs": []
   }
 ] as const;

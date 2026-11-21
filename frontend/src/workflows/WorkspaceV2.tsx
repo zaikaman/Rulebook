@@ -80,6 +80,7 @@ import { WorkflowCanvas } from './Graph';
 import { canvasLeaf, diagramV2 } from './diagramV2';
 import { v2ApiBase } from './listingV2';
 import { WorkflowCreditNotice } from './WorkflowCredit';
+import { WorkflowWeeklyBudget } from './WeeklyBudget';
 
 export function WorkflowsV2() {
   const { owner } = useWorkflowV2Wallet();
@@ -365,6 +366,7 @@ export function WorkflowDetailV2() {
           Activity
         </Link>
       </div>
+      <WorkflowWeeklyBudget item={item} wallet={wallet} />
       {!item.closed && <WorkflowCreditNotice owner={wallet.owner} />}
       <div className="rb-canvas-panel">
         <WorkflowCanvas draft={diagramV2(toDraft(program, item.title)).canvas} />
