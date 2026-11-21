@@ -43,6 +43,9 @@ export function buildServer(
     genReqId: () => randomUUID(),
     // The Heroku router adds the client address as the last forwarded hop.
     trustProxy: process.env.DYNO ? (_address, hop) => hop === 0 : false,
+    routerOptions: {
+      ignoreTrailingSlash: true,
+    },
   });
   const routePaths: string[] = [];
 

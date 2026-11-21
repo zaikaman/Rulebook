@@ -252,6 +252,10 @@ try {
             destination: server + '/v1/telegram/availability',
           },
           {
+            source: '/v1/accounts/:agent/telegram',
+            destination: server + '/v1/accounts/:agent/telegram',
+          },
+          {
             source: '/v1/accounts/:agent/telegram/:path*',
             destination: server + '/v1/accounts/:agent/telegram/:path*',
           },
