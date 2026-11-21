@@ -34,7 +34,7 @@ when no rule fires or evaluation reverts. The destination callback has its own f
 Weekly DCA costs about as much as daily at the same subscription interval because
 both Agents wake for every tick. Price-rule cost scales with the number of matching events.
 The price-rule estimates use the non-firing rate and exclude destination ETH and one-time setup.
-The cron figures are planning estimates from IDEA.md §12.
+The cron figures are planning estimates derived from observed base fees and Reactive network parameters.
 
 ## Verify current parameters
 
@@ -54,4 +54,4 @@ foreach ($method in '_extraGas()(uint256)', '_gasPriceCoeffPer1000()(uint256)', 
 
 On **2026-11-18**, Lasna returned 100,000 extra gas and a coefficient of 1,000.
 Unichain Sepolia returned 80,000 extra gas and a coefficient of 1,100.
-Use current readings when estimating reserves. [Source and assumptions](../IDEA.md#12-cost-model)
+Use current readings when estimating reserves. [Reactive economy documentation](https://dev.reactive.network/economy) · [Measured receipts](./measurements.md)

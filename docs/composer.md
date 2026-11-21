@@ -1,101 +1,94 @@
-# The composer
+# Workflow composer and canvas
 
-Choose a template and set its values, then read the resulting sentence and inspect the
-transaction before signing on Reactive Lasna. Enter values in standard units: token amounts such
-as `0.1` USDC, prices such as `2500` USDC/WETH, percentages such as `2.5`, repeat intervals such
-as `1 day`, and expiries as a local date and time.
+Rulebook provides a visual builder and drafting assistant for constructing personal on-chain automations. You can start from one of 13 pre-built recipes, draft a workflow from a natural-language description with the Rulewright assistant, or assemble custom logic directly on the interactive canvas.
 
-## The sentence model
+Before signing on-chain, every workflow is synthesized into human-readable sentences and an explicit contract preview detailing spending caps, weekly limits, recipients, and callback parameters.
 
-A template is a sentence with named blanks. `packages/shared/manifest/templates.json` is the only
-source of truth:
+## The visual workflow canvas
 
-```json
-"Every {schedule}, spend {amount_in} {token_in} to buy {token_out}."
-```
+The workflow composer organizes logic into a tree structure composed of three node categories:
 
-The composer renders that string using the values from its settings. Slot definitions carry
-the kind (`schedule`, `amount`, `token`, `price`, `percent`, `duration`, `address`), whether the
-slot is required, and its `min`/`max`/`unit`. Those same values generate the Solidity catalog, the
-documentation table, and the fixtures, so a manifest edit cannot silently drift from the contract.
+1. **Triggers** — The event that wakes the Agent on Reactive Lasna:
+   - `Cron` — Periodic timer tick (`Cron100` for short intervals; `Cron10000` for long intervals).
+   - `Pair sync` — Uniswap V2 pair `Sync` event for price updates.
+   - `Token transfer` — ERC-20 `Transfer` events (e.g. USDC sent to the Vault or sent from the owner).
+   - `Vault balances` — Changes in Vault token holdings.
 
-It is not a node canvas. There are no wires to connect and no arbitrary graphs: the trigger,
-condition, and action are fixed by the template, and the only decisions are the values in the
-blanks. That is what keeps a rule readable as one sentence and auditable as eight packed words
-on chain.
+2. **Checks (Conditions)** — Evaluation logic that branches execution:
+   - Each check node splits execution into a **Yes** path and an **Otherwise** path.
+   - Types include: price above/below threshold, price dip percentage relative to previous observation, price band deviation, token transfer amount threshold, and wallet inactivity duration.
 
-## Token amounts and receive estimates
+3. **Actions** — Settleable instructions dispatched via callback to the Vault:
+   - `Swap` — Atomic trade through Uniswap V2 router (e.g. USDC for WETH).
+   - `Transfer` — ERC-20 token payout to a specified recipient.
+   - `Refill (transferFrom)` — Pulls approved tokens from the owner's wallet into the Vault.
+   - `Alert` — Emits an on-chain alert event without moving funds.
 
-`encodeAddRule` rejects any slot key the template does not declare, any value that is not an
-address for a token/address slot, any value that is not a whole number for a numeric slot, any
-value outside the slot's manifest bounds, and any pair whose input and output tokens are equal.
-The composer converts decimal amounts exactly into integer base units using the selected token's
-precision. It checks the template limit, vault spend cap, and vault token configuration before
-preparing a rule that moves funds. The server route `POST /v1/encode/preview` calls the same
-encoder with base-unit values, so both produce the same calldata.
+### Structural limits
 
-Swap rules spend a fixed amount per run. To start from a receive target, get a quote from the
-configured pool and apply the quoted spend if it fits the per-run cap. The amount received at
-execution depends on the pool at that time.
+These bounds are enforced both in the client-side builder and by the on-chain validator (`WorkflowProgramValidatorV2`):
 
-## Settings and calldata
+| Limit                            | Maximum                 |
+| -------------------------------- | ----------------------- |
+| Nodes in one program             | 15 nodes                |
+| Checks on a single path          | 3 checks                |
+| Ordered actions on a single path | 3 actions               |
+| Active workflows per Agent       | 4 workflows             |
+| Schedule interval                | 120 seconds to 30 days  |
+| Slippage tolerance               | At most 10% (1,000 bps) |
+| Callback gas limit               | 850,000 gas             |
+| Payload lifetime                 | 10 minutes              |
+| Price observation freshness      | 1 hour                  |
 
-`Rule` has eight packed words. Several slot keys share a field because a template never needs both
-meanings at once:
+## The 13 standard recipes
 
-| Slot key                        | `Rule` field           | Notes                                                                   |
-| ------------------------------- | ---------------------- | ----------------------------------------------------------------------- |
-| `amount_in`                     | `amountIn`             | Money templates only; alert templates must encode `0`.                  |
-| `threshold`                     | `threshold`            | Price or amount threshold, depending on template.                       |
-| `secondary`                     | `secondary`            | Dip band (bps), trailing band (bps), expiry (unix seconds), or days.    |
-| `schedule`                      | `secondary`            | Cron interval in seconds, unless the template already uses `secondary`. |
-| `schedule` (with `secondary`)   | `threshold`            | Templates 2 and 10 need both a cron interval and a second value.        |
-| `pair`                          | `pair`                 | Price pair for price templates.                                         |
-| `destination` / `source_wallet` | `pair`                 | Personal templates store their recipient in `pair`.                     |
-| `token_in` / `token_out`        | `tokenIn` / `tokenOut` | Both must be non-zero for a swap.                                       |
+Rulebook provides 13 ready-to-run recipes across three categories:
 
-`draftFromRule` inverts this mapping, which is how a stored rule is rendered back as the exact
-sentence its owner signed.
+| Category      | Recipe               | Trigger                    | Behavior                                                                            |
+| ------------- | -------------------- | -------------------------- | ----------------------------------------------------------------------------------- |
+| Trading       | Scheduled buy        | `Cron100`                  | Regular recurring swap of USDC for WETH                                             |
+| Trading       | Buy more on a dip    | `Cron100` + Pair `Sync`    | Swaps if the pair price fell by a set percentage; otherwise skips                   |
+| Trading       | Limit buy            | Pair `Sync`                | One-shot swap when price drops below threshold                                      |
+| Trading       | Take profit          | Pair `Sync`                | One-shot swap when price rises above threshold                                      |
+| Trading       | Trailing stop        | Pair `Sync`                | Swaps when price drops below a trail percentage from its observed peak              |
+| Trading       | Price-band trading   | Pair `Sync`                | Buys below lower bound, sells above upper bound                                     |
+| Payments      | Recurring transfer   | `Cron100`                  | Sends a fixed token payout on a timer                                               |
+| Payments      | Income sweep         | USDC `Transfer`            | Multi-threshold sweep: sends higher or lower payout based on deposit size, or skips |
+| Payments      | Balance refill       | `Cron100`                  | Calls `transferFrom` on owner wallet if Vault falls below threshold                 |
+| Wallet safety | Inactivity payout    | `Cron100` + owner activity | Sends one-off payout if owner is quiet for set days, after a 24-hour grace period   |
+| Wallet safety | Price alert          | Pair `Sync`                | Records alert when price crosses a threshold                                        |
+| Wallet safety | Price-range alert    | Pair `Sync`                | Records alert when price exits a bounded range                                      |
+| Wallet safety | Large-transfer alert | Token `Transfer`           | Records alert when transfer exceeds a threshold                                     |
 
-## Worked example 1 — template 1, DCA
+## The Rulewright drafting assistant
 
-Sentence: `Every {schedule}, spend {amount_in} {token_in} to buy {token_out}.`
+Rulewright (`packages/shared/src/rulewright.ts`) translates informal natural-language prompts into structured workflow drafts:
 
-Choices: `schedule` = `86400` (every day), `amount_in` = `10000000` (10 USDC),
-`token_in` = USDC, `token_out` = WETH.
+1. **Prompt interpretation**: Maps text descriptions (e.g. "Every Monday buy 50 USDC of WETH with a 200 USDC weekly budget") to appropriate triggers, checks, actions, and limits.
+2. **Draft staging**: Populates the visual canvas and settings panel with the interpreted nodes.
+3. **Transparent review**: The user reviews every parameter, recipient, token, and limit on the canvas and in the summary panel before any transaction is prepared. Rulewright never signs or broadcasts transactions.
 
-Calldata is `addRule(rule, false)` where:
+## Two-step on-chain authorization
 
-```text
-template  = 1
-chainId   = 1301          (the funds network the rule targets)
-pair      = USDC/WETH     (the template declares no pair slot, so the manifest default is used)
-tokenIn   = USDC
-tokenOut  = WETH
-amountIn  = 10000000
-threshold = 0
-secondary = 86400         (the schedule, because template 1 has no secondary slot)
-```
+To activate a workflow, the owner signs two transactions:
 
-The page shows this calldata before the signature; the Lasna receipt then yields the rule id.
+1. **Vault authorization (`authorizeWithWeeklyBudget`)**:
+   - Sent to `WorkflowVaultV2` on Unichain Sepolia.
+   - Registers the program hash, title, execution epoch, per-run caps, and weekly spending budgets.
+   - Enforces that no callback can execute instructions the owner did not authorize.
 
-## Worked example 2 — template 9, BalanceFloor
+2. **Agent activation (`enable`)**:
+   - Sent to `WorkflowAgentV2` on Reactive Lasna after the Vault transaction confirms.
+   - The Agent verifies the matching program bytecode, stores the program, and subscribes to the required logs through the Reactive system contract.
 
-Sentence: `When the vault balance of {token_in} falls below {threshold}, pull {amount_in} of {token_in} from {source_wallet}.`
+Pausing an active workflow follows the reverse order: revoking authorization on the Vault (which immediately halts callbacks on the funds side), followed by disabling subscriptions on the Agent.
 
-Choices: `token_in` = USDC, `threshold` = `5000000`, `amount_in` = `10000000`,
-`source_wallet` = an approved wallet.
+## The legacy V1 template model
 
-```text
-template  = 9
-chainId   = 1301
-pair      = source_wallet (template 9 has no pair slot; the recipient lives in pair)
-tokenIn   = USDC
-tokenOut  = 0             (this template transfers, it does not swap)
-amountIn  = 10000000
-threshold = 5000000
-secondary = 0
-```
+Rulebook's earlier version used 13 fixed templates with a single-sentence fill-in-the-blank model (`contracts/src/agent/Agent.sol` and `contracts/src/vault/Vault.sol`). In that model:
 
-Two invariants hold for both examples: no alert template can encode a non-zero `amountIn`, and the
-composer refuses to produce calldata while any required blank is empty.
+- Each rule mapped to 8 packed 32-byte words on chain (`Rule` struct).
+- Values were mapped into slot keys (`amount_in`, `threshold`, `secondary`, `schedule`, `pair`).
+- Execution followed a linear trigger -> condition -> action loop without branching paths.
+
+The catalog in `docs/catalog.md` documents the slot mappings for the legacy templates. The current application uses the V2 visual workflow engine described above.

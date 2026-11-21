@@ -25,9 +25,9 @@ Deferred TODOs:
 
 # Rulebook Constitution
 
-> **Project**: Rulebook (working title) — a no-code builder for personal on-chain
+> **Project**: Rulebook — a no-code builder for personal on-chain
 > automations, built on Reactive Network (Lasna) and Unichain Sepolia.
-> Design source of truth: `IDEA.md`. This document governs *how* we build, never *what*.
+> Design source of truth: `PRODUCT.md` and `README.md`. This document governs *how* we build, never *what*.
 
 ## Core Principles
 
@@ -43,7 +43,7 @@ the reader. Every module MUST do one stated thing, and its name MUST state that 
   obvious from the signature MUST carry a doc comment.
 - Magic numbers, raw addresses, and stringly-typed literals MUST NOT appear in logic. Use
   named constants, typed params, or the single per-chain config module (Principle III).
-  Exception: test fixtures and verified chain constants documented in `IDEA.md` §22.
+  Exception: test fixtures and verified chain constants documented in `contracts/src/chain/ChainConfig.sol`.
 - Dead code, commented-out code, debug logging, and unowned `TODO` markers MUST NOT be
   merged. A `TODO` MUST name an owner and a tracking reference.
 - Formatting is automated, never debated in review: `forge fmt`, Prettier, and ESLint/
@@ -93,8 +93,8 @@ not a bug, it is custody risk — and the sponsor's money pays for every reverte
 Every fact has exactly one authoritative home. Copies are generated or validated, never
 hand-maintained.
 
-- `IDEA.md` §23 (the `Rule` struct, events, callback signature) is the canonical on-chain
-  schema. Contract code implements it; TypeScript types are generated from ABIs and MUST
+- Canonical contract schemas and ABIs are the single source of truth for on-chain
+  interactions. Contract code implements them; TypeScript types are generated from ABIs and MUST
   NOT be hand-copied or widened.
 - Template semantics (13 templates × trigger/condition/action) MUST live in one place per
   layer: the contract's evaluation logic, one template registry, and one frontend mapping.
@@ -144,7 +144,7 @@ code, not just in the README.
 If an operator cannot run, fund, pause, debug, and hand off the system from the repo, the
 feature is not done.
 
-- `IDEA.md` is the internal design source of truth; `README.md` is the external contract.
+- `PRODUCT.md` is the internal design source of truth; `README.md` is the external contract.
   Architecture, cost model, custody model, and the "this is not a bot; the indexer cannot
   move funds" statement MUST be updated in the same change that makes them stale.
 - Non-obvious decisions MUST be recorded as a short ADR in `docs/decisions/NNN-title.md`
@@ -198,8 +198,8 @@ marked complete, regardless of demo pressure.
 
 ### Schedule pressure rule
 
-When time runs short, **cut scope, never gates**. The binding cut order is `IDEA.md` §15:
-leaderboard → marketplace filters → dip-boost and grid templates. The proof page, a second
+When time runs short, **cut scope, never gates**. The binding cut order prioritizes
+core execution loops: leaderboard -> marketplace filters -> secondary templates. The proof page, a second
 template, and the pause/cancel flow are never cut. Disabling a gate to hit a date is a
 constitution violation, not a trade-off.
 
@@ -245,7 +245,7 @@ constitution violation, not a trade-off.
   waived silently.
 - **Complexity must be justified.** Any deviation from a principle MUST be documented in
   the plan or ADR with the reason, the risk accepted, and the follow-up that removes it.
-- **Runtime guidance** lives in `README.md` (external), `IDEA.md` (design), and
+- **Runtime guidance** lives in `README.md` (external), `PRODUCT.md` (design), and
   `docs/decisions/` (rationale). This constitution governs process and quality, not product
   scope.
 

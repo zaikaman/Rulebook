@@ -8,28 +8,33 @@ web
 
 ## Users
 
-Rulebook serves wallet users who want to set up and manage their own on-chain rules. They may know how to connect a wallet and approve a transaction while having little or no experience deploying contracts or running bots. Typical jobs include scheduling a buy, setting a price threshold, automating a transfer, creating an alert, or using a public rule as a starting point.
+Rulebook serves wallet users who want to set up and manage their own on-chain rules and automations. They may know how to connect a wallet and approve a transaction while having little or no experience deploying contracts or running bots. Typical jobs include scheduling a recurring buy, setting a price threshold or trailing stop, automating an income sweep, refilling balances, setting an inactivity payout, receiving Telegram alerts, or using a public workflow as a starting point.
 
 ## Product Purpose
 
-Rulebook is a no-code builder for personal on-chain automations. Users pick a template and fill in a readable sentence, review what the rule will do, then approve it in their wallet. They can return to check a rule's status, review what happened, or change whether it runs. Success means a user can create a rule, understand its limits and funding needs, and verify a run without relying on a developer.
+Rulebook is a no-code builder for personal on-chain automations. Users choose a recipe or build from a visual canvas, configure branching checks and actions, review what the workflow will do in clear English sentences, and approve it through their wallet. They can return to inspect active workflows, track executions, pause or adjust weekly spending budgets, and verify outcomes on-chain without relying on an intermediary or developer.
 
 ## Positioning
 
-Each sentence maps to a contract call. A wallet-owned Agent on Reactive Lasna evaluates matching events or schedules. When a rule fires, the Agent requests a callback to the user's Unichain Sepolia Vault. The Vault holds principal and enforces limits before it executes a swap or transfer. The indexer reads chain activity to make it easier to inspect.
+Each workflow maps to an on-chain program signed by the user. A wallet-owned Agent on Reactive Lasna evaluates incoming events and timer ticks. When conditions are satisfied, the Agent dispatches a callback to the user's Unichain Sepolia Vault. The Vault holds principal and enforces limits, caps, and weekly budgets before executing any swap or transfer. The indexer reads chain activity to make execution evidence transparent and inspectable.
 
 ## Operating Context
 
 - The current experience uses testnet tokens. Users fund their own setup, monitoring, execution, and trades.
-- The same wallet operates on two networks. Reactive Lasna handles rule configuration and monitoring. Unichain Sepolia handles the Vault, funds, and settlement.
-- Account setup can resume when one contract already exists. Account & Vault shows watching credit, execution credit, and vault principal separately.
-- Execution proof follows the origin event, Reactive evaluation, and destination transaction. The receipt and its source matter when confirming an outcome or explaining missing evidence.
+- The same wallet operates on two networks: Reactive Lasna handles workflow configuration and event monitoring; Unichain Sepolia handles the Vault, funds, and settlement.
+- Account setup resumes seamlessly when one contract already exists. Account and Vault views display watching credit, execution credit, and vault principal separately.
+- Execution proof tracks the origin event, Reactive evaluation, and destination settlement transaction. Public proofs can be shared and inspected without connecting a wallet.
+- Optional Telegram notifications deliver funding alerts, failure notices, inactivity warnings, and workflow updates directly to the user.
 
 ## Capabilities and Constraints
 
-- A rule follows a template with defined inputs and limits. The sentence editor exposes those inputs and previews the transaction before signing. [Composer documentation](docs/composer.md)
-- Users can inspect, pause, resume, cancel, and reorder their rules. Vault owners can withdraw principal while automation is paused.
-- A clone copies settings into the user's own Agent. A mirror follows an eligible leader execution under the follower's own limits and funding. [Marketplace documentation](docs/marketplace.md)
+- Workflows are constructed on an interactive canvas with a node library of triggers, checks, and actions, or started from 13 curated recipes across trading, payments, and wallet safety. [Workflows documentation](docs/workflows.md)
+- Each check can split execution into Yes and Otherwise paths, supporting up to 3 checks and 3 ordered actions per path (15 nodes total per program). [Composer documentation](docs/composer.md)
+- An AI-powered Rulewright drafting assistant helps translate natural language requirements into validated workflow drafts without bypassing explicit wallet approval.
+- Weekly spending budgets can be configured per asset (USDC and WETH) on the Vault, enforcing spending ceilings that reset every Monday at 00:00 UTC. [Weekly budgets runbook](docs/runbooks/weekly-budgets.md)
+- Users can inspect, pause, resume, edit, and adjust budgets for their workflows. Vault owners retain full custody and can withdraw principal while automations are paused.
+- The Marketplace enables owners to publish verified workflows from their Agent's on-chain program hash. Others can copy them into clean drafts with empty limits and recipients. [Marketplace documentation](docs/marketplace.md)
+- Telegram integration provides background monitoring for low gas reserves, required check-ins, and execution outcomes. [Telegram notifications runbook](docs/runbooks/telegram-notifications.md)
 
 ## Brand Commitments
 
@@ -37,15 +42,15 @@ Use the name Rulebook. Existing product copy uses concrete examples and names th
 
 ## Evidence on Hand
 
-The repository records explorer receipts, measured fees, and validation coverage. It identifies outcomes verified on testnet and flows verified with local fixtures, including the grouped mirror proof. Use those records when making claims about settlement, latency, cost, or verification. [Submission evidence](docs/submission-evidence.md), [testnet measurements](docs/measurements.md), [cost model](docs/cost-model.md)
+The repository records explorer receipts, measured fees, validation coverage, and multi-path testnet execution proofs. It identifies outcomes verified on testnet (including the 3-path branching income sweep, scheduled buy, recurring transfer, and alerts) and flows verified with local fixtures and fork settlements. Use those records when making claims about settlement, latency, cost, or verification. [Submission evidence](docs/submission-evidence.md), [testnet measurements](docs/measurements.md), [cost model](docs/cost-model.md)
 
 ## Product Principles
 
-1. Make the rule readable before it is signed. Use one sentence with explicit template values. Keep the contract call available for inspection.
-2. Make wallet approvals predictable. Show the network, intended action, and any amount or limit before asking for approval.
-3. Keep ownership, control, and costs legible. Show who can change or stop a rule and which balance pays for each part of the workflow.
-4. Let users verify outcomes. Link to actual receipts and explain when execution evidence is incomplete.
+1. Make the workflow readable before it is signed. Use clear natural-language sentences and explicit values alongside the visual canvas. Keep the compiled contract call available for inspection.
+2. Make wallet approvals predictable. Show the network, intended action, spending caps, and weekly limits before asking for approval.
+3. Keep ownership, control, and costs legible. Show who can change or stop a workflow and which balance pays for each part of the execution.
+4. Let users verify outcomes. Link to actual explorer receipts and explain when execution evidence is incomplete.
 
 ## Accessibility & Inclusion
 
-Preserve keyboard operation for choosing rule settings and entering amounts. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Accessibility tests](frontend/test/a11y.test.tsx), [composer keyboard tests](frontend/test/composer.a11y.test.tsx)
+Preserve keyboard operation for choosing workflow settings, navigating the node canvas, and entering amounts. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Accessibility tests](frontend/test/a11y.test.tsx), [composer keyboard tests](frontend/test/composer.a11y.test.tsx)

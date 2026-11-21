@@ -27,5 +27,9 @@ The records include the parent revision and hashes of the confirmed contract cre
 and deployed runtime. An Agent created by the new factory is a clone of its fixed implementation.
 See the [validation receipts and migration steps](../docs/runbooks/rule-execution-v2.md).
 
-- [Reactive Lasna](./lasna.json)
-- [Unichain Sepolia](./unichain-sepolia.json)
+- [Workflow V2 active factories](./workflows-v2.json)
+- [Workflow V2 smoke receipts](./workflows-v2-smoke.json)
+- [Workflow V2 verification and fork settlement](./workflows-v2-verification.json)
+- [Earlier Workflow V1 deployment](./workflows.json)
+- [Reactive Lasna (historical factories)](./lasna.json)
+- [Unichain Sepolia (historical factories)](./unichain-sepolia.json)
