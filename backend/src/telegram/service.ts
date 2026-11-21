@@ -33,7 +33,7 @@ const clock = () => Math.floor(Date.now() / 1000);
 const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
-const pairs = z.object({ expires_at: z.string() });
+const storedSession = z.object({ expires_at: z.string().nullable() });
 const pendingNotifications = z.array(
   z.object({
     chain_id: z.union([z.literal(LASNA_CHAIN_ID), z.literal(UNICHAIN_SEPOLIA_CHAIN_ID)]),
@@ -158,14 +158,14 @@ export class TelegramDatabase {
     return schema.parse(data);
   }
 
-  async createSession(nonce: string, agent: Address, value: string, expiresAt: number) {
+  async createSession(nonce: string, agent: Address, value: string, expiresAt: number | null) {
     const { error } = await this.client
       .from('telegram_sessions')
       .insert({
         nonce,
         agent,
         token_hash: hash(value),
-        expires_at: timestamp(expiresAt),
+        expires_at: expiresAt === null ? null : timestamp(expiresAt),
       })
       .abortSignal(AbortSignal.timeout(8_000));
     if (error?.code === '23505') return false;
@@ -173,33 +173,56 @@ export class TelegramDatabase {
     return true;
   }
 
-  async session(agent: Address, value: string) {
+  async session(agent: Address, value: string, browser = false) {
     const sessionHash = hash(value);
-    const { data, error } = await this.client
+    const query = this.client
       .from('telegram_sessions')
       .select('expires_at')
       .eq('agent', agent)
-      .eq('token_hash', sessionHash)
-      .gt('expires_at', timestamp(clock()))
+      .eq('token_hash', sessionHash);
+    const { data, error } = await (
+      browser ? query.is('expires_at', null) : query.gt('expires_at', timestamp(clock()))
+    )
       .abortSignal(AbortSignal.timeout(8_000))
       .maybeSingle();
     if (error) throw new Error(`Telegram session could not be read (${error.code})`);
-    return data
-      ? { hash: sessionHash, expiresAt: Date.parse(pairs.parse(data).expires_at) / 1000 }
-      : null;
+    if (!data) return null;
+    const expiry = storedSession.parse(data).expires_at;
+    return { hash: sessionHash, expiresAt: expiry === null ? null : Date.parse(expiry) / 1000 };
+  }
+
+  async forgetBrowser(agent: Address, value: string) {
+    const { error } = await this.client
+      .from('telegram_sessions')
+      // Invalidate the credential but keep the consumed nonce until its challenge cannot be replayed.
+      .update({ token_hash: hash(token()), expires_at: timestamp(clock() + CHALLENGE_SECONDS) })
+      .eq('agent', agent)
+      .eq('token_hash', hash(value))
+      .is('expires_at', null)
+      .abortSignal(AbortSignal.timeout(8_000));
+    if (error) throw new Error(`Telegram browser session could not be revoked (${error.code})`);
   }
 }
 
 export class TelegramService {
   constructor(
     readonly config: TelegramConfig,
-    private readonly db: Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>,
+    private readonly db: Pick<
+      TelegramDatabase,
+      'rpc' | 'createSession' | 'session' | 'forgetBrowser'
+    >,
     private readonly ownership: TelegramOwnership,
     private readonly repositories: Repositories,
     private readonly workflowAlerts?: WorkflowTelegramAlerts,
   ) {}
 
-  private challengeProof(agent: Address, owner: Address, nonce: Hex, expiresAt: number) {
+  private challengeProof(
+    agent: Address,
+    owner: Address,
+    nonce: Hex,
+    expiresAt: number,
+    browser?: true,
+  ) {
     return createHmac('sha256', this.config.webhookSecret)
       .update(
         JSON.stringify([
@@ -209,40 +232,46 @@ export class TelegramService {
           owner,
           nonce,
           expiresAt,
+          ...(browser ? ['trust-browser'] : []),
         ]),
       )
       .digest('hex');
   }
 
-  challenge(agent: Address, owner: Address): TelegramChallenge {
+  challenge(agent: Address, owner: Address, browser?: true): TelegramChallenge {
     const nonce = `0x${randomBytes(32).toString('hex')}` as const;
     const expiresAt = clock() + CHALLENGE_SECONDS;
     return {
       nonce,
       expiresAt,
       origin: this.config.appOrigin,
-      proof: this.challengeProof(agent, owner, nonce, expiresAt),
+      proof: this.challengeProof(agent, owner, nonce, expiresAt, browser),
+      ...(browser ? { browser } : {}),
     };
   }
 
   async signIn(agent: Address, owner: Address, challenge: TelegramChallenge, signature: Hex) {
-    const { nonce, expiresAt, origin, proof } = challenge;
+    const { nonce, expiresAt, origin, proof, browser } = challenge;
     if (
       expiresAt <= clock() ||
       origin !== this.config.appOrigin ||
-      !sameSecret(proof, this.challengeProof(agent, owner, nonce, expiresAt))
+      !sameSecret(proof, this.challengeProof(agent, owner, nonce, expiresAt, browser))
     )
       return null;
     if (!(await this.ownership.verify(agent, owner, challenge, signature)) || expiresAt <= clock())
       return null;
     const value = token();
-    const sessionExpiry = clock() + SESSION_SECONDS;
+    const sessionExpiry = browser ? null : clock() + SESSION_SECONDS;
     if (!(await this.db.createSession(nonce, agent, value, sessionExpiry))) return null;
     return { token: value, expiresAt: sessionExpiry };
   }
 
-  session(agent: Address, value: string) {
-    return this.db.session(agent, value);
+  session(agent: Address, value: string, browser: boolean) {
+    return this.db.session(agent, value, browser);
+  }
+
+  forgetBrowser(agent: Address, value: string) {
+    return this.db.forgetBrowser(agent, value);
   }
 
   status(agent: Address, session: string) {
@@ -266,9 +295,10 @@ export class TelegramService {
     return this.db.rpc(rpc, {}, z.boolean());
   }
 
-  async pair(agent: Address, session: { hash: string; expiresAt: number }) {
+  async pair(agent: Address, session: { hash: string; expiresAt: number | null }) {
     const code = token();
-    const expiresAt = Math.floor(Math.min(clock() + PAIRING_SECONDS, session.expiresAt));
+    const pairingExpiry = clock() + PAIRING_SECONDS;
+    const expiresAt = Math.floor(Math.min(pairingExpiry, session.expiresAt ?? pairingExpiry));
     const accepted = await this.db.rpc(
       'telegram_pair_begin',
       {

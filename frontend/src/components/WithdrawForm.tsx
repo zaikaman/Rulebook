@@ -5,6 +5,7 @@ import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagm
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { signatureDetails } from '../lib/signatures.js';
+import { Field } from '../ui/index.js';
 
 import { ErrorState } from './ErrorState.js';
 import { NetworkBadge } from './NetworkBadge.js';
@@ -136,8 +137,7 @@ export function WithdrawForm({
       </p>
 
       <div className="grid gap-3 sm:grid-cols-[minmax(9rem,1fr)_minmax(0,2fr)]">
-        <label className="app-field">
-          Amount ({tokenSymbol})
+        <Field label={`Amount (${tokenSymbol})`}>
           <input
             aria-label="Withdrawal amount"
             value={amount}
@@ -145,17 +145,16 @@ export function WithdrawForm({
             inputMode="decimal"
             className="app-input"
           />
-        </label>
+        </Field>
 
-        <label className="app-field">
-          Destination
+        <Field label="Destination">
           <input
             aria-label="Destination address"
             value={destination}
             onChange={(event) => setDestination(event.target.value)}
             className="app-input font-mono"
           />
-        </label>
+        </Field>
       </div>
 
       <label className="flex items-start gap-2 text-sm text-ink-muted">

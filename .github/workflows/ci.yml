@@ -77,6 +77,8 @@ jobs:
         run: npm run build -w frontend
       - name: Lint
         run: npm run lint
+      - name: Design system
+        run: npm run check:design
       - name: Format check
         run: npm run format:check
 

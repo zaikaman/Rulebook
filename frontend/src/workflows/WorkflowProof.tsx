@@ -60,7 +60,7 @@ export function WorkflowProofLookup() {
   const [invalid, setInvalid] = useState(false);
 
   return (
-    <section className="app-page rb-proof-page">
+    <section className="app-page">
       <PageHeading
         title="Workflow proof"
         description="Look up a run to verify its origin, the Lasna decision, and settlement."
@@ -194,7 +194,7 @@ export function WorkflowProof() {
   });
 
   return (
-    <section className="app-page rb-proof-page">
+    <section className="app-page">
       <PageHeading
         title="Workflow run proof"
         description="Chain records indexed from the configured Workflow V2 deployment."

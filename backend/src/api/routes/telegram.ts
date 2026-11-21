@@ -5,6 +5,7 @@ import {
   telegramPreferenceSchema,
   uint256Schema,
   workflowIdSchema,
+  type Address,
 } from '@rulebook/shared';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -15,8 +16,11 @@ import { handleTelegramUpdate } from '../../telegram/updates.js';
 import { sendError } from './errors.js';
 
 const base = '/v1/accounts/:agent/telegram';
+// Refresh the browser's cookie on use. Browsers cap the lifetime of any one cookie.
+const BROWSER_COOKIE_MAX_AGE = 400 * 24 * 60 * 60;
 const agentParams = z.object({ agent: addressSchema });
 const ownerBody = z.object({ owner: addressSchema });
+const challengeBody = ownerBody.extend({ browser: z.literal(true).optional() });
 const confirmBody = z.object({ pairingId: z.string().regex(/^[a-f0-9]{64}$/) });
 const sessionBody = ownerBody.extend({
   challenge: telegramChallengeSchema,
@@ -47,6 +51,38 @@ function unavailable(reply: FastifyReply) {
   return sendError(reply, 503, 'telegram_unavailable', 'Telegram notifications are unavailable.');
 }
 
+function cookieName(origin: string) {
+  return origin.startsWith('https:') ? '__Secure-rulebook-telegram' : 'rulebook-telegram';
+}
+
+function browserToken(request: FastifyRequest, origin: string) {
+  const prefix = `${cookieName(origin)}=`;
+  const entries = request.headers.cookie?.split(';').map((entry) => entry.trim()) ?? [];
+  const matches = entries.filter((entry) => entry.startsWith(prefix));
+  const token = matches.length === 1 ? matches[0]?.slice(prefix.length) : undefined;
+  return /^[A-Za-z0-9_-]{43}$/.exec(token ?? '')?.[0];
+}
+
+function setBrowserCookie(reply: FastifyReply, agent: Address, origin: string, token: string) {
+  const secure = origin.startsWith('https:') ? '; Secure' : '';
+  const maxAge = token ? BROWSER_COOKIE_MAX_AGE : 0;
+  reply.header(
+    'set-cookie',
+    `${cookieName(origin)}=${token}; Path=/v1/accounts/${agent}/telegram; Max-Age=${maxAge}; HttpOnly; SameSite=Strict${secure}`,
+  );
+}
+
+function requireAppOrigin(request: FastifyRequest, reply: FastifyReply, origin: string) {
+  if (request.headers.origin === origin) return true;
+  sendError(
+    reply,
+    403,
+    'telegram_origin_forbidden',
+    'Open Rulebook to manage Telegram notifications.',
+  );
+  return false;
+}
+
 function context(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -72,8 +108,17 @@ async function authenticate(
 ) {
   const route = context(request, reply, service);
   if (!route) return null;
-  const token = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? '')?.[1];
-  const session = token ? await route.service.session(route.agent, token) : null;
+  const origin = route.service.config.appOrigin;
+  const bearer = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? '')?.[1];
+  const cookie = bearer ? undefined : browserToken(request, origin);
+  if (
+    cookie &&
+    (request.method !== 'GET' || request.headers.origin !== undefined) &&
+    !requireAppOrigin(request, reply, origin)
+  )
+    return null;
+  const token = bearer ?? cookie;
+  const session = token ? await route.service.session(route.agent, token, Boolean(cookie)) : null;
   if (!session) {
     sendError(
       reply,
@@ -83,7 +128,7 @@ async function authenticate(
     );
     return null;
   }
-  return { ...route, session };
+  return { ...route, session, cookie };
 }
 
 export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
@@ -96,10 +141,12 @@ export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
   app.post(`${base}/challenge`, { bodyLimit: 1024 }, async (request, reply) => {
     const route = context(request, reply, service);
     if (!route) return reply;
-    const body = ownerBody.safeParse(request.body);
+    const body = challengeBody.safeParse(request.body);
     if (!body.success)
       return sendError(reply, 400, 'invalid_owner', 'Invalid owner wallet address.');
-    return route.service.challenge(route.agent, body.data.owner);
+    const { owner, browser } = body.data;
+    if (browser && !requireAppOrigin(request, reply, route.service.config.appOrigin)) return reply;
+    return route.service.challenge(route.agent, owner, browser);
   });
   app.post(
     `${base}/session`,
@@ -114,17 +161,21 @@ export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
       if (!body.success)
         return sendError(reply, 400, 'invalid_signature', 'Invalid wallet verification request.');
       const { owner, challenge, signature } = body.data;
+      const browser = challenge.browser;
+      const origin = route.service.config.appOrigin;
+      if (browser && !requireAppOrigin(request, reply, origin)) return reply;
       try {
         const session = await route.service.signIn(route.agent, owner, challenge, signature);
-        return (
-          session ??
-          sendError(
+        if (!session)
+          return sendError(
             reply,
             401,
             'wallet_not_verified',
             'Verify again with the wallet that owns this account.',
-          )
-        );
+          );
+        if (!browser) return session;
+        setBrowserCookie(reply, route.agent, origin, session.token);
+        return { verified: true };
       } catch {
         request.log.warn('Telegram wallet verification service failed');
         return sendError(
@@ -136,9 +187,23 @@ export function registerTelegramRoutes(app: FastifyInstance, deps: ServerDeps) {
       }
     },
   );
+  app.delete(`${base}/session`, async (request, reply) => {
+    const route = context(request, reply, service);
+    if (!route) return reply;
+    const origin = route.service.config.appOrigin;
+    if (!requireAppOrigin(request, reply, origin)) return reply;
+    const token = browserToken(request, origin);
+    if (token) await route.service.forgetBrowser(route.agent, token);
+    setBrowserCookie(reply, route.agent, origin, '');
+    return { forgotten: true };
+  });
   app.get(base, async (request, reply) => {
     const route = await authenticate(request, reply, service);
-    return route ? route.service.status(route.agent, route.session.hash) : reply;
+    if (!route) return reply;
+    const settings = await route.service.status(route.agent, route.session.hash);
+    if (route.cookie)
+      setBrowserCookie(reply, route.agent, route.service.config.appOrigin, route.cookie);
+    return settings;
   });
   app.post(`${base}/pairing`, async (request, reply) => {
     const route = await authenticate(request, reply, service);

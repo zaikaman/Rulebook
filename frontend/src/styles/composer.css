@@ -422,7 +422,7 @@
   padding: 0.8125rem var(--composer-inset);
   border-top: 1px solid var(--composer-line);
   border-radius: 0 0 1rem 1rem;
-  background: oklch(0.211 0.012 252);
+  background: var(--rb-surface-raised);
   color: var(--composer-muted);
   font-size: 0.8125rem;
 }
@@ -476,7 +476,7 @@
   padding: 0.625rem;
   border: 1px solid var(--composer-line);
   border-radius: 0.5rem;
-  background: oklch(0.163 0.01 252);
+  background: var(--rb-surface-sunken);
   color: var(--composer-muted);
   font-family: var(--font-geist-mono);
   font-size: 0.6875rem;
@@ -531,9 +531,9 @@
   display: grid;
   gap: 0.25rem;
   padding: 0.75rem;
-  border: 1px solid oklch(0.48 0.1 20);
+  border: 1px solid var(--rb-danger-line);
   border-radius: 0.625rem;
-  background: oklch(0.23 0.044 20);
+  background: var(--rb-danger-tint);
   color: var(--composer-danger);
   font-size: 0.875rem;
   overflow-wrap: anywhere;
@@ -555,11 +555,11 @@
 }
 
 .rule-composer__submit:enabled:hover {
-  background: oklch(0.841 0.086 248);
+  background: var(--rb-accent-hover);
 }
 
 .rule-composer__submit:enabled:active {
-  background: oklch(0.732 0.112 248);
+  background: var(--rb-accent-active);
 }
 
 .rule-composer__submit:disabled {

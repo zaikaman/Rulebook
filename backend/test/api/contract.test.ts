@@ -54,6 +54,7 @@ const v1Routes = [
   'POST /v1/telegram/webhook',
   'POST /v1/accounts/:agent/telegram/challenge',
   'POST /v1/accounts/:agent/telegram/session',
+  'DELETE /v1/accounts/:agent/telegram/session',
   'GET /v1/accounts/:agent/telegram',
   'POST /v1/accounts/:agent/telegram/pairing',
   'POST /v1/accounts/:agent/telegram/pairing/confirm',

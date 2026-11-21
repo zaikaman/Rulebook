@@ -12,6 +12,7 @@ import {
   workflowV2Action,
   workflowVaultV2Abi,
   type Address,
+  type TelegramChallenge,
 } from '@rulebook/shared';
 import {
   encodeAbiParameters,
@@ -55,7 +56,7 @@ const claimedSchema = z.object({ id: z.string(), lease: z.string() });
 const db = new PGlite();
 let testAddress = 100;
 
-function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'> {
+function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session' | 'forgetBrowser'> {
   return {
     async rpc(name, params, schema) {
       const entries = Object.entries(params);
@@ -88,14 +89,23 @@ function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>
       );
       return affectedRows === 1;
     },
-    async session(target, token) {
+    async session(target, token, browser = false) {
       const hash = digest(token);
-      const { rows } = await db.query<{ expires: number }>(
+      const { rows } = await db.query<{ expires: number | null }>(
         `select extract(epoch from expires_at)::int as expires from telegram_sessions
-        where agent = $1 and token_hash = $2 and expires_at > now()`,
-        [target, hash],
+        where agent = $1 and token_hash = $2
+          and case when $3 then expires_at is null else expires_at > now() end`,
+        [target, hash, browser],
       );
       return rows[0] ? { hash, expiresAt: rows[0].expires } : null;
+    },
+    async forgetBrowser(target, token) {
+      await db.query(
+        `update telegram_sessions set token_hash = gen_random_uuid()::text,
+          expires_at = now() + interval '5 minutes'
+        where agent = $1 and token_hash = $2 and expires_at is null`,
+        [target, digest(token)],
+      );
     },
   };
 }
@@ -906,6 +916,97 @@ describe('Telegram account and delivery', () => {
       `select has_function_privilege('anon', 'telegram_status(text,text)', 'execute') as can_call`,
     );
     expect(grants.rows[0]?.can_call).toBe(false);
+  });
+
+  it('remembers a browser until revoked and protects cookie-authenticated writes', async () => {
+    const url = `${base}/session`;
+    const origin = telegramConfig.appOrigin;
+    const challengeRequest = { owner: owner.address, browser: true };
+    expect(
+      (await app.inject({ method: 'POST', url: `${base}/challenge`, payload: challengeRequest }))
+        .statusCode,
+    ).toBe(403);
+    const challengeResponse = await app.inject({
+      method: 'POST',
+      url: `${base}/challenge`,
+      headers: { origin },
+      payload: challengeRequest,
+    });
+    expect(challengeResponse.statusCode).toBe(200);
+    const challenge = challengeResponse.json<TelegramChallenge>();
+    expect(challenge.browser).toBe(true);
+    const signature = await owner.signTypedData(telegramSignIn(agent, challenge));
+    const payload = { owner: owner.address, challenge, signature };
+    expect((await app.inject({ method: 'POST', url, payload })).statusCode).toBe(403);
+    const legacyChallenge = telegram.challenge(agent, owner.address.toLowerCase() as Address);
+    const legacySignature = await owner.signTypedData(telegramSignIn(agent, legacyChallenge));
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url,
+          headers: { origin },
+          payload: {
+            owner: owner.address,
+            challenge: { ...legacyChallenge, browser: true },
+            signature: legacySignature,
+          },
+        })
+      ).statusCode,
+    ).toBe(401);
+    const response = await app.inject({ method: 'POST', url, headers: { origin }, payload });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ verified: true });
+    const setCookie = String(response.headers['set-cookie']);
+    expect(setCookie).toMatch(/^__Secure-rulebook-telegram=[A-Za-z0-9_-]{43};/);
+    expect(setCookie).toContain(
+      `Path=${base}; Max-Age=34560000; HttpOnly; SameSite=Strict; Secure`,
+    );
+    const cookie = setCookie.split(';')[0]!;
+    const token = cookie.slice(cookie.indexOf('=') + 1);
+    expect(
+      (
+        await db.query('select expires_at from telegram_sessions where token_hash = $1', [
+          digest(token),
+        ])
+      ).rows,
+    ).toEqual([{ expires_at: null }]);
+    expect(
+      (await app.inject({ url: base, headers: { authorization: `Bearer ${token}` } })).statusCode,
+    ).toBe(401);
+    expect(
+      (await app.inject({ url: `/v1/accounts/${otherAgent}/telegram`, headers: { cookie } }))
+        .statusCode,
+    ).toBe(401);
+    const settings = await app.inject({ url: base, headers: { cookie } });
+    expect(settings.statusCode).toBe(200);
+    expect(settings.headers['set-cookie']).toBe(setCookie);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/pairing`,
+          headers: { cookie, origin: 'https://elsewhere.example' },
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: `${base}/pairing`,
+          headers: { cookie, origin },
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect((await app.inject({ method: 'DELETE', url, headers: { cookie } })).statusCode).toBe(403);
+    const forgotten = await app.inject({ method: 'DELETE', url, headers: { cookie, origin } });
+    expect(forgotten.statusCode).toBe(200);
+    expect(forgotten.headers['set-cookie']).toContain('Max-Age=0');
+    expect((await app.inject({ url: base, headers: { cookie } })).statusCode).toBe(401);
+    expect(
+      (await app.inject({ method: 'POST', url, headers: { origin }, payload })).statusCode,
+    ).toBe(401);
   });
 
   it('requires a private, fresh, single-use pairing and the exact reviewed profile', async () => {

@@ -150,7 +150,11 @@
     border-radius: 0.875rem;
     padding: 1rem;
     background:
-      radial-gradient(ellipse 90% 50% at 50% 0%, oklch(0.789 0.108 248 / 9%), transparent 70%),
+      radial-gradient(
+        ellipse 90% 50% at 50% 0%,
+        color-mix(in oklch, var(--rb-accent) 9%, transparent),
+        transparent 70%
+      ),
       var(--rb-surface-raised);
   }
 }
@@ -320,7 +324,11 @@
   align-items: start;
   gap: 1rem;
   background:
-    radial-gradient(ellipse 80% 70% at 0% 0%, oklch(0.789 0.108 248 / 10%), transparent 65%),
+    radial-gradient(
+      ellipse 80% 70% at 0% 0%,
+      color-mix(in oklch, var(--rb-accent) 10%, transparent),
+      transparent 65%
+    ),
     var(--rb-surface-raised);
 }
 
@@ -334,7 +342,7 @@
   border-radius: 0.75rem;
   background: var(--rb-accent-tint);
   color: var(--rb-accent);
-  box-shadow: 0 0 0 5px oklch(0.789 0.108 248 / 5%);
+  box-shadow: 0 0 0 5px color-mix(in oklch, var(--rb-accent) 5%, transparent);
 }
 
 .account-setup__wallet-copy {

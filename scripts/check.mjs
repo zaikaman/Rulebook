@@ -6,6 +6,7 @@ const forge = process.env.FORGE_PATH ?? 'forge';
 
 const steps = [
   ['format', npm, ['run', 'format:check']],
+  ['design', process.execPath, ['scripts/design-check.mjs']],
   ['contracts:format', forge, ['fmt', '--check'], 'contracts'],
   ['contracts:build', forge, ['build'], 'contracts'],
   ['contracts:test', forge, ['test', '--deny', 'warnings'], 'contracts'],

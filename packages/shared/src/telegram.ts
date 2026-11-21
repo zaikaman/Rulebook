@@ -14,6 +14,7 @@ export const telegramChallengeSchema = z.object({
   expiresAt: z.number().int().positive(),
   origin: z.string().url(),
   proof: z.string().regex(/^[a-f0-9]{64}$/),
+  browser: z.literal(true).optional(),
 });
 export const telegramSessionSchema = z.object({ token: z.string(), expiresAt: z.number().int() });
 export const telegramPairingSchema = z.object({
@@ -67,7 +68,7 @@ export function telegramRuleName(template: number | null): string {
 
 export function telegramSignIn(
   agent: `0x${string}`,
-  { origin, nonce, expiresAt }: TelegramChallenge,
+  { origin, nonce, expiresAt, browser }: TelegramChallenge,
 ) {
   return {
     domain: {
@@ -87,7 +88,9 @@ export function telegramSignIn(
     primaryType: 'TelegramSignIn',
     message: {
       origin,
-      purpose: 'Manage Telegram notifications',
+      purpose: browser
+        ? 'Trust this browser to manage Telegram notifications'
+        : 'Manage Telegram notifications',
       nonce,
       expiresAt: BigInt(expiresAt),
     },

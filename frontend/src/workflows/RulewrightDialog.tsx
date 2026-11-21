@@ -487,7 +487,7 @@ export function RulewrightDialog({
             review before anything changes.
           </p>
         )}
-        <label className="app-field rb-rulewright__field">
+        <label className="app-field">
           <span className="rb-rulewright__field-label">
             <span>{question ? 'Your answer' : 'Workflow description'}</span>
             <span className="rb-rulewright__count">

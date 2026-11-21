@@ -17,7 +17,6 @@ import {
   telegramAvailabilitySchema,
   telegramChallengeSchema,
   telegramPairingSchema,
-  telegramSessionSchema,
   telegramSettingsSchema,
   type Account,
   type Health,
@@ -55,10 +54,11 @@ export class ApiClient {
     path: string,
     schema: z.ZodType<T, z.ZodTypeDef, unknown>,
     init?: RequestInit,
+    baseUrl = this.baseUrl,
   ): Promise<T> {
     // Native `fetch` must be invoked with the global receiver in browsers; calling it as
     // `this.fetchImpl(...)` throws "Illegal invocation".
-    const response = await this.fetchImpl.call(globalThis, `${this.baseUrl}${path}`, {
+    const response = await this.fetchImpl.call(globalThis, `${baseUrl}${path}`, {
       ...init,
       signal: init?.signal ?? AbortSignal.timeout(10_000),
       headers: { accept: 'application/json', ...init?.headers },
@@ -178,79 +178,85 @@ export class ApiClient {
     return this.request(
       workflow ? '/v1/telegram/availability?workflow=true' : '/v1/telegram/availability',
       telegramAvailabilitySchema,
+      undefined,
+      '',
     );
+  }
+
+  private telegramRequest<T>(
+    agent: string,
+    suffix: string,
+    schema: z.ZodType<T, z.ZodTypeDef, unknown>,
+    method = 'GET',
+    body?: object,
+    signal?: AbortSignal,
+  ) {
+    const init = jsonRequest(method, undefined, body);
+    if (signal) init.signal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
+    return this.request(`/v1/accounts/${agent.toLowerCase()}/telegram${suffix}`, schema, init, '');
   }
 
   telegramChallenge(agent: string, owner: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/challenge`,
-      telegramChallengeSchema,
-      telegramRequest('POST', undefined, { owner }),
-    );
+    return this.telegramRequest(agent, '/challenge', telegramChallengeSchema, 'POST', {
+      owner,
+      browser: true,
+    });
   }
 
   telegramSession(agent: string, owner: string, challenge: TelegramChallenge, signature: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/session`,
-      telegramSessionSchema,
-      telegramRequest('POST', undefined, { owner, challenge, signature }),
+    return this.telegramRequest(
+      agent,
+      '/session',
+      z.object({ verified: z.literal(true) }),
+      'POST',
+      {
+        owner,
+        challenge,
+        signature,
+      },
     );
   }
 
-  telegramSettings(agent: string, token: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram`,
-      telegramSettingsSchema,
-      telegramRequest('GET', token),
+  telegramForgetBrowser(agent: string) {
+    return this.telegramRequest(
+      agent,
+      '/session',
+      z.object({ forgotten: z.literal(true) }),
+      'DELETE',
     );
   }
 
-  telegramPair(agent: string, token: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/pairing`,
-      telegramPairingSchema,
-      telegramRequest('POST', token),
-    );
+  telegramSettings(agent: string, signal?: AbortSignal) {
+    return this.telegramRequest(agent, '', telegramSettingsSchema, 'GET', undefined, signal);
   }
 
-  telegramConfirm(agent: string, token: string, pairingId: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/pairing/confirm`,
-      telegramSettingsSchema,
-      telegramRequest('POST', token, { pairingId }),
-    );
+  telegramPair(agent: string) {
+    return this.telegramRequest(agent, '/pairing', telegramPairingSchema, 'POST');
+  }
+
+  telegramConfirm(agent: string, pairingId: string) {
+    return this.telegramRequest(agent, '/pairing/confirm', telegramSettingsSchema, 'POST', {
+      pairingId,
+    });
   }
 
   telegramPreferences(
     agent: string,
-    token: string,
     preference:
       | { enabled?: boolean; defaultMode?: TelegramDefault }
       | { fundingAlerts?: boolean; actionAlerts?: boolean }
       | { ruleId: string; preference: TelegramPreference }
       | { workflowId: string; preference: TelegramPreference },
   ) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/preferences`,
-      telegramSettingsSchema,
-      telegramRequest('PATCH', token, preference),
-    );
+    return this.telegramRequest(agent, '/preferences', telegramSettingsSchema, 'PATCH', preference);
   }
 
-  telegramDisconnect(agent: string, token: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/connection`,
-      telegramSettingsSchema,
-      telegramRequest('DELETE', token),
-    );
+  telegramDisconnect(agent: string) {
+    return this.telegramRequest(agent, '/connection', telegramSettingsSchema, 'DELETE');
   }
 
-  telegramTest(agent: string, token: string) {
-    return this.request(
-      `/v1/accounts/${agent}/telegram/test`,
-      telegramSettingsSchema,
-      telegramRequest('POST', token),
-    );
+  telegramTest(agent: string) {
+    return this.telegramRequest(agent, '/test', telegramSettingsSchema, 'POST');
   }
 
   proof(reactiveTxHash: string): Promise<Proof> {
@@ -261,7 +267,7 @@ export class ApiClient {
   }
 }
 
-function telegramRequest(method: string, token?: string, body?: object): RequestInit {
+function jsonRequest(method: string, token?: string, body?: object): RequestInit {
   const headers: Record<string, string> = {};
   if (token) headers.authorization = `Bearer ${token}`;
   if (body) headers['content-type'] = 'application/json';
@@ -274,7 +280,7 @@ function rulewrightRequest(
   body?: object,
   token?: string,
 ): RequestInit {
-  const request = telegramRequest(method, token, body);
+  const request = jsonRequest(method, token, body);
   return {
     ...request,
     headers: { ...request.headers, 'x-rulewright-origin': window.location.origin },

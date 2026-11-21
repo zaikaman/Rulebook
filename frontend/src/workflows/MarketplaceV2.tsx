@@ -16,6 +16,19 @@ import { ListingStatusV2 } from './ListingStatusV2';
 import { workflowV2Deployment } from './chainV2';
 import { toDraft } from './modelV2';
 import { v2ApiBase, v2ListingId, v2ListingQuery, v2MarketPage } from './listingV2';
+import {
+  Badge,
+  Button,
+  ErrorState,
+  FactList,
+  Panel,
+  PanelBody,
+  PanelCopy,
+  PanelHeader,
+  PanelHeading,
+  PanelTitle,
+  Toolbar,
+} from '@/ui';
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
@@ -55,7 +68,7 @@ export function WorkflowMarketplaceV2() {
         </p>
       )}
 
-      <div className="rb-toolbar">
+      <Toolbar>
         <label className="rb-search">
           <span className="sr-only">Search listings</span>
           <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden="true" />
@@ -69,23 +82,14 @@ export function WorkflowMarketplaceV2() {
           />
         </label>
         {filtered && (
-          <button
-            type="button"
-            className="app-button app-button--quiet"
-            onClick={() => setSearch('')}
-          >
+          <Button variant="quiet" onClick={() => setSearch('')}>
             Clear
-          </button>
+          </Button>
         )}
-      </div>
+      </Toolbar>
 
       {query.error && (
-        <div className="rb-alert" role="alert">
-          <span>{query.error.message}</span>
-          <button type="button" onClick={() => void query.refetch()}>
-            Try again
-          </button>
-        </div>
+        <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
       )}
 
       {query.isPending && Boolean(workflowV2Deployment) && (
@@ -184,57 +188,48 @@ export function WorkflowListingV2() {
         }
       />
       <div className="rb-split">
-        <div className="app-panel">
-          <div className="rb-panel-head">
-            <div>
-              <h2 className="rb-panel-title">Program</h2>
-              <p className="rb-panel-copy">The published trigger, checks, and actions.</p>
-            </div>
-          </div>
-          <div className="rb-panel-body">
+        <Panel>
+          <PanelHeader>
+            <PanelHeading
+              title="Program"
+              description="The published trigger, checks, and actions."
+            />
+          </PanelHeader>
+          <PanelBody>
             <WorkflowProgramSummary draft={toDraft(decodeWorkflowV2(item.program), item.title)} />
-          </div>
-        </div>
-        <div className="app-panel rb-listing-details">
-          <div className="rb-panel-head">
+          </PanelBody>
+        </Panel>
+        <Panel className="rb-listing-details">
+          <PanelHeader>
             <div className="rb-listing-details-heading">
               <span className="rb-listing-details-mark" aria-hidden="true">
                 <HugeiconsIcon icon={Store01Icon} size={18} strokeWidth={1.7} />
               </span>
               <div>
-                <h2 className="rb-panel-title">Listing details</h2>
-                <p className="rb-panel-copy">Published on the testnet Marketplace.</p>
+                <PanelTitle>Listing details</PanelTitle>
+                <PanelCopy>Published on the testnet Marketplace.</PanelCopy>
               </div>
             </div>
-          </div>
-          <div className="rb-panel-body">
-            <dl className="rb-spec-facts rb-listing-facts">
-              <div>
-                <dt>Published by</dt>
-                <dd className="rb-listing-address">
-                  <code title={item.owner}>{shortAddress(item.owner)}</code>
-                  <CopyButton value={item.owner} label="publisher address" />
-                </dd>
-              </div>
-              <div>
-                <dt>Listing</dt>
-                <dd className="rb-listing-id">#{item.id}</dd>
-              </div>
-              <div>
-                <dt>Settlement</dt>
-                <dd>
-                  <NetworkBadge chainId={item.chain} />
-                </dd>
-              </div>
-              <div>
-                <dt>Visibility</dt>
-                <dd>
-                  <span className="rb-chip" data-tone="active">
-                    Public
-                  </span>
-                </dd>
-              </div>
-            </dl>
+          </PanelHeader>
+          <PanelBody>
+            <FactList
+              className="rb-listing-facts"
+              items={[
+                {
+                  term: 'Published by',
+                  valueClassName: 'rb-listing-address',
+                  value: (
+                    <>
+                      <code title={item.owner}>{shortAddress(item.owner)}</code>
+                      <CopyButton value={item.owner} label="publisher address" />
+                    </>
+                  ),
+                },
+                { term: 'Listing', valueClassName: 'rb-listing-id', value: `#${item.id}` },
+                { term: 'Settlement', value: <NetworkBadge chainId={item.chain} /> },
+                { term: 'Visibility', value: <Badge tone="active">Public</Badge> },
+              ]}
+            />
             <p className="rb-listing-note">
               Copying creates a private draft in the builder. Review each node and the spending
               limits before activating it from your own vault.
@@ -244,8 +239,8 @@ export function WorkflowListingV2() {
                 Back to Marketplace
               </Link>
             </div>
-          </div>
-        </div>
+          </PanelBody>
+        </Panel>
       </div>
     </section>
   );

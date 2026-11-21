@@ -60,6 +60,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
+import { Button, Callout } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
@@ -108,13 +109,9 @@ export function WorkflowsV2() {
       />
 
       {!owner && (
-        <div className="rb-callout">
-          <div className="rb-callout-copy">
-            <p className="rb-callout-title">Connect a wallet to load your workflows</p>
-            <p>Your agent, vault, and run history all belong to the connected wallet.</p>
-          </div>
-          <WalletControl setup />
-        </div>
+        <Callout title="Connect a wallet to load your workflows" action={<WalletControl setup />}>
+          <p>Your agent, vault, and run history all belong to the connected wallet.</p>
+        </Callout>
       )}
 
       {!owner && (
@@ -776,13 +773,9 @@ export function WorkflowActivityV2() {
       )}
 
       {!wallet.owner && (
-        <div className="rb-callout">
-          <div className="rb-callout-copy">
-            <p className="rb-callout-title">Connect a wallet to read its runs</p>
-            <p>Activity is scoped to the wallet that owns the agent and vault.</p>
-          </div>
-          <WalletControl setup />
-        </div>
+        <Callout title="Connect a wallet to read its runs" action={<WalletControl setup />}>
+          <p>Activity is scoped to the wallet that owns the agent and vault.</p>
+        </Callout>
       )}
 
       {!wallet.owner && (
@@ -1368,13 +1361,9 @@ export function WorkflowAccountV2({
       />
 
       {!wallet.owner && (
-        <div className="rb-callout">
-          <div className="rb-callout-copy">
-            <p className="rb-callout-title">Connect a wallet to open its account</p>
-            <p>Balances and credit are read from the agent and vault owned by that wallet.</p>
-          </div>
-          <WalletControl setup />
-        </div>
+        <Callout title="Connect a wallet to open its account" action={<WalletControl setup />}>
+          <p>Balances and credit are read from the agent and vault owned by that wallet.</p>
+        </Callout>
       )}
 
       {!wallet.owner && (
@@ -1474,27 +1463,27 @@ export function WorkflowAccountV2({
           </div>
 
           {funds.native > 0n && (
-            <div className="rb-callout rb-callout--recovery">
-              <div className="rb-callout-copy">
-                <p className="rb-callout-title">Unused vault ETH</p>
-                <p>
-                  {exactUnits(funds.native, 18)} ETH sits in the vault contract. It is separate from
-                  execution credit and does not pay for callbacks.
-                </p>
-              </div>
-              <button
-                type="button"
-                className="app-button"
-                onClick={() => {
-                  setOperation('withdraw-eth');
-                  setAmount(exactUnits(funds.native, 18));
-                  formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                  amountRef.current?.focus({ preventScroll: true });
-                }}
-              >
-                Recover ETH
-              </button>
-            </div>
+            <Callout
+              tone="recovery"
+              title="Unused vault ETH"
+              action={
+                <Button
+                  onClick={() => {
+                    setOperation('withdraw-eth');
+                    setAmount(exactUnits(funds.native, 18));
+                    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    amountRef.current?.focus({ preventScroll: true });
+                  }}
+                >
+                  Recover ETH
+                </Button>
+              }
+            >
+              <p>
+                {exactUnits(funds.native, 18)} ETH sits in the vault contract. It is separate from
+                execution credit and does not pay for callbacks.
+              </p>
+            </Callout>
           )}
 
           <div className="rb-split">

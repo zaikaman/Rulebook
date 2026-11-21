@@ -1,7 +1,6 @@
 import {
   LASNA_CHAIN_ID,
   telegramRuleName,
-  telegramSessionSchema,
   telegramSignIn,
   type Address,
   type TelegramPreference,
@@ -16,45 +15,16 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useSignTypedData } from 'wagmi';
 
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { Spinner } from './chrome/Spinner.js';
-import { api, apiBaseUrl, ApiError } from '../lib/api.js';
+import { api, ApiError } from '../lib/api.js';
 import { appRoutes } from '../lib/routes.js';
 
-type Session = Awaited<ReturnType<typeof api.telegramSession>>;
 type Pairing = Awaited<ReturnType<typeof api.telegramPair>>;
-
-function storeSession(key: string, session: Session | null) {
-  try {
-    if (session) window.sessionStorage.setItem(key, JSON.stringify(session));
-    else window.sessionStorage.removeItem(key);
-  } catch {
-    // The signed-in panel still works in memory if browser storage is unavailable.
-  }
-}
-
-function restoreSession(key: string): Session | null {
-  try {
-    const stored = window.sessionStorage.getItem(key);
-    if (!stored) return null;
-    const session = telegramSessionSchema.safeParse(JSON.parse(stored));
-    if (
-      session.success &&
-      /^[A-Za-z0-9_-]{43}$/.test(session.data.token) &&
-      session.data.expiresAt * 1000 > Date.now()
-    ) {
-      return session.data;
-    }
-  } catch {
-    // Old or malformed entries should be treated as signed out.
-  }
-  storeSession(key, null);
-  return null;
-}
 
 type DeliverySetting = {
   id: string;
@@ -128,61 +98,32 @@ function TelegramSettingsPanel(props: NotificationProps) {
   const name = workflow ? 'workflow' : 'rule';
   const heading = useId();
   const queryClient = useQueryClient();
-  const { sessionKey, settingsKey, storageKey } = useMemo(() => {
-    const scope = [apiBaseUrl, agent.toLowerCase(), owner.toLowerCase()] as const;
-    return {
-      sessionKey: ['telegram-session', ...scope] as const,
-      settingsKey: ['telegram-settings', ...scope] as const,
-      storageKey: `rulebook:telegram-session:v1:${JSON.stringify(scope)}`,
-    };
-  }, [agent, owner]);
+  const settingsKey = useMemo(
+    () => ['telegram-settings', agent.toLowerCase(), owner.toLowerCase()] as const,
+    [agent, owner],
+  );
   const { signTypedDataAsync } = useSignTypedData();
   const guard = useChainGuard();
   const [pairing, setPairing] = useState<Pairing>();
   const [expired, setExpired] = useState(false);
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
-  const { data: session } = useQuery<Session | null>({
-    queryKey: sessionKey,
-    queryFn: () => null,
-    enabled: false,
-    gcTime: 20 * 60_000,
-    initialData: () => restoreSession(storageKey),
-  });
-  const activeSession = session && session.expiresAt * 1000 > Date.now() ? session : null;
   const settings = useQuery({
     queryKey: settingsKey,
-    queryFn: () => api.telegramSettings(agent, activeSession!.token),
-    enabled: Boolean(activeSession),
-    retry: false,
-    refetchInterval: (query) =>
-      pairing || query.state.data?.testDelivery === 'pending' ? 2_000 : 15_000,
-  });
-  const sessionRejected = settings.error instanceof ApiError && settings.error.status === 401;
-
-  const clearSession = useCallback(
-    (expected: Session) => {
-      if (queryClient.getQueryData<Session | null>(sessionKey)?.token !== expected.token) return;
-      storeSession(storageKey, null);
-      queryClient.setQueryData(sessionKey, null);
-      queryClient.removeQueries({ queryKey: settingsKey, exact: true });
-      setPairing(undefined);
-      setExpired(false);
+    queryFn: async ({ signal }) => {
+      try {
+        return await api.telegramSettings(agent, signal);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) return null;
+        throw error;
+      }
     },
-    [queryClient, sessionKey, settingsKey, storageKey],
-  );
-  useEffect(() => {
-    if (!session) return;
-    if (sessionRejected) {
-      clearSession(session);
-      return;
-    }
-    const sessionTimer = setTimeout(
-      () => clearSession(session),
-      Math.max(0, session.expiresAt * 1000 - Date.now()),
-    );
-    return () => clearTimeout(sessionTimer);
-  }, [session, sessionRejected, clearSession]);
+    retry: false,
+    refetchInterval: ({ state: { data } }) => {
+      if (!data) return false;
+      return pairing || data.testDelivery === 'pending' ? 2_000 : 15_000;
+    },
+  });
 
   useEffect(() => {
     if (!pairing) return;
@@ -197,27 +138,29 @@ function TelegramSettingsPanel(props: NotificationProps) {
     return () => clearTimeout(pairingTimer);
   }, [pairing, queryClient, settingsKey]);
 
-  const authorized = sessionRejected ? null : activeSession;
-  const current = authorized ? settings.data : undefined;
+  const current = settings.isError ? undefined : settings.data;
 
-  async function run(label: string, action: () => Promise<TelegramSettings | void>) {
+  async function run(label: string, action: () => Promise<TelegramSettings | null | void>) {
     setBusy(label);
     setError(undefined);
     try {
       await queryClient.cancelQueries({ queryKey: settingsKey });
       const result = await action();
-      if (!result) {
+      if (result === undefined) {
         await queryClient.invalidateQueries({ queryKey: settingsKey });
-      } else if (
-        session &&
-        queryClient.getQueryData<Session | null>(sessionKey)?.token === session.token
-      ) {
+      } else {
+        await queryClient.cancelQueries({ queryKey: settingsKey });
         queryClient.setQueryData(settingsKey, result);
       }
     } catch (failure) {
-      if (session && failure instanceof ApiError && failure.status === 401) clearSession(session);
+      if (failure instanceof ApiError && failure.status === 401) {
+        await queryClient.cancelQueries({ queryKey: settingsKey });
+        queryClient.setQueryData(settingsKey, null);
+        setPairing(undefined);
+        setExpired(false);
+      }
       setError(
-        failure instanceof ApiError
+        failure instanceof ApiError || failure instanceof Error
           ? failure.message
           : 'Telegram settings could not be updated. Try again.',
       );
@@ -230,32 +173,44 @@ function TelegramSettingsPanel(props: NotificationProps) {
     const challenge = await api.telegramChallenge(agent, owner);
     if (challenge.origin !== window.location.origin)
       throw new Error('Unexpected Telegram sign-in origin');
+    if (!challenge.browser) throw new Error('Browser verification is temporarily unavailable.');
     const signature = await guard(
       {
         chainId: LASNA_CHAIN_ID,
         target: agent,
         targetLabel: 'Automation account',
-        effect: 'Verify ownership to manage Telegram notifications for this account.',
+        effect: 'Trust this browser to manage Telegram notifications for this account.',
         amount: 'Off-chain signature. No gas or funds required.',
       },
       owner,
       (connector) =>
         signTypedDataAsync({ connector, account: owner, ...telegramSignIn(agent, challenge) }),
     );
-    const verified = await api.telegramSession(agent, owner, challenge, signature);
+    await api.telegramSession(agent, owner, challenge, signature);
     setPairing(undefined);
     setExpired(false);
-    queryClient.removeQueries({ queryKey: settingsKey, exact: true });
-    storeSession(storageKey, verified);
-    queryClient.setQueryData(sessionKey, verified);
+    try {
+      return await api.telegramSettings(agent);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        throw new Error('Allow cookies for Rulebook, then try verifying this browser again.');
+      }
+      throw error;
+    }
+  }
+
+  async function forgetBrowser() {
+    await api.telegramForgetBrowser(agent);
+    setPairing(undefined);
+    setExpired(false);
+    return null;
   }
 
   function patchDelivery(item: DeliverySetting, preference: TelegramPreference) {
-    if (authorized)
+    if (current)
       void run('Saving preference…', () =>
         api.telegramPreferences(
           agent,
-          authorized.token,
           workflow ? { workflowId: item.id, preference } : { ruleId: item.id, preference },
         ),
       );
@@ -272,17 +227,18 @@ function TelegramSettingsPanel(props: NotificationProps) {
   const connected = current?.connection === 'connected';
   const blocked = current?.connection === 'blocked';
   const candidate = expired ? null : current?.pendingPairing;
-  const state = !authorized
-    ? 'verify'
-    : settings.isError
-      ? 'error'
-      : !current
-        ? 'loading'
-        : connected
-          ? 'connected'
-          : blocked
-            ? 'blocked'
-            : 'disconnected';
+  const state =
+    current === null
+      ? 'verify'
+      : settings.isError
+        ? 'error'
+        : !current
+          ? 'loading'
+          : connected
+            ? 'connected'
+            : blocked
+              ? 'blocked'
+              : 'disconnected';
   const chipLabel = {
     verify: 'Verify wallet',
     error: 'Unavailable',
@@ -337,7 +293,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
         </span>
       </header>
       <div className="rb-panel-body rb-notify-body">
-        {!authorized && (
+        {state === 'verify' && (
           <div className="rb-notify-callout">
             <span className="rb-notify-callout-icon" aria-hidden="true">
               <HugeiconsIcon icon={SecurityCheckIcon} size={17} strokeWidth={1.7} />
@@ -345,7 +301,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
             <div className="rb-notify-callout-copy">
               <p className="rb-notify-title">Verify wallet ownership</p>
               <p className="rb-notify-copy">
-                Telegram settings are tied to the wallet that owns this account.
+                Sign once to manage Telegram settings in this browser.
               </p>
             </div>
             <button
@@ -358,13 +314,13 @@ function TelegramSettingsPanel(props: NotificationProps) {
             </button>
           </div>
         )}
-        {authorized && !current && !settings.isError && (
+        {state === 'loading' && (
           <p className="app-copy rb-loading" role="status">
             <Spinner />
             Loading Telegram settings…
           </p>
         )}
-        {authorized && settings.isError && (
+        {state === 'error' && (
           <div className="rb-notify-callout" data-tone="error">
             <span className="rb-notify-callout-icon" aria-hidden="true">
               <HugeiconsIcon icon={Alert02Icon} size={17} strokeWidth={1.7} />
@@ -378,7 +334,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
             </button>
           </div>
         )}
-        {authorized && current && itemId && (
+        {current && itemId && (
           <>
             {selected && current.configured && (
               <DeliveryPreference
@@ -410,7 +366,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
             )}
           </>
         )}
-        {authorized && current && !itemId && (
+        {current && !itemId && (
           <>
             <div
               className="rb-notify-connection"
@@ -450,7 +406,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Disconnecting…', async () => {
-                      const updated = await api.telegramDisconnect(agent, authorized.token);
+                      const updated = await api.telegramDisconnect(agent);
                       setPairing(undefined);
                       return updated;
                     })
@@ -476,11 +432,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Connecting Telegram…', async () => {
-                      const updated = await api.telegramConfirm(
-                        agent,
-                        authorized.token,
-                        candidate.id,
-                      );
+                      const updated = await api.telegramConfirm(agent, candidate.id);
                       setPairing(undefined);
                       return updated;
                     })
@@ -520,7 +472,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Creating pairing link…', async () => {
-                      setPairing(await api.telegramPair(agent, authorized.token));
+                      setPairing(await api.telegramPair(agent));
                       setExpired(false);
                     })
                   }
@@ -546,7 +498,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                       onChange={(event) => {
                         const enabled = event.currentTarget.value === 'true';
                         void run('Saving delivery status…', () =>
-                          api.telegramPreferences(agent, authorized.token, { enabled }),
+                          api.telegramPreferences(agent, { enabled }),
                         );
                       }}
                     >
@@ -566,7 +518,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                         const defaultMode =
                           event.currentTarget.value === 'all' ? 'all' : 'selected';
                         void run('Saving account default…', () =>
-                          api.telegramPreferences(agent, authorized.token, { defaultMode }),
+                          api.telegramPreferences(agent, { defaultMode }),
                         );
                       }}
                     >
@@ -600,7 +552,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                             onChange={(event) => {
                               const enabled = event.currentTarget.value === 'true';
                               void run('Saving alert preference…', () =>
-                                api.telegramPreferences(agent, authorized.token, {
+                                api.telegramPreferences(agent, {
                                   [key]: enabled,
                                 }),
                               );
@@ -652,11 +604,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   className="app-button"
                   type="button"
                   disabled={Boolean(busy) || current.testDelivery === 'pending'}
-                  onClick={() =>
-                    void run('Queueing test message…', () =>
-                      api.telegramTest(agent, authorized.token),
-                    )
-                  }
+                  onClick={() => void run('Queueing test message…', () => api.telegramTest(agent))}
                 >
                   Send test message
                 </button>
@@ -674,6 +622,18 @@ function TelegramSettingsPanel(props: NotificationProps) {
               </div>
             )}
           </>
+        )}
+        {current && !itemId && (
+          <div className="rb-notify-step">
+            <button
+              className="app-button"
+              type="button"
+              disabled={Boolean(busy)}
+              onClick={() => void run('Forgetting browser…', forgetBrowser)}
+            >
+              Forget this browser
+            </button>
+          </div>
         )}
         {error && (
           <p className="app-alert" data-tone="error" role="alert">

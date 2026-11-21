@@ -19,7 +19,6 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   const botUrl = 'https://t.me/RulebookFixtureBot?start=test';
   const token = 't'.repeat(43);
   let verifications = 0;
-  let rejectSession = false;
   let settings: TelegramSettings = {
     connection: 'disconnected',
     profile: null,
@@ -33,35 +32,51 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
     rules: [],
     workflows: [],
   };
-  await page.route(
+  await page.context().route(
     (url) => url.pathname === '/v1/telegram/availability',
     async (route) => {
       expect(new URL(route.request().url()).searchParams.get('workflow')).toBe('true');
       await route.fulfill({ json: { available: true } });
     },
   );
-  await page.route('**/v1/accounts/*/telegram**', async (route) => {
+  await page.context().route('**/v1/accounts/*/telegram**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    expect(new URL(request.url()).origin).toBe(FIXTURE_V2_FRONTEND_URL);
     if (path.endsWith('/challenge')) {
+      expect(request.postDataJSON().browser).toBe(true);
       await route.fulfill({
         json: {
           nonce: `0x${'b'.repeat(64)}`,
           expiresAt,
           origin: FIXTURE_V2_FRONTEND_URL,
           proof: 'b'.repeat(64),
+          browser: true,
         },
       });
       return;
     }
     if (path.endsWith('/session')) {
+      const cookiePath = path.slice(0, -'/session'.length);
+      if (request.method() === 'DELETE') {
+        await route.fulfill({
+          json: { forgotten: true },
+          headers: { 'set-cookie': `rulebook-telegram=; Path=${cookiePath}; Max-Age=0; HttpOnly` },
+        });
+        return;
+      }
       verifications += 1;
       expect(request.postDataJSON().signature).toMatch(/^0x[a-f0-9]{130}$/i);
-      await route.fulfill({ json: { token, expiresAt } });
+      expect(request.postDataJSON().challenge.browser).toBe(true);
+      await route.fulfill({
+        json: { verified: true },
+        headers: {
+          'set-cookie': `rulebook-telegram=${token}; Path=${cookiePath}; Max-Age=34560000; HttpOnly; SameSite=Strict`,
+        },
+      });
       return;
     }
-    expect(request.headers().authorization).toBe(`Bearer ${token}`);
-    if (rejectSession) {
+    if (!(await request.allHeaders()).cookie?.includes(`rulebook-telegram=${token}`)) {
       await route.fulfill({ status: 401, json: {} });
       return;
     }
@@ -144,6 +159,17 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await expect(section.getByText('Connected to @anya')).toBeVisible();
   await expect(section.getByRole('button', { name: 'Verify wallet' })).toHaveCount(0);
   expect(verifications).toBe(1);
+  const cookie = (await page.context().cookies()).find(({ name }) => name === 'rulebook-telegram');
+  expect(cookie).toMatchObject({ httpOnly: true, sameSite: 'Strict' });
+  expect(cookie?.expires).toBeGreaterThan(Date.now() / 1000);
+
+  const newTab = await page.context().newPage();
+  await installWallet(newTab, OWNER);
+  await newTab.goto(FIXTURE_V2_FRONTEND_URL + '/account');
+  const reopened = newTab.getByRole('region', { name: 'Telegram notifications' });
+  await expect(reopened.getByText('Connected to @anya')).toBeVisible();
+  expect(verifications).toBe(1);
+  await newTab.close();
 
   await page.goBack();
   const delivery = section.getByLabel(`Telegram delivery for ${title}`);
@@ -151,10 +177,12 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await expect(section.getByText('Muted', { exact: true })).toBeVisible();
   expect(await section.evaluate((panel) => panel.scrollWidth)).toBeLessThanOrEqual(390);
 
-  rejectSession = true;
+  await page.getByRole('link', { name: 'Account', exact: true }).click();
+  await section.getByRole('button', { name: 'Forget this browser' }).click();
+  await expect(section.getByRole('button', { name: 'Verify wallet' })).toBeVisible();
   await page.reload();
   await expect(section.getByRole('button', { name: 'Verify wallet' })).toBeVisible();
-  await page.waitForFunction(() =>
-    Object.keys(sessionStorage).every((key) => !key.startsWith('rulebook:telegram-session:')),
+  expect((await page.context().cookies()).some(({ name }) => name === 'rulebook-telegram')).toBe(
+    false,
   );
 });

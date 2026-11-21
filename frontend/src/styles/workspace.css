@@ -81,7 +81,7 @@
   inline-size: 2rem;
   block-size: 2rem;
   border-radius: 0.625rem;
-  box-shadow: inset 0 0 0 1px oklch(0.97 0.009 252 / 18%);
+  box-shadow: inset 0 0 0 1px var(--rb-rim);
 }
 
 .wallet-identity {
@@ -143,7 +143,7 @@
   border-radius: 0.875rem;
   padding: 0;
   background: var(--rb-surface-raised);
-  box-shadow: 0 0.875rem 2.5rem oklch(0.115 0.013 252 / 68%);
+  box-shadow: 0 0.875rem 2.5rem var(--rb-shadow-workspace);
   color: var(--rb-ink);
 }
 
@@ -536,7 +536,7 @@
 
 .app-button--primary:not(:disabled):hover {
   border-color: transparent;
-  background: oklch(0.841 0.086 248);
+  background: var(--rb-accent-hover);
 }
 
 .app-button--danger {
@@ -725,18 +725,18 @@
 }
 
 .app-alert[data-tone='error'] {
-  border-color: oklch(0.437 0.072 20);
-  background: oklch(0.221 0.029 20);
+  border-color: var(--rb-danger-line);
+  background: var(--rb-danger-tint);
 }
 
 .app-alert[data-tone='warning'] {
-  border-color: oklch(0.45 0.069 78);
-  background: oklch(0.237 0.036 78);
+  border-color: var(--rb-status-paused-line);
+  background: var(--rb-status-paused-tint);
 }
 
 .app-alert[data-tone='success'] {
-  border-color: oklch(0.415 0.057 151);
-  background: oklch(0.231 0.034 151);
+  border-color: var(--rb-status-active-line);
+  background: var(--rb-status-active-tint);
 }
 
 .app-rule-start {
@@ -2167,7 +2167,7 @@
 .app-button--danger-solid {
   border-color: transparent;
   background: var(--rb-danger);
-  color: oklch(0.196 0.032 20);
+  color: var(--rb-danger-ink);
   font-weight: 680;
 }
 

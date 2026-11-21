@@ -1,4 +1,4 @@
-import { appendFile, readFile } from 'node:fs/promises';
+import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 
 function env(name) {
@@ -141,6 +141,9 @@ async function backend() {
   ) {
     throw new Error('Add the production frontend origin to Heroku CORS_ORIGINS.');
   }
+  if (config.TELEGRAM_APP_ORIGIN && config.TELEGRAM_APP_ORIGIN !== origin('PRODUCTION_WEB_URL')) {
+    throw new Error('Heroku TELEGRAM_APP_ORIGIN must match the production frontend origin.');
+  }
   const existingFormation = await heroku('/formation');
   const firstWebProcess = !existingFormation.some((process) => process.type === 'web');
   const build = await heroku('/builds', { source_blob: { url: archive, version: revision } });
@@ -196,6 +199,37 @@ async function smoke() {
     }
   });
   console.log('Verified public Marketplace and API.');
+  const availability = await json(web + '/v1/telegram/availability?workflow=true');
+  if (typeof availability.available !== 'boolean') {
+    throw new Error('The frontend does not proxy Telegram requests to the API.');
+  }
+  if (availability.available) {
+    const account = '0x' + '0'.repeat(40);
+    const settings = `${web}/v1/accounts/${account}/telegram`;
+    const anonymous = await fetch(settings, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (anonymous.status !== 401) {
+      throw new Error('The Telegram account proxy did not require wallet verification.');
+    }
+    // An anonymous request clears only the response cookie and leaves the database untouched.
+    const response = await fetch(settings + '/session', {
+      method: 'DELETE',
+      headers: { Origin: web },
+      redirect: 'error',
+      signal: AbortSignal.timeout(20_000),
+    });
+    const cookie = response.headers.get('set-cookie');
+    if (
+      !response.ok ||
+      !cookie?.startsWith('__Secure-rulebook-telegram=;') ||
+      !cookie.includes('Max-Age=0; HttpOnly; SameSite=Strict; Secure')
+    ) {
+      throw new Error('The Telegram account proxy did not forward the browser session cookie.');
+    }
+  }
+  console.log('Verified the Telegram API through the frontend origin.');
 }
 
 try {
@@ -210,6 +244,19 @@ try {
         env('VERCEL_ORG_ID');
         env('VERCEL_PROJECT_ID');
         const settings = await workflowSettings();
+        const vercelFile = new URL('../frontend/vercel.json', import.meta.url);
+        const vercel = JSON.parse(await readFile(vercelFile, 'utf8'));
+        vercel.rewrites.unshift(
+          {
+            source: '/v1/telegram/availability',
+            destination: server + '/v1/telegram/availability',
+          },
+          {
+            source: '/v1/accounts/:agent/telegram/:path*',
+            destination: server + '/v1/accounts/:agent/telegram/:path*',
+          },
+        );
+        await writeFile(vercelFile, JSON.stringify(vercel, null, 2) + '\n');
         await appendFile(
           env('GITHUB_ENV'),
           [

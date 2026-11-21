@@ -50,7 +50,7 @@ export function WorkflowCost() {
   });
 
   return (
-    <section className="app-page rb-cost-page">
+    <section className="app-page">
       <PageHeading
         title="Workflow costs"
         description="See which balances pay for your workflows and what changes the cost of a run."

@@ -31,22 +31,33 @@ test('pairs Telegram and manages alert delivery by keyboard on a narrow viewport
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
     if (pathname.endsWith('/challenge')) {
+      expect(request.postDataJSON().browser).toBe(true);
       await route.fulfill({
         json: {
           nonce: `0x${'a'.repeat(64)}`,
           expiresAt,
           origin: FIXTURE_FRONTEND_URL,
           proof: 'a'.repeat(64),
+          browser: true,
         },
       });
       return;
     }
     if (pathname.endsWith('/session')) {
       expect(request.postDataJSON().signature).toMatch(/^0x[a-f0-9]{130}$/i);
-      await route.fulfill({ json: { token, expiresAt } });
+      expect(request.postDataJSON().challenge.browser).toBe(true);
+      await route.fulfill({
+        json: { verified: true },
+        headers: {
+          'set-cookie': `rulebook-telegram=${token}; Path=${pathname.slice(0, -'/session'.length)}; Max-Age=34560000; HttpOnly; SameSite=Strict`,
+        },
+      });
       return;
     }
-    expect(request.headers().authorization).toBe(`Bearer ${token}`);
+    if (!(await request.allHeaders()).cookie?.includes(`rulebook-telegram=${token}`)) {
+      await route.fulfill({ status: 401, json: {} });
+      return;
+    }
     if (pathname.endsWith('/pairing')) {
       await route.fulfill({
         json: { url: 'https://t.me/RulebookFixtureBot?start=test', expiresAt },

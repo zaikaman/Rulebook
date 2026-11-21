@@ -45,8 +45,7 @@
     flex-direction: column;
     border-inline-end: 1px solid var(--rb-border);
     background:
-      radial-gradient(ellipse at 0% 0%, oklch(0.27 0.05 249 / 34%), transparent 52%),
-      var(--rb-surface);
+      radial-gradient(ellipse at 0% 0%, var(--rb-accent-soft), transparent 52%), var(--rb-surface);
   }
 }
 
@@ -541,6 +540,20 @@
   padding: 1.25rem;
 }
 
+.rb-field-hint {
+  color: var(--rb-ink-faint);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.rb-field-error {
+  color: var(--rb-danger);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
 @media (min-width: 70rem) {
   .rb-panel-body {
     padding: 1.5rem;
@@ -713,7 +726,7 @@
   background: var(--rb-accent);
   color: var(--rb-accent-ink);
   font-weight: 680;
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 24%);
+  box-shadow: inset 0 1px 0 var(--rb-highlight);
 }
 
 .app-button--primary:not(:disabled):hover {
@@ -2468,15 +2481,19 @@
   color: var(--rb-ink);
   overscroll-behavior: contain;
   background:
-    radial-gradient(ellipse 90% 44% at 10% -10%, oklch(0.789 0.108 248 / 16%), transparent 62%),
+    radial-gradient(
+      ellipse 90% 44% at 10% -10%,
+      color-mix(in oklch, var(--rb-accent) 16%, transparent),
+      transparent 62%
+    ),
     var(--rb-surface-raised);
   box-shadow:
-    0 28px 90px oklch(0.04 0.01 252 / 58%),
-    inset 0 1px 0 oklch(1 0 0 / 5%);
+    0 28px 90px var(--rb-shadow-deep),
+    inset 0 1px 0 var(--rb-highlight-soft);
 }
 
 .rb-rulewright::backdrop {
-  background: oklch(0.075 0.01 252 / 72%);
+  background: var(--rb-scrim);
   backdrop-filter: blur(3px);
 }
 
@@ -2498,7 +2515,7 @@
   border-radius: 0.75rem;
   background: var(--rb-accent-tint);
   color: var(--rb-accent);
-  box-shadow: 0 0 0 4px oklch(0.789 0.108 248 / 5%);
+  box-shadow: 0 0 0 4px color-mix(in oklch, var(--rb-accent) 5%, transparent);
 }
 
 .rb-rulewright__heading {
@@ -2764,7 +2781,7 @@
   font-size: 0.875rem;
   line-height: 1.55;
   resize: vertical;
-  box-shadow: inset 0 1px 2px oklch(0.05 0.01 252 / 40%);
+  box-shadow: inset 0 1px 2px var(--rb-shadow-inset);
   transition:
     border-color 150ms ease-out,
     background-color 150ms ease-out;
@@ -2821,7 +2838,6 @@
   gap: 0.5rem;
   margin: 0;
   border: 1px solid var(--rb-accent-line);
-  border-inline-start: 2px solid var(--rb-accent);
   border-radius: 0.625rem;
   padding: 0.75rem 0.875rem;
   background: var(--rb-accent-tint);
@@ -5351,7 +5367,7 @@
   block-size: 0.5rem;
   border-radius: 50%;
   background: var(--rb-accent);
-  box-shadow: 0 0 0 0 oklch(0.789 0.108 248 / 45%);
+  box-shadow: 0 0 0 0 color-mix(in oklch, var(--rb-accent) 45%, transparent);
   animation: rb-sync-pulse 1.8s ease-out infinite;
 }
 
@@ -5391,12 +5407,12 @@
 
 @keyframes rb-sync-pulse {
   0% {
-    box-shadow: 0 0 0 0 oklch(0.789 0.108 248 / 45%);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--rb-accent) 45%, transparent);
   }
 
   70%,
   100% {
-    box-shadow: 0 0 0 7px oklch(0.789 0.108 248 / 0%);
+    box-shadow: 0 0 0 7px color-mix(in oklch, var(--rb-accent) 0%, transparent);
   }
 }
 
@@ -5495,17 +5511,21 @@
   border-radius: 0.9375rem;
   padding: 0;
   background:
-    radial-gradient(ellipse 90% 42% at 8% -8%, oklch(0.789 0.108 248 / 14%), transparent 62%),
+    radial-gradient(
+      ellipse 90% 42% at 8% -8%,
+      color-mix(in oklch, var(--rb-accent) 14%, transparent),
+      transparent 62%
+    ),
     var(--rb-surface-raised);
   color: var(--rb-ink);
   overscroll-behavior: contain;
   box-shadow:
-    0 28px 90px oklch(0.04 0.01 252 / 58%),
-    inset 0 1px 0 oklch(1 0 0 / 5%);
+    0 28px 90px var(--rb-shadow-deep),
+    inset 0 1px 0 var(--rb-highlight-soft);
 }
 
 .rb-wallet-prompt::backdrop {
-  background: oklch(0.075 0.01 252 / 72%);
+  background: var(--rb-scrim);
   backdrop-filter: blur(3px);
 }
 
