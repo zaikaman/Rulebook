@@ -26,6 +26,12 @@ export const telegramSettingsSchema = z.object({
   configured: z.boolean(),
   enabled: z.boolean(),
   defaultMode: telegramDefaultSchema,
+  fundingAlerts: z.boolean().optional(),
+  actionAlerts: z.boolean().optional(),
+  lastProblemDelivery: z
+    .object({ status: z.enum(['sent', 'failed']), at: z.string() })
+    .nullable()
+    .optional(),
   pendingPairing: z.object({ id: z.string(), profile: z.string() }).nullable(),
   testDelivery: z.enum(['pending', 'sent', 'failed']).nullable(),
   rules: z.array(

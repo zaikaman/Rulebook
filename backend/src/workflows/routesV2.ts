@@ -8,9 +8,9 @@ import {
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyInstance } from 'fastify';
-import { toFunctionSelector } from 'viem';
 import { z } from 'zod';
 
+import { workflowV2FailureReason } from './failureReasons.js';
 const settlementChain = z.literal(UNICHAIN_SEPOLIA_CHAIN_ID);
 const cursor = z.object({
   block: z.number().int().nonnegative().safe(),
@@ -77,26 +77,6 @@ const proofRow = run.pick({
 });
 const proofColumns = Object.keys(proofRow.shape).join(',');
 
-const reasons = new Map<string, string>([
-  [toFunctionSelector('InvalidAuthorization()'), 'The workflow authorization is no longer active.'],
-  [
-    toFunctionSelector('NoLongerEligible()'),
-    'The live balances or position no longer meet the workflow checks.',
-  ],
-  [toFunctionSelector('StaleObservation()'), 'The workflow received a stale price observation.'],
-  [toFunctionSelector('DuplicateOrigin()'), 'This payment has already been used.'],
-  [toFunctionSelector('CapExceeded()'), 'The run exceeded the approved spending limit.'],
-  [toFunctionSelector('InvalidMarket()'), 'The configured testnet market is unavailable.'],
-  [
-    toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)'),
-    'The wallet or Vault had insufficient tokens.',
-  ],
-  [
-    toFunctionSelector('ERC20InsufficientAllowance(address,uint256,uint256)'),
-    'The Vault had insufficient token allowance.',
-  ],
-]);
-
 function readCursor(value: string | undefined) {
   if (!value) return undefined;
   try {
@@ -119,9 +99,7 @@ function runProof(row: z.infer<typeof proofRow>) {
     expiresAt: row.expires_at,
     status: row.status,
     path: row.path,
-    reason: row.reason
-      ? (reasons.get(row.reason) ?? 'Settlement returned a contract error.')
-      : null,
+    reason: row.reason ? workflowV2FailureReason(row.reason).message : null,
   });
 }
 

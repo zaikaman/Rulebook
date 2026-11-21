@@ -226,6 +226,7 @@ export class ApiClient {
     token: string,
     preference:
       | { enabled?: boolean; defaultMode?: TelegramDefault }
+      | { fundingAlerts?: boolean; actionAlerts?: boolean }
       | { ruleId: string; preference: TelegramPreference }
       | { workflowId: string; preference: TelegramPreference },
   ) {

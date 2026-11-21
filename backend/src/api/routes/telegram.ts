@@ -38,6 +38,10 @@ const preferencesBody = z.union([
     })
     .strict(),
   z.object({ workflowId: workflowIdSchema, preference: telegramPreferenceSchema }).strict(),
+  z
+    .object({ fundingAlerts: z.boolean().optional(), actionAlerts: z.boolean().optional() })
+    .strict()
+    .refine((body) => body.fundingAlerts !== undefined || body.actionAlerts !== undefined),
 ]);
 function unavailable(reply: FastifyReply) {
   return sendError(reply, 503, 'telegram_unavailable', 'Telegram notifications are unavailable.');

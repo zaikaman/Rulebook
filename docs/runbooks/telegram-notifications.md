@@ -1,18 +1,28 @@
 # Telegram notifications
 
-Workflow V2 sends a private Telegram message after a workflow run is confirmed on Unichain
-Sepolia. The message links to the run in Activity and to its transaction. Account & Vault has
-pairing, the account-wide delivery switch, the default for workflows, and a test message. Each
-activated workflow also has its own delivery preference on its detail page.
+Workflow V2 sends private Telegram messages. Manage them under **Account & Vault**.
 
-The first confirmed connection enables delivery for all workflows. Disconnecting in Account & Vault or sending `/stop` to the bot removes the chat connection and preserves delivery preferences.
+- **Funding alerts** cover low, empty, and restored credit, and unpaid fees. Rulebook checks
+  the Agent's test REACT on Lasna and the Vault's test ETH on Unichain Sepolia in the background.
+  Warnings use the same reserve levels as the app. A top-up clears outstanding fees first.
+- **Action needed** covers failed runs, expired runs, and inactivity payout warnings. A payout
+  warning links to **Check in** and gives the earliest payout time in UTC. A run with no receipt
+  is reported only after the confirmed index for both chains has passed its deadline.
+- **Workflow updates** include successful runs and alerts set up by the workflow. Each
+  workflow has its own delivery preference. Messages link to Activity and the transaction.
+  Routine skips appear in Activity.
+
+The first confirmed connection enables all three types. **Telegram delivery** controls all
+messages apart from user-requested tests. Disconnecting in **Account & Vault** or sending
+`/stop` to the bot removes the chat connection and preserves delivery preferences.
 
 ## Rollout
 
 1. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`, and `TELEGRAM_APP_ORIGIN` together in the backend environment. Rotate any previously shared bot token in BotFather. Use the bot username without `@`. Generate the webhook secret separately, for example with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Use the public frontend HTTPS origin with no trailing slash, and include it in `CORS_ORIGINS`. Set `TELEGRAM_AGENT_FACTORIES` to a comma-separated list only if you also support additional trusted Lasna factories. Keep credentials in backend configuration. Use a separate bot for development or staging. [Lasna deployment records](../../deployments/lasna.json) · [Telegram bot setup](https://core.telegram.org/bots/features#botfather)
-2. Apply the database migrations, including `0015_workflow_telegram.sql`, with `npm run migrate -w backend` using the target database's migration connection. Deploy the backend and frontend with the same API configuration and matching Workflow V2 deployments. The Lasna factory in `WORKFLOW_V2_DEPLOYMENT` is trusted for workflow wallet verification. Confirm `/health` reports an active indexer and a reachable database and `/v1/telegram/availability?workflow=true` reports availability.
+2. Apply the database migrations, including `0017_telegram_operational_alerts.sql`, with `npm run migrate -w backend` using the target database's migration connection. Deploy the backend and frontend with the same API configuration and matching Workflow V2 deployments. The Lasna factory in `WORKFLOW_V2_DEPLOYMENT` is trusted for workflow wallet verification. Confirm `/health` reports an active indexer and a reachable database and `/v1/telegram/availability?workflow=true` reports availability.
 3. From a trusted shell with the backend environment available, run `npm run telegram:webhook -w backend -- <public-api-origin>`. The command checks the backend and bot identity, registers the webhook for private chat messages, and verifies the resulting URL.
-4. With a dedicated test account, pair the bot and send a test message. Trigger a workflow and match its Telegram links to the confirmed run in Activity and the transaction explorer. Mute a workflow and confirm its next run appears in Activity while the Telegram chat stays quiet. Disconnect, reconnect, and confirm the saved preferences return.
+4. With a dedicated test account, pair the bot and send a test message. Trigger a workflow and match its Telegram details to Activity and the transaction explorer. Mute its workflow updates and cause a run to fail, for example by revoking the USDC allowance for a balance refill. Check that the action alert explains the failure. Switch off **Action needed** and check that a later failure stays in Activity.
+5. With the app closed, let the test account's fee credit run low, then top up and verify the recovery message. Trigger an inactivity payout warning, verify the deadline against the Vault, and check in before the payout can happen. Disconnect and reconnect, then confirm the saved preferences return.
 
 ## Local development
 
@@ -24,6 +34,12 @@ link generated in **Account & Vault** and confirmation back in Rulebook.
 
 ## Delivery and recovery
 
-Delivery starts when both the Lasna dispatch and Unichain Sepolia outcome are confirmed and indexed. The worker uses a durable queue, retries temporary failures, and honors Telegram’s rate-limit response. A request already in flight can finish after a mute or disconnect, and a request that times out after Telegram accepts it can produce a duplicate when retried. A blocked chat can reconnect after unblocking the bot. Test messages use the same queue and can be sent while workflow delivery is off.
+Workflow outcomes are matched with the indexed Lasna dispatch and the verified Vault. Funding checks are independent of workflow runs. Checks are due every two minutes and are leased in small batches. A chain read failure leaves the last verified status intact. Payout warnings take priority and the worker checks the current payout window before sending. Funding messages also get a fresh credit check before delivery.
 
-Backend logs include queue age and delivery failure counts. For a missing message, check that the run is confirmed in Activity, then check the effective delivery setting, the webhook configuration, and the worker logs. A chain-index rebuild leaves connections and preferences intact. A previously unqueued run can deliver during catch-up if it occurred in the past 24 hours and the delivery settings already allowed it at the time. [Telegram webhook status](https://core.telegram.org/bots/api#getwebhookinfo)
+The worker uses a durable queue, retries temporary failures, and honors Telegram’s rate-limit response. A request already in flight can finish after a mute or disconnect. If Telegram accepts a request and the response times out, a retry can produce a duplicate. A blocked chat can reconnect after unblocking the bot.
+
+Backend logs include queue age, overdue funding checks, pending workflow alerts, and delivery
+failure counts. For a missing message, check the relevant setting in **Account & Vault**, then
+check the indexer and worker logs. For workflow updates, verify the run in Activity.
+Previously unqueued workflow outcomes are eligible for catch-up for one day if delivery was
+enabled at the time. [Telegram webhook status](https://core.telegram.org/bots/api#getwebhookinfo)

@@ -26,6 +26,8 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
     configured: false,
     enabled: true,
     defaultMode: 'all',
+    fundingAlerts: true,
+    actionAlerts: true,
     pendingPairing: null,
     testDelivery: null,
     rules: [],
@@ -77,13 +79,18 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
       };
     }
     if (path.endsWith('/preferences')) {
-      const body = request.postDataJSON() as { workflowId: string; preference: TelegramPreference };
-      const workflowId = settings.workflows![0]!.id;
-      expect(body).toEqual({ workflowId, preference: 'mute' });
-      settings = {
-        ...settings,
-        workflows: [{ id: workflowId, title, preference: body.preference }],
-      };
+      const body = request.postDataJSON() as
+        { workflowId: string; preference: TelegramPreference } | { actionAlerts: boolean };
+      if ('actionAlerts' in body) {
+        settings = { ...settings, actionAlerts: body.actionAlerts };
+      } else {
+        const workflowId = settings.workflows![0]!.id;
+        expect(body).toEqual({ workflowId, preference: 'mute' });
+        settings = {
+          ...settings,
+          workflows: [{ id: workflowId, title, preference: body.preference }],
+        };
+      }
     }
     if (path.endsWith('/test')) settings = { ...settings, testDelivery: 'sent' };
     await route.fulfill({ json: settings });
@@ -122,7 +129,14 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   settings = { ...settings, pendingPairing: pairing };
   await section.getByRole('button', { name: 'Connect and enable notifications' }).click();
   await expect(section.getByText('Connected to @anya')).toBeVisible();
-  await expect(section.getByLabel('Default for workflows')).toHaveValue('all');
+  await expect(section.getByLabel('Default for workflow updates')).toHaveValue('all');
+  await expect(section.getByLabel('Funding alerts')).toHaveValue('true');
+  const actionAlerts = section.getByLabel('Action needed');
+  await expect(actionAlerts).toHaveValue('true');
+  await actionAlerts.selectOption('false');
+  await expect(actionAlerts).toHaveValue('false');
+  await expect(section.getByLabel('Funding alerts')).toHaveValue('true');
+  await expect(section.getByLabel('Default for workflow updates')).toHaveValue('all');
   await section.getByRole('button', { name: 'Send test message' }).click();
   await expect(section.getByText('Test message sent.')).toBeVisible();
 

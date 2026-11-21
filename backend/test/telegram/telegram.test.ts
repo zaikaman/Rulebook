@@ -3,13 +3,25 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  createWorkflowV2Recipe,
+  encodeWorkflowV2,
   getChain,
   LASNA_CHAIN_ID,
   telegramSignIn,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowV2Action,
+  workflowVaultV2Abi,
   type Address,
 } from '@rulebook/shared';
-import { verifyTypedData, zeroAddress } from 'viem';
+import {
+  encodeAbiParameters,
+  encodeEventTopics,
+  erc20Abi,
+  toFunctionSelector,
+  verifyTypedData,
+  zeroAddress,
+  type PublicClient,
+} from 'viem';
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -18,9 +30,11 @@ import { createRepositories } from '../../src/db/repositories/index.js';
 import { InMemoryStore } from '../../src/db/store.js';
 import { CursorStore } from '../../src/indexer/cursors.js';
 import { buildServer } from '../../src/server.js';
+import { fundingPreflight, TelegramFundingAlerts } from '../../src/telegram/fundingAlerts.js';
 import { TelegramService, type TelegramDatabase } from '../../src/telegram/service.js';
 import { TelegramPoller } from '../../src/telegram/poller.js';
 import { sendTelegramMessage } from '../../src/telegram/worker.js';
+import { payoutPreflight, WorkflowTelegramAlerts } from '../../src/telegram/workflowAlerts.js';
 
 const agent = '0x1111111111111111111111111111111111111111' as const;
 const otherAgent = '0x2222222222222222222222222222222222222222' as const;
@@ -39,6 +53,7 @@ const telegramConfig = {
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const claimedSchema = z.object({ id: z.string(), lease: z.string() });
 const db = new PGlite();
+let testAddress = 100;
 
 function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'> {
   return {
@@ -46,7 +61,14 @@ function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>
       const entries = Object.entries(params);
       const argumentsSql = entries.map(([key], index) => `${key} => $${index + 1}`).join(', ');
       const values = entries.map(([, value]) => value);
-      if (['telegram_claim', 'telegram_prepare', 'telegram_pending_notifications'].includes(name)) {
+      if (
+        [
+          'telegram_claim',
+          'telegram_claim_alert_delivery',
+          'telegram_prepare',
+          'telegram_pending_notifications',
+        ].includes(name)
+      ) {
         return schema.parse(
           JSON.parse(
             JSON.stringify((await db.query(`select * from ${name}(${argumentsSql})`, values)).rows),
@@ -81,6 +103,37 @@ function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>
 const store = new InMemoryStore();
 const repositories = createRepositories(store);
 const databaseAdapter = database();
+const workflowClient = {
+  getTransactionReceipt: async () => ({
+    blockNumber: 10n,
+    logs: [
+      {
+        address: vault,
+        topics: encodeEventTopics({
+          abi: workflowVaultV2Abi,
+          eventName: 'Step',
+          args: { runId: `0x${'b'.repeat(64)}`, index: 0 },
+        }),
+        data: encodeAbiParameters(
+          [{ type: 'uint8' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'address' }],
+          [1, 20_000n, 0n, otherAgent],
+        ),
+      },
+    ],
+  }),
+  readContract: async ({ functionName }: { functionName: string }) =>
+    functionName === 'authorizations'
+      ? [`0x${'c'.repeat(64)}`, 2n, 1n, true]
+      : [0n, 0n, 0n, 0n, payoutDeadline, 0n, 0n, false],
+  getBlock: async () => ({ number: 20n, timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
+} as unknown as PublicClient;
+let payoutDeadline = 0n;
+const workflowAlerts = new WorkflowTelegramAlerts(
+  databaseAdapter,
+  workflowClient,
+  deployment,
+  telegramConfig.appOrigin,
+);
 const telegram = new TelegramService(
   telegramConfig,
   databaseAdapter,
@@ -95,7 +148,7 @@ const telegram = new TelegramService(
       verifyTypedData({ address: signer, signature, ...telegramSignIn(target, challenge) }),
   },
   repositories,
-  deployment,
+  workflowAlerts,
 );
 const { app } = buildServer(
   {
@@ -133,6 +186,7 @@ async function authorize(wallet = owner, target: Address = agent) {
     method: 'POST',
     url: `/v1/accounts/${target}/telegram/session`,
     payload,
+    remoteAddress: `192.0.2.${testAddress}`,
   });
   return { response, payload };
 }
@@ -173,6 +227,81 @@ async function signIn() {
   const { response } = await authorize();
   expect(response.statusCode).toBe(200);
   return { authorization: `Bearer ${response.json().token}` };
+}
+
+const workflowId = `0x${'a'.repeat(64)}`;
+const workflowRun = `0x${'b'.repeat(64)}`;
+const programHash = `0x${'c'.repeat(64)}`;
+const hashed = (character: string) => `0x${character.repeat(64)}`;
+
+async function seedWorkflow() {
+  await db.query(
+    `insert into workflow_v2_accounts (deployment, chain, address, owner, agent)
+      values ($1, $2, $4, $5, $4), ($1, $3, $6, $5, $4)`,
+    [
+      deployment,
+      LASNA_CHAIN_ID,
+      UNICHAIN_SEPOLIA_CHAIN_ID,
+      agent,
+      owner.address.toLowerCase(),
+      vault,
+    ],
+  );
+  await db.query('insert into workflow_v2_activations values ($1, $2, $3, $4, $5, $6, $7)', [
+    deployment,
+    UNICHAIN_SEPOLIA_CHAIN_ID,
+    agent,
+    workflowId,
+    '2',
+    programHash,
+    'Recurring transfer',
+  ]);
+}
+
+async function insertRun(id: string, secondsAgo = 180, origin = programHash) {
+  await db.query(
+    `insert into workflow_v2_runs values ($1, $2, $3, $4, $5, $6, '2', $2, $8, '1', $6, 5,
+      extract(epoch from now())::bigint - $7::bigint)`,
+    [deployment, UNICHAIN_SEPOLIA_CHAIN_ID, id, agent, workflowId, programHash, secondsAgo, origin],
+  );
+}
+
+async function insertOutcome(id: string, index: number, status: number, reason = '0x00000000') {
+  await db.query(
+    `insert into workflow_v2_outcomes (deployment, chain, run_id, workflow_id, vault, epoch,
+      transaction_hash, block_number, log_index, status, reason, telegram_block_time)
+    values ($1, $2, $3, $4, $5, '2', $6, 10, $7, $8, $9, clock_timestamp())`,
+    [
+      deployment,
+      UNICHAIN_SEPOLIA_CHAIN_ID,
+      id,
+      workflowId,
+      vault,
+      programHash,
+      index,
+      status,
+      reason,
+    ],
+  );
+}
+
+const patchPreferences = (headers: { authorization: string }, payload: object) =>
+  app.inject({ method: 'PATCH', url: `${base}/preferences`, headers, payload });
+
+async function prepareNext() {
+  const [job] = await databaseAdapter.rpc(
+    'telegram_claim_alert_delivery',
+    { p_deployment: deployment },
+    z.array(claimedSchema),
+  );
+  if (!job) throw new Error('No queued Telegram delivery');
+  const params = { p_id: job.id, p_lease: job.lease };
+  const result = await databaseAdapter.rpc(
+    'telegram_prepare',
+    params,
+    z.array(z.object({ message: z.string(), preflight: z.unknown() })),
+  );
+  return { params, result };
 }
 
 async function enqueue(
@@ -219,8 +348,9 @@ beforeAll(async () => {
 }, 20_000);
 
 beforeEach(async () => {
+  testAddress += 1;
   await db.exec(
-    'truncate executions, rule_events, telegram_alert_outbox, telegram_deliveries, telegram_rule_preferences, telegram_workflow_preferences, telegram_accounts, telegram_sessions, telegram_pairings, telegram_updates, workflow_v2_accounts, workflow_v2_activations, workflow_v2_runs, workflow_v2_outcomes;',
+    'truncate executions, rule_events, telegram_alert_outbox, telegram_deliveries, telegram_rule_preferences, telegram_workflow_preferences, telegram_funding_checks, telegram_payout_windows, telegram_accounts, telegram_sessions, telegram_pairings, telegram_updates, workflow_v2_accounts, workflow_v2_activations, workflow_v2_runs, workflow_v2_outcomes, workflow_v2_cursors;',
   );
 });
 
@@ -321,7 +451,7 @@ describe('Telegram account and delivery', () => {
     const processed = await db.query(
       'select log_index from workflow_v2_outcomes where telegram_processed_at is not null order by log_index',
     );
-    expect(processed.rows).toEqual([{ log_index: 1 }, { log_index: 4 }]);
+    expect(processed.rows).toEqual([{ log_index: 1 }, { log_index: 3 }]);
     const jobs = await db.query(
       'select workflow_id, log_index, message from telegram_deliveries order by log_index',
     );
@@ -332,9 +462,15 @@ describe('Telegram account and delivery', () => {
         message: [
           'Rulebook · Workflow confirmed',
           'Recurring transfer',
+          'Sent 0.02 USDC',
           `${telegramConfig.appOrigin}/runs/${run}`,
           `${getChain(chain).explorerUrl}/tx/${tx}`,
         ].join('\n'),
+      },
+      {
+        workflow_id: id,
+        log_index: 3,
+        message: expect.stringContaining('Workflow run failed'),
       },
     ]);
     expect((await app.inject({ url: base, headers })).json().testDelivery).toBeNull();
@@ -343,6 +479,9 @@ describe('Telegram account and delivery', () => {
     ).toBe('mute');
     // Treat the confirmed outcome as older than the preference saved before the worker sent it.
     await db.query(`update telegram_deliveries set block_time = now() - interval '1 second'`);
+    await db.query(
+      `update telegram_deliveries set due_at = now() + interval '1 hour' where alert_kind = 'failed'`,
+    );
     const [claimed] = await databaseAdapter.rpc('telegram_claim', {}, z.array(claimedSchema));
     expect(
       await databaseAdapter.rpc(
@@ -354,6 +493,300 @@ describe('Telegram account and delivery', () => {
     expect(
       (await app.inject({ method: 'POST', url: `${base}/test`, headers })).json().testDelivery,
     ).toBe('pending');
+  });
+
+  it('keeps action alerts on when confirmations are muted and groups failures by cause', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    await patchPreferences(headers, { workflowId, preference: 'mute' });
+    const insufficient = toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)');
+    const allowance = toFunctionSelector('ERC20InsufficientAllowance(address,uint256,uint256)');
+    for (const [i, reason] of [insufficient, insufficient, allowance].entries()) {
+      const id = hashed(String(i + 1));
+      await insertRun(id);
+      await insertOutcome(id, i, 4, reason);
+    }
+    await insertRun(workflowRun);
+    await insertOutcome(workflowRun, 10, 1);
+    await insertOutcome(workflowRun, 11, 2);
+    await telegram.processNotifications();
+    const jobs = await db.query<{ alert_kind: string; message: string }>(
+      'select alert_kind, message from telegram_deliveries',
+    );
+    expect(jobs.rows).toHaveLength(2);
+    expect(jobs.rows).toEqual(
+      expect.arrayContaining([
+        { alert_kind: 'failed', message: expect.stringContaining('insufficient tokens') },
+        { alert_kind: 'failed', message: expect.stringContaining('insufficient token allowance') },
+      ]),
+    );
+    expect((await patchPreferences(headers, { actionAlerts: false })).json()).toMatchObject({
+      fundingAlerts: true,
+      actionAlerts: false,
+    });
+    expect((await prepareNext()).result).toEqual([]);
+  });
+
+  it.each(['price-alert', 'large-transfer-alert'] as const)(
+    'includes the verified observation for a %s',
+    async (recipe) => {
+      const headers = await signIn();
+      await pair(headers);
+      await seedWorkflow();
+      const origin = hashed('f');
+      const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
+      await insertRun(workflowRun, 180, origin);
+      await insertOutcome(workflowRun, 1, 1);
+      const program = createWorkflowV2Recipe(recipe, {
+        targetPrice: '1500',
+        token,
+        minimumTransferRaw: '1000000',
+      });
+      const client = {
+        getTransactionReceipt: async ({ hash }: { hash: string }) =>
+          hash === origin
+            ? {
+                logs: [
+                  {
+                    address: token,
+                    logIndex: 1,
+                    topics: encodeEventTopics({
+                      abi: erc20Abi,
+                      eventName: 'Transfer',
+                      args: { from: agent, to: otherAgent },
+                    }),
+                    data: encodeAbiParameters([{ type: 'uint256' }], [4_000_000n]),
+                  },
+                ],
+              }
+            : {
+                blockNumber: 10n,
+                logs: [
+                  {
+                    address: vault,
+                    topics: encodeEventTopics({
+                      abi: workflowVaultV2Abi,
+                      eventName: 'Step',
+                      args: { runId: workflowRun, index: 0 },
+                    }),
+                    data: encodeAbiParameters(
+                      [
+                        { type: 'uint8' },
+                        { type: 'uint256' },
+                        { type: 'uint256' },
+                        { type: 'address' },
+                      ],
+                      [workflowV2Action.alert, 0n, 0n, zeroAddress],
+                    ),
+                  },
+                  {
+                    address: vault,
+                    topics: encodeEventTopics({
+                      abi: workflowVaultV2Abi,
+                      eventName: 'Observation',
+                      args: { runId: workflowRun },
+                    }),
+                    data: encodeAbiParameters(
+                      [{ type: 'uint256' }, { type: 'address' }],
+                      [1500n * 10n ** 18n, agent],
+                    ),
+                  },
+                ],
+              },
+        readContract: async () => encodeWorkflowV2(program),
+      } as unknown as PublicClient;
+      await new WorkflowTelegramAlerts(
+        databaseAdapter,
+        client,
+        deployment,
+        telegramConfig.appOrigin,
+      ).process();
+      const { result } = await prepareNext();
+      expect(result[0]?.message).toContain('Workflow alert');
+      expect(result[0]?.message).toContain(
+        recipe === 'price-alert' ? '1500 USDC per WETH' : '4 USDC',
+      );
+    },
+  );
+
+  it('sends one priority warning per payout window and checks for a later check-in', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    payoutDeadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    try {
+      for (const [index, id] of [workflowRun, hashed('d'), hashed('e')].entries()) {
+        await insertRun(id);
+        await insertOutcome(id, index, index === 0 ? 4 : 6);
+      }
+      await telegram.processNotifications();
+      await telegram.processNotifications();
+      expect(
+        (await db.query("select id from telegram_deliveries where alert_kind = 'payout'")).rows,
+      ).toHaveLength(1);
+      const { result } = await prepareNext();
+      expect(result[0]?.message).toContain('Check in to clear it');
+      const preflight = payoutPreflight.parse(result[0]?.preflight);
+      expect(await workflowAlerts.stillInGrace(preflight)).toBe(true);
+      payoutDeadline = 0n;
+      expect(await workflowAlerts.stillInGrace(preflight)).toBe(false);
+    } finally {
+      payoutDeadline = 0n;
+    }
+  });
+
+  it('can warn a reconnected chat from the same open payout window', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    await insertRun(workflowRun);
+    await insertOutcome(workflowRun, 0, 6);
+    payoutDeadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    try {
+      await telegram.processNotifications();
+      expect(await databaseAdapter.rpc('telegram_claim', {}, z.array(claimedSchema))).toEqual([]);
+      await app.inject({ method: 'DELETE', url: `${base}/connection`, headers });
+      expect((await prepareNext()).result).toEqual([]);
+      await pair(headers, 2, 1234);
+      await telegram.processNotifications();
+      expect((await prepareNext()).result[0]?.message).toContain('Inactivity payout warning');
+    } finally {
+      payoutDeadline = 0n;
+    }
+  });
+
+  it('checks both chain cursors before flagging an unfinished run and cancels it after a receipt', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    await insertRun(workflowRun);
+    await db.query("update telegram_accounts set enabled_since = now() - interval '1 hour'");
+    await db.query(
+      `insert into workflow_v2_cursors values ($1, $2, 20, now()), ($1, $3, 20, now() - interval '5 minutes')`,
+      [deployment, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID],
+    );
+    await workflowAlerts.processUnfinished();
+    expect(await dbJobs()).toEqual([]);
+    await db.query('update workflow_v2_cursors set block_time = now()');
+    await workflowAlerts.processUnfinished();
+    await workflowAlerts.processUnfinished();
+    expect((await db.query('select alert_kind from telegram_deliveries')).rows).toEqual([
+      { alert_kind: 'unfinished' },
+    ]);
+    await insertOutcome(workflowRun, 1, 1);
+    expect((await prepareNext()).result).toEqual([]);
+  });
+
+  it('saves funding state across checks, drops obsolete warnings, and sends recovery after a warning', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    async function record(block: number, state: string) {
+      await db.query(`update telegram_funding_checks set due_at = now() - interval '1 second'`);
+      const [job] = await databaseAdapter.rpc(
+        'telegram_claim_funding',
+        {
+          p_deployment: deployment,
+          p_chain: LASNA_CHAIN_ID,
+          p_limit: 5,
+        },
+        z.array(z.object({ lease: z.string() })),
+      );
+      expect(job).toBeDefined();
+      const params = {
+        p_deployment: deployment,
+        p_agent: agent,
+        p_chain: LASNA_CHAIN_ID,
+        p_lease: job!.lease,
+        p_block: block,
+        p_state: state,
+        p_message: state,
+        p_recovery: 'Credit restored',
+      };
+      await databaseAdapter.rpc('telegram_record_funding', params, z.null());
+      await databaseAdapter.rpc('telegram_record_funding', params, z.null());
+    }
+    function finish(params: Awaited<ReturnType<typeof prepareNext>>['params'], result: string) {
+      return databaseAdapter.rpc(
+        'telegram_finish',
+        { ...params, p_result: result, p_delay: 0 },
+        z.null(),
+      );
+    }
+    await record(1, 'low');
+    await finish((await prepareNext()).params, 'cancelled');
+    await record(2, 'low');
+    const low = await prepareNext();
+    expect(low.result[0]?.message).toBe('low');
+    await finish(low.params, 'sent');
+    await record(3, 'empty');
+    await record(4, 'debt');
+    expect((await prepareNext()).result).toEqual([]);
+    const urgent = await prepareNext();
+    expect(urgent.result[0]?.message).toBe('debt');
+    await finish(urgent.params, 'cancelled');
+    await record(5, 'debt');
+    const retry = await prepareNext();
+    expect(retry.result[0]?.message).toBe('debt');
+    await finish(retry.params, 'sent');
+    await record(3, 'healthy');
+    await record(6, 'healthy');
+    const recovery = await prepareNext();
+    expect(recovery.result[0]?.message).toBe('Credit restored');
+    await finish(recovery.params, 'sent');
+    await record(7, 'debt');
+    const inFlight = await prepareNext();
+    await record(8, 'healthy');
+    await finish(inFlight.params, 'sent');
+    await record(9, 'healthy');
+    expect((await prepareNext()).result[0]?.message).toBe('Credit restored');
+    expect((await app.inject({ url: base, headers })).json().testDelivery).toBeNull();
+    const settings = await patchPreferences(headers, { fundingAlerts: false });
+    expect(settings.json()).toMatchObject({ fundingAlerts: false, actionAlerts: true });
+  });
+
+  it('isolates funding RPC failures and uses fresh credit in Telegram messages', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    let ethReserve = 50_000_000_000_000n;
+    const block = async () => ({ number: 10n, timestamp: BigInt(Math.floor(Date.now() / 1000)) });
+    const lasna = {
+      getBlock: block,
+      getBlockNumber: async () => 10n,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'workflowIds') return [workflowId];
+        if (functionName === 'entries')
+          return [programHash, 2n, 0n, 0n, 1, UNICHAIN_SEPOLIA_CHAIN_ID, 3600, 0n];
+        if (functionName === 'system') return otherAgent;
+        throw new Error('Lasna fee credit RPC failed');
+      },
+    } as unknown as PublicClient;
+    const unichain = {
+      getBlock: block,
+      readContract: async ({ functionName, args }: { functionName: string; args: Address[] }) => {
+        if (functionName === 'callbackProxy') return otherAgent;
+        if (functionName === 'authorizations') return [programHash, 2n, 0n, true];
+        expect(args).toEqual([vault]);
+        return functionName === 'reserves' ? ethReserve : 0n;
+      },
+    } as unknown as PublicClient;
+    const monitoring = new TelegramFundingAlerts(
+      databaseAdapter,
+      { lasna, unichain },
+      deployment,
+      unavailableVault,
+      telegramConfig.appOrigin,
+    );
+    await expect(monitoring.process()).rejects.toThrow('Some Telegram funding checks failed');
+    const { result } = await prepareNext();
+    expect(result[0]?.message).toContain('0.00005 test ETH');
+    const preflight = fundingPreflight.parse(result[0]?.preflight);
+    ethReserve /= 2n;
+    await expect(monitoring.currentMessage(preflight)).resolves.toContain('0.000025 test ETH');
+    ethReserve *= 20n;
+    await expect(monitoring.currentMessage(preflight)).resolves.toBeNull();
   });
 
   it('notifies for confirmed swaps, transfers, deposits and mirrors while respecting preferences and vault ownership', async () => {

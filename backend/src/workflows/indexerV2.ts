@@ -35,6 +35,7 @@ const AGENT_EVENTS = workflowAgentV2Abi.filter(
 const OUTCOME = workflowVaultV2Abi.filter(
   (item) => item.type === 'event' && item.name === 'Outcome',
 );
+const telegramOutcomes = new Set([1, 3, 4, 6]);
 
 export class WorkflowV2Indexer {
   private stopped = false;
@@ -181,7 +182,7 @@ export class WorkflowV2Indexer {
       events.some(
         (log) =>
           log.eventName === 'Outcome' &&
-          log.args.status === 1 &&
+          telegramOutcomes.has(log.args.status) &&
           trusted.has(log.address.toLowerCase()),
       ) &&
       (await timeAt(toBlock)) > cutoff;
@@ -218,7 +219,9 @@ export class WorkflowV2Indexer {
         });
       } else {
         const blockTime =
-          stageTelegram && log.args.status === 1 ? await timeAt(log.blockNumber) : 0;
+          stageTelegram && telegramOutcomes.has(log.args.status)
+            ? await timeAt(log.blockNumber)
+            : 0;
         outcomes.push({
           ...row,
           chain,
@@ -239,7 +242,15 @@ export class WorkflowV2Indexer {
       this.upsert('workflow_v2_runs', runs),
       this.upsert('workflow_v2_outcomes', outcomes),
     ]);
-    await this.upsert('workflow_v2_cursors', [{ ...scope, block_number: Number(toBlock) }]);
+    await this.upsert('workflow_v2_cursors', [
+      {
+        ...scope,
+        block_number: Number(toBlock),
+        ...(this.stageTelegram
+          ? { block_time: new Date(await timeAt(toBlock)).toISOString() }
+          : {}),
+      },
+    ]);
   }
 
   private async trusted(chain: OriginChain, addresses: string[]) {

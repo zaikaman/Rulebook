@@ -19,6 +19,8 @@ import { PublicAccountChain } from './sponsor/accountChain.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
 import { TelegramPoller } from './telegram/poller.js';
 import { TelegramWorker } from './telegram/worker.js';
+import { TelegramFundingAlerts } from './telegram/fundingAlerts.js';
+import { WorkflowTelegramAlerts } from './telegram/workflowAlerts.js';
 import { WorkflowIndexer } from './workflows/indexer.js';
 import { WorkflowV2Indexer } from './workflows/indexerV2.js';
 import { registerWorkflowRoutes } from './workflows/routes.js';
@@ -95,6 +97,25 @@ export async function startServer(): Promise<void> {
       : undefined;
   const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
+  const workflowAlerts =
+    config.telegram && telegramDb && v2
+      ? new WorkflowTelegramAlerts(
+          telegramDb,
+          clients.unichain,
+          v2.lasna.factory,
+          config.telegram.appOrigin,
+        )
+      : undefined;
+  const fundingAlerts =
+    config.telegram && telegramDb && v2
+      ? new TelegramFundingAlerts(
+          telegramDb,
+          clients,
+          v2.lasna.factory,
+          v2.unichain.factory,
+          config.telegram.appOrigin,
+        )
+      : undefined;
   const telegram =
     config.telegram && telegramDb
       ? new TelegramService(
@@ -102,7 +123,7 @@ export async function startServer(): Promise<void> {
           telegramDb,
           telegramOwnership(clients, config.telegram.factories),
           repositories,
-          v2?.lasna.factory,
+          workflowAlerts,
         )
       : undefined;
   const { app } = buildServer({
@@ -137,7 +158,9 @@ export async function startServer(): Promise<void> {
   void workflowV2Indexer?.run();
 
   const worker =
-    telegram && telegramDb ? new TelegramWorker(telegramDb, telegram, app.log) : undefined;
+    telegram && telegramDb
+      ? new TelegramWorker(telegramDb, telegram, app.log, workflowAlerts, fundingAlerts)
+      : undefined;
   const workerRun = worker?.run();
   const telegramPoller =
     telegram?.config.updates === 'polling' ? new TelegramPoller(telegram, app.log) : undefined;

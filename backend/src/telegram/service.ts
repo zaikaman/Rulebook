@@ -24,6 +24,7 @@ import { z } from 'zod';
 import type { ChainClients } from '../chain/clients.js';
 import type { TelegramConfig } from '../config.js';
 import type { Repositories } from '../db/repositories/index.js';
+import type { WorkflowTelegramAlerts } from './workflowAlerts.js';
 
 const CHALLENGE_SECONDS = 5 * 60;
 const SESSION_SECONDS = 20 * 60;
@@ -195,7 +196,7 @@ export class TelegramService {
     private readonly db: Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session'>,
     private readonly ownership: TelegramOwnership,
     private readonly repositories: Repositories,
-    private readonly workflowDeployment?: Address,
+    private readonly workflowAlerts?: WorkflowTelegramAlerts,
   ) {}
 
   private challengeProof(agent: Address, owner: Address, nonce: Hex, expiresAt: number) {
@@ -245,10 +246,10 @@ export class TelegramService {
   }
 
   status(agent: Address, session: string) {
-    if (this.workflowDeployment) {
+    if (this.workflowAlerts) {
       return this.db.rpc(
-        'telegram_workflow_status',
-        { p_deployment: this.workflowDeployment, p_agent: agent, p_session: session },
+        'telegram_alert_status',
+        { p_deployment: this.workflowAlerts.deployment, p_agent: agent, p_session: session },
         telegramSettingsSchema,
       );
     }
@@ -260,8 +261,8 @@ export class TelegramService {
   }
 
   ready(workflow = false) {
-    if (workflow && !this.workflowDeployment) return Promise.resolve(false);
-    const rpc = workflow ? 'telegram_workflows_ready' : 'telegram_notifications_ready';
+    if (workflow && !this.workflowAlerts) return Promise.resolve(false);
+    const rpc = workflow ? 'telegram_operational_ready' : 'telegram_notifications_ready';
     return this.db.rpc(rpc, {}, z.boolean());
   }
 
@@ -299,18 +300,32 @@ export class TelegramService {
     agent: Address,
     body: {
       enabled?: boolean;
+      fundingAlerts?: boolean;
+      actionAlerts?: boolean;
       defaultMode?: string;
       ruleId?: string;
       workflowId?: string;
       preference?: string;
     },
   ) {
+    if (body.fundingAlerts !== undefined || body.actionAlerts !== undefined) {
+      if (!this.workflowAlerts) return Promise.resolve(false);
+      return this.db.rpc(
+        'telegram_set_alert_preferences',
+        {
+          p_agent: agent,
+          p_funding: body.fundingAlerts ?? null,
+          p_action: body.actionAlerts ?? null,
+        },
+        z.boolean(),
+      );
+    }
     if (body.workflowId) {
-      if (!this.workflowDeployment) return Promise.resolve(false);
+      if (!this.workflowAlerts) return Promise.resolve(false);
       return this.db.rpc(
         'telegram_set_workflow_preference',
         {
-          p_deployment: this.workflowDeployment,
+          p_deployment: this.workflowAlerts.deployment,
           p_agent: agent,
           p_workflow: body.workflowId,
           p_preference: body.preference,
@@ -364,21 +379,28 @@ export class TelegramService {
   async processNotifications() {
     const results = await Promise.allSettled([
       this.processRuleNotifications(),
-      this.workflowDeployment &&
-        this.db.rpc(
-          'telegram_process_workflow_notifications',
-          {
-            p_deployment: this.workflowDeployment,
-            p_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
-            p_origin: this.config.appOrigin,
-            p_explorer: CHAIN_CONFIGS.get(UNICHAIN_SEPOLIA_CHAIN_ID)!.explorerUrl,
-          },
-          z.null(),
-        ),
+      this.workflowAlerts?.process(),
     ]);
     if (results.some(({ status }) => status === 'rejected')) {
       throw new Error('One or more Telegram notifications remain staged for retry.');
     }
+  }
+
+  processUnfinished() {
+    return this.workflowAlerts?.processUnfinished();
+  }
+
+  operationalMetrics() {
+    if (!this.workflowAlerts) return undefined;
+    return this.db.rpc(
+      'telegram_operational_metrics',
+      { p_deployment: this.workflowAlerts.deployment },
+      z.object({
+        overdueFundingChecks: z.number(),
+        pendingWorkflowAlerts: z.number(),
+        oldestWorkflowSeconds: z.number(),
+      }),
+    );
   }
 
   private async processRuleNotifications() {

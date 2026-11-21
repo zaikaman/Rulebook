@@ -394,6 +394,15 @@ function TelegramSettingsPanel(props: NotificationProps) {
                 Delivery preferences appear after Rulebook indexes this {name}.
               </p>
             )}
+            {connected && workflow && current.actionAlerts !== undefined && (
+              <p className="app-copy">
+                This setting covers run confirmations and workflow alerts. Manage action alerts in{' '}
+                <Link className="app-link" to={appRoutes.account}>
+                  Account &amp; Vault
+                </Link>
+                .
+              </p>
+            )}
             {!connected && (
               <Link className="app-link" to={appRoutes.account}>
                 Connect Telegram in Account
@@ -421,7 +430,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                 <p className="rb-notify-copy">
                   {connected
                     ? current.enabled
-                      ? `Delivery is on by default for ${name}s.`
+                      ? 'Telegram delivery is on for this account.'
                       : 'Delivery is paused for this account.'
                     : blocked
                       ? 'Unblock the Rulebook bot in Telegram, then reconnect.'
@@ -429,7 +438,9 @@ function TelegramSettingsPanel(props: NotificationProps) {
                         ? `Confirm ${candidate.profile} to finish connecting.`
                         : pairing
                           ? 'Open the bot, tap Start, then return here to confirm.'
-                          : `Connect the bot to receive a message when a ${name} run is confirmed.`}
+                          : workflow
+                            ? 'Connect the bot to get funding alerts and workflow updates.'
+                            : 'Connect the bot to get rule updates.'}
                 </p>
               </div>
               {current.connection !== 'disconnected' && (
@@ -456,7 +467,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   {current.configured
                     ? 'Your saved delivery preferences will apply.'
                     : workflow
-                      ? 'All workflows will send a Telegram message when a run is confirmed.'
+                      ? 'Funding alerts, action alerts, and workflow updates will be on.'
                       : 'All rules will send Telegram messages when they complete or raise an alert.'}
                 </p>
                 <button
@@ -544,7 +555,9 @@ function TelegramSettingsPanel(props: NotificationProps) {
                     </select>
                   </label>
                   <label className="app-field">
-                    <span id={`${heading}-default`}>Default for {name}s</span>
+                    <span id={`${heading}-default`}>
+                      {workflow ? 'Default for workflow updates' : 'Default for rules'}
+                    </span>
                     <select
                       className="app-input rb-notify-select"
                       aria-labelledby={`${heading}-default`}
@@ -561,6 +574,47 @@ function TelegramSettingsPanel(props: NotificationProps) {
                       <option value="selected">Only selected {name}s</option>
                     </select>
                   </label>
+                  {workflow &&
+                    (
+                      [
+                        {
+                          key: 'fundingAlerts',
+                          title: 'Funding alerts',
+                          copy: 'Low, empty, or restored fee credit, and unpaid fees.',
+                        },
+                        {
+                          key: 'actionAlerts',
+                          title: 'Action needed',
+                          copy: 'Payout warnings and failed or expired runs.',
+                        },
+                      ] as const
+                    ).map(({ key, title, copy }) =>
+                      current[key] === undefined ? null : (
+                        <label className="app-field" key={key}>
+                          <span id={`${heading}-${key}`}>{title}</span>
+                          <select
+                            className="app-input rb-notify-select"
+                            aria-labelledby={`${heading}-${key}`}
+                            aria-describedby={`${heading}-${key}-description`}
+                            value={String(current[key])}
+                            onChange={(event) => {
+                              const enabled = event.currentTarget.value === 'true';
+                              void run('Saving alert preference…', () =>
+                                api.telegramPreferences(agent, authorized.token, {
+                                  [key]: enabled,
+                                }),
+                              );
+                            }}
+                          >
+                            <option value="true">On</option>
+                            <option value="false">Off</option>
+                          </select>
+                          <span className="rb-notify-copy" id={`${heading}-${key}-description`}>
+                            {copy}
+                          </span>
+                        </label>
+                      ),
+                    )}
                 </div>
                 {items.length > 0 ? (
                   <ul className="rb-notify-list">
@@ -584,6 +638,13 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   </p>
                 )}
               </fieldset>
+            )}
+            {connected && workflow && current.lastProblemDelivery && (
+              <p className="app-copy" role="status">
+                {current.lastProblemDelivery.status === 'sent'
+                  ? 'The last funding or action alert was sent.'
+                  : 'The last funding or action alert failed to send. Send a test message to check your connection.'}
+              </p>
             )}
             {connected && (
               <div className="rb-notify-test">
