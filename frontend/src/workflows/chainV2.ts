@@ -207,6 +207,32 @@ async function workflowVersion(agent: Address, vault: Address, id: Hex) {
   return { agent, vault, id, chain, entry, auth, title, active, staged } as const;
 }
 
+async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workflowVersion>>) {
+  const [program, memory, budget] = await Promise.all([
+    item.staged
+      ? unichainPublicClient.readContract({
+          address: item.vault,
+          abi: workflowVaultV2Abi,
+          functionName: 'programs',
+          args: [item.auth[0]],
+        })
+      : lasna.readContract({
+          address: item.agent,
+          abi: workflowAgentV2Abi,
+          functionName: 'programs',
+          args: [item.entry[0]],
+        }),
+    unichainPublicClient.readContract({
+      address: item.vault,
+      abi: workflowVaultV2Abi,
+      functionName: 'workflowMemory',
+      args: [item.id],
+    }),
+    readWorkflowWeeklyBudget(item.chain, item.vault, item.id),
+  ]);
+  return { ...item, program, budget, closed: memory[7] };
+}
+
 export async function readWorkflowsV2(owner: Address) {
   const [agent, vault] = await Promise.all([
     readAgent(owner),
@@ -222,7 +248,7 @@ export async function readWorkflowsV2(owner: Address) {
     ids
       .slice()
       .reverse()
-      .map((id) => workflowVersion(agent, vault, id)),
+      .map(async (id) => readWorkflowVersionDetails(await workflowVersion(agent, vault, id))),
   );
 }
 
@@ -233,29 +259,7 @@ export async function readWorkflowV2(owner: Address, id: Hex) {
   ]);
   if (agent === zeroAddress || vault === zeroAddress)
     throw new Error('This wallet has no workflow account.');
-  const item = await workflowVersion(agent, vault, id);
-  const [program, memory] = await Promise.all([
-    item.staged
-      ? unichainPublicClient.readContract({
-          address: vault,
-          abi: workflowVaultV2Abi,
-          functionName: 'programs',
-          args: [item.auth[0]],
-        })
-      : lasna.readContract({
-          address: agent,
-          abi: workflowAgentV2Abi,
-          functionName: 'programs',
-          args: [item.entry[0]],
-        }),
-    unichainPublicClient.readContract({
-      address: vault,
-      abi: workflowVaultV2Abi,
-      functionName: 'workflowMemory',
-      args: [id],
-    }),
-  ]);
-  return { ...item, program, closed: memory[7] };
+  return readWorkflowVersionDetails(await workflowVersion(agent, vault, id));
 }
 
 export async function readFundsV2(owner: Address, chain: SettlementChain) {

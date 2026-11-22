@@ -64,7 +64,11 @@ function emptyWorkflowV2Database() {
     };
     return builder;
   };
-  return { from: query } as unknown as SupabaseClient;
+  return {
+    from: query,
+    // The health endpoint reads one filtered aggregate result and has no rows in this fixture.
+    rpc: async () => ({ data: [], error: null }),
+  } as unknown as SupabaseClient;
 }
 
 function artifact(path: string): Artifact {

@@ -1,5 +1,6 @@
 import {
   addressSchema,
+  workflowHealthResponseSchema,
   workflowIdSchema,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
@@ -60,6 +61,22 @@ const run = z.object({
   reason: z.string().nullable(),
   path: z.number().int().nonnegative().nullable(),
   status: workflowV2RunStatusSchema,
+});
+const healthRow = z.object({
+  workflow_id: workflowIdSchema,
+  last_run_id: workflowIdSchema.nullable(),
+  last_status: workflowV2RunStatusSchema.nullable(),
+  last_reason: z.string().nullable(),
+  last_expires_at: z.number().int().nonnegative().safe().nullable(),
+  last_path: z.number().int().nonnegative().nullable(),
+  last_lasna_transaction: workflowIdSchema.nullable(),
+  last_destination_transaction: workflowIdSchema.nullable(),
+  last_success_id: workflowIdSchema.nullable(),
+  last_success_path: z.number().int().nonnegative().nullable(),
+  last_success_lasna_transaction: workflowIdSchema.nullable(),
+  last_success_destination_transaction: workflowIdSchema.nullable(),
+  pending_run_id: workflowIdSchema.nullable(),
+  pending_expires_at: z.number().int().nonnegative().safe().nullable(),
 });
 const proofRow = run.pick({
   id: true,
@@ -171,6 +188,52 @@ export function registerWorkflowV2Routes(
     return data
       ? listing.parse(data)
       : reply.code(404).send({ message: 'This listing is unavailable.' });
+  });
+
+  app.get('/v3/health', async (request, reply) => {
+    const input = z.object({ owner: addressSchema }).safeParse(request.query);
+    if (!input.success) return reply.code(400).send({ message: 'Check the wallet address.' });
+    const { data, error } = await db.rpc('workflow_v2_health', {
+      p_deployment: deployment,
+      p_owner: input.data.owner,
+    });
+    if (error) throw error;
+    const rows = z.array(healthRow).parse(data);
+    return workflowHealthResponseSchema.parse({
+      workflows: rows.map((row) => {
+        const failure = row.last_reason ? workflowV2FailureReason(row.last_reason) : undefined;
+        return {
+          workflowId: row.workflow_id,
+          lastRun:
+            row.last_run_id && row.last_status && row.last_lasna_transaction
+              ? {
+                  id: row.last_run_id,
+                  status: row.last_status,
+                  reason: failure?.message ?? null,
+                  reasonCode: row.last_reason,
+                  recovery: failure?.recovery ?? null,
+                  lasnaTransaction: row.last_lasna_transaction,
+                  destinationTransaction: row.last_destination_transaction,
+                  path: row.last_path,
+                  expiresAt: row.last_expires_at ?? 0,
+                }
+              : null,
+          lastSuccess:
+            row.last_success_id && row.last_success_lasna_transaction
+              ? {
+                  id: row.last_success_id,
+                  lasnaTransaction: row.last_success_lasna_transaction,
+                  destinationTransaction: row.last_success_destination_transaction,
+                  path: row.last_success_path,
+                }
+              : null,
+          pending:
+            row.pending_run_id && row.pending_expires_at !== null
+              ? { id: row.pending_run_id, expiresAt: row.pending_expires_at }
+              : null,
+        };
+      }),
+    });
   });
 
   app.get('/v3/activity', async (request, reply) => {

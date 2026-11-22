@@ -4,7 +4,7 @@ Workflow V2 sends private Telegram messages. Manage them under **Account & Vault
 
 - **Funding alerts** cover low, empty, and restored credit, and unpaid fees. Rulebook checks
   the Agent's test REACT on Lasna and the Vault's test ETH on Unichain Sepolia in the background.
-  Warnings use the same reserve levels as the app. A top-up clears outstanding fees first.
+  Warnings use the same reserve levels as the workflow health status. A top-up clears outstanding fees first.
 - **Action needed** covers failed runs, expired runs, and inactivity payout warnings. A payout
   warning links to **Check in** and gives the earliest payout time in UTC. A run with no receipt
   is reported only after the confirmed index for both chains has passed its deadline.

@@ -80,6 +80,8 @@ import { WorkflowCanvas } from './Graph';
 import { canvasLeaf, diagramV2 } from './diagramV2';
 import { v2ApiBase } from './listingV2';
 import { WorkflowCreditNotice } from './WorkflowCredit';
+import { useWorkflowHealth, workflowHealthHref, shortRun } from './health';
+import { WorkflowHealthPanel } from './WorkflowHealth';
 import { WorkflowWeeklyBudget } from './WeeklyBudget';
 
 export function WorkflowsV2() {
@@ -91,9 +93,11 @@ export function WorkflowsV2() {
     refetchInterval: 12_000,
   });
   const workflows = rows.data ?? [];
+  const health = useWorkflowHealth(owner, rows.data);
   const activeCount = workflows.filter((row) => row.active).length;
-  const awaiting = workflows.filter((row) => !row.active && row.staged && row.auth[3]).length;
-  const paused = workflows.length - activeCount - awaiting;
+  const attention = workflows.filter(
+    (row) => health.rows.get(row.id)?.health.attention ?? !row.active,
+  ).length;
 
   return (
     <section className="app-page">
@@ -154,6 +158,12 @@ export function WorkflowsV2() {
         </div>
       )}
 
+      {health.runsUnavailable && (
+        <p className="app-alert" data-tone="warning" role="status">
+          Run history could not be loaded. Statuses still reflect the workflow and credit state.
+        </p>
+      )}
+
       {workflows.length > 0 && <WorkflowCreditNotice owner={owner} />}
 
       {!!owner && !!rows.data && (
@@ -170,8 +180,8 @@ export function WorkflowsV2() {
           </div>
           <div className="rb-metric">
             <p className="rb-metric-label">Needs attention</p>
-            <p className="rb-metric-value">{awaiting + paused}</p>
-            <p className="rb-metric-note">Paused or awaiting activation</p>
+            <p className="rb-metric-value">{attention}</p>
+            <p className="rb-metric-note">Blocked, failed, or not active</p>
           </div>
         </div>
       )}
@@ -205,13 +215,26 @@ export function WorkflowsV2() {
       {!!workflows.length && (
         <ul className="rb-card-grid">
           {workflows.map((row) => {
+            const view = health.rows.get(row.id);
             const ready = !row.active && row.staged && row.auth[3];
-            const tone = row.active ? 'active' : ready ? 'info' : 'paused';
-            const label = row.active ? 'Watching' : ready ? 'Ready to activate' : 'Paused';
+            const tone = view?.health.tone ?? (row.active ? 'active' : ready ? 'info' : 'paused');
+            const label =
+              view?.health.label ??
+              (row.active ? 'Watching' : ready ? 'Ready to activate' : 'Paused');
+            const summary =
+              view?.health.summary ??
+              (row.active
+                ? 'This workflow is active and waiting for its next trigger.'
+                : ready
+                  ? 'The Vault authorization is staged. Finish activation to start watching.'
+                  : 'This workflow is not watching for events.');
+            const fixHref = view
+              ? workflowHealthHref(view.health, row.id, view.lastRun?.id)
+              : undefined;
             return (
               <li key={row.id}>
-                <Link to={`/workflows/${row.id}`} className="rb-card">
-                  <div className="rb-card-body">
+                <div className="rb-card">
+                  <Link to={`/workflows/${row.id}`} className="rb-card-body">
                     <div className="rb-card-head">
                       <span className="rb-card-icon" aria-hidden="true">
                         <HugeiconsIcon icon={Book02Icon} size={18} strokeWidth={1.7} />
@@ -226,21 +249,38 @@ export function WorkflowsV2() {
                         {label}
                       </span>
                     </div>
-                  </div>
-                  <div className="rb-card-foot">
+                    <p className="rb-card-copy">{summary}</p>
+                  </Link>
+                  <div className="rb-card-foot flex-wrap">
                     <span>
-                      {row.active
-                        ? 'Watching for events'
-                        : ready
-                          ? 'Authorization pending'
-                          : 'Not watching'}
+                      {view?.lastSuccess ? (
+                        <>
+                          Last success{' '}
+                          <Link
+                            className="app-link"
+                            to={`${appRoutes.runs}/${view.lastSuccess.id}`}
+                          >
+                            {shortRun(view.lastSuccess.id)}
+                          </Link>
+                        </>
+                      ) : health.pending ? (
+                        'Checking run history…'
+                      ) : (
+                        'No successful run yet'
+                      )}
                     </span>
-                    <span className="rb-card-cue">
-                      Open
-                      <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
-                    </span>
+                    {fixHref && view?.health.fixLabel ? (
+                      <Link className="app-link" to={fixHref}>
+                        {view.health.fixLabel}
+                      </Link>
+                    ) : (
+                      <span className="rb-card-cue">
+                        Open
+                        <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
+                      </span>
+                    )}
                   </div>
-                </Link>
+                </div>
               </li>
             );
           })}
@@ -366,6 +406,7 @@ export function WorkflowDetailV2() {
           Activity
         </Link>
       </div>
+      <WorkflowHealthPanel item={item} owner={wallet.owner} />
       <WorkflowWeeklyBudget item={item} wallet={wallet} />
       {!item.closed && <WorkflowCreditNotice owner={wallet.owner} />}
       <div className="rb-canvas-panel">

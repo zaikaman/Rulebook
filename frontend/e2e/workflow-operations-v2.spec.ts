@@ -44,6 +44,9 @@ test('warns about low credits and opens the right funding action and workflow Ac
   });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('link', { name: 'Edit workflow' })).toBeVisible();
+  const health = page.getByRole('region', { name: 'Workflow health' });
+  await expect(health).toContainText('Blocked by low execution credit');
+  await expect(health).toContainText('No successful run yet');
   const id = new URL(page.url()).pathname.split('/').at(-1);
   const workflowActivity = page
     .locator('main')

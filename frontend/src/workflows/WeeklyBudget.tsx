@@ -1,6 +1,7 @@
 import { readWeeklyLimit } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { formatUnits } from 'viem';
 
 import {
@@ -63,6 +64,7 @@ function readLimit(value: string, asset: 'USDC' | 'WETH') {
 }
 
 export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wallet: Wallet }) {
+  const [search, setSearch] = useSearchParams();
   const [editing, setEditing] = useState(false);
   const budget = useQuery({
     queryKey: ['workflow-v2', 'weekly-budget', item.chain, item.vault, item.id],
@@ -70,6 +72,16 @@ export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wal
     refetchInterval: 12_000,
   });
   const editable = !item.closed && !item.staged && item.auth[1] > 0n;
+  const budgetRequested = search.get('budget') === '1';
+  const editorOpen = editing || (budgetRequested && editable);
+  function closeEditor() {
+    setEditing(false);
+    if (budgetRequested) {
+      const next = new URLSearchParams(search);
+      next.delete('budget');
+      setSearch(next, { replace: true });
+    }
+  }
   const facts = budget.data
     ? [
         {
@@ -101,7 +113,7 @@ export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wal
     : [];
 
   return (
-    <Panel aria-labelledby="weekly-budget-title">
+    <Panel id="weekly-budget" aria-labelledby="weekly-budget-title">
       <PanelHeader>
         <PanelHeading
           title="Weekly spending budget"
@@ -128,13 +140,8 @@ export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wal
           <FactList items={facts} />
         )}
       </PanelBody>
-      {editing && budget.data && (
-        <EditWeeklyBudget
-          item={item}
-          budget={budget.data}
-          wallet={wallet}
-          close={() => setEditing(false)}
-        />
+      {editorOpen && editable && budget.data && (
+        <EditWeeklyBudget item={item} budget={budget.data} wallet={wallet} close={closeEditor} />
       )}
     </Panel>
   );

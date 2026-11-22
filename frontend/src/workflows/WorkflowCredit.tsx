@@ -33,7 +33,13 @@ export const workflowCredits = [
   { kind: 'execution', title: 'Execution credit', unit: 'ETH', chain: UNICHAIN_SEPOLIA_CHAIN_ID },
 ] as const;
 
-type CreditBalance = { reserve: bigint; debt: bigint; blockNumber: bigint };
+export type CreditBalance = { reserve: bigint; debt: bigint; blockNumber: bigint };
+
+export interface WorkflowCreditReading {
+  readonly reserve: bigint;
+  readonly debt: bigint;
+  readonly threshold: bigint;
+}
 
 const creditIcons = {
   watching: Pulse01Icon,
@@ -76,15 +82,19 @@ function reserveCoverage(reserve: bigint, minimum: bigint) {
   return Math.max(0, Math.min(100, percent));
 }
 
-export function WorkflowCreditNotice({
-  owner,
-  review = false,
-}: {
-  owner?: Address;
-  review?: boolean;
-}) {
+function reading(
+  balance: CreditBalance | null | undefined,
+  chain: (typeof workflowCredits)[number]['chain'],
+): WorkflowCreditReading | null {
+  return balance
+    ? { reserve: balance.reserve, debt: balance.debt, threshold: feeCreditWarningThreshold(chain) }
+    : null;
+}
+
+/** Shared credit reads for the health surface and the fee notice; React Query dedupes the keys. */
+export function useWorkflowCredits(owner?: Address) {
   const enabled = Boolean(owner && workflowV2Deployment);
-  const credits = useQueries({
+  const queries = useQueries({
     queries: workflowCredits.map(({ chain }) => ({
       queryKey: ['workflow-v2', 'fee-credit', owner?.toLowerCase(), chain],
       enabled,
@@ -94,17 +104,40 @@ export function WorkflowCreditNotice({
       retry: 1,
     })),
   });
+  const watching = queries[0]!;
+  const execution = queries[1]!;
+  return {
+    enabled,
+    queries,
+    watching,
+    execution,
+    readings: {
+      watching: reading(watching.data, LASNA_CHAIN_ID),
+      execution: reading(execution.data, UNICHAIN_SEPOLIA_CHAIN_ID),
+    },
+    checking: queries.some((result) => result.isPending),
+    unavailable: queries.some((result) => result.isError),
+    needsSetup: queries.some((result) => result.data === null),
+  };
+}
+
+export function WorkflowCreditNotice({
+  owner,
+  review = false,
+}: {
+  owner?: Address;
+  review?: boolean;
+}) {
+  const credits = useWorkflowCredits(owner);
+  const { enabled, checking, unavailable, needsSetup } = credits;
   if (!enabled) return null;
-  const attention = workflowCredits.flatMap((credit, index) => {
-    const result = credits[index]!;
+  const attention = workflowCredits.flatMap((credit) => {
+    const result = credit.kind === 'watching' ? credits.watching : credits.execution;
     const balance = result.data;
     const minimum = feeCreditWarningThreshold(credit.chain);
     if (!balance || (balance.debt === 0n && balance.reserve >= minimum)) return [];
     return [{ credit, ...balance, minimum, stale: result.isError }];
   });
-  const unavailable = credits.some((result) => result.isError);
-  const needsSetup = credits.some((result) => result.data === null);
-  const checking = credits.some((result) => result.isPending);
   if (!attention.length && !unavailable && !(review && (needsSetup || checking))) return null;
 
   const status = attention.length
@@ -254,7 +287,7 @@ export function WorkflowCreditNotice({
             <button
               className="app-button"
               type="button"
-              onClick={() => credits.forEach(({ refetch }) => void refetch())}
+              onClick={() => credits.queries.forEach(({ refetch }) => void refetch())}
             >
               <HugeiconsIcon icon={RefreshIcon} size={14} aria-hidden="true" />
               Check again
