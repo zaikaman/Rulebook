@@ -143,6 +143,21 @@
       "transactionUrl": "https://lasna.reactscan.net/tx/0xaa7ecd32224f83b40672a885bb0cd4bb9acde834241ad9de12f9459e1de04836",
       "blockNumber": "8750519",
       "confirmedAt": "2026-11-19T17:34:06.000Z"
+    },
+    {
+      "name": "WorkflowAgentFactoryV2",
+      "address": "0xce6fdd1a509bf18cbe0237cc170279b51b93ad45",
+      "chainId": 5318007,
+      "status": "superseded",
+      "commit": "09817e9f575c45ec3fbb3ca955801186537c0a9f",
+      "source": "working tree",
+      "deployer": "0xc2500c19c77de23443af5b559a3dadb283dad41c",
+      "explorerUrl": "https://lasna.reactscan.net/address/0xce6fdd1a509bf18cbe0237cc170279b51b93ad45",
+      "transactionHash": "0x725a5a72af1e1d0ccada973cf38859c23d084c06cca22fcac2b9c74ba5e67e7a",
+      "transactionUrl": "https://lasna.reactscan.net/tx/0x725a5a72af1e1d0ccada973cf38859c23d084c06cca22fcac2b9c74ba5e67e7a",
+      "blockNumber": 8891364,
+      "creationInputHash": "0xc674a01a1c9d3c97f6721c08726e0ad2e21879e280e58c6fd85cefd8cc9f5e8a",
+      "runtimeCodeHash": "0xcfc7b84295745037d634794d2a911d19ed2e66dcacda141fc01382c2b08fef83"
     }
   ],
   "reactiveServices": [

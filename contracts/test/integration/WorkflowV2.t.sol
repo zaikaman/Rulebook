@@ -405,7 +405,7 @@ contract WorkflowV2SettlementTest is Test {
         closed.topic_2 = 1;
         vm.prank(address(system));
         agent.react(closed);
-        assertEq(system.unsubscribeCount(), 2);
+        assertEq(system.unsubscribeCount(), 3);
     }
 
     function testCompetingExitBranchesSettleOnlyOnce() public {

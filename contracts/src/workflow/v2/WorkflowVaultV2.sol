@@ -75,6 +75,15 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     event WeeklyBudgetSet(
         bytes32 indexed workflow, uint96 usdcLimit, uint96 wethLimit, uint32 revision
     );
+    event BudgetSynced(
+        bytes32 indexed workflow,
+        uint96 usdcLimit,
+        uint96 wethLimit,
+        uint128 usdcSpent,
+        uint128 wethSpent,
+        uint64 weekStart,
+        uint32 revision
+    );
     event Revoked(bytes32 indexed workflow, uint64 epoch);
     event CheckIn(bytes32 indexed workflow, uint64 timestamp);
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
@@ -259,6 +268,27 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         budget.wethLimit = wethLimit;
         budget.revision += 1;
         emit WeeklyBudgetSet(workflow, usdcLimit, wethLimit, budget.revision);
+        _syncBudget(workflow);
+    }
+
+    /// @notice Publishes the effective weekly budget so the Agent can refuse futile dispatches.
+    /// @dev Mirrors `weeklyBudget`, including the read-through reset: a week that has rolled over
+    /// reports zero spend before the next settlement writes the new week start. Every value is
+    /// therefore a lower bound of the Vault's own state, which lets the Agent gate on it without
+    /// ever hiding a run this Vault would settle.
+    function _syncBudget(bytes32 workflow) private {
+        WeeklyBudget storage budget = weeklyBudgets[workflow];
+        uint64 start = _weekStart(block.timestamp);
+        bool current = budget.weekStart == start;
+        emit BudgetSynced(
+            workflow,
+            budget.usdcLimit,
+            budget.wethLimit,
+            current ? budget.usdcSpent : 0,
+            current ? budget.wethSpent : 0,
+            start,
+            budget.revision
+        );
     }
 
     /// @notice Monday 00:00 UTC at or before `timestamp`.
@@ -346,6 +376,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     ) private {
         outcomes[runId] = status;
         emit Outcome(workflow, runId, epoch, status, path, reason);
+        _syncBudget(workflow);
     }
 
     /// @notice Evaluates and executes the current program. Only the isolated settlement call can enter.

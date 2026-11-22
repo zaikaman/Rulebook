@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {AbstractPayer} from "@reactive/abstract-base/AbstractPayer.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
 import {IReactive} from "@reactive/interfaces/IReactive.sol";
@@ -22,9 +23,19 @@ contract WorkflowAgentV2 is AbstractPayer {
     uint256 private constant SYNC = uint256(keccak256("Sync(uint112,uint112)"));
     uint256 private constant TRANSFER = uint256(keccak256("Transfer(address,address,uint256)"));
     uint256 private constant CLOSED = uint256(keccak256("Closed(bytes32,uint64)"));
+    uint256 private constant BUDGET_SYNCED =
+        uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
     uint64 private constant LIFETIME = 10 minutes;
     uint64 private constant CALLBACK_GAS = 850_000;
     uint256 private constant MAX_ACTIVE = 4;
+    uint64 private constant WEEK = 7 days;
+    // Unix time zero is a Thursday, so this shift floors timestamps to Monday 00:00 UTC, matching
+    // the Vault's week boundary exactly.
+    uint64 private constant MONDAY_SHIFT = 3 days;
+    // Reactive Lasna and Unichain Sepolia timestamps can differ by seconds. The mirror only rolls a
+    // week forward after the boundary has certainly passed on both chains, so the Agent never
+    // suppresses a run the Vault would settle against the week the spend was recorded in.
+    uint64 private constant WEEK_SKEW = 10 minutes;
 
     struct Entry {
         bytes32 hash;
@@ -56,6 +67,28 @@ contract WorkflowAgentV2 is AbstractPayer {
         uint256 topic2;
     }
 
+    /// @notice Smallest USDC and WETH amount a leaf can consume, recorded when it is installed.
+    /// @dev `percents` counts the percentage steps so the aggregate product can be turned back into
+    /// a lower bound of the Vault's per-step flooring.
+    struct PathCost {
+        uint128 usdc;
+        uint128 weth;
+        uint16 percent;
+        uint8 percents;
+        bool empty;
+    }
+
+    /// @notice The last weekly budget the Vault published for a workflow.
+    struct Budget {
+        uint96 usdcLimit;
+        uint96 wethLimit;
+        uint128 usdcSpent;
+        uint128 wethSpent;
+        uint64 weekStart;
+        uint32 revision;
+        bool known;
+    }
+
     error Unauthorized();
     error InvalidWorkflow();
     event Enabled(
@@ -85,6 +118,8 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(bytes32 => Entry) public entries;
     mapping(bytes32 => PriceHigh) private highs;
     mapping(bytes32 => bytes) public programs;
+    mapping(bytes32 => PathCost[]) private paths;
+    mapping(bytes32 => Budget) public budgets;
     mapping(bytes32 => string) public titles;
     mapping(bytes32 => bool) private seen;
     mapping(bytes32 => uint256) private subscriptions;
@@ -164,6 +199,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         entry.originAfter = originAfter;
         delete highs[workflow];
         programs[hash] = encoded;
+        _paths(workflow, program);
         titles[workflow] = title;
         active.push(workflow);
         _filters(entry, true);
@@ -204,6 +240,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     function _filters(Entry storage entry, bool enabled) private {
         ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        _filter(Filter(entry.chain, vaults[entry.chain], BUDGET_SYNCED, ANY, ANY), enabled);
         if (entry.once) {
             _filter(Filter(entry.chain, vaults[entry.chain], CLOSED, ANY, ANY), enabled);
         }
@@ -250,6 +287,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     function react(IReactive.LogRecord calldata log) external {
         if (msg.sender != address(system)) revert Unauthorized();
         if (log.log_index > type(uint64).max || log.block_number > type(uint64).max) return;
+        if (log.topic_0 == BUDGET_SYNCED) {
+            _syncBudget(log);
+            return;
+        }
         if (log.topic_0 == CLOSED) {
             bytes32 workflow = bytes32(log.topic_1);
             Entry storage entry = entries[workflow];
@@ -393,6 +434,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         );
         if (seen[runId]) return;
         seen[runId] = true;
+        // A run the Vault can only reject on budget would still cost a callback fee, so it is never
+        // requested. The schedule is deliberately left in place: the next tick retries and fires as
+        // soon as the week resets or the limits are raised.
+        if (_budgetBlocks(workflow, run.observed)) return;
         if (entry.trigger == P.SCHEDULE) {
             uint256 due = entry.nextDue;
             entry.nextDue =
@@ -418,5 +463,109 @@ contract WorkflowAgentV2 is AbstractPayer {
                 payload: abi.encodeCall(IWorkflowSettlementV2.execute, (address(0), workflow, run))
             })
         );
+    }
+
+    /// @notice Records the smallest spend each leaf can produce, so a dispatch can be proven futile.
+    /// @dev Only amounts derived from the signed program and the triggering observation are used.
+    /// Every Vault decision that depends on live destination state stays unknown here, and an
+    /// unknown leaf keeps the workflow dispatching.
+    function _paths(bytes32 workflow, P.Program memory program) private {
+        delete paths[workflow];
+        for (uint256 index; index < program.nodes.length; ++index) {
+            P.Node memory node = program.nodes[index];
+            if (node.check != 0) continue;
+            PathCost memory cost;
+            cost.empty = node.actions.length == 0;
+            for (uint256 step; step < node.actions.length; ++step) {
+                P.Action memory action = node.actions[step];
+                if (action.kind == P.ALERT) continue;
+                if (action.unit == P.PERCENT) {
+                    cost.percent += uint16(action.amount);
+                    cost.percents += 1;
+                } else if (action.kind == P.SELL) {
+                    cost.weth += action.amount;
+                } else if (action.kind == P.REFILL) {
+                    // The Vault pulls at most the deficit below the threshold and at least one unit.
+                    cost.usdc += 1;
+                } else {
+                    cost.usdc += action.amount;
+                }
+            }
+            paths[workflow].push(cost);
+        }
+    }
+
+    /// @notice True when every leaf would be rejected by the Vault's weekly budget.
+    /// @dev The mirrored budget is never larger than the Vault's own spend and never newer than the
+    /// week the Vault would settle against, so this can only suppress runs the Vault would skip.
+    function _budgetBlocks(bytes32 workflow, uint256 observed) private view returns (bool) {
+        PathCost[] storage plan = paths[workflow];
+        uint256 count = plan.length;
+        if (count == 0) return false;
+        Budget memory budget = budgets[workflow];
+        if (!budget.known) return false;
+        uint128 usdcSpent = budget.usdcSpent;
+        uint128 wethSpent = budget.wethSpent;
+        if (block.timestamp >= uint256(budget.weekStart) + WEEK + WEEK_SKEW) {
+            usdcSpent = 0;
+            wethSpent = 0;
+        }
+        for (uint256 index; index < count; ++index) {
+            PathCost memory cost = plan[index];
+            if (cost.empty) continue;
+            uint256 usdc = cost.usdc;
+            if (cost.percent != 0) {
+                // Flooring each percentage step separately is worth at least the aggregate floor
+                // minus one unit per extra step, so this stays a lower bound of the real spend.
+                uint256 aggregated = Math.mulDiv(observed, cost.percent, P.BPS);
+                uint256 floorLoss = uint256(cost.percents) - 1;
+                if (aggregated > floorLoss) usdc += aggregated - floorLoss;
+            }
+            if (_exceeds(budget.usdcLimit, usdcSpent, usdc)) continue;
+            if (_exceeds(budget.wethLimit, wethSpent, cost.weth)) continue;
+            return false;
+        }
+        return true;
+    }
+
+    /// @notice True when `cost` cannot fit in `limit` after `spent`. A zero limit is unlimited.
+    function _exceeds(uint96 limit, uint128 spent, uint256 cost) private pure returns (bool) {
+        return limit != 0 && uint256(spent) + cost > limit;
+    }
+
+    /// @notice Keeps the mirrored weekly budget in step with the Vault's published snapshot.
+    /// @dev Only a strictly newer snapshot wins, so reordered or repeated delivery cannot undo a
+    /// recorded spend; a different week start always wins because it carries the reset.
+    function _syncBudget(IReactive.LogRecord calldata log) private {
+        if (
+            log.chain_id != P.UNICHAIN_SEPOLIA || log._contract != vaults[P.UNICHAIN_SEPOLIA]
+                || log.data.length != 192 || entries[bytes32(log.topic_1)].epoch == 0
+        ) return;
+        bytes32 workflow = bytes32(log.topic_1);
+        (
+            uint96 usdcLimit,
+            uint96 wethLimit,
+            uint128 usdcSpent,
+            uint128 wethSpent,
+            uint64 weekStart,
+            uint32 revision
+        ) = abi.decode(log.data, (uint96, uint96, uint128, uint128, uint64, uint32));
+        Budget storage budget = budgets[workflow];
+        if (
+            budget.known
+                && (weekStart < budget.weekStart
+                    || (weekStart == budget.weekStart
+                        && (revision < budget.revision
+                            || usdcSpent < budget.usdcSpent
+                            || wethSpent < budget.wethSpent)))
+        ) return;
+        budgets[workflow] =
+            Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
+    }
+
+    /// @notice Monday 00:00 UTC at or before `timestamp`, matching the Vault's boundary.
+    function _weekStart(uint256 timestamp) private pure returns (uint64) {
+        uint256 remainder = (timestamp + MONDAY_SHIFT) % WEEK;
+        return uint64(timestamp >= remainder ? timestamp - remainder : 0);
     }
 }

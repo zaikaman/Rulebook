@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
+import {IReactive} from "@reactive/interfaces/IReactive.sol";
+import {ChainConfig} from "../../src/chain/ChainConfig.sol";
+import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
@@ -19,6 +22,11 @@ contract WorkflowWeeklyBudgetTest is Test {
     address private constant PROXY = address(0xCA11);
     bytes32 private constant WORKFLOW = keccak256("weekly workflow");
     uint32 private constant LASNA = 5_318_007;
+    uint256 private constant CRON = uint256(keccak256("Cron100(uint256)"));
+    uint256 private constant BUDGET_SYNCED =
+        uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
+    uint64 private constant WEEK = 7 days;
+    uint64 private constant WEEK_SKEW = 10 minutes;
     // 2026-11-16 00:00:00 UTC, a Monday.
     uint256 private constant MONDAY = 1_794_787_200;
 
@@ -326,6 +334,199 @@ contract WorkflowWeeklyBudgetTest is Test {
         uint256 used = before - gasleft();
         assertEq(vault.outcomes(_runId(run)), vault.CONFIRMED());
         assertLt(used, 850_000);
+    }
+
+    function testEveryOutcomePublishesTheWeeklyBudgetSnapshot() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 2e6);
+        vm.warp(MONDAY + 1 hours);
+
+        vm.recordLogs();
+        assertEq(_deliver(_run(101, P.SCHEDULE)), vault.CONFIRMED());
+        _assertBudgetSnapshot(1e6);
+
+        vm.recordLogs();
+        assertEq(_deliver(_run(102, P.SCHEDULE)), vault.SKIPPED());
+        _assertBudgetSnapshot(1e6);
+    }
+
+    function testExhaustedBudgetStopsCallbacksUntilTheWeekResets() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        assertEq(system.requestCount(), 1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+        _forwardBudget();
+
+        vm.warp(MONDAY + 2 hours);
+        _cron(2);
+        assertEq(system.requestCount(), 1, "an over-budget run is never requested");
+
+        vm.warp(MONDAY + WEEK + 1 hours);
+        _cron(3);
+        assertEq(system.requestCount(), 2, "the next week can dispatch again");
+        _deliverRequest(1);
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testRaisedBudgetUnblocksTheNextTick() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+
+        vm.warp(MONDAY + 2 hours);
+        _cron(2);
+        assertEq(system.requestCount(), 1);
+
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 2e6, 0);
+        _forwardBudget();
+
+        _cron(3);
+        assertEq(system.requestCount(), 2, "a raised limit resumes dispatch");
+        _deliverRequest(1);
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testStaleBudgetSnapshotsCannotRewindTheMirror() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        vm.warp(MONDAY + 1 hours);
+
+        _injectBudget(1e6, 1e6);
+        _injectBudget(1e6, 0);
+        _cron(1);
+        assertEq(system.requestCount(), 0, "an older snapshot cannot unblock a dispatch");
+    }
+
+    function testWeekResetWaitsForTheChainClockSkew() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        _injectBudget(1e6, 1e6);
+
+        vm.warp(MONDAY + WEEK - 1);
+        _cron(1);
+        assertEq(system.requestCount(), 0, "the last second of the week is still gated");
+
+        vm.warp(MONDAY + WEEK + WEEK_SKEW - 1);
+        _cron(2);
+        assertEq(system.requestCount(), 0, "the boundary alone does not reset the mirror");
+
+        vm.warp(MONDAY + WEEK + WEEK_SKEW);
+        _cron(3);
+        assertEq(system.requestCount(), 1, "the reset applies once both clocks must agree");
+    }
+
+    function testZeroCostPathsStillDispatchWhenTheBudgetIsSpent() public {
+        P.Program memory program =
+            _program(P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.ALERT, 0, address(0))));
+        _enable(program, 1e6, 0);
+        _injectBudget(1e6, 1e6);
+
+        IReactive.LogRecord memory log;
+        log.chain_id = P.UNICHAIN_SEPOLIA;
+        log._contract = ChainConfig.unichainSepolia().pair;
+        log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
+        log.block_number = block.number + 1;
+        log.tx_hash = 1;
+        log.data = abi.encode(2e18 * 10_000, 10_000 ether);
+        vm.prank(address(system));
+        agent.react(log);
+        assertEq(system.requestCount(), 1, "an alert is never gated by the weekly budget");
+    }
+
+    function _assertBudgetSnapshot(uint128 usdcSpent) private view {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 matches;
+        for (uint256 index; index < logs.length; ++index) {
+            if (
+                logs[index].emitter != address(vault)
+                    || logs[index].topics[0] != bytes32(BUDGET_SYNCED)
+            ) continue;
+            assertEq(logs[index].topics[1], WORKFLOW);
+            (
+                uint96 usdcLimit,
+                uint96 wethLimit,
+                uint128 spentUsdc,
+                uint128 spentWeth,
+                uint64 weekStart,
+                uint32 revision
+            ) = abi.decode(logs[index].data, (uint96, uint96, uint128, uint128, uint64, uint32));
+            assertEq(usdcLimit, 1e6);
+            assertEq(wethLimit, 0);
+            assertEq(spentUsdc, usdcSpent);
+            assertEq(spentWeth, 0);
+            assertEq(weekStart, MONDAY);
+            assertEq(revision, 1);
+            matches += 1;
+        }
+        assertEq(matches, 1);
+    }
+
+    function _injectBudget(uint96 usdcLimit, uint128 usdcSpent) private {
+        IReactive.LogRecord memory log;
+        log.chain_id = P.UNICHAIN_SEPOLIA;
+        log._contract = address(vault);
+        log.topic_0 = BUDGET_SYNCED;
+        log.topic_1 = uint256(WORKFLOW);
+        log.data =
+            abi.encode(usdcLimit, uint96(0), usdcSpent, uint128(0), uint64(MONDAY), uint32(1));
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function _forwardBudget() private {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 index; index < logs.length; ++index) {
+            if (
+                logs[index].emitter != address(vault)
+                    || logs[index].topics[0] != bytes32(BUDGET_SYNCED)
+            ) continue;
+            IReactive.LogRecord memory log;
+            log.chain_id = P.UNICHAIN_SEPOLIA;
+            log._contract = address(vault);
+            log.topic_0 = BUDGET_SYNCED;
+            log.topic_1 = uint256(WORKFLOW);
+            log.data = logs[index].data;
+            log.block_number = block.number;
+            log.tx_hash = index + 1;
+            log.log_index = index;
+            vm.prank(address(system));
+            agent.react(log);
+        }
+    }
+
+    function _cron(uint256 index) private {
+        uint256 number = block.number + index;
+        IReactive.LogRecord memory log;
+        log.chain_id = LASNA;
+        log._contract = ChainConfig.lasna().cronSource;
+        log.topic_0 = CRON;
+        log.topic_1 = number;
+        log.block_number = number;
+        log.tx_hash = number;
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function _deliverRequest(uint256 index) private {
+        CallbackConfiguration memory request = system.requestAt(index);
+        bytes memory payload = request.payload;
+        address sender = address(agent);
+        assembly ("memory-safe") {
+            mstore(add(payload, 36), sender)
+        }
+        vm.prank(PROXY);
+        (bool success,) = address(vault).call{gas: request.gasLimit}(payload);
+        assertTrue(success);
     }
 
     function _budget() private view returns (BudgetView memory view_) {

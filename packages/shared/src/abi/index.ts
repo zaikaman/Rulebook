@@ -4957,6 +4957,55 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "budgets",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "usdcSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "wethSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "weekStart",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "revision",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "known",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "coverDebt",
     "inputs": [],
     "outputs": [],
@@ -6666,6 +6715,55 @@ export const workflowVaultV2Abi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BudgetSynced",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "usdcSpent",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "wethSpent",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "weekStart",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "revision",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
       }
     ],
     "anonymous": false
