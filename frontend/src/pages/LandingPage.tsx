@@ -12,7 +12,7 @@ import { SiteFooter } from '@/components/landing/site-footer.js';
 import { SiteNav } from '@/components/landing/site-nav.js';
 import { StackSection } from '@/components/landing/stack-section.js';
 import { UseCasesSection } from '@/components/landing/use-cases-section.js';
-import { appRoutes, legacyWorkspace } from '@/lib/routes.js';
+import { appRoutes } from '@/lib/routes.js';
 
 export function LandingPage() {
   return (
@@ -39,7 +39,7 @@ export function LandingPage() {
 
             <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
               <Link
-                to={legacyWorkspace ? appRoutes.newWorkflow : appRoutes.create}
+                to={appRoutes.create}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
               >
                 <span>Build a workflow</span>

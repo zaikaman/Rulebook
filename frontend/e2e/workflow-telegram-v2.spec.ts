@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import type { TelegramPreference, TelegramSettings } from '@rulebook/shared';
 
-import { FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
 import {
   approveSignature,
   fundFixtureWorkflowVault,
@@ -47,14 +47,14 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await page.context().route('**/v1/accounts/*/telegram**', async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
-    expect(new URL(request.url()).origin).toBe(FIXTURE_V2_FRONTEND_URL);
+    expect(new URL(request.url()).origin).toBe(FIXTURE_FRONTEND_URL);
     if (path.endsWith('/challenge')) {
       expect(request.postDataJSON().browser).toBe(true);
       await route.fulfill({
         json: {
           nonce: `0x${'b'.repeat(64)}`,
           expiresAt,
-          origin: FIXTURE_V2_FRONTEND_URL,
+          origin: FIXTURE_FRONTEND_URL,
           proof: 'b'.repeat(64),
           browser: true,
         },
@@ -116,13 +116,13 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
     await route.fulfill({ json: settings });
   });
 
-  await page.goto(FIXTURE_V2_FRONTEND_URL + '/create');
+  await page.goto(FIXTURE_FRONTEND_URL + '/create');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
-  const buildLater = page.getByRole('button', { name: 'Build a workflow and fund later' });
-  await expect(buildLater).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await fundFixtureWorkflowVault(OWNER, 10_000_000n);
-  await buildLater.click();
+  await page.getByRole('link', { name: 'New workflow' }).click();
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await page.getByRole('button', { name: title, exact: false }).click();
   await page.getByLabel('Interval in seconds').fill('3600');
   await page.getByLabel('USDC to send').fill('0.02');
@@ -173,7 +173,7 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
 
   const newTab = await page.context().newPage();
   await installWallet(newTab, OWNER);
-  await newTab.goto(FIXTURE_V2_FRONTEND_URL + '/account');
+  await newTab.goto(FIXTURE_FRONTEND_URL + '/account');
   const reopened = newTab.getByRole('region', { name: 'Telegram notifications' });
   await expect(reopened.getByText('Connected to @anya')).toBeVisible();
   expect(verifications).toBe(1);

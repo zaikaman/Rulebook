@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { LASNA_CHAIN_ID } from './chains.js';
-import { getTemplate } from './generated/templates.js';
 import { templateIdSchema, txHashSchema } from './schemas.js';
 import { workflowIdSchema } from './workflows.js';
 
@@ -57,14 +56,6 @@ export type TelegramChallenge = z.infer<typeof telegramChallengeSchema>;
 export type TelegramPreference = z.infer<typeof telegramPreferenceSchema>;
 export type TelegramDefault = z.infer<typeof telegramDefaultSchema>;
 export type TelegramSettings = z.infer<typeof telegramSettingsSchema>;
-
-export function telegramRuleName(template: number | null): string {
-  return (
-    (template === null
-      ? undefined
-      : getTemplate(template)?.name.replace(/([a-z])([A-Z])/g, '$1 $2')) ?? 'Rule'
-  );
-}
 
 export function telegramSignIn(
   agent: `0x${string}`,

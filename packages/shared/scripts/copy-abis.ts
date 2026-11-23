@@ -15,15 +15,6 @@ const OUT_DIR = join(REPO_ROOT, 'contracts', 'out');
 const TARGET = join(PACKAGE_ROOT, 'src', 'abi', 'index.ts');
 
 const CONTRACTS = [
-  { name: 'Agent', exportName: 'agentAbi' },
-  { name: 'Vault', exportName: 'vaultAbi' },
-  { name: 'AgentFactory', exportName: 'agentFactoryAbi' },
-  { name: 'VaultFactory', exportName: 'vaultFactoryAbi' },
-  { name: 'RuleRegistry', exportName: 'ruleRegistryAbi' },
-  { name: 'WorkflowAgent', exportName: 'workflowAgentAbi' },
-  { name: 'WorkflowVault', exportName: 'workflowVaultAbi' },
-  { name: 'WorkflowDirectory', exportName: 'workflowDirectoryAbi' },
-  { name: 'WorkflowVaultFactory', exportName: 'workflowVaultFactoryAbi' },
   { name: 'WorkflowAgentV2', exportName: 'workflowAgentV2Abi' },
   { name: 'WorkflowAgentFactoryV2', exportName: 'workflowAgentFactoryV2Abi' },
   { name: 'WorkflowVaultV2', exportName: 'workflowVaultV2Abi' },

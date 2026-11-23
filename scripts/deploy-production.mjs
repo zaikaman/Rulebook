@@ -269,7 +269,6 @@ try {
             ...(process.env.WORKFLOW_V2_ACTIVATION
               ? ['VITE_WORKFLOW_V2_ACTIVATION=' + process.env.WORKFLOW_V2_ACTIVATION]
               : []),
-            'VITE_LEGACY_WORKSPACE=false',
             '',
           ].join('\n'),
         );

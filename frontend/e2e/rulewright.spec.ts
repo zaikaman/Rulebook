@@ -13,7 +13,7 @@ import {
 } from '@rulebook/shared';
 import { verifyMessage } from 'viem';
 
-import { FIXTURE_API_URL, FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { FIXTURE_API_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
 import { installWallet, walletRequests } from './wallet';
 
 const buy: V2Draft = {
@@ -34,14 +34,14 @@ const question = 'What maximum swap slippage should each run allow?';
 async function installRulewrightResponses(page: Page) {
   const challenge = rulewrightChallengeSchema.parse({
     owner: USER_ADDRESS,
-    origin: FIXTURE_V2_FRONTEND_URL,
+    origin: FIXTURE_FRONTEND_URL,
     nonce: `0x${randomBytes(32).toString('hex')}`,
     expiresAt: Math.floor(Date.now() / 1000) + 300,
   });
   const token = randomBytes(32).toString('base64url');
   const jobs = new Map<string, { polls: number; result: RulewrightResult }>();
   const headers = {
-    'access-control-allow-origin': FIXTURE_V2_FRONTEND_URL,
+    'access-control-allow-origin': FIXTURE_FRONTEND_URL,
     'access-control-allow-headers': 'authorization,content-type,x-rulewright-origin',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
   };
@@ -93,7 +93,7 @@ test('verifies a wallet and applies polled previews after clarification or an ed
   await page.setViewportSize({ width: 1440, height: 900 });
   await installWallet(page);
   await installRulewrightResponses(page);
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows/new`);
 
   await page.getByRole('button', { name: 'Connect wallet', exact: true }).click();
   await page.getByRole('button', { name: 'Draft with Rulewright' }).click();
@@ -133,7 +133,7 @@ test('fits the Rulewright dialog on a phone and restores keyboard focus on close
 }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await installRulewrightResponses(page);
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows/new`);
   const opener = page.getByRole('button', { name: 'Draft with Rulewright' });
   await opener.click();
   const dialog = page.getByRole('dialog', { name: 'Rulewright' });

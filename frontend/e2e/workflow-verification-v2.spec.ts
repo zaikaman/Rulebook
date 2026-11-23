@@ -18,7 +18,7 @@ import {
   type CheckCode,
   type TriggerCode,
 } from '../src/workflows/modelV2';
-import { FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
 import {
   approveSignature,
   fundFixtureWorkflowVault,
@@ -26,7 +26,7 @@ import {
   walletRequests,
 } from './wallet';
 
-const builder = process.env.RULEBOOK_E2E_LIVE_APP ?? FIXTURE_V2_FRONTEND_URL;
+const builder = process.env.RULEBOOK_E2E_LIVE_APP ?? FIXTURE_FRONTEND_URL;
 const mobile = process.env.RULEBOOK_E2E_MOBILE === 'true';
 const trigger = workflowV2Trigger;
 const check = workflowV2Check;

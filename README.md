@@ -16,7 +16,6 @@ The judging bar for this track is a reactive transaction, the callback it causes
 | [Scheduled buy](#a-schedule-that-fires-on-the-next-lasna-block)            | `Cron100` on Lasna, `react` on the next block, swap through the callback proxy. |
 | [`WorkflowAgentV2.sol`](contracts/src/workflow/v2/WorkflowAgentV2.sol)     | Subscriptions, price and activity memory, `Dispatched`, `requestCallbackV_1_0`. |
 | [`WorkflowVaultV2.sol`](contracts/src/workflow/v2/WorkflowVaultV2.sol)     | The signed program, per-run caps, weekly budget, and the settlement.            |
-| [Verification record](deployments/workflows-v2-verification.json)          | Every live hash below, plus a Unichain-fork pass over all 13 recipes.           |
 
 ## A payment that takes three different paths
 
@@ -30,38 +29,30 @@ Three USDC transfers into the same Vault each completed the loop: Unichain `Tran
 
 | Payment in | Path | Vault did             | Origin `Transfer`                                                                                                | Lasna `react`                                                                                                    | Callback                                                                                                         |
 | ---------- | ---- | --------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1.20 USDC  | 1    | Sent 0.20 USDC        | [0x7e60…b636](https://sepolia.uniscan.xyz/tx/0x7e60500a6ebdd08ef4cfd561d40030f01d8342233655781c341c6d4d3c19b636) | [0xf968…9a48](https://lasna.reactscan.net/tx/0xf96813b6dab95a46947a0befae6c002c54dd2b43de1860d5f675c64d89609a48) | [0x45a1…f7fd](https://sepolia.uniscan.xyz/tx/0x45a1fd070af63bfb19218a639ddb96430f8626806a08c08b8aa51a1a7459f7fd) |
-| 0.60 USDC  | 3    | Sent 0.05 USDC        | [0x0b1a…f1a9](https://sepolia.uniscan.xyz/tx/0x0b1a50868ff8bf8f439811ddd9aa245d6a707c9603dbe9b6dc06c7933b08f1a9) | [0x2823…4e39](https://lasna.reactscan.net/tx/0x2823d68d1cef33f6e35b79a2a2632fb6869cb2e5fb7afdb65ff9e01d13884e39) | [0xc62b…e708](https://sepolia.uniscan.xyz/tx/0xc62b69b6a9c539ae3fe90dddc39f745d6ca82331fe3d6a0666904b7acdfbe708) |
-| 0.10 USDC  | 4    | Skipped, sent nothing | [0x66b0…0e0c](https://sepolia.uniscan.xyz/tx/0x66b0bc6dcd6fc0ced78cd76583f4d675a4f2acbc69a05120ba173e7d1da10e0c) | [0x4608…24f5](https://lasna.reactscan.net/tx/0x4608a32e7b6e88e8aa4fd64dcf4850be8e2fe1a88c0aa357c22456384a3c24f5) | [0x793f…a04e](https://sepolia.uniscan.xyz/tx/0x793fbf8706c668bcd67594723be17d5f36a08853a6b9303a355f7f4bf5a4a04e) |
+| 1.20 USDC  | 1    | Sent 0.20 USDC        | [0xf33c…0d06](https://sepolia.uniscan.xyz/tx/0xf33c393a34baedf2bdc269bb7d122c733652b7709322848288384c677e720d06) | [0x1057…d05d](https://lasna.reactscan.net/tx/0x10575cea252fe5122060a299431d0209177caadc8096ef4b6e537f25cceed05d) | [0x6be4…41d9](https://sepolia.uniscan.xyz/tx/0x6be469dd6660dd8f51b994a75bbebd4b6e6fff82e1bb300eb270e3204daf41d9) |
+| 0.60 USDC  | 3    | Sent 0.05 USDC        | [0x1c0d…3f41](https://sepolia.uniscan.xyz/tx/0x1c0dd824715e5648d705d6333acc0a31c58ac050a5fd7c236013e1287e6d3f41) | [0x82d3…14b2](https://lasna.reactscan.net/tx/0x82d3a2d72ecb81e4ec5329b968604975fd4de47eab0f59d122e529d8049514b2) | [0x3b83…8422](https://sepolia.uniscan.xyz/tx/0x3b833b455c8d2049731fbf5de73af7f564df3761c195eda9a8c0cabb6ef88422) |
+| 0.10 USDC  | 4    | Skipped, sent nothing | [0xd524…9c48](https://sepolia.uniscan.xyz/tx/0xd524491816c3c9705642f3666db717d53523cfc7ca97da5f55fca912c3839c48) | [0xea4e…62ff](https://lasna.reactscan.net/tx/0xea4e23fef81ff6e34a18f298a5fa71ea51388b00d4a9fbf3487f130212af62ff) | [0x9b19…ad23](https://sepolia.uniscan.xyz/tx/0x9b1962cb1ac8b3aa6ed6563d3f8e34a3353cc4dcb3fa174ca7e77a55b109ad23) |
 
-The 1.20 USDC payment was mined on Unichain at 09:29:01 UTC. The callback was mined at 09:29:03 UTC. The skip has a callback too: the destination receipt contains the Vault and no USDC transfer. The same event still woke the Agent, and the Vault still applied the signed program.
+The 1.20 USDC payment was mined on Unichain at 14:08:49 UTC. The callback was mined at 14:08:52 UTC. The skip has a callback too: the destination receipt contains the Vault and no USDC transfer. The same event still woke the Agent, and the Vault still applied the signed program.
 
 That sweep belongs to this wallet:
 
 | Contract | Address                                                                                                                        |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Agent    | [`0xebDA1C4d66D80CE37AdcE33D0F524645b01CcFf0`](https://lasna.reactscan.net/address/0xebDA1C4d66D80CE37AdcE33D0F524645b01CcFf0) |
-| Vault    | [`0xC15a2BA79c63bd462f362867446E9a33731b814f`](https://sepolia.uniscan.xyz/address/0xC15a2BA79c63bd462f362867446E9a33731b814f) |
+| Agent    | [`0x9934ECb31a427Fc3fac22075b6E0198842729825`](https://lasna.reactscan.net/address/0x9934ECb31a427Fc3fac22075b6E0198842729825) |
+| Vault    | [`0xBf523873d349863BF491218885Ac00FB2A077Aa3`](https://sepolia.uniscan.xyz/address/0xBf523873d349863BF491218885Ac00FB2A077Aa3) |
 
 On the Lasna receipt, the transaction is sent to the system contract. The Agent emits `Dispatched` from inside that call. On Unichain, the settlement transaction is sent to the callback proxy, and the Vault emits `Outcome`.
 
 ## A schedule that fires on the next Lasna block
 
-A second wallet ran a scheduled buy, a recurring transfer, and a large-transfer alert. The buy watches `Cron100` at `0x0000000000000000000000000000000000fffFfF`. Its tick and its `react` are consecutive Lasna blocks, one second apart on Lasna's clock. The swap landed on Unichain three seconds after `react`. The destination receipt moves USDC and WETH through the configured pair.
+The same wallet ran a scheduled buy. It watches `Cron100` at `0x0000000000000000000000000000000000fffFfF`. Its tick and its `react` are consecutive Lasna blocks, one second apart on Lasna's clock. The swap landed on Unichain two seconds after `react`. The destination receipt moves USDC and WETH through the configured pair.
 
-| Workflow                  | Origin                                                                                                                             | Lasna `react`                                                                                                                 | Callback                                                                                                                         |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduled buy             | [Lasna `Cron100`, 10:13:09 UTC](https://lasna.reactscan.net/tx/0x5ba44715cec17b1d754447d29fd46dff7e49838c9909f2dcacb52cb08d0de329) | [Next block, 10:13:10 UTC](https://lasna.reactscan.net/tx/0xc89b6df3119dc50d676a47b68a312e821a32c57cf0f6b84f5eee1251abc85f7f) | [Unichain swap, 10:13:13 UTC](https://sepolia.uniscan.xyz/tx/0xbce50a688b997c5ccbdc12839b50df57b11ffbe8bf30c9331b696d24495ad0dc) |
-| Scheduled buy, second run | [Cron tick](https://lasna.reactscan.net/tx/0x84db004be1e69e504071f599334804808945083e158f47bdb20febd94f821f0c)                     | [react](https://lasna.reactscan.net/tx/0xb270a37d8d349166592d931c5f7ef1f98bb9447fb6cd13dfa614ee8720dc26ee)                    | [Settlement](https://sepolia.uniscan.xyz/tx/0x7769b5b93da5a98681f3be60ec6ee2f8cd751bcb415a2866dee33bf7a65db3c9)                  |
-| Recurring transfer        | [Cron tick](https://lasna.reactscan.net/tx/0xdec71c1cf18b841b5bbc2d21cfd1f138c94de4566d3d3e35490b23897e92f6d0)                     | [react](https://lasna.reactscan.net/tx/0x6c090746325bb6736be55e852be78a36719a17b2292b63b1c5e2965bc77c61b2)                    | [USDC transfer](https://sepolia.uniscan.xyz/tx/0x5c1f5e3678a7ab026e59a70d77117e650930798bb5a1eb4d618ba864ae5e11a4)               |
-| Large-transfer alert      | [Unichain `Transfer`](https://sepolia.uniscan.xyz/tx/0xa742275a08ff7b8cc7b595483d5ca38d4d28bee67324d5b0921c035d45fb4add)           | [react](https://lasna.reactscan.net/tx/0x0ed6f3df9e48b814edf0704c73013876ee88cd9fa579815628d1f8dbf5c010f1)                    | [Alert outcome](https://sepolia.uniscan.xyz/tx/0xa8298ed04430d8d1e1cdac53fc7e564d8cd610bab141110b2e29ca9afc61389a)               |
+| Workflow      | Origin                                                                                                                             | Lasna `react`                                                                                                                 | Callback                                                                                                                         |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Scheduled buy | [Lasna `Cron100`, 14:09:43 UTC](https://lasna.reactscan.net/tx/0x90e7ceab0787e7cb926f2204b41e111d2f0ce059b591d3eb9e9606af2b97422a) | [Next block, 14:09:44 UTC](https://lasna.reactscan.net/tx/0x880bd1a467b7a59a56d41bdad25938d47686f0936c5122f87def8b1f2d7e6001) | [Unichain swap, 14:09:46 UTC](https://sepolia.uniscan.xyz/tx/0x43561295b2dc38ca88cb799ae13608d2b07f43c8aa68b85bcf798ffb6c670e7c) |
 
-| Contract | Address                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Agent    | [`0x0b5948c756d517d9a297bcd800e695381e4fb87c`](https://lasna.reactscan.net/address/0x0b5948c756d517d9a297bcd800e695381e4fb87c) |
-| Vault    | [`0x1fefEe31b60a84583F80ff5063cbe9547D535ccB`](https://sepolia.uniscan.xyz/address/0x1fefEe31b60a84583F80ff5063cbe9547D535ccB) |
-
-The same verification file records a fork of Unichain at block 68,316,592. On that fork every recipe below was settled against the live router and pair: buys, sells, both sweep thresholds, the refill `transferFrom`, the trailing stop, and the cases that correctly skip. Those fork transactions are settlement tests. The tables above are the cross-chain loops.
+Both runs are recorded in [`deployments/workflows-v2-smoke.json`](deployments/workflows-v2-smoke.json), which also names the factories and commit that produced them.
 
 ## What you can leave running
 
@@ -149,10 +140,10 @@ Intervals, expiries, and the weekly reset use timestamps. A per-run cap is the m
 
 | Role                         | Network                 | Contract                 | Address                                                                                                                              |
 | ---------------------------- | ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Current Agent factory        | Reactive Lasna, 5318007 | `WorkflowAgentFactoryV2` | [`0xce6fdd1a509bf18cbe0237cc170279b51b93ad45`](https://lasna.reactscan.net/address/0xce6fdd1a509bf18cbe0237cc170279b51b93ad45)       |
-| Current Vault factory        | Unichain Sepolia, 1301  | `WorkflowVaultFactoryV2` | [`0x6c5aa38e3dc1537fd53c61721ea35f360a70858a`](https://sepolia.uniscan.xyz/address/0x6c5aa38e3dc1537fd53c61721ea35f360a70858a)       |
-| Factory deployment, Lasna    |                         |                          | [0x725a…7e7a](https://lasna.reactscan.net/tx/0x725a5a72af1e1d0ccada973cf38859c23d084c06cca22fcac2b9c74ba5e67e7a) at block 8,891,364  |
-| Factory deployment, Unichain |                         |                          | [0xfced…8ae1](https://sepolia.uniscan.xyz/tx/0xfcedff7c78d7910011848020c0f7f87ae040f0df2f179847b334c4bca6ad8ae1) at block 68,410,306 |
+| Current Agent factory        | Reactive Lasna, 5318007 | `WorkflowAgentFactoryV2` | [`0x5a7c7c075a0cc782c5f6167f2344e83b00937851`](https://lasna.reactscan.net/address/0x5a7c7c075a0cc782c5f6167f2344e83b00937851)       |
+| Current Vault factory        | Unichain Sepolia, 1301  | `WorkflowVaultFactoryV2` | [`0xe09f394c4806a1b8f6dc12a6b8f9538b29392261`](https://sepolia.uniscan.xyz/address/0xe09f394c4806a1b8f6dc12a6b8f9538b29392261)       |
+| Factory deployment, Lasna    |                         |                          | [0xfb74…e0d4](https://lasna.reactscan.net/tx/0xfb74ad83db04ae71521da63ed72344340ffab2256b6d453eba576217c613e0d4) at block 8,977,941  |
+| Factory deployment, Unichain |                         |                          | [0x8454…0157](https://sepolia.uniscan.xyz/tx/0x8454200c24e297ad2ecd6354fdff1364a80a27b141a73ecc6f1a481f32300157) at block 68,502,251 |
 | System contract              | Reactive Lasna          | Reactive Omni            | [`0x8888888888888888888888888888888888888888`](https://lasna.reactscan.net/address/0x8888888888888888888888888888888888888888)       |
 | Callback proxy               | Unichain Sepolia        | Reactive Omni            | [`0x775c9B990ADe401060B78D0e98684eEf8d2466C1`](https://sepolia.uniscan.xyz/address/0x775c9B990ADe401060B78D0e98684eEf8d2466C1)       |
 | Cron                         | Reactive Lasna          | `Cron100`                | [`0x0000000000000000000000000000000000fffFfF`](https://lasna.reactscan.net/address/0x0000000000000000000000000000000000fffFfF)       |
@@ -163,7 +154,7 @@ Intervals, expiries, and the weekly reset use timestamps. A per-run cap is the m
 
 Each wallet calls `create()` on the Lasna factory and receives a clone of `WorkflowAgentV2`. It then calls `create(agent)` on the Unichain factory and receives its own `WorkflowVaultV2`. A second call returns the contract that wallet already owns. The owner links the Vault from the Agent. Setup can resume after either deployment.
 
-The factories that produced the 20 November receipts are `0xc0dd6d68a1907104783041d02348ae78d221aa03` on Lasna and `0xc5163bec77fe1d263716b2b734bab8eb436606b6` on Unichain Sepolia. Earlier pairs stay in [`deployments/lasna.json`](deployments/lasna.json) and [`deployments/unichain-sepolia.json`](deployments/unichain-sepolia.json). Their public proofs stay readable when those Lasna factories are listed in `WORKFLOW_V2_ARCHIVED_DEPLOYMENTS`.
+The factories that produced the 22 November receipts above were deployed from commit `df0b79d` and are the only pair recorded in [`deployments/workflows-v2.json`](deployments/workflows-v2.json). The backend and frontend read their factory addresses and start blocks from that record.
 
 Lasna RPC: `https://lasna-rpc.rnk.dev/`. Unichain Sepolia RPC: `https://sepolia.unichain.org`. Explorers: [lasna.reactscan.net](https://lasna.reactscan.net) and [sepolia.uniscan.xyz](https://sepolia.uniscan.xyz).
 
@@ -177,7 +168,7 @@ Connect a wallet that can sign on both networks. Add Reactive Lasna if the walle
 4. Sign the Unichain authorization, then sign `enable` on Lasna. The review shows the caps before either signature.
 5. Open **Activity** for the path and the receipts. Open **Public proof** for a link you can share. **Workflow costs** shows the credits and a live gas quote.
 
-The app reads chain state through its API. The API has no key that can move Vault principal. Fee estimates from 16 November 2026, and the commands that read the current Reactive coefficients, are in [`docs/cost-model.md`](docs/cost-model.md).
+The app reads chain state through its API. The API has no key that can move Vault principal.
 
 ## Repository
 
@@ -192,9 +183,7 @@ The app reads chain state through its API. The API has no key that can move Vaul
 | `backend/src/workflows/`                   | The indexer and the read API.                                                     |
 | `deployments/`                             | Factory addresses, creation transactions, and the live-loop record.               |
 | `docs/workflows.md`                        | Operator notes for funding, pause, and the weekly budget.                         |
-| `docs/submission-evidence.md`              | The earlier template-rule receipts, including a mirrored swap.                    |
-
-The `contracts/src/agent` and `contracts/src/vault` trees are the earlier one-sentence rules: thirteen fixed templates, a marketplace clone, and a follower that settles a leader's swap inside the follower's own cap. The live mirror pair from 18 November 2026 is in [`docs/measurements.md`](docs/measurements.md). The app's current screens are the workflow builder above.
+| `docs/submission-evidence.md`              | The cross-chain receipts for the workflow runs.                                   |
 
 ## Run the tests
 

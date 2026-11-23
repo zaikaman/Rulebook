@@ -41,19 +41,14 @@ import {
   type SetupStep,
   type useAccountSetup,
 } from '../hooks/useAccountSetup.js';
-import {
-  AGENT_FACTORY_ADDRESS,
-  DEMO_USDC,
-  MIRROR_ENABLED,
-  VAULT_FACTORY_ADDRESS,
-} from '../lib/contracts.js';
+import { DEMO_USDC } from '../lib/contracts.js';
 import {
   isWalletRejection,
   SetupTransactionError,
   WalletAuthorizationError,
 } from '../lib/errors.js';
 import { shortAddress } from '../lib/listings.js';
-import { estimateLasnaSetupFee, estimateUnichainSetupFee, roundUpFee } from '../lib/setupFees.js';
+import { roundUpFee } from '../lib/setupFees.js';
 import {
   allowSetupNetwork,
   checkSetupNetworks,
@@ -224,25 +219,11 @@ function FaucetAddress({ address }: { address: Address }) {
   );
 }
 
-function SetupReview({
-  steps,
-  running,
-  mirror,
-  workflow,
-}: {
-  steps: readonly SetupStep[];
-  running: boolean;
-  mirror: boolean;
-  workflow: boolean;
-}) {
+function SetupReview({ steps, running }: { steps: readonly SetupStep[]; running: boolean }) {
   const actions = {
     agent: { label: 'Create your automation account', network: testnetTokens.react.network.name },
     vault: {
-      label: workflow
-        ? 'Create your vault'
-        : mirror
-          ? 'Sign and create your mirror-only vault'
-          : 'Sign and create your vault',
+      label: 'Create your vault',
       network: testnetTokens.eth.network.name,
     },
     link: {
@@ -257,10 +238,7 @@ function SetupReview({
         {(running ? steps.slice(0, 1) : steps).map((step) => (
           <li key={step} aria-current={running ? 'step' : undefined}>
             <span>{actions[step].label}</span>
-            <small>
-              {actions[step].network}
-              {step === 'vault' && !workflow && ' · 2 approvals'}
-            </small>
+            <small>{actions[step].network}</small>
           </li>
         ))}
       </ol>
@@ -273,18 +251,9 @@ function SetupReview({
   );
 }
 
-export function CreateAccount({
-  setup,
-  onBegin,
-  workflow = false,
-}: {
-  setup: ReturnType<typeof useAccountSetup>;
-  onBegin?: () => void;
-  workflow?: boolean;
-}) {
+export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSetup> }) {
   const { address, connector, isReconnecting } = useAccount();
   const config = useConfig();
-  const [mirrorOwner, setMirrorOwner] = useState<Address>();
   const [tokenReview, setTokenReview] = useState<{
     walletKey: string;
     choice: 'review' | 'continue';
@@ -303,11 +272,9 @@ export function CreateAccount({
     return () => lifetime.abort();
   }, []);
 
-  const mirrorVault = connected && mirrorOwner === address;
   const hasAgent = !!setup.data?.agent;
   const hasVault = !!setup.data?.vault;
   const walletSteps = setup.data ? remainingSetupSteps(setup.data) : [];
-  const configured = workflow || (!!AGENT_FACTORY_ADDRESS && !!VAULT_FACTORY_ADDRESS);
   const query = { enabled: connected, refetchOnWindowFocus: 'always' } as const;
   const react = useBalance({ address, chainId: LASNA_CHAIN_ID, query });
   const eth = useBalance({ address, chainId: UNICHAIN_SEPOLIA_CHAIN_ID, query });
@@ -321,42 +288,18 @@ export function CreateAccount({
   });
 
   const checkingAccount = setup.isLoading || isReconnecting;
-  const feeQuery = { retry: false, refetchOnWindowFocus: 'always' } as const;
-  const checkReactFee = !workflow && connected && configured && !!setup.data && !setup.resuming;
-  const checkEthFee = !workflow && connected && configured && !hasVault && !setup.resuming;
-  const reactFee = useQuery({
-    ...feeQuery,
-    queryKey: ['lasna-setup-fee', address, hasAgent],
-    queryFn: () => estimateLasnaSetupFee(address!, hasAgent),
-    enabled: checkReactFee,
-  });
-  const ethFee = useQuery({
-    ...feeQuery,
-    queryKey: ['unichain-setup-fee', mirrorVault],
-    queryFn: () => estimateUnichainSetupFee(mirrorVault),
-    enabled: checkEthFee,
-  });
-  const estimatingFees = (checkReactFee && reactFee.isLoading) || (checkEthFee && ethFee.isLoading);
   const missing = [
     !react.isError && react.data?.value === 0n ? 'test REACT' : null,
     !hasVault && !eth.isError && eth.data?.value === 0n ? 'test ETH' : null,
   ].filter(Boolean);
-  const topUps = [
-    !react.isError && !!react.data?.value && needsTopUp(react.data.value, reactFee.data)
-      ? 'test REACT'
-      : null,
-    !hasVault && !eth.isError && !!eth.data?.value && needsTopUp(eth.data.value, ethFee.data)
-      ? 'test ETH'
-      : null,
-  ].filter(Boolean);
+
   const balanceError = react.isError || (!hasVault && eth.isError);
   const checkingBalances = react.data === undefined || (!hasVault && eth.data === undefined);
-  const refreshing = react.isFetching || eth.isFetching || reactFee.isFetching || ethFee.isFetching;
+  const refreshing = react.isFetching || eth.isFetching;
   const ready =
     connected &&
     !!connector &&
     walletSteps.length > 0 &&
-    configured &&
     !checkingAccount &&
     !setup.isError &&
     !balanceError &&
@@ -493,7 +436,7 @@ export function CreateAccount({
   const accessRefreshed = walletAccess.data === true;
   const networkAccess = walletAccess.variables === 'add-networks';
   const tokenChoice = tokenReview?.walletKey === walletKey ? tokenReview.choice : undefined;
-  const canAutoAdvance = ready && !estimatingFees && !topUps.length;
+  const canAutoAdvance = ready;
   useEffect(() => {
     if (networksReady && canAutoAdvance && tokenChoice === undefined) {
       setTokenReview({ walletKey, choice: 'continue' });
@@ -534,16 +477,12 @@ export function CreateAccount({
   }
 
   let nextAction = 'Your wallet is ready for setup.';
-  if (!configured) nextAction = 'Account setup is unavailable on this deployment.';
-  else if (setup.resuming) nextAction = 'Follow the wallet prompts to finish setup.';
+  if (setup.resuming) nextAction = 'Follow the wallet prompts to finish setup.';
   else if (checkingAccount) nextAction = 'Checking for an existing account…';
   else if (setup.isError) nextAction = 'Check your account status again to continue.';
   else if (balanceError) nextAction = 'A network did not respond. Check balances again.';
   else if (missing.length) nextAction = `Get ${missing.join(' and ')} to continue.`;
-  else if (topUps.length)
-    nextAction = `Top up ${topUps.join(' and ')} to cover the estimated fees.`;
   else if (checkingBalances) nextAction = 'Checking the wallet balances needed for setup…';
-  else if (estimatingFees) nextAction = 'Estimating the fees for your remaining steps…';
 
   const current = setupStages[stage];
   const accountReadError = setup.error && (
@@ -557,8 +496,8 @@ export function CreateAccount({
   return (
     <AccountSetupFrame
       title={current.title}
-      workflow={workflow}
-      manageAccount={workflow && hasVault}
+      workflow
+      manageAccount={hasVault}
       description={current.description}
       step={current.number}
       connected={connected}
@@ -693,11 +632,7 @@ export function CreateAccount({
                   <p
                     id="account-setup-next"
                     role="status"
-                    data-tone={
-                      balanceError || missing.length > 0 || topUps.length > 0
-                        ? 'warning'
-                        : undefined
-                    }
+                    data-tone={balanceError || missing.length > 0 ? 'warning' : undefined}
                   >
                     {nextAction}
                   </p>
@@ -712,8 +647,6 @@ export function CreateAccount({
                       eth.refetch(options),
                       usdc.refetch(options),
                       setup.refetch(options),
-                      ...(checkReactFee ? [reactFee.refetch(options)] : []),
-                      ...(checkEthFee ? [ethFee.refetch(options)] : []),
                     ]);
                   }}
                 >
@@ -741,9 +674,8 @@ export function CreateAccount({
                   }
                   required
                   connected={connected}
-                  minimum={reactFee.data}
-                  estimating={reactFee.isFetching || checkingAccount}
-                  walletEstimatesFee={workflow}
+                  estimating={checkingAccount}
+                  walletEstimatesFee
                   balance={{
                     value: react.data?.value,
                     decimals: react.data?.decimals ?? 18,
@@ -759,9 +691,8 @@ export function CreateAccount({
                   }
                   required={!hasVault}
                   connected={connected}
-                  minimum={ethFee.data}
-                  estimating={ethFee.isFetching}
-                  walletEstimatesFee={workflow}
+                  estimating={false}
+                  walletEstimatesFee
                   balance={{
                     value: eth.data?.value,
                     decimals: eth.data?.decimals ?? 18,
@@ -770,7 +701,7 @@ export function CreateAccount({
                 />
                 <TokenRow
                   token={testnetTokens.usdc}
-                  purpose={`Optional. You can deposit it during funding if a ${workflow ? 'workflow' : 'rule'} spends USDC.`}
+                  purpose="Optional. You can deposit it during funding if a workflow spends USDC."
                   required={false}
                   connected={connected}
                   balance={{ value: usdc.data, decimals: 6, failed: usdc.isError }}
@@ -794,31 +725,12 @@ export function CreateAccount({
 
         {stage === 'create' && (
           <div className="account-setup__section account-setup__stack">
-            {!workflow && MIRROR_ENABLED && !checkingAccount && !setup.isError && !hasVault && (
-              <label className="app-field">
-                Vault mode
-                <select
-                  className="app-input"
-                  value={mirrorVault ? 'mirror' : 'standard'}
-                  disabled={setup.resuming}
-                  onChange={(event) =>
-                    setMirrorOwner(event.target.value === 'mirror' ? address : undefined)
-                  }
-                >
-                  <option value="standard">Standard vault</option>
-                  <option value="mirror">Mirror-only vault</option>
-                </select>
-                <span className="app-copy">Vault mode is permanent once created.</span>
-              </label>
-            )}
             {accountReadError}
-            {!error &&
-              !setup.resuming &&
-              (balanceError || missing.length > 0 || topUps.length > 0) && (
-                <p role="status" data-tone="warning">
-                  {nextAction} Select “Review test tokens” for details.
-                </p>
-              )}
+            {!error && !setup.resuming && (balanceError || missing.length > 0) && (
+              <p role="status" data-tone="warning">
+                {nextAction} Select “Review test tokens” for details.
+              </p>
+            )}
             {permissionError &&
               !setup.resuming &&
               (accessRefreshed ? (
@@ -882,14 +794,7 @@ export function CreateAccount({
                 )}
               </ErrorState>
             )}
-            {walletSteps.length > 0 && (
-              <SetupReview
-                steps={walletSteps}
-                running={setup.resuming}
-                mirror={mirrorVault}
-                workflow={workflow}
-              />
-            )}
+            {walletSteps.length > 0 && <SetupReview steps={walletSteps} running={setup.resuming} />}
             <div className="account-setup__action account-setup__action--split">
               {!setup.resuming && (
                 <button
@@ -909,12 +814,10 @@ export function CreateAccount({
                 aria-describedby={walletSteps.length > 0 ? 'setup-wallet-instructions' : undefined}
                 onClick={() => {
                   if (!connector || !networksReady) return;
-                  onBegin?.();
                   walletAccess.reset();
                   setup.resume({
                     steps: walletSteps,
                     connectorUid: connector.uid,
-                    mode: mirrorVault ? 'mirror' : undefined,
                   });
                 }}
               >

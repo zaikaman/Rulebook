@@ -9,7 +9,7 @@ import {
   walletActions,
 } from 'viem';
 
-import { ANVIL_RPC_URL, FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
 import { approveSignature, installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
@@ -35,7 +35,7 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   });
   await chain.waitForTransactionReceipt({ hash: transfer });
 
-  await page.goto(FIXTURE_V2_FRONTEND_URL);
+  await page.goto(FIXTURE_FRONTEND_URL);
   await page.getByRole('link', { name: 'Build a workflow' }).first().click();
   await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
   await expect(page.getByText('Step 1 of 5')).toBeVisible();
@@ -70,35 +70,24 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   await page.getByRole('link', { name: 'Back to account', exact: true }).click();
   await expect(review.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('button', { name: 'Continue account setup' }).click();
-  await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
   expect(
     (await walletRequests(page))
       .filter(({ method }) => method === 'eth_sendTransaction')
       .map(({ chainId }) => chainId),
   ).toEqual([LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, LASNA_CHAIN_ID, LASNA_CHAIN_ID]);
 
-  await page.reload();
-  await expect(page.getByText('Step 5 of 5')).toBeVisible();
-  await page.getByRole('button', { name: 'Add REACT' }).click();
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await page.getByRole('button', { name: 'Add ETH' }).click();
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
-  await expect(page.getByRole('heading', { name: 'Your workflow fees are funded' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Add optional USDC' }).click();
   await page.getByLabel('Amount (USDC)').fill('10');
-  await page.getByRole('button', { name: 'Deposit USDC' }).click();
-  await approveSignature(page, 'Unichain Sepolia');
-  await expect(page.getByText('Deposit confirmed.')).toBeVisible();
-  await page.getByRole('button', { name: 'Build your first workflow' }).click();
-  await expect(page).toHaveURL(FIXTURE_V2_FRONTEND_URL + '/workflows/new');
-  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
-
-  await page.goto(FIXTURE_V2_FRONTEND_URL + '/account');
-  await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Move test funds' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review transaction' }).click();
+  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await expect(page.locator('.rb-balance').filter({ hasText: 'Vault USDC' })).toContainText(
     /10\s*USDC/,
   );
+
+  await page.getByRole('link', { name: 'New workflow' }).click();
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/workflows/new');
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
+  await page.getByRole('button', { name: 'Start from scratch' }).click();
+  await expect(page.getByRole('region', { name: 'Workflow graph' })).toBeVisible();
   await expect(page.getByText(/Step \d of 5/)).toHaveCount(0);
 });

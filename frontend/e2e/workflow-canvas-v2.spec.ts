@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { FIXTURE_V2_FRONTEND_URL } from './fixtureConfig';
+import { FIXTURE_FRONTEND_URL } from './fixtureConfig';
 
 /** Library nodes render a suffix such as "Adds a condition", so match the name as a prefix. */
 function nodeName(name: string) {
@@ -10,7 +10,7 @@ test('opens the original 13 recipes and reviews a branching income sweep from th
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 940 });
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows/new`);
   const recipes = page.getByRole('region', { name: 'Workflow recipes' });
   await expect(recipes.getByRole('listitem')).toHaveCount(13);
   await recipes.getByRole('button', { name: 'Income sweep', exact: false }).click();
@@ -47,7 +47,7 @@ test('opens the original 13 recipes and reviews a branching income sweep from th
 
 test('places live balance and refill nodes without dragging on a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows/new`);
   await page.getByRole('button', { name: 'Start from scratch' }).click();
   const library = page.getByRole('complementary', { name: 'Workflow inspector' });
   const libraryTab = library.getByRole('button', { name: 'Library', exact: true });
@@ -72,7 +72,7 @@ for (const viewport of [
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new`);
+    await page.goto(`${FIXTURE_FRONTEND_URL}/workflows/new`);
     await page.getByRole('button', { name: 'Start from scratch' }).click();
 
     const canvas = page.getByLabel('Workflow diagram');

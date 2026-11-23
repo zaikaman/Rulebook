@@ -163,10 +163,7 @@ export function AccountSetupFrame({
         </div>
 
         <div className="account-setup__links">
-          <Link
-            to={workflow ? appRoutes.workflows : appRoutes.rules}
-            className="account-setup__exit"
-          >
+          <Link to={appRoutes.workflows} className="account-setup__exit">
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
             {workflow ? 'Back to workflows' : 'Back to rules'}
           </Link>

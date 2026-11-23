@@ -1,7 +1,7 @@
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
 import { Link } from 'react-router';
-import { appRoutes, legacyWorkspace } from '@/lib/routes.js';
+import { appRoutes } from '@/lib/routes.js';
 import { landingImages } from './landing-images.js';
 
 export function ClosingCta() {
@@ -25,7 +25,7 @@ export function ClosingCta() {
           Get test tokens, set up your account, and create your first automation.
         </p>
         <Link
-          to={legacyWorkspace ? appRoutes.newWorkflow : appRoutes.create}
+          to={appRoutes.create}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
           <span>Build a workflow</span>

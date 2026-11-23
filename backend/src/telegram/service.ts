@@ -1,29 +1,19 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
-  CHAIN_CONFIGS,
-  LASNA_CHAIN_ID,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
-  addressSchema,
-  agentAbi,
-  agentFactoryAbi,
-  executionKindSchema,
-  telegramRuleName,
-  templateIdSchema,
   telegramSettingsSchema,
   telegramSignIn,
-  txHashSchema,
-  uint256Schema,
+  workflowAgentFactoryV2Abi,
+  workflowAgentV2Abi,
   type Address,
   type TelegramChallenge,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { formatUnits, zeroAddress, type Hex } from 'viem';
+import type { Hex } from 'viem';
 import { z } from 'zod';
 
 import type { ChainClients } from '../chain/clients.js';
 import type { TelegramConfig } from '../config.js';
-import type { Repositories } from '../db/repositories/index.js';
 import type { WorkflowTelegramAlerts } from './workflowAlerts.js';
 
 const CHALLENGE_SECONDS = 5 * 60;
@@ -34,48 +24,6 @@ const timestamp = (seconds: number) => new Date(seconds * 1000).toISOString();
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const token = () => randomBytes(32).toString('base64url');
 const storedSession = z.object({ expires_at: z.string().nullable() });
-const pendingNotifications = z.array(
-  z.object({
-    chain_id: z.union([z.literal(LASNA_CHAIN_ID), z.literal(UNICHAIN_SEPOLIA_CHAIN_ID)]),
-    tx_hash: txHashSchema,
-    log_index: z.number().int(),
-    agent: addressSchema,
-    rule_id: z.string(),
-    template: templateIdSchema.nullable(),
-    observed: uint256Schema.nullable(),
-    block_time: z.string(),
-    eligible: z.boolean(),
-    execution: z
-      .object({
-        kind: executionKindSchema,
-        vault: addressSchema,
-        tokenIn: addressSchema.nullable(),
-        tokenOut: addressSchema.nullable(),
-        amountIn: uint256Schema.nullable(),
-        amountOut: uint256Schema.nullable(),
-      })
-      .nullable(),
-  }),
-);
-type Notification = z.infer<typeof pendingNotifications>[number];
-type Execution = NonNullable<Notification['execution']>;
-
-function tokenAmount(amount: bigint, token: Address | null) {
-  const funds = CHAIN_CONFIGS.get(UNICHAIN_SEPOLIA_CHAIN_ID);
-  if (token && token === funds?.usdc.toLowerCase()) return `${formatUnits(amount, 6)} USDC`;
-  if (token && token === funds?.weth.toLowerCase()) return `${formatUnits(amount, 18)} WETH`;
-  return `${amount} token base units${token ? ` (${token})` : ''}`;
-}
-
-function describeExecution({ kind, tokenIn, tokenOut, amountIn, amountOut }: Execution) {
-  if (kind === 'mirrored') return 'Mirrored trade confirmed';
-  if (amountIn && amountOut && tokenOut && tokenOut !== zeroAddress) {
-    return `Swapped ${tokenAmount(amountIn, tokenIn)} for ${tokenAmount(amountOut, tokenOut)}`;
-  }
-  if (amountIn) return `Transferred ${tokenAmount(amountIn, tokenIn)}`;
-  if (amountOut) return `Deposited ${tokenAmount(amountOut, tokenIn)}`;
-  return 'Execution confirmed';
-}
 
 export function sameSecret(actual: unknown, expected: string): boolean {
   return (
@@ -85,7 +33,6 @@ export function sameSecret(actual: unknown, expected: string): boolean {
 }
 
 export interface TelegramOwnership {
-  verifyExecutionVault(agent: Address, chainId: number, vault: Address): Promise<boolean>;
   verify(
     agent: Address,
     owner: Address,
@@ -99,21 +46,12 @@ export function telegramOwnership(
   factories: readonly Address[],
 ): TelegramOwnership {
   return {
-    async verifyExecutionVault(agent, chainId, vault) {
-      const linked = await clients.lasna.readContract({
-        address: agent,
-        abi: agentAbi,
-        functionName: 'getVault',
-        args: [BigInt(chainId)],
-      });
-      return linked.toLowerCase() === vault;
-    },
     async verify(agent, owner, challenge, signature) {
       const registrations = await Promise.allSettled(
         factories.map((factory) =>
           clients.lasna.readContract({
             address: factory,
-            abi: agentFactoryAbi,
+            abi: workflowAgentFactoryV2Abi,
             functionName: 'agentOf',
             args: [owner],
           }),
@@ -130,7 +68,7 @@ export function telegramOwnership(
       }
       const currentOwner = await clients.lasna.readContract({
         address: agent,
-        abi: agentAbi,
+        abi: workflowAgentV2Abi,
         functionName: 'owner',
       });
       if (currentOwner.toLowerCase() !== owner) return false;
@@ -212,7 +150,6 @@ export class TelegramService {
       'rpc' | 'createSession' | 'session' | 'forgetBrowser'
     >,
     private readonly ownership: TelegramOwnership,
-    private readonly repositories: Repositories,
     private readonly workflowAlerts?: WorkflowTelegramAlerts,
   ) {}
 
@@ -369,7 +306,7 @@ export class TelegramService {
         p_agent: agent,
         p_enabled: body.enabled ?? null,
         p_mode: body.defaultMode ?? null,
-        p_rule: body.ruleId ?? null,
+        p_rule: null,
         p_preference: body.preference ?? null,
       },
       z.boolean(),
@@ -407,13 +344,7 @@ export class TelegramService {
   }
 
   async processNotifications() {
-    const results = await Promise.allSettled([
-      this.processRuleNotifications(),
-      this.workflowAlerts?.process(),
-    ]);
-    if (results.some(({ status }) => status === 'rejected')) {
-      throw new Error('One or more Telegram notifications remain staged for retry.');
-    }
+    await this.workflowAlerts?.process();
   }
 
   processUnfinished() {
@@ -430,81 +361,6 @@ export class TelegramService {
         pendingWorkflowAlerts: z.number(),
         oldestWorkflowSeconds: z.number(),
       }),
-    );
-  }
-
-  private async processRuleNotifications() {
-    let failed = false;
-    for (const event of await this.db.rpc(
-      'telegram_pending_notifications',
-      {},
-      pendingNotifications,
-    )) {
-      try {
-        await this.enqueue(event);
-      } catch {
-        failed = true;
-        await this.db.rpc(
-          'telegram_defer_notification',
-          {
-            p_chain: event.chain_id,
-            p_tx: event.tx_hash,
-            p_index: event.log_index,
-          },
-          z.null(),
-        );
-      }
-    }
-    if (failed) throw new Error('One or more Telegram notifications remain staged for retry.');
-  }
-
-  private async description(event: Notification) {
-    if (!event.eligible) return null;
-    if (event.execution) {
-      if (
-        !(await this.ownership.verifyExecutionVault(
-          event.agent,
-          event.chain_id,
-          event.execution.vault,
-        ))
-      )
-        return null;
-      return describeExecution(event.execution);
-    }
-    if (event.observed === null) return null;
-    if (event.template === 13) {
-      const rule = await this.repositories.rules.get(event.agent, event.rule_id);
-      const tokenIn = addressSchema.safeParse(rule?.token_in);
-      return `Observed ${tokenAmount(event.observed, tokenIn.success ? tokenIn.data : null)}`;
-    }
-    return `Observed ${formatUnits(event.observed, 18)} USDC per WETH`;
-  }
-
-  private async enqueue(event: Notification) {
-    const { agent, template, rule_id: ruleId } = event;
-    const description = await this.description(event);
-    const label = event.execution?.kind === 'mirrored' ? 'Mirror' : telegramRuleName(template);
-    const message =
-      description === null
-        ? null
-        : [
-            `Rulebook · ${label}`,
-            `Rule #${ruleId} · ${description}`,
-            `${this.config.appOrigin}/rules/${agent}/${ruleId}`,
-            `${CHAIN_CONFIGS.get(event.chain_id)?.explorerUrl}/tx/${event.tx_hash}`,
-          ].join('\n');
-    await this.db.rpc(
-      'telegram_enqueue',
-      {
-        p_agent: agent,
-        p_chain: event.chain_id,
-        p_tx: event.tx_hash,
-        p_index: event.log_index,
-        p_rule: ruleId,
-        p_time: event.block_time,
-        p_message: message,
-      },
-      z.boolean(),
     );
   }
 }

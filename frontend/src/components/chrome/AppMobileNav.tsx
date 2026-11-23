@@ -1,21 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 
-import { appRoutes, isActiveRoute, legacyWorkspace } from '@/lib/routes';
+import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
 import { workflowNavigation } from './workflowNavigation.js';
 
-const legacyNavigation = [
-  { label: 'Rules', href: appRoutes.rules, exact: false },
-  { label: 'Marketplace', href: appRoutes.marketplace, exact: true },
-  { label: 'Proof', href: appRoutes.proof, exact: false },
-  { label: 'Account', href: appRoutes.account, exact: true },
-  { label: 'Cost', href: appRoutes.cost, exact: true },
-] as const;
-
-const items = legacyWorkspace ? legacyNavigation : workflowNavigation;
+const items = workflowNavigation;
 
 export function AppMobileNav() {
   const { pathname } = useLocation();
@@ -44,15 +36,14 @@ export function AppMobileNav() {
         </Link>
         <div className="flex min-w-0 items-center gap-2">
           <WalletControl />
-          {!legacyWorkspace && <NewWorkflowLink compact />}
+          <NewWorkflowLink compact />
         </div>
       </div>
       <nav ref={navRef} aria-label="Workspace" className="app-mobile-tabs">
         {items.map((item) => {
-          const active =
-            'exact' in item
-              ? isActiveRoute(pathname, item.href, item.exact)
-              : [item.href, ...item.activeOn].some((path) => isActiveRoute(pathname, path, false));
+          const active = [item.href, ...item.activeOn].some((path) =>
+            isActiveRoute(pathname, path, false),
+          );
           return (
             <Link
               key={item.href}

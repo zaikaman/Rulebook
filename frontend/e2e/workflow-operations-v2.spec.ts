@@ -5,7 +5,7 @@ import {
   type WorkflowV2RunProof,
 } from '@rulebook/shared';
 
-import { ANVIL_RPC_URL, FIXTURE_V2_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
 import { approveSignature, fundFixtureWorkflowVault, installWallet } from './wallet';
 
 const owner = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
@@ -15,15 +15,15 @@ test('warns about low credits and opens the right funding action and workflow Ac
   page,
 }) => {
   await installWallet(page, owner);
-  await page.goto(FIXTURE_V2_FRONTEND_URL + '/create');
+  await page.goto(FIXTURE_FRONTEND_URL + '/create');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
-  await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await fundFixtureWorkflowVault(owner, 10_000_000n);
-  await page.goto(FIXTURE_V2_FRONTEND_URL + '/account?credit=execution');
+  await page.goto(FIXTURE_FRONTEND_URL + '/account?credit=execution');
   await expect(page.getByLabel('Funding action')).toHaveValue('run-credit');
-  await page.goBack();
-  await page.getByRole('button', { name: 'Build a workflow and fund later' }).click();
+  await page.getByRole('link', { name: 'New workflow' }).click();
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await page.getByRole('button', { name: title, exact: false }).click();
   await page.getByLabel('Interval in seconds').fill('3600');
   await page.getByLabel('USDC to send').fill('0.02');
@@ -109,7 +109,7 @@ test('finds a public workflow proof from workspace costs without connecting a wa
     });
   });
 
-  await page.goto(FIXTURE_V2_FRONTEND_URL + '/workflows');
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows');
   await page
     .getByRole('navigation', { name: 'Workspace' })
     .getByRole('link', { name: 'Costs' })
@@ -120,7 +120,7 @@ test('finds a public workflow proof from workspace costs without connecting a wa
   await page.getByRole('link', { name: 'Open workflow proof' }).click();
   await page.getByLabel('Run ID').fill(run.id);
   await page.getByRole('button', { name: 'Open proof' }).click();
-  await expect(page).toHaveURL(`${FIXTURE_V2_FRONTEND_URL}/runs/${run.id}`);
+  await expect(page).toHaveURL(`${FIXTURE_FRONTEND_URL}/runs/${run.id}`);
   await expect(page.getByRole('heading', { name: 'Workflow run proof' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Run outcome' })).toContainText('confirmed');
   await expect(page.getByRole('region', { name: 'Run outcome' })).toContainText('Path 3');

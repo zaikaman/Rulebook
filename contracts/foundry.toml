@@ -11,9 +11,8 @@ optimizer_runs = 200
 via_ir = true
 bytecode_hash = "none"
 cbor_metadata = false
-# TemplateCatalog.sol is generated from the shared manifest; the parity test reads it back.
+# The deployment scripts write their records here.
 fs_permissions = [
-  { access = "read", path = "../packages/shared/manifest" },
   { access = "read-write", path = "../deployments" },
 ]
 

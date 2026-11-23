@@ -5,7 +5,7 @@
 
 ## Context
 
-Three runtimes must agree on one template catalog and one set of ABIs: Solidity
+Three runtimes must agree on one set of Workflow V2 ABIs and chain constants: Solidity
 contracts, a Node indexer/API, and a browser SPA. Foundry and npm resolve artifacts
 differently, and a contest build has one person maintaining all of it.
 
@@ -14,9 +14,8 @@ differently, and a contest build has one person maintaining all of it.
 1. **npm workspaces monorepo** with `contracts`, `packages/shared`, `backend`, `frontend`.
    npm was chosen over pnpm because both Heroku's Node buildpack and Vercel's build handle
    npm workspaces with no extra configuration.
-2. **`packages/shared` is generated, not hand-maintained**: the template manifest is the
-   single source, and a generator emits Solidity constants, TypeScript types, the docs
-   table, and test fixtures.
+2. **`packages/shared` ABIs are generated, not hand-maintained**: a script copies the
+   compiled Workflow V2 artifacts into `src/abi` and regenerates `src/abi/index.ts`.
 3. **`module: nodenext` in backend/shared** so emitted ESM actually runs on Node 24 without
    a bundler. Relative imports inside those packages carry `.js` extensions.
 4. **Pinned versions**: Solidity `0.8.29` (Reactive's `AbstractCallback` requires `^0.8.29`),

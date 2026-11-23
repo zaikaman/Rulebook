@@ -23,7 +23,10 @@ export function SiteFooter() {
               {label}
             </a>
           ))}
-          <Link to={appRoutes.rules} className="text-white transition-colors hover:text-blue-200">
+          <Link
+            to={appRoutes.workflows}
+            className="text-white transition-colors hover:text-blue-200"
+          >
             Open Rulebook
           </Link>
         </nav>

@@ -29,11 +29,11 @@ Each workflow maps to an on-chain program signed by the user. A wallet-owned Age
 ## Capabilities and Constraints
 
 - Workflows are constructed on an interactive canvas with a node library of triggers, checks, and actions, or started from 13 curated recipes across trading, payments, and wallet safety. [Workflows documentation](docs/workflows.md)
-- Each check can split execution into Yes and Otherwise paths, supporting up to 3 checks and 3 ordered actions per path (15 nodes total per program). [Composer documentation](docs/composer.md)
+- Each check can split execution into Yes and Otherwise paths, supporting up to 3 checks and 3 ordered actions per path (15 nodes total per program).
 - An AI-powered Rulewright drafting assistant helps translate natural language requirements into validated workflow drafts without bypassing explicit wallet approval.
 - Weekly spending budgets can be configured per asset (USDC and WETH) on the Vault, enforcing spending ceilings that reset every Monday at 00:00 UTC. [Weekly budgets runbook](docs/runbooks/weekly-budgets.md)
 - Users can inspect, pause, resume, edit, and adjust budgets for their workflows. Vault owners retain full custody and can withdraw principal while automations are paused.
-- The Marketplace enables owners to publish verified workflows from their Agent's on-chain program hash. Others can copy them into clean drafts with empty limits and recipients. [Marketplace documentation](docs/marketplace.md)
+- The Marketplace enables owners to publish verified workflows from their Agent's on-chain program hash. Others can copy them into clean drafts with empty limits and recipients.
 - Telegram integration provides background monitoring for low gas reserves, required check-ins, and execution outcomes. [Telegram notifications runbook](docs/runbooks/telegram-notifications.md)
 
 ## Brand Commitments
@@ -42,7 +42,7 @@ Use the name Rulebook. Existing product copy uses concrete examples and names th
 
 ## Evidence on Hand
 
-The repository records explorer receipts, measured fees, validation coverage, and multi-path testnet execution proofs. It identifies outcomes verified on testnet (including the 3-path branching income sweep, scheduled buy, recurring transfer, and alerts) and flows verified with local fixtures and fork settlements. Use those records when making claims about settlement, latency, cost, or verification. [Submission evidence](docs/submission-evidence.md), [testnet measurements](docs/measurements.md), [cost model](docs/cost-model.md)
+The repository records explorer receipts, measured fees, validation coverage, and multi-path testnet execution proofs. It identifies outcomes verified on testnet (including the 3-path branching income sweep, scheduled buy, recurring transfer, and alerts) and flows verified with local fixtures and fork settlements. Use those records when making claims about settlement, latency, cost, or verification. [Submission evidence](docs/submission-evidence.md)
 
 ## Product Principles
 
@@ -53,4 +53,4 @@ The repository records explorer receipts, measured fees, validation coverage, an
 
 ## Accessibility & Inclusion
 
-Preserve keyboard operation for choosing workflow settings, navigating the node canvas, and entering amounts. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Accessibility tests](frontend/test/a11y.test.tsx), [composer keyboard tests](frontend/test/composer.a11y.test.tsx)
+Preserve keyboard operation for choosing workflow settings, navigating the node canvas, and entering amounts. Keep wallet review dialogs keyboard-accessible, with visible focus and Escape cancellation. Respect reduced-motion preferences and convey network and rule status in text. [Design-system browser checks](frontend/e2e/design-system.spec.ts)

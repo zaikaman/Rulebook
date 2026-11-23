@@ -1242,7 +1242,6 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
       title="Account & Vault"
       wallet={setupWallet}
       workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}`}
-      manageFunds={funding !== undefined && !startWorkflow}
     >
       {() => (startWorkflow ? builder : account)}
     </WalletAccountSetupGate>

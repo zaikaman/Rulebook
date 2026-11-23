@@ -1,6 +1,5 @@
 import {
   LASNA_CHAIN_ID,
-  telegramRuleName,
   telegramSignIn,
   type Address,
   type TelegramPreference,
@@ -218,9 +217,9 @@ function TelegramSettingsPanel(props: NotificationProps) {
 
   const items = workflow
     ? (current?.workflows ?? [])
-    : (current?.rules.map(({ id, template, preference }) => ({
+    : (current?.rules.map(({ id, preference }) => ({
         id,
-        title: `Rule #${id} · ${telegramRuleName(template)}`,
+        title: `Rule #${id}`,
         preference,
       })) ?? []);
   const selected = items.find(({ id }) => id === itemId);

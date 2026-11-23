@@ -1,16 +1,9 @@
-import {
-  ArrowLeft01Icon,
-  Book02Icon,
-  Coins01Icon,
-  DocumentValidationIcon,
-  Store01Icon,
-  Wallet01Icon,
-} from '@hugeicons/core-free-icons';
+import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import type { ComponentProps } from 'react';
 import { Link, useLocation } from 'react-router';
 
-import { appRoutes, isActiveRoute, legacyWorkspace } from '@/lib/routes';
+import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { Wordmark } from './Wordmark.js';
 import { workflowNavigation } from './workflowNavigation.js';
@@ -44,19 +37,6 @@ const groups: readonly { readonly label: string; readonly items: readonly RailIt
   },
 ];
 
-const legacyGroups: readonly { readonly label: string; readonly items: readonly RailItem[] }[] = [
-  {
-    label: 'Workspace',
-    items: [
-      { label: 'Rules', href: appRoutes.rules, icon: Book02Icon },
-      { label: 'Marketplace', href: appRoutes.marketplace, icon: Store01Icon },
-      { label: 'Proof Explorer', href: appRoutes.proof, icon: DocumentValidationIcon },
-      { label: 'Account & Vault', href: appRoutes.account, icon: Wallet01Icon },
-      { label: 'Cost Model', href: appRoutes.cost, icon: Coins01Icon },
-    ],
-  },
-];
-
 function RailLink({ label, href, icon, activeOn = [], exact }: RailItem) {
   const { pathname } = useLocation();
   const active =
@@ -86,14 +66,12 @@ export function AppSidebar() {
         <span className="rb-chip rb-chip--plain">Testnet</span>
       </div>
 
-      {!legacyWorkspace && (
-        <div className="app-rail-cta">
-          <NewWorkflowLink />
-        </div>
-      )}
+      <div className="app-rail-cta">
+        <NewWorkflowLink />
+      </div>
 
       <nav aria-label="Workspace" className="app-rail-nav">
-        {(legacyWorkspace ? legacyGroups : groups).map((group) => (
+        {groups.map((group) => (
           <div key={group.label} className="app-nav-group">
             <p className="app-nav-label">{group.label}</p>
             {group.items.map((item) => (

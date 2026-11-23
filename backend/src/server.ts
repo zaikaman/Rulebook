@@ -5,25 +5,16 @@ import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { createChainClients, lasnaChain, ping, unichainSepoliaChain } from './chain/clients.js';
-import { createProofSource } from './chain/proofSource.js';
-import { PublicSponsorSource } from './chain/sponsorSource.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
-import { createRepositories } from './db/repositories/index.js';
-import { SupabaseStore } from './db/store.js';
 import type { ServerDeps } from './deps.js';
-import { CursorStore } from './indexer/cursors.js';
-import { IndexerPoller } from './indexer/poller.js';
 import { registerRoutes } from './api/routes/index.js';
-import { PublicAccountChain } from './sponsor/accountChain.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
 import { TelegramPoller } from './telegram/poller.js';
 import { TelegramWorker } from './telegram/worker.js';
 import { TelegramFundingAlerts } from './telegram/fundingAlerts.js';
 import { WorkflowTelegramAlerts } from './telegram/workflowAlerts.js';
-import { WorkflowIndexer } from './workflows/indexer.js';
 import { WorkflowV2Indexer } from './workflows/indexerV2.js';
-import { registerWorkflowRoutes } from './workflows/routes.js';
 import { registerWorkflowV2Routes } from './workflows/routesV2.js';
 import { RulewrightService } from './rulewright/service.js';
 
@@ -89,9 +80,6 @@ export function buildServer(
 export async function startServer(): Promise<void> {
   const config = loadConfig();
   const supabase = createServiceClient(config);
-  const store = new SupabaseStore(supabase);
-  const repositories = createRepositories(store);
-  const cursors = new CursorStore(store);
   const clients = createChainClients(config);
   const v2 = config.workflowsV2;
   const rulewright =
@@ -125,19 +113,13 @@ export async function startServer(): Promise<void> {
           config.telegram,
           telegramDb,
           telegramOwnership(clients, config.telegram.factories),
-          repositories,
           workflowAlerts,
         )
       : undefined;
   const { app } = buildServer({
     config,
-    repositories,
-    cursors,
     telegram,
     rulewright,
-    accountChain: new PublicAccountChain(clients),
-    proofSource: createProofSource(clients),
-    sponsorSource: new PublicSponsorSource(clients),
     databaseReachable: () => probeDatabase(supabase),
     rpcHealth: async () => [
       { chain_id: lasnaChain.id, rpc_ok: await ping(clients.lasna) },
@@ -145,19 +127,13 @@ export async function startServer(): Promise<void> {
     ],
   });
 
-  registerWorkflowRoutes(app, supabase);
-  const workflowIndexer =
-    config.workflows && config.INDEXER_ENABLED
-      ? new WorkflowIndexer(supabase, clients, config.workflows, app.log)
-      : undefined;
-  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory, config.workflowV2Archived);
+  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory);
   const workflowV2Indexer =
     v2 && config.INDEXER_ENABLED
       ? new WorkflowV2Indexer(supabase, clients, v2, app.log, telegram !== undefined)
       : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   const rulewrightRun = rulewright?.run(app.log, rulewrightShutdown.signal);
-  void workflowIndexer?.run();
   void workflowV2Indexer?.run();
 
   const worker =
@@ -168,30 +144,10 @@ export async function startServer(): Promise<void> {
   const telegramPoller =
     telegram?.config.updates === 'polling' ? new TelegramPoller(telegram, app.log) : undefined;
   const telegramPolling = telegramPoller?.run();
-  let poller: IndexerPoller | undefined;
-  if (config.INDEXER_ENABLED && !config.workflows) {
-    const startBlocks = {
-      [lasnaChain.id]: config.INDEXER_START_BLOCK_LASNA,
-      [unichainSepoliaChain.id]: config.INDEXER_START_BLOCK_UNICHAIN,
-    };
-    poller = new IndexerPoller({
-      repositories,
-      store,
-      cursors,
-      clients,
-      startBlocks,
-      confirmationDepth: { [lasnaChain.id]: 20, [unichainSepoliaChain.id]: 12 },
-      // Unichain Sepolia rejects eth_getLogs ranges wider than 1000 blocks.
-      rangeSize: 1_000,
-      stageTelegramNotifications: telegram !== undefined,
-    });
-    void poller.run(Object.keys(startBlocks).map(Number));
-  }
+
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.once(signal, () => {
       rulewrightShutdown.abort();
-      poller?.stop();
-      workflowIndexer?.stop();
       workflowV2Indexer?.stop();
       worker?.stop();
       telegramPoller?.stop();

@@ -3,26 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Generated ABIs, per-chain config, the 13-template manifest, zod boundary schemas, and the rule encoder.",
+  "description": "Generated Workflow V2 ABIs, per-chain config, zod boundary schemas, the workflow encoder, and the recipe catalog.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./manifest/templates.json": "./manifest/templates.json",
-    "./manifest/seed-rules.json": "./manifest/seed-rules.json"
+    }
   },
   "files": [
-    "dist",
-    "manifest"
+    "dist"
   ],
   "scripts": {
     "build": "tsc --build tsconfig.json --force",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "generate": "tsx scripts/copy-abis.ts && tsx scripts/generate.ts"
+    "generate": "tsx scripts/copy-abis.ts"
   },
   "dependencies": {
     "viem": "^2.21.0",

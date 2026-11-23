@@ -1,37 +1,62 @@
 {
-  "workflow": "0x2edf3d39609dd438321913507b32428ba912e78dae74d5d18741ce3abbc130f6",
-  "agent": "0xebDA1C4d66D80CE37AdcE33D0F524645b01CcFf0",
-  "vault": "0xC15a2BA79c63bd462f362867446E9a33731b814f",
-  "runs": [
-    {
-      "inputUsdcBaseUnits": "1200000",
+  "agentFactory": "0x5a7c7c075a0cc782c5f6167f2344e83b00937851",
+  "vaultFactory": "0xe09f394c4806a1b8f6dc12a6b8f9538b29392261",
+  "deploymentCommit": "df0b79d",
+  "agent": "0x9934ECb31a427Fc3fac22075b6E0198842729825",
+  "vault": "0xBf523873d349863BF491218885Ac00FB2A077Aa3",
+  "recipient": "0xC2500C19C77de23443AF5B559a3dADB283DAD41C",
+  "sweep": {
+    "title": "Income sweep smoke",
+    "workflow": "0xbda4244734780253840817ac1a0e776cc7abfa0b5019d294f4c924dc5b07f925",
+    "programHash": "0xf2341dd9dd84586573235586fea1c22c9b2151fb4daba4ff6861ef6a0cd6b9e1",
+    "weeklyUsdcLimitBaseUnits": "1000000",
+    "authorizationTransaction": "0x02536ebb00cf5a4be7dd13d51e75904139efed882ad880bb463bed763ea3a497",
+    "runs": [
+      {
+        "spentUsdcBaseUnits": "200000",
+        "runId": "0x59f96446cdf0db4df84bb832602eac26ff3332263a9b3eab1c4e2e59e1715948",
+        "path": 1,
+        "status": "confirmed",
+        "originTransaction": "0xf33c393a34baedf2bdc269bb7d122c733652b7709322848288384c677e720d06",
+        "lasnaTransaction": "0x10575cea252fe5122060a299431d0209177caadc8096ef4b6e537f25cceed05d",
+        "destinationTransaction": "0x6be469dd6660dd8f51b994a75bbebd4b6e6fff82e1bb300eb270e3204daf41d9",
+        "inputUsdcBaseUnits": "1200000"
+      },
+      {
+        "spentUsdcBaseUnits": "50000",
+        "runId": "0x4ef4ff415582d1c2e323f82c4f50c948d2ec651c0b332e86bf4f9183214644b3",
+        "path": 3,
+        "status": "confirmed",
+        "originTransaction": "0x1c0dd824715e5648d705d6333acc0a31c58ac050a5fd7c236013e1287e6d3f41",
+        "lasnaTransaction": "0x82d3a2d72ecb81e4ec5329b968604975fd4de47eab0f59d122e529d8049514b2",
+        "destinationTransaction": "0x3b833b455c8d2049731fbf5de73af7f564df3761c195eda9a8c0cabb6ef88422",
+        "inputUsdcBaseUnits": "600000"
+      },
+      {
+        "spentUsdcBaseUnits": "0",
+        "runId": "0xe823f44224e6384e60b820bccd94ce5b8092e798342894fa34cb9fa63515b464",
+        "path": 4,
+        "status": "skipped",
+        "originTransaction": "0xd524491816c3c9705642f3666db717d53523cfc7ca97da5f55fca912c3839c48",
+        "lasnaTransaction": "0xea4e23fef81ff6e34a18f298a5fa71ea51388b00d4a9fbf3487f130212af62ff",
+        "destinationTransaction": "0x9b1962cb1ac8b3aa6ed6563d3f8e34a3353cc4dcb3fa174ca7e77a55b109ad23",
+        "inputUsdcBaseUnits": "100000"
+      }
+    ]
+  },
+  "schedule": {
+    "title": "Scheduled buy smoke",
+    "workflow": "0x25d2957d702cea8f46f2f4d7c6ffd37408cc91903dee08cacd90260cb2fb8b82",
+    "programHash": "0x2e0d3d38ad4cf308c885e95d8d437624d9685ee48414dd1b8af7f73b4afa88f8",
+    "authorizationTransaction": "0xb910c60cb53d635f044ad71984de15416f2c421411e1af080f6c826b94826eac",
+    "run": {
       "spentUsdcBaseUnits": "200000",
-      "runId": "0x9fcb56adee124a3e9eabb365fcae08af3daa0ca19080adf3599e3e0e2cdd32bb",
-      "path": 1,
+      "runId": "0x6d8b767fca6e81032f8befc082b787ae61e274a43062751b275b89253c0f1cc8",
+      "path": 0,
       "status": "confirmed",
-      "originTransaction": "0x7e60500a6ebdd08ef4cfd561d40030f01d8342233655781c341c6d4d3c19b636",
-      "lasnaTransaction": "0xf96813b6dab95a46947a0befae6c002c54dd2b43de1860d5f675c64d89609a48",
-      "destinationTransaction": "0x45a1fd070af63bfb19218a639ddb96430f8626806a08c08b8aa51a1a7459f7fd"
-    },
-    {
-      "inputUsdcBaseUnits": "600000",
-      "spentUsdcBaseUnits": "50000",
-      "runId": "0x69b437ab07bae9c84bd4bae00ad38b36cb161de0cb527bde7f468c2fdcd03b41",
-      "path": 3,
-      "status": "confirmed",
-      "originTransaction": "0x0b1a50868ff8bf8f439811ddd9aa245d6a707c9603dbe9b6dc06c7933b08f1a9",
-      "lasnaTransaction": "0x2823d68d1cef33f6e35b79a2a2632fb6869cb2e5fb7afdb65ff9e01d13884e39",
-      "destinationTransaction": "0xc62b69b6a9c539ae3fe90dddc39f745d6ca82331fe3d6a0666904b7acdfbe708"
-    },
-    {
-      "inputUsdcBaseUnits": "100000",
-      "spentUsdcBaseUnits": "0",
-      "runId": "0xcc6f1729ee3edcc4f39704c148445fb99b13908125e0647bc0f87b825d67865e",
-      "path": 4,
-      "status": "skipped",
-      "originTransaction": "0x66b0bc6dcd6fc0ced78cd76583f4d675a4f2acbc69a05120ba173e7d1da10e0c",
-      "lasnaTransaction": "0x4608a32e7b6e88e8aa4fd64dcf4850be8e2fe1a88c0aa357c22456384a3c24f5",
-      "destinationTransaction": "0x793fbf8706c668bcd67594723be17d5f36a08853a6b9303a355f7f4bf5a4a04e"
+      "originTransaction": "0x90e7ceab0787e7cb926f2204b41e111d2f0ce059b591d3eb9e9606af2b97422a",
+      "lasnaTransaction": "0x880bd1a467b7a59a56d41bdad25938d47686f0936c5122f87def8b1f2d7e6001",
+      "destinationTransaction": "0x43561295b2dc38ca88cb799ae13608d2b07f43c8aa68b85bcf798ffb6c670e7c"
     }
-  ]
+  }
 }

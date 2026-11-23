@@ -21,7 +21,7 @@ import { unichainSepolia } from 'viem/chains';
 import {
   ANVIL_RPC_URL,
   FIXTURE_API_URL,
-  FIXTURE_V2_FRONTEND_URL,
+  FIXTURE_FRONTEND_URL,
   SPONSOR_ADDRESS,
   WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
@@ -105,7 +105,7 @@ test('opens a newly published listing while indexing catches up', async ({ page,
   await context.route(api, async (route) => {
     if (!indexed) return route.continue();
     await route.fulfill({
-      headers: { 'access-control-allow-origin': FIXTURE_V2_FRONTEND_URL },
+      headers: { 'access-control-allow-origin': FIXTURE_FRONTEND_URL },
       json: {
         id,
         title: published.title,
@@ -120,13 +120,13 @@ test('opens a newly published listing while indexing catches up', async ({ page,
     });
   });
 
-  const detail = `${FIXTURE_V2_FRONTEND_URL}/marketplace/${id}`;
+  const detail = `${FIXTURE_FRONTEND_URL}/marketplace/${id}`;
   await page.goto(detail);
   await expect(page.getByRole('status')).toContainText('Syncing listing');
   await expect(page.getByRole('link', { name: 'Copy as draft' })).toHaveCount(0);
   const copy = await context.newPage();
   await copy.setViewportSize({ width: 390, height: 844 });
-  await copy.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows/new?copy=${id}`);
+  await copy.goto(`${FIXTURE_FRONTEND_URL}/workflows/new?copy=${id}`);
   await expect(copy.getByRole('status')).toContainText('Syncing listing');
   await expect(copy.getByLabel('Workflow name')).toHaveCount(0);
 
@@ -158,7 +158,7 @@ test('opens a newly published listing while indexing catches up', async ({ page,
   );
   await expect(page.getByRole('link', { name: 'Copy as draft' })).toHaveCount(0);
 
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/marketplace/${published.listing + 1n}`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/marketplace/${published.listing + 1n}`);
   await expect(page.getByRole('alert')).toContainText(
     'This listing is no longer public or does not exist.',
   );

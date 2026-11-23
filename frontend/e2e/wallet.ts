@@ -4,8 +4,6 @@ import {
   LASNA_CHAIN_ID,
   SUPPORTED_CHAIN_IDS,
   UNICHAIN_SEPOLIA_CHAIN_ID,
-  vaultAbi,
-  vaultFactoryAbi,
   workflowVaultFactoryV2Abi,
 } from '@rulebook/shared';
 import {
@@ -23,7 +21,6 @@ import {
   ANVIL_RPC_URL,
   SPONSOR_ADDRESS,
   USER_ADDRESS,
-  VAULT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig.js';
 
@@ -286,48 +283,5 @@ export async function fundFixtureWorkflowVault(owner: Address, amount: bigint) {
   for (const hash of [mint, transfer]) {
     const receipt = await client.waitForTransactionReceipt({ hash });
     if (receipt.status !== 'success') throw new Error('Fixture workflow vault funding reverted.');
-  }
-}
-
-export async function fundFixtureVault(owner: Address, amount: bigint) {
-  const transport = http(ANVIL_RPC_URL);
-  const client = createPublicClient({ transport });
-  const wallet = createWalletClient({ transport });
-  const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
-  const vault = await client.readContract({
-    address: VAULT_FACTORY_ADDRESS,
-    abi: vaultFactoryAbi,
-    functionName: 'vaultOf',
-    args: [owner],
-  });
-  if (vault === zeroAddress) throw new Error('Fixture vault has not been deployed.');
-
-  const mint = await wallet.writeContract({
-    address: token,
-    abi: parseAbi(['function mint(address to, uint256 amount)']),
-    functionName: 'mint',
-    args: [owner, amount],
-    account: SPONSOR_ADDRESS,
-    chain: null,
-  });
-  const approval = await wallet.writeContract({
-    address: token,
-    abi: erc20Abi,
-    functionName: 'approve',
-    args: [vault, amount],
-    account: owner,
-    chain: null,
-  });
-  const deposit = await wallet.writeContract({
-    address: vault,
-    abi: vaultAbi,
-    functionName: 'deposit',
-    args: [token, amount],
-    account: owner,
-    chain: null,
-  });
-  for (const hash of [mint, approval, deposit]) {
-    const receipt = await client.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success') throw new Error('Fixture vault funding reverted.');
   }
 }

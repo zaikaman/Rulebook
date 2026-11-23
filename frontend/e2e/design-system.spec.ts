@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { FIXTURE_V2_FRONTEND_URL } from './fixtureConfig';
+import { FIXTURE_FRONTEND_URL } from './fixtureConfig';
 
 interface ResolvedStyles {
   readonly canvas: string;
@@ -49,7 +49,7 @@ async function resolvedStyles(page: import('@playwright/test').Page): Promise<Re
 
 test('resolves the core token contract on workspace pages', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows`);
   await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
 
   const styles = await resolvedStyles(page);
@@ -60,13 +60,13 @@ test('resolves the core token contract on workspace pages', async ({ page }) => 
 });
 
 test('uses the shared callout and toolbar recipes on primary routes', async ({ page }) => {
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/workflows`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/workflows`);
   const callout = page.locator('.rb-callout').first();
   await expect(callout).toBeVisible();
   await expect(callout.getByText('Connect a wallet to load your workflows')).toBeVisible();
   await expect(page.locator('.rb-alert')).toHaveCount(0);
 
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/marketplace`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/marketplace`);
   await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible();
   await expect(page.locator('.rb-toolbar')).toBeVisible();
   await expect(page.getByRole('searchbox')).toBeVisible();
@@ -74,7 +74,7 @@ test('uses the shared callout and toolbar recipes on primary routes', async ({ p
 
 test('keeps onboarding on the five-step rail at both breakpoints', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${FIXTURE_V2_FRONTEND_URL}/create`);
+  await page.goto(`${FIXTURE_FRONTEND_URL}/create`);
   await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Account setup progress' }).locator('li'),
@@ -100,7 +100,7 @@ test('captures the key surfaces at desktop and mobile', async ({ page }, testInf
   ]) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     for (const route of routes) {
-      await page.goto(`${FIXTURE_V2_FRONTEND_URL}${route.path}`);
+      await page.goto(`${FIXTURE_FRONTEND_URL}${route.path}`);
       await page.waitForLoadState('networkidle');
       await page.screenshot({
         path: testInfo.outputPath(`${route.name}-${viewport.suffix}.png`),

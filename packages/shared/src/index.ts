@@ -1,10 +1,8 @@
 /**
- * @rulebook/shared — generated ABIs, per-chain config, the 13-template manifest, boundary
- * schemas, and the one rule encoder.
+ * @rulebook/shared — generated Workflow V2 ABIs, per-chain config, boundary schemas, the
+ * workflow program encoder, and the Rulewright protocol.
  */
 export * from './chains.js';
-export * from './encode.js';
-export * from './generated/templates.js';
 export * from './schemas.js';
 export * from './telegram.js';
 export * from './workflows.js';
@@ -16,16 +14,7 @@ export * from './workflowV2Draft.js';
 export * from './workflowV2Recipes.js';
 export * from './rulewright.js';
 export {
-  agentAbi,
-  agentFactoryAbi,
   abis,
-  ruleRegistryAbi,
-  vaultAbi,
-  vaultFactoryAbi,
-  workflowAgentAbi,
-  workflowVaultAbi,
-  workflowDirectoryAbi,
-  workflowVaultFactoryAbi,
   workflowAgentV2Abi,
   workflowAgentFactoryV2Abi,
   workflowVaultV2Abi,

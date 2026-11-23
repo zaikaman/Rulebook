@@ -37,7 +37,7 @@ export function SiteNav() {
 
         <div className="flex items-center gap-2">
           <Link
-            to={appRoutes.rules}
+            to={appRoutes.workflows}
             className="group relative flex min-h-10 items-center gap-2 rounded-full bg-neutral-900 px-4 text-xs font-medium text-white transition-all hover:bg-neutral-800"
             style={bagBorder}
           >

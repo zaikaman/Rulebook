@@ -764,6 +764,7 @@ export function WorkflowBuilderV2() {
           : undefined
       }
       recipe={recipe}
+      startBlank={params.get('template') === 'blank'}
     />
   );
 }
@@ -798,11 +799,13 @@ function Editor({
   id,
   original,
   recipe,
+  startBlank = false,
   storageKey,
 }: {
   id?: Hex;
   original?: V2Draft;
   recipe?: WorkflowV2RecipeId;
+  startBlank?: boolean;
   storageKey: string;
 }) {
   const wallet = useWorkflowV2Wallet();
@@ -821,7 +824,7 @@ function Editor({
   const [workflowId] = useState(
     () => id ?? saved?.id ?? bytesToHex(crypto.getRandomValues(new Uint8Array(32))),
   );
-  const [recipes, setRecipes] = useState(!original && !saved);
+  const [recipes, setRecipes] = useState(!original && !saved && !startBlank);
   const [rulewrightOpen, setRulewrightOpen] = useState(false);
   const rulewrightSession = useRef<RulewrightSession>(undefined);
   const [selected, pick] = useState<NodeTool>();

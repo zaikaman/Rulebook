@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Rulebook indexer, API, and Telegram notification worker. Holds no key that can move principal.",
+  "description": "Rulebook Workflow V2 indexer, API, and Telegram notification worker. Holds no key that can move principal.",
   "main": "dist/server.js",
   "engines": {
     "node": ">=24"
@@ -15,11 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
-    "telegram:webhook": "node --env-file-if-exists=.env --import tsx scripts/telegram-webhook.ts",
-    "reindex": "node --env-file-if-exists=.env --import tsx src/indexer/backfill.ts",
-    "seed:marketplace": "tsx scripts/seed-marketplace.ts",
-    "seed:mirror": "node --env-file-if-exists=.env --import tsx scripts/seed-mirror.ts",
-    "verify:reconcile": "node --env-file-if-exists=.env --import tsx scripts/reconcile.ts"
+    "telegram:webhook": "node --env-file-if-exists=.env --import tsx scripts/telegram-webhook.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

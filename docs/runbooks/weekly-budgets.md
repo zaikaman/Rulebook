@@ -15,16 +15,15 @@ The Agent mirrors the budget the Vault publishes in `BudgetSynced` (limits, spen
 
 Deploy `DeployWorkflowsV2.s.sol:DeployWorkflowsV2` on Reactive Lasna and Unichain Sepolia from the same commit. The script creates `WorkflowAgentFactoryV2` on Lasna and `WorkflowVaultFactoryV2` on Unichain Sepolia; the Vault factory creates its own `WorkflowProgramValidatorV2`.
 
-Record the new addresses in `deployments/workflows-v2.json` with the transaction hash, block, source commit, creation-input hash, and runtime code hash. Keep every earlier factory entry in `deployments/lasna.json` and `deployments/unichain-sepolia.json`; do not rewrite historical addresses or receipts.
+Record the new addresses in `deployments/workflows-v2.json` with the transaction hash, block, source commit, creation-input hash, and runtime code hash. The record holds only the active pair; the backend, the frontend, and the release job read it directly.
 
 ## Switch the app and indexer together
 
 Set the same values on the backend and frontend:
 
-- `WORKFLOW_V2_DEPLOYMENT` and `VITE_WORKFLOW_V2_DEPLOYMENT`: the new Lasna and Unichain factory addresses with their start blocks.
-- `WORKFLOW_V2_ARCHIVED_DEPLOYMENTS`: a JSON array of earlier Lasna factory addresses whose indexed public proofs must stay readable. The backend uses this list only for `/v3/runs/:id`; the indexer continues to write the current deployment.
+- `WORKFLOW_V2_DEPLOYMENT` and `VITE_WORKFLOW_V2_DEPLOYMENT`: the Lasna and Unichain factory addresses with their start blocks.
 
-The database deployment key is the Lasna factory address. Rows from earlier deployments stay in `workflow_v2_*` tables. Cursors are per deployment, so the new indexer starts at the new start block without replaying the old one.
+The database deployment key is the Lasna factory address, so the new indexer starts at the new start block without replaying an earlier one.
 
 Deploy the frontend with `VITE_WORKFLOW_V2_ACTIVATION=true` only after the smoke test passes.
 
@@ -36,11 +35,10 @@ Use a funded workflow on the new factories and record every receipt:
 2. Lower a limit below the week's spend, or spend the remaining amount, then let the next eligible event evaluate. Confirm the Agent requests no callback: no `Dispatched` event and no new Activity row, no Unichain transaction, no token balance moved, and the workflow still active. A callback that was already in flight still settles as `SKIPPED` with reason `WeeklyBudgetExceeded` and still shows **Run would exceed the weekly spending budget** in Activity and the public proof; that remains the last line of defense.
 3. Confirm the approved increase with `setWeeklyBudget`, then let the next eligible event evaluate. Confirm the run dispatches again, the schedule and inactivity window did not restart, and the earlier spend is still counted in `weeklyBudget`.
 4. Confirm the reset behavior without a limit change: a workflow that spent last week's full limit dispatches again from ten minutes past Monday 00:00 UTC.
-5. Open a public proof from the previous factory pair and confirm the archived lookup still resolves it.
 
 ## Rollback
 
-The old factories remain deployed and their records remain in the repository. Because an Agent cannot link a second Vault, rollback is a release-process action: restore the previous `WORKFLOW_V2_DEPLOYMENT` on both the frontend and backend, keep the new Lasna factory in `WORKFLOW_V2_ARCHIVED_DEPLOYMENTS`, and redeploy the matching frontend. Do not delete indexed rows from the new deployment.
+Because an Agent cannot link a second Vault, rollback is a release-process action: restore the previous `WORKFLOW_V2_DEPLOYMENT` on both the frontend and backend, restore the matching record in `deployments/workflows-v2.json`, and redeploy the matching frontend. Do not delete indexed rows from the new deployment.
 
 ## Release gate
 

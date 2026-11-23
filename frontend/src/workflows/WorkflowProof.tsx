@@ -197,7 +197,7 @@ export function WorkflowProof() {
     <section className="app-page">
       <PageHeading
         title="Workflow run proof"
-        description="Chain records indexed from the configured or an archived Workflow V2 deployment."
+        description="Chain records indexed from the configured Workflow V2 deployment."
         aside={
           <div className="rb-action-row">
             {proof.data && proof.data.status !== 'confirmed' && (
