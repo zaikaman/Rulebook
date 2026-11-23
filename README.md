@@ -2,6 +2,8 @@
 
 Rulebook is a Set It and Forget It entry for the [Reactive Omni Buildathon](https://dorahacks.io/hackathon/reactive-omni-buildathon). It lets a person who can connect a wallet leave a personal automation running: buy on a schedule, forward part of an incoming payment, refill a balance, sell when a pool price moves, or pay a chosen wallet after a long silence.
 
+The hosted app is at [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app).
+
 You describe the workflow in the app. Your wallet owns an Agent on Reactive Lasna and a Vault on Unichain Sepolia. The Agent subscribes to the logs that workflow needs, evaluates them in `react`, and asks Reactive to call the Vault. The Vault checks the program you signed and then swaps, transfers, refills, records an alert, or records a skip. Stopping the app leaves a funded workflow running.
 
 Testnet only. You fund the Vault and the two network credits yourself.
@@ -138,29 +140,26 @@ Intervals, expiries, and the weekly reset use timestamps. A per-run cap is the m
 
 ## Contracts and networks
 
-| Role                         | Network                 | Contract                 | Address                                                                                                                              |
-| ---------------------------- | ----------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Current Agent factory        | Reactive Lasna, 5318007 | `WorkflowAgentFactoryV2` | [`0x5a7c7c075a0cc782c5f6167f2344e83b00937851`](https://lasna.reactscan.net/address/0x5a7c7c075a0cc782c5f6167f2344e83b00937851)       |
-| Current Vault factory        | Unichain Sepolia, 1301  | `WorkflowVaultFactoryV2` | [`0xe09f394c4806a1b8f6dc12a6b8f9538b29392261`](https://sepolia.uniscan.xyz/address/0xe09f394c4806a1b8f6dc12a6b8f9538b29392261)       |
-| Factory deployment, Lasna    |                         |                          | [0xfb74…e0d4](https://lasna.reactscan.net/tx/0xfb74ad83db04ae71521da63ed72344340ffab2256b6d453eba576217c613e0d4) at block 8,977,941  |
-| Factory deployment, Unichain |                         |                          | [0x8454…0157](https://sepolia.uniscan.xyz/tx/0x8454200c24e297ad2ecd6354fdff1364a80a27b141a73ecc6f1a481f32300157) at block 68,502,251 |
-| System contract              | Reactive Lasna          | Reactive Omni            | [`0x8888888888888888888888888888888888888888`](https://lasna.reactscan.net/address/0x8888888888888888888888888888888888888888)       |
-| Callback proxy               | Unichain Sepolia        | Reactive Omni            | [`0x775c9B990ADe401060B78D0e98684eEf8d2466C1`](https://sepolia.uniscan.xyz/address/0x775c9B990ADe401060B78D0e98684eEf8d2466C1)       |
-| Cron                         | Reactive Lasna          | `Cron100`                | [`0x0000000000000000000000000000000000fffFfF`](https://lasna.reactscan.net/address/0x0000000000000000000000000000000000fffFfF)       |
-| USDC                         | Unichain Sepolia        |                          | [`0x31d0220469e10c4E71834a79b1f276d740d3768F`](https://sepolia.uniscan.xyz/address/0x31d0220469e10c4E71834a79b1f276d740d3768F)       |
-| WETH                         | Unichain Sepolia        |                          | [`0x4200000000000000000000000000000000000006`](https://sepolia.uniscan.xyz/address/0x4200000000000000000000000000000000000006)       |
-| Pair                         | Unichain Sepolia        |                          | [`0x1d8698365321D6DcE1F7141c380C866b012eE9dA`](https://sepolia.uniscan.xyz/address/0x1d8698365321D6DcE1F7141c380C866b012eE9dA)       |
-| Router                       | Unichain Sepolia        |                          | [`0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF`](https://sepolia.uniscan.xyz/address/0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF)       |
+| Role                 | Network                               | Contract                                            | Address                                                                                                                        |
+| -------------------- | ------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Current factory pair | Lasna 5318007 + Unichain Sepolia 1301 | `WorkflowAgentFactoryV2` / `WorkflowVaultFactoryV2` | See [`deployments/workflows-v2.json`](deployments/workflows-v2.json) for addresses, blocks, transactions, and bytecode hashes  |
+| System contract      | Reactive Lasna                        | Reactive Omni                                       | [`0x8888888888888888888888888888888888888888`](https://lasna.reactscan.net/address/0x8888888888888888888888888888888888888888) |
+| Callback proxy       | Unichain Sepolia                      | Reactive Omni                                       | [`0x775c9B990ADe401060B78D0e98684eEf8d2466C1`](https://sepolia.uniscan.xyz/address/0x775c9B990ADe401060B78D0e98684eEf8d2466C1) |
+| Cron                 | Reactive Lasna                        | `Cron100`                                           | [`0x0000000000000000000000000000000000fffFfF`](https://lasna.reactscan.net/address/0x0000000000000000000000000000000000fffFfF) |
+| USDC                 | Unichain Sepolia                      |                                                     | [`0x31d0220469e10c4E71834a79b1f276d740d3768F`](https://sepolia.uniscan.xyz/address/0x31d0220469e10c4E71834a79b1f276d740d3768F) |
+| WETH                 | Unichain Sepolia                      |                                                     | [`0x4200000000000000000000000000000000000006`](https://sepolia.uniscan.xyz/address/0x4200000000000000000000000000000000000006) |
+| Pair                 | Unichain Sepolia                      |                                                     | [`0x1d8698365321D6DcE1F7141c380C866b012eE9dA`](https://sepolia.uniscan.xyz/address/0x1d8698365321D6DcE1F7141c380C866b012eE9dA) |
+| Router               | Unichain Sepolia                      |                                                     | [`0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF`](https://sepolia.uniscan.xyz/address/0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF) |
 
 Each wallet calls `create()` on the Lasna factory and receives a clone of `WorkflowAgentV2`. It then calls `create(agent)` on the Unichain factory and receives its own `WorkflowVaultV2`. A second call returns the contract that wallet already owns. The owner links the Vault from the Agent. Setup can resume after either deployment.
 
-The factories that produced the 22 November receipts above were deployed from commit `df0b79d` and are the only pair recorded in [`deployments/workflows-v2.json`](deployments/workflows-v2.json). The backend and frontend read their factory addresses and start blocks from that record.
+The current factory pair, its deployment transactions, indexer start blocks, and bytecode hashes live only in [`deployments/workflows-v2.json`](deployments/workflows-v2.json). The backend, the frontend, and the release job read that record, so this README never repeats deployment addresses. The receipts at the top of this file were produced by an earlier deployment; regenerate them with [`scripts/smoke-workflows-v2.ts`](scripts/smoke-workflows-v2.ts) against the current record.
 
 Lasna RPC: `https://lasna-rpc.rnk.dev/`. Unichain Sepolia RPC: `https://sepolia.unichain.org`. Explorers: [lasna.reactscan.net](https://lasna.reactscan.net) and [sepolia.uniscan.xyz](https://sepolia.uniscan.xyz).
 
 ## Using the app
 
-Connect a wallet that can sign on both networks. Add Reactive Lasna if the wallet asks: chain id `5318007`, the RPC above, and symbol `REACT`.
+Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the frontend locally (see [Run the tests](#run-the-tests)). Connect a wallet that can sign on both networks. Add Reactive Lasna if the wallet asks: chain id `5318007`, the RPC above, and symbol `REACT`.
 
 1. Open **Account & Vault**. Create the Agent on Lasna, create the Vault on Unichain Sepolia, and link them. Each step is a transaction from your wallet. If one of them is already deployed, setup continues from the missing step.
 2. Fund three balances, shown separately. Vault USDC pays for buys, transfers, and refunds. Vault WETH is used by workflows that sell WETH. Execution credit is testnet ETH deposited to the callback proxy for your Vault. Watching credit is testnet REACT deposited to the Lasna system contract for your Agent.

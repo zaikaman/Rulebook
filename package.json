@@ -23,6 +23,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "generate": "npm run generate -w packages/shared",
+    "deploy:workflows": "node scripts/deploy-workflows-v2.mjs",
+    "check:deployments": "node scripts/deploy-workflows-v2.mjs --check",
     "check": "node scripts/check.mjs",
     "check:design": "node scripts/design-check.mjs",
     "verify": "npm run check",

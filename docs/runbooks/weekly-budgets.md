@@ -4,6 +4,8 @@ Weekly budgets are stored on each `WorkflowVaultV2` and enforced in the atomic s
 
 The Agent mirrors the budget the Vault publishes in `BudgetSynced` (limits, spend, week start, revision) on every settlement and limit change, and records the smallest USDC and WETH amount each program path can consume. A triggering event whose paths are all guaranteed to exceed the mirrored week is not dispatched, so it costs neither a callback fee nor a Unichain transaction. The mirror is never larger than the Vault's own spend and never ahead of the week the Vault settles against, so gating can only drop runs the Vault would reject. A path that spends nothing, such as an alert, always dispatches. The schedule is not advanced by a gated tick, so the next tick fires as soon as the week resets or the limits are raised.
 
+A gated payment or transfer trigger needs the waiting list because its origin log never repeats. The Agent parks the run (bounded to eight per workflow, deduplicated on the origin log) and retries it when the Vault publishes a new `BudgetSynced` snapshot or a Lasna cron tick observes the weekly reset. The cron subscription exists only while the waiting list is non-empty, and each retry dispatches at most one parked run per workflow so a batch can never outrun the mirrored spend. Disabling, re-enabling, or closing a workflow drops its waiting list.
+
 ## Preflight
 
 1. Run `forge test` in `contracts`; the weekly matrix covers exact limits, independent USDC and WETH totals, percentage payments, refills, multi-action rollback, duplicate callbacks, failed runs, Monday boundaries, edits, pauses, stale edits, published budget snapshots, gated dispatches, zero-cost alert paths, reordered snapshots, and the cross-chain week-reset skew.
@@ -33,8 +35,8 @@ Use a funded workflow on the new factories and record every receipt:
 
 1. Settle one run whose gross USDC or WETH input is within the weekly limit. Confirm the `Outcome` status is `CONFIRMED`, `weeklyBudget` reports the increased spend, and the receipt carries a `BudgetSynced` event with the same limits, spend, and week start.
 2. Lower a limit below the week's spend, or spend the remaining amount, then let the next eligible event evaluate. Confirm the Agent requests no callback: no `Dispatched` event and no new Activity row, no Unichain transaction, no token balance moved, and the workflow still active. A callback that was already in flight still settles as `SKIPPED` with reason `WeeklyBudgetExceeded` and still shows **Run would exceed the weekly spending budget** in Activity and the public proof; that remains the last line of defense.
-3. Confirm the approved increase with `setWeeklyBudget`, then let the next eligible event evaluate. Confirm the run dispatches again, the schedule and inactivity window did not restart, and the earlier spend is still counted in `weeklyBudget`.
-4. Confirm the reset behavior without a limit change: a workflow that spent last week's full limit dispatches again from ten minutes past Monday 00:00 UTC.
+3. Confirm the approved increase with `setWeeklyBudget`, then let the next eligible event evaluate. Confirm the run dispatches again, the schedule and inactivity window did not restart, and the earlier spend is still counted in `weeklyBudget`. A payment or transfer run parked in step 2 settles from the waiting list without a new origin event.
+4. Confirm the reset behavior without a limit change: a workflow that spent last week's full limit dispatches again from ten minutes past Monday 00:00 UTC, and a parked payment or transfer run dispatches from the waiting list on the first cron tick after that boundary.
 
 ## Rollback
 

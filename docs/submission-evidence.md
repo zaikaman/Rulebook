@@ -32,23 +32,23 @@ See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 
 ## Verified automated evidence
 
-- **Contracts** — 54 Foundry tests pass with zero skips. Coverage of `src/workflow/v2` is 88.8% line and 62.8% branch ([coverage summary](../contracts/.coverage-summary.json)).
+- **Contracts** — 59 Foundry tests pass with zero skips. Coverage of `src/workflow/v2` is 89.7% line and 63.2% branch ([coverage summary](../contracts/.coverage-summary.json)).
 - **Backend** — 33 Vitest tests cover workflow indexing, activity, proof reads, Rulewright, and Telegram linking.
 - **Frontend** — 42 Vitest tests and 59 Playwright tests cover account onboarding, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
 - **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses and indexer start blocks for Reactive Lasna and Unichain Sepolia.
 
 ### Submission checklist
 
-| Requirement                              | Result                                                                                 |
-| ---------------------------------------- | -------------------------------------------------------------------------------------- |
-| Public source repository and MIT license | GitHub reported `PUBLIC`. The repository includes the MIT license.                     |
-| Active Workflow V2 Agent factory         | Lasna factory `0x5a7c7c075a0cc782c5f6167f2344e83b00937851`.                            |
-| Active Workflow V2 Vault factory         | Unichain Sepolia factory `0xe09f394c4806a1b8f6dc12a6b8f9538b29392261`.                 |
-| Origin → Reactive → callback             | Verified live loops linked above.                                                      |
-| Demo video under three minutes           | The recorded walkthrough names the fixtures and shows the testnet settlement receipts. |
+| Requirement                              | Result                                                                                                                     |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Public source repository and MIT license | GitHub reported `PUBLIC`. The repository includes the MIT license.                                                         |
+| Active Workflow V2 factory pair          | Recorded with addresses, blocks, and bytecode hashes in [deployments/workflows-v2.json](../deployments/workflows-v2.json). |
+| Origin → Reactive → callback             | Verified live loops linked above.                                                                                          |
+| Hosted app                               | [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app).                                                                |
+| Demo video under three minutes           | Not published yet. The walkthrough is recorded against the hosted app before submission.                                   |
 
+- [Hosted app](https://rulebook-chi.vercel.app)
 - [Public repository](https://github.com/zaikaman/Rulebook)
-- [Active Lasna Agent Factory](https://lasna.reactscan.net/address/0x5a7c7c075a0cc782c5f6167f2344e83b00937851)
-- [Active Unichain Vault Factory](https://sepolia.uniscan.xyz/address/0xe09f394c4806a1b8f6dc12a6b8f9538b29392261)
-- [Lasna V2 Smoke Agent](https://lasna.reactscan.net/address/0x9934ECb31a427Fc3fac22075b6E0198842729825)
-- [Unichain V2 Smoke Vault](https://sepolia.uniscan.xyz/address/0xBf523873d349863BF491218885Ac00FB2A077Aa3)
+- [Active Workflow V2 factory pair](../deployments/workflows-v2.json)
+- [Lasna V2 Smoke Agent (recorded receipt)](https://lasna.reactscan.net/address/0x9934ECb31a427Fc3fac22075b6E0198842729825)
+- [Unichain V2 Smoke Vault (recorded receipt)](https://sepolia.uniscan.xyz/address/0xBf523873d349863BF491218885Ac00FB2A077Aa3)

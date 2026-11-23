@@ -85,6 +85,8 @@ contract WorkflowV2SettlementTest is Test {
     bytes32 private constant WORKFLOW = keccak256("workflow");
     uint32 private constant LASNA = 5_318_007;
     uint256 private constant CRON = uint256(keccak256("Cron100(uint256)"));
+    uint256 private constant BUDGET_SYNCED =
+        uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
 
     MockERC20 private usdc;
     MockERC20 private weth;
@@ -229,6 +231,108 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(_deliver(_run(103, P.PAYMENT, 0.1e6)), vault.SKIPPED());
         assertEq(_deliver(_run(102, P.PAYMENT, 0.6e6)), vault.CONFIRMED());
         assertEq(usdc.balanceOf(RECIPIENT), 0.25e6);
+    }
+
+    function testBudgetBlockedPaymentIsParkedAndRetriedWhenTheLimitRises() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 2e6);
+        IReactive.LogRecord memory payment = _paymentLog(101, 1e6);
+
+        _syncBudget(1e6, 1e6, 1);
+        vm.prank(address(system));
+        agent.react(payment);
+        vm.prank(address(system));
+        agent.react(payment);
+        assertEq(system.requestCount(), 0);
+        assertEq(agent.pendingRuns(WORKFLOW), 1, "the blocked origin is parked once");
+        assertEq(system.subscribeCount(), 3, "the waiting list holds the cron retry subscription");
+
+        _syncBudget(3e6, 1e6, 2);
+        assertEq(system.requestCount(), 1, "raising the limit retries the parked run");
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        assertEq(system.unsubscribeCount(), 1, "an empty waiting list releases the cron");
+        _deliverRequest(0);
+        assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+
+        vm.prank(address(system));
+        agent.react(payment);
+        assertEq(system.requestCount(), 1, "a dispatched origin stays deduplicated");
+    }
+
+    function testParkedTransferIsRetriedWhenTheLimitRises() public {
+        P.Program memory program =
+            _program(P.TRANSFER, _branch(P.AMOUNT_ABOVE, 2e6, _action(P.SEND, 0.5e6, RECIPIENT)));
+        program.source = address(usdc);
+        _enable(program);
+        usdc.mint(address(vault), 2e6);
+        IReactive.LogRecord memory transfer = _paymentLog(101, 10e6);
+        transfer._contract = address(usdc);
+
+        _syncBudget(1e6, 1e6, 1);
+        vm.prank(address(system));
+        agent.react(transfer);
+        assertEq(system.requestCount(), 0);
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+
+        _syncBudget(2e6, 1e6, 2);
+        assertEq(system.requestCount(), 1);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        _deliverRequest(0);
+        assertEq(vault.outcomes(_runId(transfer.tx_hash)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 0.5e6);
+    }
+
+    function testParkedPaymentRetriesOnCronAfterTheWeekResets() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 2e6);
+        IReactive.LogRecord memory payment = _paymentLog(101, 1e6);
+
+        _syncBudget(1e6, 1e6, 1);
+        vm.prank(address(system));
+        agent.react(payment);
+        assertEq(system.requestCount(), 0);
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+
+        vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
+        _cron(1);
+        assertEq(system.requestCount(), 1, "a cron tick after the reset retries the run");
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        _deliverRequest(0);
+        assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+    }
+
+    function testDisablingAWorkflowDropsItsParkedRuns() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 2e6);
+        IReactive.LogRecord memory payment = _paymentLog(101, 1e6);
+        _syncBudget(1e6, 1e6, 1);
+        vm.prank(address(system));
+        agent.react(payment);
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+
+        vm.prank(OWNER);
+        agent.disable(WORKFLOW, 1);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+
+        vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
+        _cron(1);
+        assertEq(system.requestCount(), 0, "a disabled workflow is never retried");
+    }
+
+    function testWaitingListIsBoundedAndReportsDrops() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 2e6);
+        _syncBudget(1e6, 1e6, 1);
+
+        for (uint256 index; index < 9; ++index) {
+            IReactive.LogRecord memory payment = _paymentLog(101 + index, 1e6);
+            vm.prank(address(system));
+            agent.react(payment);
+        }
+        assertEq(agent.pendingRuns(WORKFLOW), 8, "the waiting list is bounded");
+        assertEq(system.requestCount(), 0);
     }
 
     function testPriceAlertConfirmsOnceAtTheTarget() public {
@@ -614,6 +718,49 @@ contract WorkflowV2SettlementTest is Test {
                 address(agent), WORKFLOW, P.UNICHAIN_SEPOLIA, bytes32(transaction), uint64(0)
             )
         );
+    }
+
+    function _paymentLog(uint256 transaction, uint256 amount)
+        private
+        view
+        returns (IReactive.LogRecord memory payment)
+    {
+        payment.chain_id = P.UNICHAIN_SEPOLIA;
+        payment._contract = ChainConfig.unichainSepolia().usdc;
+        payment.topic_0 = uint256(keccak256("Transfer(address,address,uint256)"));
+        payment.topic_1 = uint160(RECIPIENT);
+        payment.topic_2 = uint160(address(vault));
+        payment.block_number = transaction;
+        payment.tx_hash = transaction;
+        payment.data = abi.encode(amount);
+    }
+
+    function _cron(uint256 offset) private {
+        uint256 number = block.number + offset;
+        IReactive.LogRecord memory log;
+        log.chain_id = LASNA;
+        log._contract = ChainConfig.lasna().cronSource;
+        log.topic_0 = CRON;
+        log.topic_1 = number;
+        log.block_number = number;
+        log.tx_hash = number;
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function _syncBudget(uint96 usdcLimit, uint128 usdcSpent, uint32 revision) private {
+        IReactive.LogRecord memory log;
+        log.chain_id = P.UNICHAIN_SEPOLIA;
+        log._contract = address(vault);
+        log.topic_0 = BUDGET_SYNCED;
+        log.topic_1 = uint256(WORKFLOW);
+        log.block_number = block.number;
+        log.tx_hash = uint256(keccak256(abi.encode("budget", revision)));
+        log.data = abi.encode(
+            usdcLimit, uint96(0), usdcSpent, uint128(0), uint64(block.timestamp), revision
+        );
+        vm.prank(address(system));
+        agent.react(log);
     }
 
     function _sync(uint64 origin, uint112 quotePerWeth) private {

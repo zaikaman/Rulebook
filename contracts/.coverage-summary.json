@@ -2,10 +2,10 @@
   "minimumLinePercent": 80,
   "minimumBranchPercent": 55,
   "tests": {
-    "passed": 54,
+    "passed": 59,
     "failed": 0,
     "skipped": 0
   },
-  "lines": 88.8,
-  "branches": 62.8
+  "lines": 89.7,
+  "branches": 63.2
 }

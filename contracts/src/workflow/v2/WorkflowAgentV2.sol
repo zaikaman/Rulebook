@@ -28,6 +28,9 @@ contract WorkflowAgentV2 is AbstractPayer {
     uint64 private constant LIFETIME = 10 minutes;
     uint64 private constant CALLBACK_GAS = 850_000;
     uint256 private constant MAX_ACTIVE = 4;
+    // Bounds the per-workflow waiting list so a burst of blocked triggers can never make a cron
+    // retry or a later budget sync unbounded. Oldest runs are kept; the newest is reported dropped.
+    uint256 private constant MAX_PENDING = 8;
     uint64 private constant WEEK = 7 days;
     // Unix time zero is a Thursday, so this shift floors timestamps to Monday 00:00 UTC, matching
     // the Vault's week boundary exactly.
@@ -89,8 +92,23 @@ contract WorkflowAgentV2 is AbstractPayer {
         bool known;
     }
 
+    /// @notice A budget-blocked payment or transfer run kept for a later dispatch.
+    /// @dev Only the fields settlement reads for these triggers are stored; the callback deadline
+    /// is rebuilt from `LIFETIME` when the run is retried.
+    struct Pending {
+        bytes32 programHash;
+        uint64 epoch;
+        bytes32 originTransaction;
+        uint64 originLogIndex;
+        uint64 originBlock;
+        uint256 observed;
+        address actor;
+    }
+
     error Unauthorized();
     error InvalidWorkflow();
+    event Queued(bytes32 indexed workflow, bytes32 indexed runId, uint256 observed, address actor);
+    event QueueDropped(bytes32 indexed workflow, bytes32 indexed runId);
     event Enabled(
         bytes32 indexed workflow,
         bytes32 indexed programHash,
@@ -122,9 +140,12 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(bytes32 => Budget) public budgets;
     mapping(bytes32 => string) public titles;
     mapping(bytes32 => bool) private seen;
+    mapping(bytes32 => Pending[]) private pending;
     mapping(bytes32 => uint256) private subscriptions;
     bytes32[] private active;
     bytes32[] private known;
+    uint256 private pendingCount;
+    bool private retrySubscribed;
     uint128 private price;
     uint128 private previousPrice;
     uint64 private priceTime;
@@ -217,6 +238,11 @@ contract WorkflowAgentV2 is AbstractPayer {
         return known;
     }
 
+    /// @notice Number of budget-blocked runs waiting for a retry on `workflow`.
+    function pendingRuns(bytes32 workflow) external view returns (uint256) {
+        return pending[workflow].length;
+    }
+
     function publication(bytes32 workflow)
         external
         view
@@ -229,6 +255,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     function _stop(bytes32 workflow, Entry storage entry) private {
         _filters(entry, false);
+        _clearPending(workflow);
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
             if (active[index] != workflow) continue;
@@ -304,6 +331,11 @@ contract WorkflowAgentV2 is AbstractPayer {
             return;
         }
         ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        // A Lasna cron tick also drives the waiting list, which is how a run parked by an
+        // exhausted week resumes as soon as the week rolls over.
+        if (log.chain_id == LASNA && log._contract == cfg.cronSource && log.topic_0 == CRON) {
+            _retryFromCron();
+        }
         bool market = log.chain_id == P.UNICHAIN_SEPOLIA && log._contract == cfg.pair
             && log.topic_0 == SYNC && _recordPrice(cfg, log);
         if (
@@ -433,16 +465,27 @@ contract WorkflowAgentV2 is AbstractPayer {
             )
         );
         if (seen[runId]) return;
+        // A run the Vault can only reject on budget would still cost a callback fee, so it is not
+        // requested now. The schedule retries on its next tick. A payment or transfer origin is a
+        // single log, so it is parked in the bounded waiting list and retried when the budget
+        // changes or a cron tick sees the week reset. Refusing to dispatch never consumes the run.
+        if (_budgetBlocks(workflow, run.observed)) {
+            if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) _park(workflow, run);
+            return;
+        }
         seen[runId] = true;
-        // A run the Vault can only reject on budget would still cost a callback fee, so it is never
-        // requested. The schedule is deliberately left in place: the next tick retries and fires as
-        // soon as the week resets or the limits are raised.
-        if (_budgetBlocks(workflow, run.observed)) return;
+        _dispatch(workflow, entry, run, runId);
+    }
+
+    /// @notice Commits a run: advances a schedule and requests the settlement callback.
+    function _dispatch(bytes32 workflow, Entry storage entry, P.Run memory run, bytes32 runId)
+        private
+    {
         if (entry.trigger == P.SCHEDULE) {
             uint256 due = entry.nextDue;
             entry.nextDue =
                 uint64(due + (1 + (block.timestamp - due) / entry.interval) * entry.interval);
-            entry.lasnaAfter = uint64(log.block_number);
+            entry.lasnaAfter = run.originBlock;
         }
         emit Dispatched(
             workflow,
@@ -462,6 +505,133 @@ contract WorkflowAgentV2 is AbstractPayer {
                 gasLimit: CALLBACK_GAS,
                 payload: abi.encodeCall(IWorkflowSettlementV2.execute, (address(0), workflow, run))
             })
+        );
+    }
+
+    /// @notice Parks a budget-blocked payment or transfer run until its budget recovers.
+    /// @dev Deduplicated on the origin log and bounded by `MAX_PENDING`. The list grows once per
+    /// trigger, and `_park` keeps the cron subscription alive only while something is waiting.
+    function _park(bytes32 workflow, P.Run memory run) private {
+        Pending[] storage queue = pending[workflow];
+        uint256 count = queue.length;
+        for (uint256 index; index < count; ++index) {
+            if (
+                queue[index].originTransaction == run.originTransaction
+                    && queue[index].originLogIndex == run.originLogIndex
+            ) return;
+        }
+        bytes32 runId = _runId(workflow, run.originChain, run.originTransaction, run.originLogIndex);
+        if (count >= MAX_PENDING) {
+            emit QueueDropped(workflow, runId);
+            return;
+        }
+        pendingCount += 1;
+        if (!retrySubscribed) {
+            retrySubscribed = true;
+            _cronFilter(true);
+        }
+        queue.push(
+            Pending({
+                programHash: run.programHash,
+                epoch: run.epoch,
+                originTransaction: run.originTransaction,
+                originLogIndex: run.originLogIndex,
+                originBlock: run.originBlock,
+                observed: run.observed,
+                actor: run.actor
+            })
+        );
+        emit Queued(workflow, runId, run.observed, run.actor);
+    }
+
+    /// @notice Retries every active workflow's waiting list on a cron tick.
+    function _retryFromCron() private {
+        for (uint256 index; index < active.length; ++index) {
+            _retryPending(active[index]);
+        }
+    }
+
+    /// @notice Dispatches at most one waiting run for `workflow` when the budget now allows it.
+    /// @dev One run per call: the mirrored spend only advances once the Vault's outcome arrives, so
+    /// dispatching a batch could request runs the Vault would then reject.
+    function _retryPending(bytes32 workflow) private {
+        Pending[] storage queue = pending[workflow];
+        if (queue.length == 0) return;
+        Entry storage entry = entries[workflow];
+        if (entry.trigger == 0 || (entry.expiry != 0 && block.timestamp > entry.expiry)) {
+            _clearPending(workflow);
+            return;
+        }
+        uint256 index;
+        while (index < queue.length) {
+            Pending memory item = queue[index];
+            bytes32 runId =
+                _runId(workflow, entry.chain, item.originTransaction, item.originLogIndex);
+            if (seen[runId]) {
+                _removePending(workflow, index);
+                continue;
+            }
+            if (_budgetBlocks(workflow, item.observed)) {
+                ++index;
+                continue;
+            }
+            _removePending(workflow, index);
+            seen[runId] = true;
+            P.Run memory run;
+            run.epoch = item.epoch;
+            run.programHash = item.programHash;
+            run.originChain = entry.chain;
+            run.originTransaction = item.originTransaction;
+            run.originLogIndex = item.originLogIndex;
+            run.originBlock = item.originBlock;
+            run.expiresAt = uint64(block.timestamp) + LIFETIME;
+            run.observed = item.observed;
+            run.actor = item.actor;
+            _dispatch(workflow, entry, run, runId);
+            return;
+        }
+    }
+
+    /// @notice Removes one parked run with a swap-and-pop.
+    function _removePending(bytes32 workflow, uint256 index) private {
+        Pending[] storage queue = pending[workflow];
+        uint256 last = queue.length - 1;
+        if (index != last) queue[index] = queue[last];
+        queue.pop();
+        pendingCount -= 1;
+        if (pendingCount == 0 && retrySubscribed) {
+            retrySubscribed = false;
+            _cronFilter(false);
+        }
+    }
+
+    /// @notice Drops every parked run for a workflow whose epoch or trigger just changed.
+    function _clearPending(bytes32 workflow) private {
+        uint256 count = pending[workflow].length;
+        if (count == 0) return;
+        delete pending[workflow];
+        pendingCount -= count;
+        if (pendingCount == 0 && retrySubscribed) {
+            retrySubscribed = false;
+            _cronFilter(false);
+        }
+    }
+
+    /// @notice Holds the Lasna cron subscription that drives retries while the waiting list exists.
+    function _cronFilter(bool enabled) private {
+        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
+    }
+
+    /// @notice The same run id the Vault derives for a dispatch.
+    function _runId(
+        bytes32 workflow,
+        uint32 originChain,
+        bytes32 originTransaction,
+        uint64 originLogIndex
+    ) private view returns (bytes32) {
+        return keccak256(
+            abi.encode(address(this), workflow, originChain, originTransaction, originLogIndex)
         );
     }
 
@@ -561,6 +731,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         ) return;
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
+        _retryPending(workflow);
     }
 
     /// @notice Monday 00:00 UTC at or before `timestamp`, matching the Vault's boundary.

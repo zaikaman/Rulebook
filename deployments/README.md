@@ -14,6 +14,11 @@ receipts in Foundry's `contracts/broadcast/` directory. Replace the affected ent
 confirmed transaction hash, block, timestamp and exact source commit. Keep private keys and
 credential-bearing RPC URLs outside these files.
 
+An entry with `"source": "working-tree"` and `"dirty": true` was deployed from uncommitted
+sources. Its bytecode hashes still identify exactly what is running, but `commit` is only the
+base revision. Replace `source` and `dirty` with `"commit"` once a commit contains that exact
+source, and redeploy from the commit when reproducible evidence is required.
+
 A weekly budget release deploys a fresh factory pair and replaces the entries in
 `deployments/workflows-v2.json`. The backend, the frontend, and the release job all read that
 file through their deployment settings, so the repository only needs the active pair. See the
