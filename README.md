@@ -186,7 +186,7 @@ The app reads chain state through its API. The API has no key that can move Vaul
 
 ## Run the tests
 
-Node.js 24 or newer, npm, and Foundry with Solidity 0.8.29.
+Node.js 24 or newer, npm, and Foundry v1.9.0 with Solidity 0.8.29. Use the Foundry version CI pins: gas snapshot values and coverage differ between Forge releases.
 
 ```powershell
 npm install

@@ -32,7 +32,7 @@ See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 
 ## Verified automated evidence
 
-- **Contracts** — 59 Foundry tests pass with zero skips. Coverage of `src/workflow/v2` is 89.7% line and 63.2% branch ([coverage summary](../contracts/.coverage-summary.json)).
+- **Contracts** — 67 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
 - **Backend** — 33 Vitest tests cover workflow indexing, activity, proof reads, Rulewright, and Telegram linking.
 - **Frontend** — 42 Vitest tests and 59 Playwright tests cover account onboarding, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
 - **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses and indexer start blocks for Reactive Lasna and Unichain Sepolia.

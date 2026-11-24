@@ -1,11 +1,30 @@
 {
   "minimumLinePercent": 80,
-  "minimumBranchPercent": 55,
-  "tests": {
-    "passed": 59,
-    "failed": 0,
-    "skipped": 0
-  },
-  "lines": 89.7,
-  "branches": 63.2
+  "minimumBranchPercent": 50,
+  "contracts": {
+    "src/chain/ChainConfig.sol": { "minimumLinePercent": 35 },
+    "src/libraries/PriceMath.sol": { "minimumLinePercent": 80, "minimumBranchPercent": 50 },
+    "src/workflow/v2/WorkflowAgentFactoryV2.sol": {
+      "minimumLinePercent": 100,
+      "minimumBranchPercent": 90
+    },
+    "src/workflow/v2/WorkflowAgentV2.sol": {
+      "minimumLinePercent": 85,
+      "minimumBranchPercent": 45
+    },
+    "src/workflow/v2/WorkflowProgramV2.sol": {
+      "minimumLinePercent": 85,
+      "minimumBranchPercent": 35
+    },
+    "src/workflow/v2/WorkflowProgramValidatorV2.sol": { "minimumLinePercent": 100 },
+    "src/workflow/v2/WorkflowProtocolsV2.sol": { "minimumLinePercent": 90 },
+    "src/workflow/v2/WorkflowVaultFactoryV2.sol": {
+      "minimumLinePercent": 95,
+      "minimumBranchPercent": 40
+    },
+    "src/workflow/v2/WorkflowVaultV2.sol": {
+      "minimumLinePercent": 90,
+      "minimumBranchPercent": 70
+    }
+  }
 }

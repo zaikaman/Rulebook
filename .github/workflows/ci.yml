@@ -10,7 +10,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  FOUNDRY_VERSION: v1.7.1
+  # Gas snapshots and coverage are toolchain-sensitive; keep this in sync with contracts/.gas-snapshot.
+  FOUNDRY_VERSION: v1.9.0
   NODE_VERSION: '24'
 
 jobs:
