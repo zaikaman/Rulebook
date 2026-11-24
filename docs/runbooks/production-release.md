@@ -10,7 +10,7 @@ Use a GitHub environment named `production`. Add these environment settings.
 | -------- | ----------------------- | ----------------------------------------------------------------------------------- |
 | Secret   | `HEROKU_API_KEY`        | A Heroku credential authorized to deploy the backend app and read its configuration |
 | Secret   | `VERCEL_TOKEN`          | Vercel deployment token scoped to the frontend project                              |
-| Variable | `HEROKU_APP_NAME`       | Existing Heroku app name                                                            |
+| Variable | `HEROKU_APP_NAME`       | Existing Heroku app name: `rulebook-backend`                                        |
 | Variable | `HEROKU_FIRST_WEB_DYNO` | Optional `basic` to start one paid Basic web dyno on the first release              |
 | Variable | `HEROKU_API_URL`        | Public HTTPS origin of the Heroku app                                               |
 | Variable | `PRODUCTION_WEB_URL`    | Public HTTPS origin of the Vercel production site                                   |

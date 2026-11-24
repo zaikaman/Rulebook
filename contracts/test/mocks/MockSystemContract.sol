@@ -19,18 +19,24 @@ contract MockSystemContract is IReactiveSystem {
     uint256 public subscribeCount;
     uint256 public unsubscribeCount;
     uint256 public lastSubscribedTopic;
+    uint256 public lastSubscribedTopic1;
+    uint256 public lastUnsubscribedTopic1;
 
     function requestCallbackV_1_0(CallbackConfiguration calldata config) external {
         _requests.push(config);
     }
 
-    function subscribe(uint256, address, uint256 topic0, uint256, uint256, uint256) external {
+    function subscribe(uint256, address, uint256 topic0, uint256 topic1, uint256, uint256)
+        external
+    {
         subscribeCount += 1;
         lastSubscribedTopic = topic0;
+        lastSubscribedTopic1 = topic1;
     }
 
-    function unsubscribe(uint256, address, uint256, uint256, uint256, uint256) external {
+    function unsubscribe(uint256, address, uint256, uint256 topic1, uint256, uint256) external {
         unsubscribeCount += 1;
+        lastUnsubscribedTopic1 = topic1;
     }
 
     function requestCount() external view returns (uint256 count) {

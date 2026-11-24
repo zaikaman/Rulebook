@@ -36,6 +36,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     // week forward after the boundary has certainly passed on both chains, so the Agent never
     // suppresses a run the Vault would settle against the week the spend was recorded in.
     uint64 private constant WEEK_SKEW = 10 minutes;
+    // Lasna has produced blocks close to one second apart. Predicting the reset block with a
+    // deliberately slow block time wakes the agent early; each early wake only re-pins the
+    // targeted cron subscription, and a late wake would only delay the resume.
+    uint64 private constant LASNA_BLOCK_SECONDS = 3;
 
     struct Entry {
         bytes32 hash;
@@ -104,6 +108,8 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     error Unauthorized();
     error InvalidWorkflow();
+    error NotPaused();
+    error BudgetBlocked();
     event Queued(bytes32 indexed workflow, bytes32 indexed runId, uint256 observed, address actor);
     event QueueDropped(bytes32 indexed workflow, bytes32 indexed runId);
     event Enabled(
@@ -115,6 +121,8 @@ contract WorkflowAgentV2 is AbstractPayer {
     );
     event Disabled(bytes32 indexed workflow, uint64 epoch);
     event Expired(bytes32 indexed workflow, uint64 epoch);
+    event WatchingPaused(bytes32 indexed workflow, uint64 epoch, uint64 wakeBlock);
+    event WatchingResumed(bytes32 indexed workflow, uint64 epoch);
     event Dispatched(
         bytes32 indexed workflow,
         bytes32 indexed runId,
@@ -139,6 +147,8 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(bytes32 => string) public titles;
     mapping(bytes32 => bool) private seen;
     mapping(bytes32 => Pending[]) private pending;
+    mapping(bytes32 => bool) private paused;
+    mapping(bytes32 => uint64) private wakeAt;
     mapping(bytes32 => uint256) private subscriptions;
     bytes32[] private active;
     bytes32[] private known;
@@ -241,6 +251,27 @@ contract WorkflowAgentV2 is AbstractPayer {
         return pending[workflow].length;
     }
 
+    /// @notice True while an exhausted weekly budget has removed the workflow's trigger filters.
+    function watchingPaused(bytes32 workflow) external view returns (bool) {
+        return paused[workflow];
+    }
+
+    /// @notice Lasna block pinned for the next budget-reset wake, or zero when none is scheduled.
+    function wakeBlock(bytes32 workflow) external view returns (uint64) {
+        return wakeAt[workflow];
+    }
+
+    /// @notice Re-arms a paused workflow without waiting for its pinned wake.
+    /// @dev Permissionless: the mirrored budget still has to admit a path, so this can only
+    /// restore watching a run the Vault would settle. It is the recovery path if a targeted cron
+    /// wake is ever missed while the Agent has no watching credit.
+    function resumeWatching(bytes32 workflow) external {
+        Entry storage entry = entries[workflow];
+        if (entry.trigger == 0 || !paused[workflow]) revert NotPaused();
+        if (_budgetBlocks(workflow, 0)) revert BudgetBlocked();
+        _resume(workflow, entry);
+    }
+
     function publication(bytes32 workflow)
         external
         view
@@ -252,7 +283,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     function _stop(bytes32 workflow, Entry storage entry) private {
-        _filters(entry, false);
+        if (paused[workflow]) {
+            paused[workflow] = false;
+            _unpin(workflow);
+            _settlementFilters(entry, false);
+        } else {
+            _filters(entry, false);
+        }
         _clearPending(workflow);
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
@@ -273,11 +310,21 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     function _filters(Entry storage entry, bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        _settlementFilters(entry, enabled);
+        _triggerFilters(entry, enabled);
+    }
+
+    /// @notice Filters that stay installed while a workflow is paused for its weekly budget.
+    function _settlementFilters(Entry storage entry, bool enabled) private {
         _filter(Filter(entry.chain, vaults[entry.chain], BUDGET_SYNCED, ANY, ANY), enabled);
         if (entry.once) {
             _filter(Filter(entry.chain, vaults[entry.chain], CLOSED, ANY, ANY), enabled);
         }
+    }
+
+    /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
+    function _triggerFilters(Entry storage entry, bool enabled) private {
+        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
         if (entry.trigger == P.SCHEDULE) {
             _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
             if (entry.dip) _filter(Filter(P.UNICHAIN_SEPOLIA, cfg.pair, SYNC, ANY, ANY), enabled);
@@ -404,6 +451,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         bool market
     ) private {
         Entry storage entry = entries[workflow];
+        if (paused[workflow]) {
+            _wakeIfDue(workflow, entry, log, cfg);
+            return;
+        }
         P.Run memory run;
         if (entry.trigger == P.SCHEDULE) {
             if (
@@ -487,6 +538,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         // changes or a cron tick sees the week reset. Refusing to dispatch never consumes the run.
         if (_budgetBlocks(workflow, run.observed)) {
             if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) _park(workflow, run);
+            else _pause(workflow, entry);
             return;
         }
         seen[runId] = true;
@@ -648,6 +700,93 @@ contract WorkflowAgentV2 is AbstractPayer {
         _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
     }
 
+    /// @notice Removes the trigger filters of a workflow whose weekly budget cannot fund any path.
+    /// @dev The settlement filters stay installed, so a budget edit published by the Vault resumes
+    /// watching. A schedule or price run is deterministic enough to prove futile; payment and
+    /// transfer triggers keep watching because their origin log is the only copy of the run.
+    function _pause(bytes32 workflow, Entry storage entry) private {
+        if (paused[workflow]) return;
+        paused[workflow] = true;
+        _triggerFilters(entry, false);
+        uint64 reset = _resetAt(workflow);
+        bool recoverable = !_budgetBlocksFresh(workflow, 0);
+        if (recoverable) _pin(workflow, reset);
+        emit WatchingPaused(workflow, entry.epoch, recoverable ? wakeAt[workflow] : 0);
+    }
+
+    /// @notice Restores the trigger filters after a budget proves a path can run again.
+    function _resume(bytes32 workflow, Entry storage entry) private {
+        if (!paused[workflow]) return;
+        paused[workflow] = false;
+        _unpin(workflow);
+        _triggerFilters(entry, true);
+        emit WatchingResumed(workflow, entry.epoch);
+    }
+
+    /// @notice Handles the one cron block pinned for a paused workflow.
+    /// @dev Before the reset it only moves the pin forward; on or after the reset it restores the
+    /// normal filters and lets the next cron tick dispatch. Lasna allows a reactive contract to
+    /// replace its own subscription from inside react(), which is what makes the re-pin possible.
+    function _wakeIfDue(
+        bytes32 workflow,
+        Entry storage entry,
+        IReactive.LogRecord calldata log,
+        ChainConfig.Config memory cfg
+    ) private {
+        uint64 target = wakeAt[workflow];
+        if (
+            target == 0 || log.chain_id != LASNA || log._contract != cfg.cronSource
+                || log.topic_0 != CRON || log.topic_1 != target
+        ) return;
+        uint64 reset = _resetAt(workflow);
+        if (block.timestamp < reset) {
+            _pin(workflow, reset);
+            return;
+        }
+        _resume(workflow, entry);
+    }
+
+    /// @notice Pins the first cron block expected on or after `reset`.
+    function _pin(bytes32 workflow, uint64 reset) private {
+        uint64 target = _wakeBlock(reset);
+        uint64 current = wakeAt[workflow];
+        if (target == current) return;
+        if (current != 0) _wakeFilter(current, false);
+        wakeAt[workflow] = target;
+        if (target != 0) _wakeFilter(target, true);
+    }
+
+    /// @notice Drops the pinned cron subscription of a workflow.
+    function _unpin(bytes32 workflow) private {
+        uint64 target = wakeAt[workflow];
+        if (target == 0) return;
+        wakeAt[workflow] = 0;
+        _wakeFilter(target, false);
+    }
+
+    /// @notice One exact cron block, used only by a paused workflow.
+    function _wakeFilter(uint64 target, bool enabled) private {
+        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        _filter(Filter(LASNA, cfg.cronSource, CRON, target, ANY), enabled);
+    }
+
+    /// @notice First `Cron100` block expected at or after `reset`, or zero when it has passed.
+    /// @dev `LASNA_BLOCK_SECONDS` is intentionally slower than the observed block time, so the
+    /// estimate lands before the reset and is corrected by another pin instead of resuming late.
+    function _wakeBlock(uint64 reset) private view returns (uint64) {
+        if (reset <= block.timestamp) return 0;
+        uint256 blocksLeft =
+            (uint256(reset - block.timestamp) + LASNA_BLOCK_SECONDS - 1) / LASNA_BLOCK_SECONDS;
+        uint256 target = ((block.number + blocksLeft + 99) / 100) * 100;
+        if (target > type(uint64).max) return 0;
+        return uint64(target);
+    }
+
+    /// @notice The next reset the mirrored budget will apply.
+    function _resetAt(bytes32 workflow) private view returns (uint64) {
+        return budgets[workflow].weekStart + WEEK + WEEK_SKEW;
+    }
+
     /// @notice The same run id the Vault derives for a dispatch.
     function _runId(
         bytes32 workflow,
@@ -694,9 +833,6 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev The mirrored budget is never larger than the Vault's own spend and never newer than the
     /// week the Vault would settle against, so this can only suppress runs the Vault would skip.
     function _budgetBlocks(bytes32 workflow, uint256 observed) private view returns (bool) {
-        PathCost[] storage plan = paths[workflow];
-        uint256 count = plan.length;
-        if (count == 0) return false;
         Budget memory budget = budgets[workflow];
         if (!budget.known) return false;
         uint128 usdcSpent = budget.usdcSpent;
@@ -705,6 +841,28 @@ contract WorkflowAgentV2 is AbstractPayer {
             usdcSpent = 0;
             wethSpent = 0;
         }
+        return _budgetBlocksFrom(workflow, observed, budget, usdcSpent, wethSpent);
+    }
+
+    /// @notice True when every leaf would be rejected even with the spend reset to zero.
+    /// @dev A path above the configured limit can never run; such a workflow is paused without a
+    /// reset wake, and only a budget edit that admits a path brings it back.
+    function _budgetBlocksFresh(bytes32 workflow, uint256 observed) private view returns (bool) {
+        Budget memory budget = budgets[workflow];
+        if (!budget.known) return false;
+        return _budgetBlocksFrom(workflow, observed, budget, 0, 0);
+    }
+
+    function _budgetBlocksFrom(
+        bytes32 workflow,
+        uint256 observed,
+        Budget memory budget,
+        uint128 usdcSpent,
+        uint128 wethSpent
+    ) private view returns (bool) {
+        PathCost[] storage plan = paths[workflow];
+        uint256 count = plan.length;
+        if (count == 0) return false;
         for (uint256 index; index < count; ++index) {
             PathCost memory cost = plan[index];
             if (cost.empty) continue;
@@ -756,6 +914,9 @@ contract WorkflowAgentV2 is AbstractPayer {
         ) return;
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
+        if (paused[workflow] && !_budgetBlocks(workflow, 0)) {
+            _resume(workflow, entries[workflow]);
+        }
         _retryPending(workflow);
     }
 }

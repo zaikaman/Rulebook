@@ -365,12 +365,157 @@ contract WorkflowWeeklyBudgetTest is Test {
         vm.warp(MONDAY + 2 hours);
         _cron(2);
         assertEq(system.requestCount(), 1, "an over-budget run is never requested");
+        assertTrue(agent.watchingPaused(WORKFLOW), "watching pauses with the budget");
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        assertGt(wake, 0, "a reset wake is pinned");
+        assertEq(system.lastSubscribedTopic1(), wake, "the wake is pinned to one cron block");
+
+        _cronAt(wake - 100);
+        assertEq(system.requestCount(), 1, "an ordinary cron tick no longer charges the workflow");
+        assertTrue(agent.watchingPaused(WORKFLOW));
 
         vm.warp(MONDAY + WEEK + 1 hours);
-        _cron(3);
+        vm.roll(wake);
+        _cronAt(wake);
+        assertEq(system.requestCount(), 1, "the wake itself does not dispatch");
+        assertFalse(agent.watchingPaused(WORKFLOW), "the reset wake resumes watching");
+        assertEq(agent.wakeBlock(WORKFLOW), 0, "the pin is cleared");
+
+        _cronAt(wake + 100);
         assertEq(system.requestCount(), 2, "the next week can dispatch again");
         _deliverRequest(1);
         assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testPausedWorkflowIgnoresCronTicksUntilThePinnedWake() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+        _injectBudget(1e6, 1e6);
+
+        _cron(1);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        uint256 subscriptions = system.subscribeCount();
+
+        _cronAt(wake - 200);
+        _cronAt(wake - 100);
+        assertTrue(agent.watchingPaused(WORKFLOW), "ordinary ticks cannot resume watching");
+        assertEq(system.requestCount(), 0);
+        assertEq(system.subscribeCount(), subscriptions, "ordinary ticks re-subscribe nothing");
+    }
+
+    function testRaisedBudgetClearsTheResetWake() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+
+        vm.warp(MONDAY + 2 hours);
+        _cron(2);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(agent.wakeBlock(WORKFLOW), 0);
+
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 2e6, 0);
+        _forwardBudget();
+
+        assertFalse(agent.watchingPaused(WORKFLOW), "a raised limit restores watching");
+        assertEq(agent.wakeBlock(WORKFLOW), 0, "the reset wake is removed");
+        _cron(3);
+        assertEq(system.requestCount(), 2, "the next tick dispatches again");
+    }
+
+    function testDisableWhilePausedRemovesTheWake() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        vm.warp(MONDAY + 1 hours);
+        _injectBudget(1e6, 1e6);
+        _cron(1);
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        vm.prank(OWNER);
+        agent.disable(WORKFLOW, 1);
+        assertFalse(agent.watchingPaused(WORKFLOW));
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
+
+        _cronAt(wake);
+        assertEq(system.requestCount(), 0, "a disabled workflow cannot wake");
+    }
+
+    function testPathAboveTheLimitPausesWithoutAResetWake() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 2e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 5e6);
+        vm.warp(MONDAY + 1 hours);
+        _injectBudget(1e6, 0);
+
+        _cron(1);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertEq(agent.wakeBlock(WORKFLOW), 0, "a fresh week cannot admit this path");
+
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 3e6, 0);
+        _forwardBudget();
+        assertFalse(agent.watchingPaused(WORKFLOW), "a limit above the path resumes watching");
+
+        _cron(2);
+        assertEq(system.requestCount(), 1);
+    }
+
+    function testPermissionlessResumeRequiresHeadroomOrTheReset() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        vm.warp(MONDAY + 1 hours);
+        _injectBudget(1e6, 1e6);
+        _cron(1);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        agent.resumeWatching(WORKFLOW);
+
+        vm.warp(MONDAY + WEEK + WEEK_SKEW + 1);
+        vm.prank(RECIPIENT);
+        agent.resumeWatching(WORKFLOW);
+        assertFalse(agent.watchingPaused(WORKFLOW));
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
+
+        _cron(2);
+        assertEq(system.requestCount(), 1, "a recovered workflow dispatches again");
+
+        vm.prank(RECIPIENT);
+        vm.expectRevert(WorkflowAgentV2.NotPaused.selector);
+        agent.resumeWatching(WORKFLOW);
+    }
+
+    function testPriceWorkflowPausesAndResumesWithTheBudget() public {
+        _enable(_program(P.PRICE, _path(_action(P.BUY, 1e6, address(0)))), 1e6, 0);
+        _price(2_000_000);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _sync(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+
+        _sync(2);
+        assertEq(system.requestCount(), 1, "an over-budget price run is not requested");
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(agent.wakeBlock(WORKFLOW), 0);
+
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 2e6, 0);
+        _forwardBudget();
+        assertFalse(agent.watchingPaused(WORKFLOW));
+
+        _sync(3);
+        assertEq(system.requestCount(), 2, "a funded price run resumes promptly");
     }
 
     function testRaisedBudgetUnblocksTheNextTick() public {
@@ -415,14 +560,24 @@ contract WorkflowWeeklyBudgetTest is Test {
         vm.warp(MONDAY + WEEK - 1);
         _cron(1);
         assertEq(system.requestCount(), 0, "the last second of the week is still gated");
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        assertGt(wake, 0);
 
         vm.warp(MONDAY + WEEK + WEEK_SKEW - 1);
-        _cron(2);
+        vm.roll(wake);
+        _cronAt(wake);
         assertEq(system.requestCount(), 0, "the boundary alone does not reset the mirror");
+        assertTrue(agent.watchingPaused(WORKFLOW), "an early wake only re-pins");
+        uint64 next = agent.wakeBlock(WORKFLOW);
+        assertGt(next, wake, "the pin moves toward the reset");
 
         vm.warp(MONDAY + WEEK + WEEK_SKEW);
-        _cron(3);
-        assertEq(system.requestCount(), 1, "the reset applies once both clocks must agree");
+        vm.roll(next);
+        _cronAt(next);
+        assertFalse(agent.watchingPaused(WORKFLOW), "the reset applies once both clocks must agree");
+        _cronAt(next + 100);
+        assertEq(system.requestCount(), 1);
     }
 
     function testZeroCostPathsStillDispatchWhenTheBudgetIsSpent() public {
@@ -505,7 +660,10 @@ contract WorkflowWeeklyBudgetTest is Test {
     }
 
     function _cron(uint256 index) private {
-        uint256 number = block.number + index;
+        _cronAt(block.number + index);
+    }
+
+    function _cronAt(uint256 number) private {
         IReactive.LogRecord memory log;
         log.chain_id = LASNA;
         log._contract = ChainConfig.lasna().cronSource;
@@ -513,6 +671,18 @@ contract WorkflowWeeklyBudgetTest is Test {
         log.topic_1 = number;
         log.block_number = number;
         log.tx_hash = number;
+        vm.prank(address(system));
+        agent.react(log);
+    }
+
+    function _sync(uint256 index) private {
+        IReactive.LogRecord memory log;
+        log.chain_id = P.UNICHAIN_SEPOLIA;
+        log._contract = ChainConfig.unichainSepolia().pair;
+        log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
+        log.block_number = block.number + index;
+        log.tx_hash = index;
+        log.data = abi.encode(2_000_000 * 10_000, 10_000 ether);
         vm.prank(address(system));
         agent.react(log);
     }

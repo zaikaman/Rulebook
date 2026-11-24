@@ -427,6 +427,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "resumeWatching",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "system",
     "inputs": [],
     "outputs": [
@@ -472,6 +485,44 @@ export const workflowAgentV2Abi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "wakeBlock",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "watchingPaused",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -689,6 +740,55 @@ export const workflowAgentV2Abi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "WatchingPaused",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "wakeBlock",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "WatchingResumed",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "BudgetBlocked",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "InvalidAmount",
     "inputs": []
@@ -701,6 +801,11 @@ export const workflowAgentV2Abi = [
   {
     "type": "error",
     "name": "InvalidWorkflow",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPaused",
     "inputs": []
   },
   {
