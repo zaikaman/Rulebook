@@ -169,6 +169,28 @@ Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the fron
 
 The app reads chain state through its API. The API has no key that can move Vault principal.
 
+## Ask the Bookkeeper
+
+Leaving a workflow on is only half the promise. The other half is being able to tell, months later and without reading a contract or an explorer, whether it is still funded and what it actually did. Bookkeeper is the assistant inside the app that answers that in plain language: what is funded, which workflows are on, why a run was skipped, what a listing promises, and where a notification is going.
+
+The wallet proves who it is before the first answer. The backend issues a short challenge, the wallet signs a message with no gas and no transaction, and the backend verifies the signature against the wallet and the frontend origin. The session token stays in memory and never expires on the server, so a reload asks for a signature again. The owner comes from that session; the request cannot name another wallet.
+
+It is read-only by construction. The model starts with no account data: only the wallet address, the current page, the last twelve messages, and the question. When the question needs a fact, it calls one of seven read-only tools scoped to the session owner.
+
+| Tool                   | Reads                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `get_account_overview` | Agent and Vault addresses, token balances, watching and execution credit, refill allowance |
+| `list_workflows`       | Saved workflows with status, trigger, readable paths, caps, budget, and expiry             |
+| `get_workflow`         | One workflow by id                                                                         |
+| `list_runs`            | Indexed runs, optionally filtered by workflow or status                                    |
+| `get_run`              | One run and its origin, Lasna, and settlement transactions                                 |
+| `search_marketplace`   | Public listing titles and descriptions                                                     |
+| `get_notifications`    | Telegram connection and per-workflow preferences                                           |
+
+A tool result is capped before it reaches the provider, and the system prompt forbids stating a balance, status, or run fact that no tool returned. A missing contract is reported as unavailable, never as zero. At most eight tools run across four rounds; the last round is sent without tools so the model always explains what it found. References such as a workflow, a run, or a public proof are attached by the backend from the tools that actually ran, not from the model's text.
+
+It cannot sign, move funds, or change a workflow. Limits are 80 questions per wallet per day and 3,000 globally, with 12 requests per minute, and conversations are deleted 30 days after their last activity. The provider receives the question, the recent turns, and only the tool results that question needed. Setup and privacy notes are in [`docs/assistant.md`](docs/assistant.md).
+
 ## Repository
 
 | Path                                       | What it is                                                                        |
@@ -181,7 +203,9 @@ The app reads chain state through its API. The API has no key that can move Vaul
 | `frontend/src/workflows/`                  | The canvas, review, account, activity, proof, and marketplace screens.            |
 | `backend/src/workflows/`                   | The indexer and the read API.                                                     |
 | `deployments/`                             | Factory addresses, creation transactions, and the live-loop record.               |
+| `backend/src/assistant/`                   | The Bookkeeper session, tools, provider loop, and streaming route.                |
 | `docs/workflows.md`                        | Operator notes for funding, pause, and the weekly budget.                         |
+| `docs/assistant.md`                        | Bookkeeper access, tools, limits, and privacy.                                    |
 | `docs/submission-evidence.md`              | The cross-chain receipts for the workflow runs.                                   |
 
 ## Run the tests

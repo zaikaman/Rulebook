@@ -60,7 +60,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
-import { Button, Callout } from '@/ui';
+import { Badge, Button, Callout } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
@@ -245,11 +245,16 @@ export function WorkflowsV2() {
                           <NetworkBadge chainId={row.chain} />
                         </p>
                       </div>
-                      <span className="rb-chip" data-tone={tone}>
-                        {label}
-                      </span>
                     </div>
-                    <p className="rb-card-copy">{summary}</p>
+                    <div className="grid justify-items-start gap-1.5">
+                      <Badge
+                        tone={tone}
+                        className="max-w-full whitespace-normal [overflow-wrap:anywhere]"
+                      >
+                        {label}
+                      </Badge>
+                      <p className="rb-card-copy">{summary}</p>
+                    </div>
                   </Link>
                   <div className="rb-card-foot flex-wrap">
                     <span>

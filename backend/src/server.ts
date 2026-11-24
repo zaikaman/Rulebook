@@ -17,6 +17,7 @@ import { WorkflowTelegramAlerts } from './telegram/workflowAlerts.js';
 import { WorkflowV2Indexer } from './workflows/indexerV2.js';
 import { registerWorkflowV2Routes } from './workflows/routesV2.js';
 import { RulewrightService } from './rulewright/service.js';
+import { AssistantService } from './assistant/service.js';
 
 export interface BuiltServer {
   readonly app: FastifyInstance;
@@ -86,6 +87,8 @@ export async function startServer(): Promise<void> {
     config.gemini && v2
       ? new RulewrightService(supabase, clients, v2.unichain.factory, config.gemini)
       : undefined;
+  const assistant =
+    config.gemini && v2 ? new AssistantService(supabase, clients, v2, config.gemini) : undefined;
   const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
   const workflowAlerts =
@@ -120,6 +123,7 @@ export async function startServer(): Promise<void> {
     config,
     telegram,
     rulewright,
+    assistant,
     databaseReachable: () => probeDatabase(supabase),
     rpcHealth: async () => [
       { chain_id: lasnaChain.id, rpc_ok: await ping(clients.lasna) },
@@ -134,6 +138,7 @@ export async function startServer(): Promise<void> {
       : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   const rulewrightRun = rulewright?.run(app.log, rulewrightShutdown.signal);
+  const assistantRun = assistant?.run(app.log, rulewrightShutdown.signal);
   void workflowV2Indexer?.run();
 
   const worker =
@@ -151,8 +156,8 @@ export async function startServer(): Promise<void> {
       workflowV2Indexer?.stop();
       worker?.stop();
       telegramPoller?.stop();
-      void Promise.all([app.close(), workerRun, telegramPolling, rulewrightRun]).then(() =>
-        process.exit(0),
+      void Promise.all([app.close(), workerRun, telegramPolling, rulewrightRun, assistantRun]).then(
+        () => process.exit(0),
       );
     });
   }

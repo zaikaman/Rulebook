@@ -13,6 +13,7 @@ export * from './workflowHealth.js';
 export * from './workflowV2Draft.js';
 export * from './workflowV2Recipes.js';
 export * from './rulewright.js';
+export * from './assistant.js';
 export {
   abis,
   workflowAgentV2Abi,

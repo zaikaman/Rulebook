@@ -218,6 +218,9 @@ Don't:
   Map: src/styles/onboarding.css
   Map: src/ui/index.ts
   Map: src/ui/ErrorState.tsx
+  Map: src/assistant/AssistantPanel.tsx
+  Map: src/assistant/AssistantContext.tsx
+  Map: src/styles/assistant.css
   Map: src/ui/SyncState.tsx
   Map: src/ui/Dialog.tsx
   Map: src/ui/EmptyState.tsx
@@ -313,6 +316,16 @@ Rules that apply across components:
 3. Use `var(--rb-*)` for every color, radius, and shadow. Add a token if the value is genuinely new.
 4. Run `npm run check:design`. A failure means the surface bypassed the system, not that the gate is wrong.
 5. Check the rendered page at 390px and 1440px before finishing.
+
+### Bookkeeper assistant
+
+Bookkeeper is the wallet-verified account assistant. It opens from the workspace topbar, the mobile bar, and a launcher in focused layouts. Above 64rem it is a bottom-right dialog; below 64rem it becomes a full-height sheet.
+
+- Compose the header, actions, verification card, and failure states from `Button`, `Callout`, `Dialog`, and `ErrorState`. The thread, tool trace, suggestion list, reference chips, and composer are assistant layout classes in `styles/assistant.css`.
+- Every account fact comes from a read-only tool call. Show the call as a trace row above the answer; never render a balance or run from the model's memory.
+- Keep the verification card explicit: off-chain signature, no gas, no session timeout, read-only access. The session token is held in memory, not localStorage, so a reload asks for a new signature.
+- Answer links are chips below the bubble. Do not put bare addresses or fabricated URLs in chat copy.
+- The composer stays available while a response streams; Enter sends, Shift+Enter breaks the line, and Escape closes through `Dialog`.
 
 ## Do's and Don'ts
 

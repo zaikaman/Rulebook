@@ -1,7 +1,11 @@
+import { SparklesIcon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { useLocation } from 'react-router';
 import { Link } from 'react-router';
 
+import { useAssistant } from '@/assistant/AssistantContext';
 import { appRoutes } from '@/lib/routes';
+import { Button } from '@/ui';
 import { WalletControl } from './WalletControl.js';
 
 function pageLabel(pathname: string): string {
@@ -22,6 +26,7 @@ function pageLabel(pathname: string): string {
 
 export function AppTopbar() {
   const { pathname } = useLocation();
+  const assistant = useAssistant();
 
   return (
     <header className="app-topbar">
@@ -34,6 +39,16 @@ export function AppTopbar() {
       </nav>
 
       <div className="app-topbar-actions">
+        {' '}
+        <Button
+          variant="quiet"
+          className="app-assistant-topbar-trigger"
+          aria-label="Ask Bookkeeper"
+          onClick={assistant.open}
+        >
+          <HugeiconsIcon icon={SparklesIcon} size={15} strokeWidth={1.8} aria-hidden="true" />
+          <span className="app-assistant-topbar-label">Ask Bookkeeper</span>
+        </Button>
         <span className="rb-chip rb-chip--plain">
           <span className="app-live-dot" aria-hidden="true" />
           Reactive Lasna

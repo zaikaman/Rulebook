@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { Outlet } from 'react-router';
 
+import { AssistantLauncher, AssistantProvider } from '../assistant/AssistantContext.js';
 import { AppMobileNav } from './chrome/AppMobileNav.js';
 import { AppScrollArea } from './chrome/AppScrollArea.js';
 import { AppSidebar } from './chrome/AppSidebar.js';
@@ -16,18 +17,21 @@ export function AppShell({
   readonly focused?: boolean;
 }) {
   return (
-    <div className="app-shell">
-      {!focused && <AppSidebar />}
-      <div className="app-main">
-        {!focused && <AppTopbar />}
-        {!focused && <AppMobileNav />}
-        <AppScrollArea>
-          <div className={focused ? 'app-workspace app-workspace--focused' : 'app-workspace'}>
-            <OfflineState />
-            {children ?? <Outlet />}
-          </div>
-        </AppScrollArea>
+    <AssistantProvider>
+      <div className="app-shell">
+        {!focused && <AppSidebar />}
+        <div className="app-main">
+          {!focused && <AppTopbar />}
+          {!focused && <AppMobileNav />}
+          <AppScrollArea>
+            <div className={focused ? 'app-workspace app-workspace--focused' : 'app-workspace'}>
+              <OfflineState />
+              {children ?? <Outlet />}
+            </div>
+          </AppScrollArea>
+        </div>
+        {focused && <AssistantLauncher />}
       </div>
-    </div>
+    </AssistantProvider>
   );
 }

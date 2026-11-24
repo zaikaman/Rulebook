@@ -1,6 +1,8 @@
 import {
   accountSchema,
   apiErrorSchema,
+  assistantChallengeSchema,
+  assistantSessionSchema,
   chainsResponseSchema,
   executionsResponseSchema,
   healthSchema,
@@ -121,6 +123,28 @@ export class ApiClient {
       `/v2/rulewright/jobs/${encodeURIComponent(id)}`,
       rulewrightJobSchema,
       rulewrightRequest('GET', signal, undefined, token),
+    );
+  }
+
+  assistantAvailability(signal?: AbortSignal) {
+    return this.request('/v2/assistant/availability', z.object({ available: z.boolean() }), {
+      signal,
+    });
+  }
+
+  assistantChallenge(owner: string, signal: AbortSignal) {
+    return this.request(
+      '/v2/assistant/challenge',
+      assistantChallengeSchema,
+      assistantRequest('POST', signal, { owner }),
+    );
+  }
+
+  assistantSession(nonce: string, signature: string, signal: AbortSignal) {
+    return this.request(
+      '/v2/assistant/session',
+      assistantSessionSchema,
+      assistantRequest('POST', signal, { nonce, signature }),
     );
   }
 
@@ -284,6 +308,15 @@ function rulewrightRequest(
   return {
     ...request,
     headers: { ...request.headers, 'x-rulewright-origin': window.location.origin },
+    signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
+  };
+}
+
+function assistantRequest(method: string, signal: AbortSignal, body?: object): RequestInit {
+  const request = jsonRequest(method, undefined, body);
+  return {
+    ...request,
+    headers: { ...request.headers, 'x-assistant-origin': window.location.origin },
     signal: AbortSignal.any([signal, AbortSignal.timeout(12_000)]),
   };
 }
