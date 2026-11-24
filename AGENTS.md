@@ -9,3 +9,4 @@
 - Do not use emojis anywhere, docs, frontend code, no where.
 - Upon completing your work, spawn a subagent to do a full and thorough quality pass through it for any remaining bugs, issues or QoL improvements, but only if the change is large or high-risk, do not spawn it for simple work that you're sure is good enough.
 - Make sure CI passes 100% before finishing.
+- Once the work is final, send the owner a Telegram completion ping with `npm run notify:done -- --summary "<one line about what changed>"`. It reads the bot token and database credentials from `backend/.env` and messages the paired Telegram account. The ping is advisory: if it reports that no chat is paired or that delivery failed, mention that in your final message instead of retrying or blocking the task.

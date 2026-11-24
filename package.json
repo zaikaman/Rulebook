@@ -28,6 +28,7 @@
     "check:deployments": "node scripts/deploy-workflows-v2.mjs --check",
     "check": "node scripts/check.mjs",
     "check:design": "node scripts/design-check.mjs",
+    "notify:done": "npm run notify:done -w backend --",
     "verify": "npm run check",
     "verify:changes": "node scripts/verify-changes.mjs",
     "lint:staged": "lint-staged",

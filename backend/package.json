@@ -15,7 +15,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "migrate": "node --env-file-if-exists=.env scripts/migrate.mjs",
-    "telegram:webhook": "node --env-file-if-exists=.env --import tsx scripts/telegram-webhook.ts"
+    "telegram:webhook": "node --env-file-if-exists=.env --import tsx scripts/telegram-webhook.ts",
+    "notify:done": "node --env-file-if-exists=.env --import tsx scripts/notify-agent-done.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
