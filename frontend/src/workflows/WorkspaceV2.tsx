@@ -60,7 +60,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
-import { Badge, Button, Callout } from '@/ui';
+import { Badge, Button, Callout, Select } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
@@ -1052,7 +1052,8 @@ type FundsOperation =
   | 'watch-credit'
   | 'approve-refill-usdc'
   | 'revoke-refill-usdc'
-  | 'withdraw-eth';
+  | 'withdraw-eth'
+  | 'withdraw-agent-eth';
 
 type FundingGroup =
   'Vault funds' | 'Execution credit' | 'Watching credit' | 'Allowances' | 'Recovery';
@@ -1063,7 +1064,8 @@ type FundingKind =
   | 'execution-credit'
   | 'watching-credit'
   | 'allowance'
-  | 'revoke-allowance';
+  | 'revoke-allowance'
+  | 'agent-withdraw';
 
 type FundingUnit = 'USDC' | 'WETH' | 'ETH' | 'lREACT';
 
@@ -1071,6 +1073,7 @@ type FundingBalanceKey =
   | 'stable'
   | 'wrapped'
   | 'native'
+  | 'agentNative'
   | 'walletStable'
   | 'walletWrapped'
   | 'walletNative'
@@ -1086,7 +1089,7 @@ interface FundingAction {
   readonly requiresAmount: boolean;
   readonly hint: string;
   readonly balanceKey?: FundingBalanceKey;
-  readonly balanceLabel?: 'Wallet balance' | 'Vault balance';
+  readonly balanceLabel?: 'Wallet balance' | 'Vault balance' | 'Agent balance';
   readonly validateBalance?: boolean;
 }
 
@@ -1212,6 +1215,19 @@ const fundingActions: Record<FundsOperation, FundingAction> = {
     balanceLabel: 'Vault balance',
     validateBalance: true,
   },
+  'withdraw-agent-eth': {
+    label: 'Recover unused agent ETH',
+    group: 'Recovery',
+    kind: 'agent-withdraw',
+    unit: 'ETH',
+    decimals: 18,
+    amountLabel: 'Amount (ETH)',
+    requiresAmount: true,
+    hint: 'Returns ETH that was sent directly to the Agent on Reactive Lasna. This balance is separate from watching credit.',
+    balanceKey: 'agentNative',
+    balanceLabel: 'Agent balance',
+    validateBalance: true,
+  },
 };
 
 function displayUnits(value: bigint, decimals: number) {
@@ -1279,19 +1295,23 @@ export function WorkflowAccountV2({
   useEffect(() => {
     if (funding && vaultReady) amountRef.current?.focus();
   }, [funding, vaultReady]);
-  const showRecovery = Boolean(funds && funds.native > 0n);
-  const activeOperation = operation === 'withdraw-eth' && !showRecovery ? 'add-usdc' : operation;
-  const action = fundingActions[activeOperation];
-  const balance = action.balanceKey && funds ? funds[action.balanceKey] : undefined;
-  const limit = action.validateBalance ? balance : undefined;
+  const showVaultRecovery = Boolean(funds && funds.native > 0n);
+  const showAgentRecovery = Boolean(funds && funds.agentNative > 0n);
+  const available = (key: FundsOperation) =>
+    (key !== 'withdraw-eth' || showVaultRecovery) &&
+    (key !== 'withdraw-agent-eth' || showAgentRecovery);
   const groups = fundingGroupOrder
     .map((group) => ({
       group,
       actions: (Object.keys(fundingActions) as FundsOperation[]).filter(
-        (key) => fundingActions[key].group === group && (key !== 'withdraw-eth' || showRecovery),
+        (key) => fundingActions[key].group === group && available(key),
       ),
     }))
     .filter((entry) => entry.actions.length > 0);
+  const activeOperation = available(operation) ? operation : 'add-usdc';
+  const action = fundingActions[activeOperation];
+  const balance = action.balanceKey && funds ? funds[action.balanceKey] : undefined;
+  const limit = action.validateBalance ? balance : undefined;
 
   let amountError: string | undefined;
   let parsedAmount: bigint | undefined;
@@ -1365,6 +1385,19 @@ export function WorkflowAccountV2({
             abi: erc20Abi,
             functionName: 'transfer',
             args: [funds.vault, quantity],
+          }),
+          action.hint,
+          display,
+        );
+      } else if (action.kind === 'agent-withdraw') {
+        if (funds.agent === zeroAddress) throw new Error('Create your Agent first.');
+        await wallet.send(
+          LASNA_CHAIN_ID,
+          funds.agent,
+          encodeFunctionData({
+            abi: workflowAgentV2Abi,
+            functionName: 'withdraw',
+            args: [quantity],
           }),
           action.hint,
           display,
@@ -1533,6 +1566,30 @@ export function WorkflowAccountV2({
             </Callout>
           )}
 
+          {funds.agentNative > 0n && (
+            <Callout
+              tone="recovery"
+              title="Unused agent ETH"
+              action={
+                <Button
+                  onClick={() => {
+                    setOperation('withdraw-agent-eth');
+                    setAmount(exactUnits(funds.agentNative, 18));
+                    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    amountRef.current?.focus({ preventScroll: true });
+                  }}
+                >
+                  Recover ETH
+                </Button>
+              }
+            >
+              <p>
+                {exactUnits(funds.agentNative, 18)} ETH sits in the Agent contract on Reactive
+                Lasna. It is separate from watching credit and does not pay for trigger evaluations.
+              </p>
+            </Callout>
+          )}
+
           <div className="rb-split">
             <div className="app-panel">
               <div className="rb-panel-head">
@@ -1557,25 +1614,21 @@ export function WorkflowAccountV2({
                   }
                 >
                   <V2Field name="Funding action">
-                    <select
-                      className="app-input"
+                    <Select
                       value={activeOperation}
                       aria-describedby="funding-hint"
-                      onChange={(event) => {
-                        setOperation(event.target.value as FundsOperation);
+                      onChange={(next) => {
+                        setOperation(next);
                         setAmount('');
                       }}
-                    >
-                      {groups.map(({ group, actions }) => (
-                        <optgroup key={group} label={group}>
-                          {actions.map((key) => (
-                            <option value={key} key={key}>
-                              {fundingActions[key].label}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                      groups={groups.map(({ group, actions }) => ({
+                        label: group,
+                        options: actions.map((key) => ({
+                          value: key,
+                          label: fundingActions[key].label,
+                        })),
+                      }))}
+                    />
                   </V2Field>
                   {action.requiresAmount && (
                     <V2Field name={action.amountLabel}>
@@ -1650,7 +1703,9 @@ export function WorkflowAccountV2({
                   </div>
                 </div>
                 <p className="rb-credit-note">
-                  Watching credit is held on Reactive Lasna. The refill allowance is approved on
+                  Watching credit is held on Reactive Lasna and execution credit on the Unichain
+                  callback proxy. Both are prepaid to the network and consumed as fees; the network
+                  exposes no withdrawal for unspent credit. The refill allowance is approved on
                   Unichain Sepolia.
                 </p>
               </div>

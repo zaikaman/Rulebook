@@ -1,6 +1,7 @@
 import {
   decodeWorkflowV2,
   deriveWorkflowHealth,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowHealthResponseSchema,
   type WorkflowHealth,
   type WorkflowHealthEntry,
@@ -8,10 +9,11 @@ import {
   type WorkflowHealthSuccess,
 } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
-import type { Address } from 'viem';
+import { zeroAddress, type Address } from 'viem';
 
 import { appRoutes } from '@/lib/routes';
-import { readWorkflowV2, workflowV2Deployment } from './chainV2';
+import { readFundsV2, readWorkflowV2, workflowV2Deployment } from './chainV2';
+import { workflowFundingNeeds } from './fundingV2';
 import { v2ApiBase } from './listingV2';
 import { useWorkflowCredits } from './WorkflowCredit';
 
@@ -52,6 +54,15 @@ export function useWorkflowHealth(
     refetchInterval: 12_000,
     retry: 1,
   });
+  // The Vault's principal is read live so a shortfall is reported before the next trigger, not
+  // only after a run the Vault had to skip.
+  const funds = useQuery({
+    queryKey: ['workflow-v2', 'vault-funds', owner?.toLowerCase()],
+    enabled: Boolean(owner && workflowV2Deployment),
+    queryFn: () => readFundsV2(owner!, UNICHAIN_SEPOLIA_CHAIN_ID),
+    refetchInterval: 12_000,
+    retry: 1,
+  });
   const indexed = new Map<string, WorkflowHealthEntry>(
     (query.data?.workflows ?? []).map((entry) => [entry.workflowId, entry]),
   );
@@ -65,6 +76,8 @@ export function useWorkflowHealth(
       continue;
     }
     const entry = indexed.get(item.id);
+    const needs = workflowFundingNeeds(program);
+    const balances = funds.data;
     rows.set(item.id, {
       health: deriveWorkflowHealth({
         active: item.active,
@@ -74,6 +87,13 @@ export function useWorkflowHealth(
         executionCredit: credits.readings.execution,
         watchingCredit: credits.readings.watching,
         budget: item.budget,
+        funding:
+          balances && balances.vault !== zeroAddress
+            ? {
+                usdc: needs.vaultUsdc > balances.stable ? needs.vaultUsdc - balances.stable : 0n,
+                weth: needs.vaultWeth > balances.wrapped ? needs.vaultWeth - balances.wrapped : 0n,
+              }
+            : null,
         lastRun: entry?.lastRun ?? null,
       }),
       lastRun: entry?.lastRun ?? null,
@@ -84,6 +104,7 @@ export function useWorkflowHealth(
   return {
     rows,
     query,
+    funds,
     pending: credits.checking || query.isPending,
     runsUnavailable: query.isError,
     creditsUnavailable: credits.unavailable,

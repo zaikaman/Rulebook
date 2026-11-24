@@ -217,6 +217,7 @@ Don't:
   Map: src/styles/workspace.css
   Map: src/styles/onboarding.css
   Map: src/ui/index.ts
+  Map: src/ui/Select.tsx
   Map: src/ui/ErrorState.tsx
   Map: src/assistant/AssistantPanel.tsx
   Map: src/assistant/AssistantContext.tsx
@@ -296,6 +297,7 @@ New feature code imports from `frontend/src/ui`. A feature file may keep layout-
 | `Callout`                                           | One explanation plus one action            | `rb-callout`                      |
 | `Dialog`                                            | Modal surfaces with focus trap and restore | `dialog.app-dialog`               |
 | `Field`                                             | Labelled inputs with hint or error         | `label.app-field`                 |
+| `Select`                                            | Grouped single-choice pickers              | native `select` option popups     |
 | `PageHeading`                                       | Page title, description, breadcrumb, aside | `header.app-heading`              |
 | `Toolbar`                                           | Search and filter rows                     | `div.rb-toolbar`                  |
 
@@ -307,6 +309,7 @@ Rules that apply across components:
 - Wallet dialogs own the focus trap and restore focus to the trigger. While busy, Tab is contained and the waiting status is announced.
 - A fact list keeps a visible label for every value. Never render a bare address with no term.
 - `Field` renders its hint and error outside the label so a control's accessible name stays the field name; controls receive the hint and error ids to set `aria-describedby`.
+- `Select` keeps a grouped choice inside the workspace: a `role="combobox"` trigger, an absolutely positioned `listbox`, arrow/Home/End/Enter/Escape/Tab handling, and `aria-activedescendant` on the trigger. Use it instead of a native `select` wherever the operating system's option window would escape the design system or clip at the viewport.
 - If a new pattern is genuinely missing, add it to `src/ui`, document it here, then use it.
 
 ### Adding a UI surface

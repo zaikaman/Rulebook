@@ -219,9 +219,9 @@ contract WorkflowV2SettlementTest is Test {
         _enable(_program(P.SCHEDULE, _path(_action(P.BUY, 1e6, address(0)))));
         _price(2_000_000);
         P.Run memory run = _run(101, P.SCHEDULE, 0);
-        assertEq(_deliver(run), vault.FAILED());
+        assertEq(_deliver(run), vault.SKIPPED(), "an unfunded swap is skipped, not failed");
         usdc.mint(address(vault), 2e6);
-        assertEq(_deliver(run), vault.FAILED());
+        assertEq(_deliver(run), vault.SKIPPED(), "the recorded outcome of the tick stands");
         run.originTransaction = bytes32(uint256(102));
         assertEq(_deliver(run), vault.CONFIRMED());
         assertEq(_deliver(run), vault.CONFIRMED());
@@ -502,7 +502,7 @@ contract WorkflowV2SettlementTest is Test {
         _enable(_program(P.PRICE, nodes));
         usdc.mint(address(vault), 2e6);
         _price(2_300_000);
-        assertEq(_deliver(_run(101, P.PRICE, 2.3e18)), vault.FAILED());
+        assertEq(_deliver(_run(101, P.PRICE, 2.3e18)), vault.SKIPPED());
         weth.mint(address(vault), 1 ether);
         _price(2_250_000);
         assertEq(_deliver(_run(102, P.PRICE, 2.25e18)), vault.CONFIRMED());
@@ -663,6 +663,75 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(usdc.balanceOf(address(vault)), 2e6);
         assertEq(usdc.balanceOf(OWNER), 4.8e6);
         assertEq(_deliver(_run(103, P.SCHEDULE, 0)), vault.SKIPPED());
+    }
+
+    function testSendBeyondTheVaultBalanceIsSkippedAndSpendsNothing() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 0.4e6);
+        bytes32 runId = keccak256(
+            abi.encode(address(agent), WORKFLOW, LASNA, bytes32(uint256(101)), uint64(0))
+        );
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit WorkflowVaultV2.Outcome(
+            WORKFLOW,
+            runId,
+            1,
+            vault.SKIPPED(),
+            type(uint8).max,
+            WorkflowVaultV2.InsufficientVaultBalance.selector
+        );
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), 0);
+        assertEq(usdc.balanceOf(address(vault)), 0.4e6);
+        (,, uint128 usdcSpent,,,,,) = vault.weeklyBudget(WORKFLOW);
+        assertEq(usdcSpent, 0, "a skipped run spends no budget");
+    }
+
+    function testBuyBeyondTheVaultUsdcIsSkipped() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.BUY, 1e6, address(0)))));
+        _price(2_000_000);
+        usdc.mint(address(vault), 0.4e6);
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
+        assertEq(router.swapCount(), 0, "no swap is attempted without the input token");
+        assertEq(usdc.balanceOf(address(vault)), 0.4e6);
+    }
+
+    function testSellBeyondTheVaultWethIsSkipped() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SELL, 0.1 ether, address(0)))));
+        _price(2_000_000);
+        weth.mint(address(vault), 0.05 ether);
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
+        assertEq(router.swapCount(), 0);
+        assertEq(weth.balanceOf(address(vault)), 0.05 ether);
+    }
+
+    function testSellCanFundALaterSendInTheSamePath() public {
+        // The validator allows one swap per path, so the ordering case that matters is a sale that
+        // funds the USDC a later transfer moves. An upfront aggregate balance check would wrongly
+        // skip this run even though it settles.
+        P.Node[] memory nodes = new P.Node[](1);
+        nodes[0].actions = new P.Action[](2);
+        nodes[0].actions[0] = _action(P.SELL, 0.1 ether, address(0));
+        nodes[0].actions[1] = _action(P.SEND, 0.15e6, RECIPIENT);
+        _price(2_000_000);
+        _enable(_program(P.SCHEDULE, nodes));
+        weth.mint(address(vault), 0.1 ether);
+        assertEq(usdc.balanceOf(address(vault)), 0, "the send is funded by the sale in this run");
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.CONFIRMED());
+        assertEq(router.swapCount(), 1);
+        assertEq(usdc.balanceOf(RECIPIENT), 0.15e6);
+    }
+
+    function testFuzzSendIsSkippedExactlyWhenTheVaultCannotCoverIt(uint96 balance, uint96 amount)
+        public
+    {
+        balance = uint96(bound(balance, 0, 3e6));
+        amount = uint96(bound(amount, 1, 2e6));
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, amount, RECIPIENT))));
+        usdc.mint(address(vault), balance);
+        bool covered = balance >= amount;
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), covered ? vault.CONFIRMED() : vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), covered ? amount : 0);
     }
 
     function testInactivityPayoutWaitsForGraceAndOwnerCheckInCancelsIt() public {

@@ -779,6 +779,104 @@
   color: var(--rb-ink-faint);
 }
 
+/* Grouped select popup, kept inside the workspace instead of the OS option window. */
+
+.app-select {
+  position: relative;
+  min-inline-size: 0;
+}
+
+.app-select__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  inline-size: 100%;
+  min-block-size: 2.5rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.5625rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--rb-surface-inset);
+  color: var(--rb-ink);
+  font-size: 0.875rem;
+  text-align: start;
+  transition:
+    border-color 150ms ease-out,
+    background-color 150ms ease-out;
+}
+
+.app-select__trigger:hover {
+  border-color: var(--rb-border-strong);
+}
+
+.app-select__trigger[aria-expanded='true'] {
+  border-color: var(--rb-accent);
+}
+
+.app-select__trigger svg {
+  flex: none;
+  color: var(--rb-ink-faint);
+}
+
+.app-select__value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-select__list {
+  position: absolute;
+  z-index: 20;
+  inset-inline: 0;
+  inset-block-start: calc(100% + 0.25rem);
+  max-block-size: 17rem;
+  overflow-y: auto;
+  border: 1px solid var(--rb-border-strong);
+  border-radius: 0.5625rem;
+  padding: 0.25rem;
+  background: var(--rb-surface-raised);
+  box-shadow: var(--rb-shadow-workspace);
+}
+
+.app-select__list[data-placement='above'] {
+  inset-block-start: auto;
+  inset-block-end: calc(100% + 0.25rem);
+}
+
+.app-select__group + .app-select__group {
+  margin-block-start: 0.25rem;
+  border-block-start: 1px solid var(--rb-border);
+  padding-block-start: 0.25rem;
+}
+
+.app-select__group-label {
+  margin: 0;
+  padding: 0.375rem 0.5rem 0.25rem;
+  color: var(--rb-ink-faint);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.app-select__option {
+  border-radius: 0.375rem;
+  padding: 0.4375rem 0.5rem;
+  color: var(--rb-ink-muted);
+  font-size: 0.875rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.app-select__option[data-active='true'] {
+  background: var(--rb-surface-inset);
+  color: var(--rb-ink);
+}
+
+.app-select__option[aria-selected='true'] {
+  color: var(--rb-accent);
+  font-weight: 560;
+}
+
 .rb-search {
   position: relative;
   display: block;

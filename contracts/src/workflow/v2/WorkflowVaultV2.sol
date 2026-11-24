@@ -70,6 +70,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     error DuplicateOrigin();
     error StaleObservation();
     error SettlementInterrupted();
+    error InsufficientVaultBalance(address asset, uint256 required, uint256 available);
 
     event Authorized(bytes32 indexed workflow, bytes32 indexed programHash, uint64 epoch);
     event WeeklyBudgetSet(
@@ -357,9 +358,12 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             // An out-of-gas self-call returns no data. Let the outer call revert so it can be retried.
             if (data.length == 0) revert SettlementInterrupted();
             bytes4 reason = data.length >= 4 ? bytes4(data) : bytes4(0);
+            // A shortfall is a funding precondition, not a broken workflow: the run did not settle,
+            // nothing was spent, and the owner can restore it by topping up the Vault.
             uint8 status = reason == NoLongerEligible.selector
                 || reason == StaleObservation.selector || reason == DuplicateOrigin.selector
                 || reason == WeeklyBudgetExceeded.selector
+                || reason == InsufficientVaultBalance.selector
                 ? SKIPPED
                 : FAILED;
             _outcome(workflow, runId, run.epoch, status, NO_PATH, reason);
@@ -586,8 +590,10 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         address account = action.account;
         if (action.kind == P.SEND || action.kind == P.INACTIVITY_PAYOUT) {
             if (account == address(this)) revert InvalidAuthorization();
+            _requireBalance(usdc, amount);
             IERC20(usdc).safeTransfer(account, amount);
         } else if (action.kind == P.BUY || action.kind == P.SELL) {
+            _requireBalance(action.kind == P.SELL ? weth : usdc, amount);
             received = _swap(action.kind == P.SELL, amount, program.slippage, run.expiresAt);
             account = address(this);
             if (program.trigger == P.PRICE) ctx.swapped = true;
@@ -596,6 +602,15 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             account = address(this);
         }
         _step(runId, index, action.kind, amount, received, account);
+    }
+
+    /// @notice Refuses a transfer or swap the Vault cannot fund, before the token does.
+    /// @dev USDC reverts with a string, which the outcome layer cannot classify. Checking the
+    /// Vault's own live balance names the shortfall, and reading it per step keeps a path that
+    /// funds a later step from an earlier fill valid.
+    function _requireBalance(address asset, uint256 amount) private view {
+        uint256 available = IERC20(asset).balanceOf(address(this));
+        if (available < amount) revert InsufficientVaultBalance(asset, amount, available);
     }
 
     function _step(

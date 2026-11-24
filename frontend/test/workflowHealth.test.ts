@@ -1,6 +1,7 @@
 import {
   createWorkflowV2Recipe,
   deriveWorkflowHealth,
+  insufficientVaultBalanceSelector,
   type WorkflowHealthInput,
 } from '@rulebook/shared';
 import { describe, expect, it } from 'vitest';
@@ -35,6 +36,7 @@ function input(overrides: Partial<WorkflowHealthInput> = {}): WorkflowHealthInpu
     executionCredit: null,
     watchingCredit: null,
     budget: null,
+    funding: null,
     lastRun: null,
     ...overrides,
   };
@@ -153,6 +155,61 @@ describe('workflow health', () => {
     });
     expect(health.summary).toContain('USDC');
     expect(health.summary).toContain('UTC');
+  });
+
+  it('reports a Vault that cannot fund one run before any failed run', () => {
+    const health = deriveWorkflowHealth(input({ funding: { usdc: 600_000n, weth: 0n } }));
+    expect(health).toMatchObject({
+      code: 'funding',
+      label: 'Vault short of funds',
+      tone: 'paused',
+      fix: 'account',
+      fixLabel: 'Add funds to the Vault',
+      attention: true,
+    });
+    expect(health.summary).toContain('0.6 USDC');
+  });
+
+  it('names both assets when the Vault is short of USDC and WETH', () => {
+    const health = deriveWorkflowHealth(input({ funding: { usdc: 1_000_000n, weth: 10n ** 17n } }));
+    expect(health.summary).toContain('1 USDC');
+    expect(health.summary).toContain('0.1 WETH');
+  });
+
+  it('treats a shortfall-skipped run as funding, not a failure', () => {
+    const health = deriveWorkflowHealth(
+      input({
+        lastRun: {
+          status: 'skipped',
+          reason: 'The Vault did not hold enough of the asset this run needed.',
+          reasonCode: insufficientVaultBalanceSelector,
+          recovery: 'balances',
+        },
+      }),
+    );
+    expect(health).toMatchObject({
+      code: 'funding',
+      label: 'Vault short of funds',
+      tone: 'paused',
+      fix: 'account',
+      attention: true,
+    });
+    expect(health.summary).toContain('was skipped');
+  });
+
+  it('still reports a skipped run with another reason as watching', () => {
+    expect(
+      deriveWorkflowHealth(
+        input({
+          lastRun: {
+            status: 'skipped',
+            reason: 'Run would exceed the weekly spending budget',
+            reasonCode: '0x12345678',
+            recovery: 'limits',
+          },
+        }),
+      ).code,
+    ).toBe('watching');
   });
 
   it('does not treat an unlimited weekly budget as reached', () => {

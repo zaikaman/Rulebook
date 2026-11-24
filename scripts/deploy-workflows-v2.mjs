@@ -256,7 +256,6 @@ function revision() {
 async function publish(record, source) {
   const serialized = `${JSON.stringify(record, null, 2)}\n`;
   const current = existsSync(RECORD_PATH) ? readFileSync(RECORD_PATH, 'utf8') : '';
-  if (serialized !== current) writeFileSync(RECORD_PATH, serialized);
   const value = deploymentValue(record);
   const files = [];
   for (const [file, name] of [
@@ -265,6 +264,8 @@ async function publish(record, source) {
   ]) {
     if (setEnvLine(file, name, value)) files.push(file);
   }
+  // The backend dev watcher reloads its environment when the deployment record changes.
+  if (serialized !== current || files.length) writeFileSync(RECORD_PATH, serialized);
   const herokuState = await heroku();
   const app = herokuState.app;
   if (app && herokuState.config.WORKFLOW_V2_DEPLOYMENT?.toLowerCase() !== value.toLowerCase()) {

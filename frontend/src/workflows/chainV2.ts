@@ -288,33 +288,35 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
         functionName: 'callbackProxy',
       })
     : undefined;
-  const [usdc, weth, watch, execution, native, walletNative, walletWatch] = await Promise.all([
-    vault === zeroAddress
-      ? zeroAddress
-      : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'usdc' }),
-    vault === zeroAddress
-      ? zeroAddress
-      : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'weth' }),
-    agent === zeroAddress
-      ? 0n
-      : lasna.readContract({
-          address: lasnaSystem,
-          abi: executionCreditAbi,
-          functionName: 'reserves',
-          args: [agent],
-        }),
-    vault === zeroAddress || !proxy
-      ? 0n
-      : client.readContract({
-          address: proxy,
-          abi: executionCreditAbi,
-          functionName: 'reserves',
-          args: [vault],
-        }),
-    vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
-    client.getBalance({ address: owner }),
-    lasna.getBalance({ address: owner }),
-  ]);
+  const [usdc, weth, watch, execution, native, agentNative, walletNative, walletWatch] =
+    await Promise.all([
+      vault === zeroAddress
+        ? zeroAddress
+        : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'usdc' }),
+      vault === zeroAddress
+        ? zeroAddress
+        : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'weth' }),
+      agent === zeroAddress
+        ? 0n
+        : lasna.readContract({
+            address: lasnaSystem,
+            abi: executionCreditAbi,
+            functionName: 'reserves',
+            args: [agent],
+          }),
+      vault === zeroAddress || !proxy
+        ? 0n
+        : client.readContract({
+            address: proxy,
+            abi: executionCreditAbi,
+            functionName: 'reserves',
+            args: [vault],
+          }),
+      vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
+      agent === zeroAddress ? 0n : lasna.getBalance({ address: agent }),
+      client.getBalance({ address: owner }),
+      lasna.getBalance({ address: owner }),
+    ]);
   const tokenBalance = (token: Address, account: Address) =>
     token === zeroAddress
       ? 0n
@@ -348,6 +350,7 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
     watch,
     execution,
     native,
+    agentNative,
     stable,
     wrapped,
     refillAllowance,

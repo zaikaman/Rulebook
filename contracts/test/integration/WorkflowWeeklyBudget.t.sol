@@ -211,11 +211,11 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertEq(_budget().usdcSpent, 0);
     }
 
-    function testARevertedRunLeavesUsageUnchanged() public {
+    function testASkippedRunLeavesUsageUnchanged() public {
         _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 2e6, 0);
         usdc.mint(address(vault), 0.5e6);
 
-        assertEq(_deliver(_run(101, P.SCHEDULE)), vault.FAILED());
+        assertEq(_deliver(_run(101, P.SCHEDULE)), vault.SKIPPED());
         assertEq(_budget().usdcSpent, 0);
 
         usdc.mint(address(vault), 1e6);

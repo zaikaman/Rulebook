@@ -2134,6 +2134,27 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "InsufficientVaultBalance",
+    "inputs": [
+      {
+        "name": "asset",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "required",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "InvalidAmount",
     "inputs": []
   },

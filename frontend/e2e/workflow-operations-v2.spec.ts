@@ -21,7 +21,7 @@ test('warns about low credits and opens the right funding action and workflow Ac
   await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await fundFixtureWorkflowVault(owner, 10_000_000n);
   await page.goto(FIXTURE_FRONTEND_URL + '/account?credit=execution');
-  await expect(page.getByLabel('Funding action')).toHaveValue('run-credit');
+  await expect(page.getByLabel('Funding action')).toContainText('Deposit ETH for execution credit');
   await page.getByRole('link', { name: 'New workflow' }).click();
   await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await page.getByRole('button', { name: title, exact: false }).click();
@@ -63,7 +63,7 @@ test('warns about low credits and opens the right funding action and workflow Ac
 
   await page.goBack();
   await credit.getByRole('link', { name: 'Add execution credit' }).click();
-  await expect(page.getByLabel('Funding action')).toHaveValue('run-credit');
+  await expect(page.getByLabel('Funding action')).toContainText('Deposit ETH for execution credit');
   await expect(page.getByLabel('Amount (ETH)')).toBeFocused();
 });
 

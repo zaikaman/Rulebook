@@ -39,6 +39,13 @@ const reasons = new Map<string, FailureReason>([
     },
   ],
   [
+    toFunctionSelector('InsufficientVaultBalance(address,uint256,uint256)'),
+    {
+      message: 'The Vault did not hold enough of the asset this run needed.',
+      recovery: 'balances',
+    },
+  ],
+  [
     toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)'),
     {
       message: 'The wallet or Vault had insufficient tokens.',

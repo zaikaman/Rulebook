@@ -1,4 +1,4 @@
-import { formatUnits } from 'viem';
+import { formatUnits, toFunctionSelector } from 'viem';
 import { z } from 'zod';
 
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
@@ -16,6 +16,7 @@ export type WorkflowHealthCode =
   | 'ready'
   | 'execution-credit'
   | 'watching-credit'
+  | 'funding'
   | 'budget'
   | 'grace-period'
   | 'callback-pending'
@@ -53,6 +54,20 @@ export interface WorkflowBudgetState {
   readonly resetsAt: bigint;
 }
 
+/**
+ * How far the Vault's spendable principal falls short of one run. A value is positive only when
+ * the largest single path needs more of that asset than the Vault holds.
+ */
+export interface WorkflowFundingShortfall {
+  readonly usdc: bigint;
+  readonly weth: bigint;
+}
+
+/** The Vault's own refusal to move funds it does not hold, recorded as a skipped run. */
+export const insufficientVaultBalanceSelector = toFunctionSelector(
+  'InsufficientVaultBalance(address,uint256,uint256)',
+);
+
 export interface WorkflowHealthRun {
   readonly status: z.infer<typeof workflowV2RunStatusSchema>;
   readonly reason: string | null;
@@ -68,6 +83,8 @@ export interface WorkflowHealthInput {
   readonly executionCredit: WorkflowCreditState | null;
   readonly watchingCredit: WorkflowCreditState | null;
   readonly budget: WorkflowBudgetState | null;
+  /** Null while the Vault balances are unknown, so an unread balance never blocks a status. */
+  readonly funding: WorkflowFundingShortfall | null;
   readonly lastRun: WorkflowHealthRun | null;
 }
 
@@ -168,6 +185,24 @@ function exhaustedBudget(program: Pick<WorkflowV2Program, 'nodes'>, budget: Work
   if (assets.usdc && budget.usdcLimit > 0n && budget.usdcRemaining === 0n) exhausted.push('USDC');
   if (assets.weth && budget.wethLimit > 0n && budget.wethRemaining === 0n) exhausted.push('WETH');
   return exhausted;
+}
+
+function fundingBlock(funding: WorkflowFundingShortfall | null): WorkflowHealth | null {
+  if (!funding) return null;
+  const short: string[] = [];
+  if (funding.usdc > 0n) short.push(displayAmount(funding.usdc, 6, 'USDC'));
+  if (funding.weth > 0n) short.push(displayAmount(funding.weth, 18, 'WETH'));
+  if (short.length === 0) return null;
+  const list = short.length === 2 ? `${short[0]} and ${short[1]}` : short[0]!;
+  return {
+    code: 'funding',
+    label: 'Vault short of funds',
+    tone: 'paused',
+    summary: `The Vault is short ${list} for one run of this workflow. Add ${list} in Account & Vault so the next trigger can settle; the workflow stays active and a run that cannot be funded is skipped instead of failed.`,
+    fix: 'account',
+    fixLabel: 'Add funds to the Vault',
+    attention: true,
+  };
 }
 
 function creditBlock(
@@ -286,6 +321,27 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
       summary: watching.summary,
       fix: watching.fix,
       fixLabel: 'Add watching credit',
+      attention: true,
+    };
+  }
+
+  const funding = fundingBlock(input.funding);
+  if (funding) return funding;
+
+  // A shortfall recorded on chain also counts when the live balances cannot be read yet, and it
+  // keeps the skipped run from being reported as a failure.
+  if (
+    input.lastRun?.status === 'skipped' &&
+    input.lastRun.reasonCode === insufficientVaultBalanceSelector
+  ) {
+    return {
+      code: 'funding',
+      label: 'Vault short of funds',
+      tone: 'paused',
+      summary:
+        'The last run was skipped because the Vault did not hold enough of the asset it needed. Nothing was spent and the workflow stays active. Add funds in Account & Vault so the next trigger can settle.',
+      fix: 'account',
+      fixLabel: 'Add funds to the Vault',
       attention: true,
     };
   }

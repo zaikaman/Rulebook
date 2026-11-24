@@ -9,5 +9,6 @@ export { FactList, type Fact, type FactListProps } from './FactList.js';
 export { Field, type FieldProps } from './Field.js';
 export { PageHeading } from './PageHeading.js';
 export { Panel, PanelBody, PanelCopy, PanelHeading, PanelHeader, PanelTitle } from './Panel.js';
+export { Select, type SelectGroup, type SelectOption, type SelectProps } from './Select.js';
 export { SyncState, type SyncStateProps } from './SyncState.js';
 export { Toolbar } from './Toolbar.js';

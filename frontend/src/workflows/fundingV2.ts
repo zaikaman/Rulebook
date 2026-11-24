@@ -66,7 +66,10 @@ export function workflowFundingNeeds(program: WorkflowV2Program): WorkflowFundin
     let refill = 0n;
     for (const action of node.actions) {
       if (action.kind === A.alert) continue;
-      // Percentage actions depend on the incoming payment, so there is no fixed amount to check.
+      // The validator only allows percentage actions on a payment trigger, where the incoming
+      // transfer funds them inside the same run and the origin cap bounds the spend. There is no
+      // fixed amount to reserve, so a percentage step never adds a Vault shortfall here; the
+      // Vault's per-step balance check is what settles the live amount.
       if (action.unit === U.percent) continue;
       if (action.kind === A.refill) {
         refill += action.amount;
