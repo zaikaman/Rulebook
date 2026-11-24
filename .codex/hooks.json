@@ -23,6 +23,13 @@
             "commandWindows": "cmd /c if exist \".agents\\skills\\impeccable\\scripts\\impeccable.cmd\" \".agents\\skills\\impeccable\\scripts\\impeccable.cmd\" hook",
             "timeout": 30,
             "statusMessage": "Design deep pass"
+          },
+          {
+            "type": "command",
+            "command": "node scripts/verify-changes.mjs",
+            "commandWindows": "node scripts\\verify-changes.mjs",
+            "timeout": 3600,
+            "statusMessage": "Verifying the change set against the CI gates"
           }
         ]
       }

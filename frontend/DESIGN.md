@@ -322,7 +322,7 @@ Rules that apply across components:
 
 ### Bookkeeper assistant
 
-Bookkeeper is the wallet-verified account assistant. It opens from the workspace topbar, the mobile bar, and a launcher in focused layouts. Above 64rem it is a bottom-right dialog; below 64rem it becomes a full-height sheet.
+Bookkeeper is the wallet-verified account assistant. It opens from the workspace topbar, the mobile bar, and a launcher in focused layouts. Above 64rem it is a bottom-right dialog; below 64rem it becomes a full-height sheet. The focused-layout launcher sits in the flow at the end of the page content (`.app-assistant-dock`) rather than floating over it, so it never covers a link or button.
 
 - Compose the header, actions, verification card, and failure states from `Button`, `Callout`, `Dialog`, and `ErrorState`. The thread, tool trace, suggestion list, reference chips, and composer are assistant layout classes in `styles/assistant.css`.
 - Every account fact comes from a read-only tool call. Show the call as a trace row above the answer; never render a balance or run from the model's memory.

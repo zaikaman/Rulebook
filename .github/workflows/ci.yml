@@ -45,7 +45,9 @@ jobs:
       - name: Test
         run: forge test --deny warnings
       - name: Gas snapshot
-        run: forge snapshot --check
+        # Fuzz tests report a mean across random inputs, so their row changes on every run.
+        # They are excluded here (and in scripts/check.mjs) to keep the check meaningful.
+        run: forge snapshot --check --no-match-test testFuzz
       - name: Share compiled contracts
         uses: actions/upload-artifact@v4
         with:
@@ -115,9 +117,8 @@ jobs:
           name: compiled-contracts
           path: contracts/out
       - name: Verify generated artifacts
-        run: |
-          npm run generate -w packages/shared
-          git diff --exit-code
+        # Same script `npm run verify` runs locally, so both check the committed ABI module.
+        run: node scripts/generate-check.mjs
       - name: Build shared package
         run: npm run build -w packages/shared
       - uses: foundry-rs/foundry-toolchain@v1

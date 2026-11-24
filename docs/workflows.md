@@ -30,6 +30,6 @@ Build the contracts with Foundry and regenerate the shared ABIs with `npm run ge
 
 Apply `0014_workflow_v2.sql` with `npm run migrate -w backend`. Set `WORKFLOW_V2_DEPLOYMENT` on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. Both use JSON with `lasna` and `unichain` entries, each containing the confirmed factory address and start block under `factory` and `startBlock`. Enable the indexer with `INDEXER_ENABLED=true`. The frontend uses `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Pause, check-in, and withdrawal controls are independent of the activation flag.
 
-Run `npm run verify` and `npx playwright test`. Test the branching income sweep on the live testnets with 1.20, 0.60, and 0.10 USDC deposits. Record the origin, Lasna decision, and destination transactions, and check the selected path and balances for each. Verify scheduled and price-triggered runs before presenting them as live-tested recipes.
+Run `npm run verify`; it includes the Playwright browser suite. Test the branching income sweep on the live testnets with 1.20, 0.60, and 0.10 USDC deposits. Record the origin, Lasna decision, and destination transactions, and check the selected path and balances for each. Verify scheduled and price-triggered runs before presenting them as live-tested recipes.
 
 [Testnet factory receipts](../deployments/workflows-v2.json) · [Live income sweep receipts](../deployments/workflows-v2-smoke.json)

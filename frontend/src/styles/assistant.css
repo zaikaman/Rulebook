@@ -516,11 +516,16 @@
   }
 }
 
+/* The launcher sits after the page content instead of floating over it, so it can never
+   cover a link or button scrolled to the bottom of a focused layout. */
+.app-assistant-dock {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.5rem clamp(1rem, 3vw, 2.5rem) 2rem;
+}
+
 .app-assistant-launcher {
-  position: fixed;
-  z-index: 40;
-  inset: auto 1.25rem 1.25rem auto;
-  box-shadow: 0 0.75rem 2rem var(--rb-shadow-workspace);
+  flex: none;
 }
 
 @keyframes app-assistant-pulse {

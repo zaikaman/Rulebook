@@ -27,10 +27,14 @@ export function AppShell({
             <div className={focused ? 'app-workspace app-workspace--focused' : 'app-workspace'}>
               <OfflineState />
               {children ?? <Outlet />}
+              {focused && (
+                <div className="app-assistant-dock">
+                  <AssistantLauncher />
+                </div>
+              )}
             </div>
           </AppScrollArea>
         </div>
-        {focused && <AssistantLauncher />}
       </div>
     </AssistantProvider>
   );

@@ -88,7 +88,13 @@ const contracts = [
   step('contracts:format', forge, ['fmt', '--check'], 'contracts'),
   step('contracts:build', forge, ['build'], 'contracts'),
   step('contracts:test', forge, ['test', '--deny', 'warnings'], 'contracts'),
-  step('contracts:snapshot', forge, ['snapshot', '--check'], 'contracts'),
+  // Fuzz tests average gas over random inputs, so their snapshot row is not reproducible.
+  step(
+    'contracts:snapshot',
+    forge,
+    ['snapshot', '--check', '--no-match-test', 'testFuzz'],
+    'contracts',
+  ),
   step('contracts:coverage', process.execPath, ['scripts/coverage-gate.mjs']),
 ];
 
@@ -99,6 +105,14 @@ await runStage(
 await runStage('contracts and node gates', [
   contracts,
   [step('build', npm, ['run', 'build']), step('test', npm, ['run', 'test'])],
+]);
+// Mirrors the CI `browser and generated artifacts` job: the generated ABI module must match
+// contracts/out, and the Playwright flows run against the local chain.
+await runStage('browser and generated artifacts', [
+  [
+    step('generated-artifacts', process.execPath, ['scripts/generate-check.mjs']),
+    step('browser', npm, ['run', 'test:e2e']),
+  ],
 ]);
 
 console.log('All gates passed.');

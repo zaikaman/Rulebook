@@ -222,10 +222,9 @@ npm test -w contracts
 
 ```powershell
 npm run verify
-npx playwright test
 ```
 
-`npm run verify` is the repository gate: formatting, the Foundry suite and its gas snapshot, coverage, the frontend and backend build, typecheck, unit tests, lint, and the secret scan. Playwright covers the browser flows against a local chain. Running the app against the public testnets also needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the same `WORKFLOW_V2_DEPLOYMENT` JSON on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. The shape is `{ lasna: { factory, startBlock }, unichain: { factory, startBlock } }`. Set `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Deployment steps are in [`docs/workflows.md`](docs/workflows.md).
+`npm run verify` is the repository gate and mirrors everything CI runs: formatting, design checks, lint, the secret scan, the Foundry format/build/test suite with its gas snapshot and coverage, the frontend and backend build, typecheck, unit tests, the generated-ABI drift check, and the Playwright browser flows against a local chain. Install the browser once with `npx playwright install chromium`; `npm run test:e2e` runs only the browser suite. Both git and agent hooks call `node scripts/verify-changes.mjs`, which runs this same gate once per change set before a push or before an agent finishes. Running the app against the public testnets also needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the same `WORKFLOW_V2_DEPLOYMENT` JSON on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. The shape is `{ lasna: { factory, startBlock }, unichain: { factory, startBlock } }`. Set `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Deployment steps are in [`docs/workflows.md`](docs/workflows.md).
 
 ## License
 

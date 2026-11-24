@@ -23,7 +23,6 @@ WorkflowV2SettlementTest:testDisablingAWorkflowDropsItsParkedRuns() (gas: 203802
 WorkflowV2SettlementTest:testExpiredWorkflowRetiresWithASignalInsteadOfDispatching() (gas: 1615754)
 WorkflowV2SettlementTest:testFactoryCreatesOneVaultPerOwnerAndRejectsAnAgentChange() (gas: 8666213)
 WorkflowV2SettlementTest:testFallingCrossRequiresStrictlyBelowTargetAndAStillEligiblePrice() (gas: 2488626)
-WorkflowV2SettlementTest:testFuzzSendIsSkippedExactlyWhenTheVaultCannotCoverIt(uint96,uint96) (runs: 512, μ: 1674973, ~: 1657208)
 WorkflowV2SettlementTest:testInactivityPayoutWaitsForGraceAndOwnerCheckInCancelsIt() (gas: 3265737)
 WorkflowV2SettlementTest:testIncomeSweepChoosesLargeSmallAndSkipPaths() (gas: 3445224)
 WorkflowV2SettlementTest:testLargeTransferOnlyWatchesIncomingVaultTransfersAboveThreshold() (gas: 3392095)
