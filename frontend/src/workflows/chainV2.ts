@@ -11,6 +11,7 @@ import {
   workflowV2Action,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
+  workflowV2Limits,
   type WeeklyBudgetAmounts,
   type WorkflowV2Program,
 } from '@rulebook/shared';
@@ -250,6 +251,19 @@ export async function readWorkflowsV2(owner: Address) {
       .reverse()
       .map(async (id) => readWorkflowVersionDetails(await workflowVersion(agent, vault, id))),
   );
+}
+
+/** Number of workflows currently enabled on the wallet's Agent, the array `MAX_ACTIVE` bounds. */
+export async function readActiveWorkflowCount(owner: Address) {
+  const agent = await readAgent(owner);
+  if (agent === zeroAddress) return 0;
+  const ids = await lasna.readContract({
+    address: agent,
+    abi: workflowAgentV2Abi,
+    functionName: 'workflowIds',
+  });
+  const entries = await Promise.all(ids.map((id) => v2Entry(agent, id)));
+  return entries.filter((entry) => entry[4] !== 0).length;
 }
 
 export async function readWorkflowV2(owner: Address, id: Hex) {
@@ -600,6 +614,16 @@ export function useWorkflowV2Wallet() {
       ]);
       if (entry[1] > 0n && entry[5] !== chain)
         throw new Error('Create a new workflow to change settlement networks.');
+      // Enabling the same active workflow frees its own slot first; only a new slot can exceed
+      // the cap. Check before any wallet prompt so the fifth workflow never costs a signature.
+      if (
+        entry[4] === 0 &&
+        (await readActiveWorkflowCount(signer)) >= workflowV2Limits.activePerAgent
+      ) {
+        throw new Error(
+          `This wallet already has ${workflowV2Limits.activePerAgent} active workflows, the most one Agent can watch at once. Pause or complete one before activating another.`,
+        );
+      }
       const hash = keccak256(encoded);
       const stagedBudget = await readWorkflowWeeklyBudget(chain, vault, id);
       // A retry can only reuse a staged authorization whose program and budget both match.

@@ -173,7 +173,7 @@ export const workflowFieldSpecs = {
     decimals: 2,
     minimum: 1n,
     maximum: 9_999n,
-    hint: 'At least 0.01% and at most 99.99%.',
+    hint: 'Sell at least this far above the reference price, and buy this far below it. At least 0.01% and at most 99.99%.',
     placeholder: '5',
   },
   referencePrice: {
@@ -186,7 +186,7 @@ export const workflowFieldSpecs = {
     minimum: 1n,
     maximum: maxThreshold,
     range: 'greater than zero',
-    hint: 'The middle of the band when the workflow starts.',
+    hint: 'The band starts here. A run that executes a buy or sell re-centers it on the price the Vault observed for that run; a skipped check leaves it unchanged.',
     placeholder: '2000',
   },
   recipient: {

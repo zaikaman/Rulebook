@@ -36,6 +36,7 @@ import {
   parseEther,
   parseUnits,
   zeroAddress,
+  zeroHash,
   type Address,
   type Hex,
 } from 'viem';
@@ -339,7 +340,7 @@ const activePayment = await uni.public.readContract({
   abi: workflowVaultV2Abi,
   functionName: 'paymentWorkflow',
 });
-if (activePayment !== zeroAddress) {
+if (activePayment !== zeroHash) {
   const previous = await uni.public.readContract({
     address: vault,
     abi: workflowVaultV2Abi,

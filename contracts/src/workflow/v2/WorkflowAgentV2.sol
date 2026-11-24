@@ -32,9 +32,6 @@ contract WorkflowAgentV2 is AbstractPayer {
     // retry or a later budget sync unbounded. Oldest runs are kept; the newest is reported dropped.
     uint256 private constant MAX_PENDING = 8;
     uint64 private constant WEEK = 7 days;
-    // Unix time zero is a Thursday, so this shift floors timestamps to Monday 00:00 UTC, matching
-    // the Vault's week boundary exactly.
-    uint64 private constant MONDAY_SHIFT = 3 days;
     // Reactive Lasna and Unichain Sepolia timestamps can differ by seconds. The mirror only rolls a
     // week forward after the boundary has certainly passed on both chains, so the Agent never
     // suppresses a run the Vault would settle against the week the spend was recorded in.
@@ -117,6 +114,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         string title
     );
     event Disabled(bytes32 indexed workflow, uint64 epoch);
+    event Expired(bytes32 indexed workflow, uint64 epoch);
     event Dispatched(
         bytes32 indexed workflow,
         bytes32 indexed runId,
@@ -265,6 +263,15 @@ contract WorkflowAgentV2 is AbstractPayer {
         }
     }
 
+    /// @notice Retires a workflow whose signed expiry has passed and records the terminal state.
+    /// @dev The Vault can never settle this program again, so removing the filters and reporting
+    /// the expiry is the only truthful outcome. The owner can still enable a new epoch later.
+    function _retire(bytes32 workflow, Entry storage entry) private {
+        uint64 epoch = entry.epoch;
+        _stop(workflow, entry);
+        emit Expired(workflow, epoch);
+    }
+
     function _filters(Entry storage entry, bool enabled) private {
         ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
         _filter(Filter(entry.chain, vaults[entry.chain], BUDGET_SYNCED, ANY, ANY), enabled);
@@ -350,8 +357,18 @@ contract WorkflowAgentV2 is AbstractPayer {
             activityIndex = log.log_index;
             lastActivity = uint64(block.timestamp);
         }
-        for (uint256 index; index < active.length; ++index) {
-            _route(active[index], log, cfg, market);
+        // Retiring an entry removes it with a swap-and-pop, so the loop re-reads the same index
+        // rather than stepping past the workflow that moved into it.
+        uint256 index;
+        while (index < active.length) {
+            bytes32 workflow = active[index];
+            Entry storage entry = entries[workflow];
+            if (entry.expiry != 0 && block.timestamp > entry.expiry) {
+                _retire(workflow, entry);
+                continue;
+            }
+            _route(workflow, log, cfg, market);
+            ++index;
         }
     }
 
@@ -387,7 +404,6 @@ contract WorkflowAgentV2 is AbstractPayer {
         bool market
     ) private {
         Entry storage entry = entries[workflow];
-        if (entry.expiry != 0 && block.timestamp > entry.expiry) return;
         P.Run memory run;
         if (entry.trigger == P.SCHEDULE) {
             if (
@@ -545,9 +561,14 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     /// @notice Retries every active workflow's waiting list on a cron tick.
+    /// @dev Retrying an expired workflow retires it and shrinks `active`, so the index only moves
+    /// when the workflow it pointed at is still present.
     function _retryFromCron() private {
-        for (uint256 index; index < active.length; ++index) {
-            _retryPending(active[index]);
+        uint256 index;
+        while (index < active.length) {
+            bytes32 workflow = active[index];
+            _retryPending(workflow);
+            if (index < active.length && active[index] == workflow) ++index;
         }
     }
 
@@ -558,8 +579,12 @@ contract WorkflowAgentV2 is AbstractPayer {
         Pending[] storage queue = pending[workflow];
         if (queue.length == 0) return;
         Entry storage entry = entries[workflow];
-        if (entry.trigger == 0 || (entry.expiry != 0 && block.timestamp > entry.expiry)) {
+        if (entry.trigger == 0) {
             _clearPending(workflow);
+            return;
+        }
+        if (entry.expiry != 0 && block.timestamp > entry.expiry) {
+            _retire(workflow, entry);
             return;
         }
         uint256 index;
@@ -732,11 +757,5 @@ contract WorkflowAgentV2 is AbstractPayer {
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
         _retryPending(workflow);
-    }
-
-    /// @notice Monday 00:00 UTC at or before `timestamp`, matching the Vault's boundary.
-    function _weekStart(uint256 timestamp) private pure returns (uint64) {
-        uint256 remainder = (timestamp + MONDAY_SHIFT) % WEEK;
-        return uint64(timestamp >= remainder ? timestamp - remainder : 0);
     }
 }

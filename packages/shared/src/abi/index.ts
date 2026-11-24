@@ -621,6 +621,25 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "event",
+    "name": "Expired",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "QueueDropped",
     "inputs": [
       {

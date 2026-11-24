@@ -40,6 +40,9 @@ export const workflowV2Action = {
 
 export const workflowV2Unit = { fixed: 0, percent: 1 } as const;
 
+/** Mirrors `WorkflowAgentV2.MAX_ACTIVE`, which remains the enforcing limit. */
+export const workflowV2Limits = { activePerAgent: 4 } as const;
+
 export const workflowV2ProgramParameters = getAbiItem({
   abi: workflowProgramValidatorV2Abi,
   name: 'validateProgram',

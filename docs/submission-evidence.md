@@ -1,12 +1,12 @@
 # Submission evidence
 
-## Workflow V2 cross-chain testnet verification · 22 November 2026
+## Workflow V2 cross-chain testnet verification · 24 November 2026
 
 Workflow V2 operates across Reactive Lasna (automation and monitoring) and Unichain Sepolia (vault custody and settlement). The live loops below demonstrate multi-path branch evaluation, scheduled execution, and destination callback settlement.
 
 ### Multi-path branching income sweep
 
-The income sweep workflow watches USDC transfers into the Vault (`0xBf523873d349863BF491218885Ac00FB2A077Aa3`) linked to Agent `0x9934ECb31a427Fc3fac22075b6E0198842729825`. The program checks incoming deposit size:
+The income sweep workflow watches USDC transfers into the Vault (`0x95855cd060ef40B1212Eb1366365f3C925F300be`) linked to Agent `0x6bF114548E7A748c7E8ED736b0E80c07B01291F8`. The program checks incoming deposit size:
 
 - Path 1: Deposits >= 1.00 USDC send 0.20 USDC to the recipient.
 - Path 3: Deposits >= 0.25 USDC send 0.05 USDC to the recipient.
@@ -14,17 +14,17 @@ The income sweep workflow watches USDC transfers into the Vault (`0xBf523873d349
 
 | Payment   | Path | Vault action     | Origin transfer                                                                                                  | Lasna react                                                                                                      | Unichain callback                                                                                                |
 | --------- | ---- | ---------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1.20 USDC | 1    | Sent 0.20 USDC   | [0xf33c…0d06](https://sepolia.uniscan.xyz/tx/0xf33c393a34baedf2bdc269bb7d122c733652b7709322848288384c677e720d06) | [0x1057…d05d](https://lasna.reactscan.net/tx/0x10575cea252fe5122060a299431d0209177caadc8096ef4b6e537f25cceed05d) | [0x6be4…41d9](https://sepolia.uniscan.xyz/tx/0x6be469dd6660dd8f51b994a75bbebd4b6e6fff82e1bb300eb270e3204daf41d9) |
-| 0.60 USDC | 3    | Sent 0.05 USDC   | [0x1c0d…3f41](https://sepolia.uniscan.xyz/tx/0x1c0dd824715e5648d705d6333acc0a31c58ac050a5fd7c236013e1287e6d3f41) | [0x82d3…14b2](https://lasna.reactscan.net/tx/0x82d3a2d72ecb81e4ec5329b968604975fd4de47eab0f59d122e529d8049514b2) | [0x3b83…8422](https://sepolia.uniscan.xyz/tx/0x3b833b455c8d2049731fbf5de73af7f564df3761c195eda9a8c0cabb6ef88422) |
-| 0.10 USDC | 4    | Skipped (0 sent) | [0xd524…9c48](https://sepolia.uniscan.xyz/tx/0xd524491816c3c9705642f3666db717d53523cfc7ca97da5f55fca912c3839c48) | [0xea4e…62ff](https://lasna.reactscan.net/tx/0xea4e23fef81ff6e34a18f298a5fa71ea51388b00d4a9fbf3487f130212af62ff) | [0x9b19…ad23](https://sepolia.uniscan.xyz/tx/0x9b1962cb1ac8b3aa6ed6563d3f8e34a3353cc4dcb3fa174ca7e77a55b109ad23) |
+| 1.20 USDC | 1    | Sent 0.20 USDC   | [0x714e…83f8](https://sepolia.uniscan.xyz/tx/0x714e0c157898d3a79b9e4ae3ab69f1dab6fa340eb0255d12053aac690fd983f8) | [0x03dc…2638](https://lasna.reactscan.net/tx/0x03dca7bb85b59ca005c20601f41f3e472e2a0bf3a58ab6a29d51d532fe192638) | [0xba91…099e](https://sepolia.uniscan.xyz/tx/0xba91dc7ea2e98b4acc03c3b322e810b08e5edc45685bfc21dc992a26dc25099e) |
+| 0.60 USDC | 3    | Sent 0.05 USDC   | [0x17ec…b9a8](https://sepolia.uniscan.xyz/tx/0x17ec5ee9fe16604548b664e3634aa26469bdf8354bad45902e511e4e56bbb9a8) | [0x49a0…89c8](https://lasna.reactscan.net/tx/0x49a056ef6e9168ca65ccdfb923c1d8769d494efe43e8f3942036a84ce18e89c8) | [0x6a4d…dc07](https://sepolia.uniscan.xyz/tx/0x6a4d944f3d0d9bd4e8561a01506e00db5a6e9baaac39c358399f92718dafdc07) |
+| 0.10 USDC | 4    | Skipped (0 sent) | [0x2396…bd60](https://sepolia.uniscan.xyz/tx/0x239630065d398b717bf19ac1d3c75c5b793f26bd8e9e54895fb1361e37a0bd60) | [0x2441…e422](https://lasna.reactscan.net/tx/0x2441cefd445348f64914787f76da66582e37bba2d643b0790e8de3f093c1e422) | [0xa7a5…6214](https://sepolia.uniscan.xyz/tx/0xa7a51f37fec05a39782a26feb3f60bb20e50d1840cf73a1ad3f1cb3032b66214) |
 
 ### Scheduled execution
 
-On the same Agent `0x9934ECb31a427Fc3fac22075b6E0198842729825` and Vault `0xBf523873d349863BF491218885Ac00FB2A077Aa3`, a scheduled buy of 0.20 USDC:
+On the same Agent `0x6bF114548E7A748c7E8ED736b0E80c07B01291F8` and Vault `0x95855cd060ef40B1212Eb1366365f3C925F300be`, a scheduled buy of 0.20 USDC:
 
 | Workflow      | Origin event                                                                                                                     | Lasna react                                                                                                                   | Destination callback                                                                                                             |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduled buy | [Lasna Cron100, 14:09:43 UTC](https://lasna.reactscan.net/tx/0x90e7ceab0787e7cb926f2204b41e111d2f0ce059b591d3eb9e9606af2b97422a) | [Next block, 14:09:44 UTC](https://lasna.reactscan.net/tx/0x880bd1a467b7a59a56d41bdad25938d47686f0936c5122f87def8b1f2d7e6001) | [Unichain swap, 14:09:46 UTC](https://sepolia.uniscan.xyz/tx/0x43561295b2dc38ca88cb799ae13608d2b07f43c8aa68b85bcf798ffb6c670e7c) |
+| Scheduled buy | [Lasna Cron100, 06:30:33 UTC](https://lasna.reactscan.net/tx/0xa0dbed575f09181e3c3c62b83fc3a3cbdd6b76e68ff2aa330a39ccc61cfa10df) | [Next block, 06:30:34 UTC](https://lasna.reactscan.net/tx/0xc66cac219fbffefcac68212e1a984edc775d8e7c7936c497bd001900149d549c) | [Unichain swap, 06:30:36 UTC](https://sepolia.uniscan.xyz/tx/0xd377b1311e7aa8871e1c25bd3e46480e0da35944f25164d53d5674dd06a7005d) |
 
 See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 
@@ -32,9 +32,9 @@ See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 
 ## Verified automated evidence
 
-- **Contracts** — 67 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
-- **Backend** — 33 Vitest tests cover workflow indexing, activity, proof reads, Rulewright, and Telegram linking.
-- **Frontend** — 42 Vitest tests and 59 Playwright tests cover account onboarding, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
+- **Contracts** — 68 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
+- **Backend** — 34 Vitest tests cover workflow indexing, activity, proof reads, Rulewright, and Telegram linking.
+- **Frontend** — 45 Vitest tests and 59 Playwright tests cover account onboarding, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
 - **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses and indexer start blocks for Reactive Lasna and Unichain Sepolia.
 
 ### Submission checklist
@@ -50,5 +50,5 @@ See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 - [Hosted app](https://rulebook-chi.vercel.app)
 - [Public repository](https://github.com/zaikaman/Rulebook)
 - [Active Workflow V2 factory pair](../deployments/workflows-v2.json)
-- [Lasna V2 Smoke Agent (recorded receipt)](https://lasna.reactscan.net/address/0x9934ECb31a427Fc3fac22075b6E0198842729825)
-- [Unichain V2 Smoke Vault (recorded receipt)](https://sepolia.uniscan.xyz/address/0xBf523873d349863BF491218885Ac00FB2A077Aa3)
+- [Lasna V2 Smoke Agent (recorded receipt)](https://lasna.reactscan.net/address/0x6bF114548E7A748c7E8ED736b0E80c07B01291F8)
+- [Unichain V2 Smoke Vault (recorded receipt)](https://sepolia.uniscan.xyz/address/0x95855cd060ef40B1212Eb1366365f3C925F300be)

@@ -179,6 +179,32 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(system.requestCount(), 1);
     }
 
+    function testExpiredWorkflowRetiresWithASignalInsteadOfDispatching() public {
+        P.Program memory program = _program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        program.expires = uint64(block.timestamp + 1 hours);
+        _enable(program);
+        vm.warp(uint256(program.expires) + 1);
+        uint256 number = block.number + 1;
+        IReactive.LogRecord memory tick;
+        tick.chain_id = LASNA;
+        tick._contract = ChainConfig.lasna().cronSource;
+        tick.topic_0 = CRON;
+        tick.topic_1 = number;
+        tick.block_number = number;
+        tick.tx_hash = number;
+        vm.expectEmit(true, false, false, true, address(agent));
+        emit WorkflowAgentV2.Expired(WORKFLOW, 1);
+        vm.prank(address(system));
+        agent.react(tick);
+        assertEq(system.requestCount(), 0, "an expired workflow never dispatches");
+        (,,,, uint8 trigger,,,,,,,,,) = agent.entries(WORKFLOW);
+        assertEq(trigger, 0, "the expired workflow is no longer active");
+
+        vm.prank(address(system));
+        agent.react(tick);
+        assertEq(system.requestCount(), 0, "a retired workflow stays retired");
+    }
+
     function testLimitBuyUsesLivePriceAndIncludesEquality() public {
         _enable(_program(P.PRICE, _branch(P.PRICE_AT_MOST, 2e18, _action(P.BUY, 1e6, address(0)))));
         usdc.mint(address(vault), 3e6);

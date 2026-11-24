@@ -11,6 +11,7 @@ import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './w
  */
 export type WorkflowHealthCode =
   | 'completed'
+  | 'expired'
   | 'paused'
   | 'ready'
   | 'execution-credit'
@@ -63,7 +64,7 @@ export interface WorkflowHealthInput {
   readonly active: boolean;
   readonly readyToActivate: boolean;
   readonly closed: boolean;
-  readonly program: Pick<WorkflowV2Program, 'trigger' | 'nodes'>;
+  readonly program: Pick<WorkflowV2Program, 'trigger' | 'nodes' | 'expires'>;
   readonly executionCredit: WorkflowCreditState | null;
   readonly watchingCredit: WorkflowCreditState | null;
   readonly budget: WorkflowBudgetState | null;
@@ -126,6 +127,13 @@ function displayAmount(value: bigint, decimals: number, asset: string) {
   const [whole, fraction] = formatUnits(value, decimals).split('.');
   const trimmed = fraction?.slice(0, 4).replace(/0+$/, '');
   return `${whole}${trimmed ? `.${trimmed}` : ''} ${asset}`;
+}
+
+function expiryLabel(expires: number) {
+  return new Intl.DateTimeFormat('en-US', {
+    dateStyle: 'medium',
+    timeZone: 'UTC',
+  }).format(new Date(expires * 1_000));
 }
 
 function resetLabel(resetsAt: bigint) {
@@ -215,6 +223,19 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
       fix: 'activity',
       fixLabel: 'View activity',
       attention: false,
+    };
+  }
+
+  const expires = Number(input.program.expires);
+  if (expires !== 0 && expires * 1_000 <= Date.now()) {
+    return {
+      code: 'expired',
+      label: 'Expired',
+      tone: 'paused',
+      summary: `This workflow's signed expiry passed on ${expiryLabel(expires)}, so it cannot run again. Edit the expiry and reactivate it to continue.`,
+      fix: 'edit',
+      fixLabel: 'Edit expiry',
+      attention: true,
     };
   }
 

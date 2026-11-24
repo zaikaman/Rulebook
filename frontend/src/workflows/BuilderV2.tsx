@@ -14,6 +14,7 @@ import {
   workflowGuardrailFields,
   workflowIdSchema,
   workflowLimits,
+  workflowV2Limits,
   workflowV2Action as A,
   workflowV2Check as C,
   workflowV2Recipes,
@@ -58,7 +59,7 @@ import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
-import { Field } from '@/ui';
+import { Callout, Field } from '@/ui';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
@@ -78,6 +79,7 @@ import { branchPathKey, type LibraryTarget } from './nodeLibraryModel';
 import {
   formatWorkflowCaps,
   workflowActivationEnabled,
+  readActiveWorkflowCount,
   readWorkflowV2,
   readWorkflowWeeklyBudget,
   settlementFactory,
@@ -769,6 +771,7 @@ export function WorkflowBuilderV2() {
       }
       recipe={recipe}
       startBlank={params.get('template') === 'blank'}
+      active={query.data?.active}
     />
   );
 }
@@ -805,12 +808,14 @@ function Editor({
   recipe,
   startBlank = false,
   storageKey,
+  active = false,
 }: {
   id?: Hex;
   original?: V2Draft;
   recipe?: WorkflowV2RecipeId;
   startBlank?: boolean;
   storageKey: string;
+  active?: boolean;
 }) {
   const wallet = useWorkflowV2Wallet();
   const { address } = useAccount();
@@ -838,6 +843,13 @@ function Editor({
   const [program, review] = useState<WorkflowV2Program>();
   const [budget, setBudget] = useState<WeeklyBudgetAmounts>();
   const funding = useWorkflowFunding(wallet.owner, program, budget);
+  const slots = useQuery({
+    queryKey: ['workflow-v2', 'active-count', wallet.owner],
+    enabled: Boolean(wallet.owner && program && workflowActivationEnabled),
+    queryFn: () => readActiveWorkflowCount(wallet.owner!),
+  });
+  const capReached =
+    !active && slots.data !== undefined && slots.data >= workflowV2Limits.activePerAgent;
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
@@ -1732,6 +1744,15 @@ function Editor({
                   </div>
                 )}
               </dl>
+              {capReached && (
+                <Callout title="All workflow slots are in use">
+                  <p>
+                    This wallet already has {workflowV2Limits.activePerAgent} active workflows.
+                    Pause or complete one before activating this workflow; an Agent can watch{' '}
+                    {workflowV2Limits.activePerAgent} at a time.
+                  </p>
+                </Callout>
+              )}
               {hasPayout && (
                 <label className="rb-consent">
                   <input
@@ -1763,6 +1784,7 @@ function Editor({
                     !settlementFactory() ||
                     !budget ||
                     funding.blocked ||
+                    capReached ||
                     (hasPayout && !consent)
                   }
                   onClick={async () => {

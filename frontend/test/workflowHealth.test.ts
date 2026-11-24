@@ -59,6 +59,24 @@ describe('workflow health', () => {
     });
   });
 
+  it('reports a workflow whose signed expiry has passed before calling it paused', () => {
+    const program = { ...recurringTransfer(), expires: 1n };
+    expect(deriveWorkflowHealth(input({ active: false, program }))).toMatchObject({
+      code: 'expired',
+      label: 'Expired',
+      tone: 'paused',
+      fix: 'edit',
+      fixLabel: 'Edit expiry',
+      attention: true,
+    });
+    expect(deriveWorkflowHealth(input({ program })).summary).toContain('1970');
+  });
+
+  it('keeps watching a workflow whose expiry is still ahead', () => {
+    const program = { ...recurringTransfer(), expires: 4_000_000_000n };
+    expect(deriveWorkflowHealth(input({ program }))).toMatchObject({ code: 'watching' });
+  });
+
   it('distinguishes paused workflows from workflows waiting for activation', () => {
     expect(deriveWorkflowHealth(input({ active: false }))).toMatchObject({
       code: 'paused',
