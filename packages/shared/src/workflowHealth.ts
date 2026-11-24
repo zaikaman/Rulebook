@@ -16,6 +16,7 @@ export type WorkflowHealthCode =
   | 'execution-credit'
   | 'watching-credit'
   | 'budget'
+  | 'grace-period'
   | 'callback-pending'
   | 'run-failed'
   | 'run-expired'
@@ -200,7 +201,9 @@ function creditBlock(
 /**
  * The status order is the order of what an owner should fix first. A blocked credit lane stops
  * both new triggers and settlement; an exhausted weekly budget skips runs without failing them.
- * A pending callback is reported above a stale failure so the newest evidence is what they see.
+ * A grace period is reported above a pending callback: the Vault already recorded the outcome, so
+ * the run has evidence and a payout deadline rather than a missing callback. A pending callback is
+ * reported above a stale failure so the newest evidence is what they see.
  */
 export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth {
   if (input.closed) {
@@ -282,7 +285,20 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     }
   }
 
-  if (input.lastRun?.status === 'pending' || input.lastRun?.status === 'in grace period') {
+  if (input.lastRun?.status === 'in grace period') {
+    return {
+      code: 'grace-period',
+      label: 'Inactivity payout in grace period',
+      tone: 'info',
+      summary:
+        'This run matched an inactivity payout. The Vault holds the payout for 24 hours so you can cancel it by checking in, then releases it on the next run after the grace period ends.',
+      fix: 'run',
+      fixLabel: 'Open run',
+      attention: false,
+    };
+  }
+
+  if (input.lastRun?.status === 'pending') {
     return {
       code: 'callback-pending',
       label: 'Callback pending',

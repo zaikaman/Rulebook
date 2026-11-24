@@ -1,6 +1,5 @@
 import {
   addressSchema,
-  decodeWorkflowV2,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentFactoryV2Abi,
@@ -12,7 +11,6 @@ import { decodeFunctionResult, encodeFunctionData, keccak256, maxUint256 } from 
 import { z } from 'zod';
 import { ApiError } from '@/lib/api';
 import { workflowClient, workflowV2Deployment } from './chainV2';
-import { toDraft, type DraftPath } from './modelV2';
 
 export const v2ApiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(
   /\/$/,
@@ -110,13 +108,4 @@ export function v2ListingQuery(id: string | undefined) {
     // The indexer checks for newly confirmed blocks every five seconds.
     retryDelay: 5_000,
   });
-}
-
-export function copyListingDraft(item: Awaited<ReturnType<typeof getV2Listing>>) {
-  const draft = toDraft(decodeWorkflowV2(item.program), item.title);
-  function clear(path: DraftPath): DraftPath {
-    if ('steps' in path) return { steps: path.steps.map((step) => ({ ...step, recipient: '' })) };
-    return { ...path, yes: clear(path.yes), no: clear(path.no) };
-  }
-  return { ...draft, expires: '', subject: '', usdcCap: '', wethCap: '', root: clear(draft.root) };
 }

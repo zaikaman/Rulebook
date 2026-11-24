@@ -323,6 +323,13 @@ export const workflowFieldSpecs = {
     hint: 'The token contract to watch on Unichain Sepolia.',
     placeholder: '0x…',
   },
+  watchedWallet: {
+    kind: 'address',
+    label: 'Watched wallet address',
+    noun: 'a watched wallet address',
+    hint: 'Transfers from or to this wallet above the threshold record an alert.',
+    placeholder: '0x…',
+  },
   minimumTransferRaw: {
     kind: 'number',
     label: 'Transfer threshold in token base units',
@@ -439,5 +446,5 @@ export const workflowV2RecipeFields = {
   'inactivity-payout': ['intervalSeconds', 'inactivitySeconds', 'sendUsdc', 'recipient'],
   'price-alert': ['targetPrice', 'direction'],
   'price-range-alert': ['lowerPrice', 'upperPrice'],
-  'large-transfer-alert': ['token', 'minimumTransferRaw'],
+  'large-transfer-alert': ['token', 'watchedWallet', 'minimumTransferRaw'],
 } as const satisfies Record<WorkflowV2RecipeId, readonly WorkflowFieldName[]>;

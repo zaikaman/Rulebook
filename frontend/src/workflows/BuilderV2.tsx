@@ -8,6 +8,7 @@ import {
   encodeWorkflowV2,
   fieldIssue,
   readWeeklyLimit,
+  toCopyDraft,
   weeklyBudgetFromDraft,
   workflowFieldSpecs,
   workflowGuardrailFields,
@@ -72,7 +73,7 @@ import {
 } from './RulewrightDialog';
 import { diagramV2, replacePath } from './diagramV2';
 import { ListingStatusV2 } from './ListingStatusV2';
-import { copyListingDraft, v2ListingId, v2ListingQuery } from './listingV2';
+import { v2ListingId, v2ListingQuery } from './listingV2';
 import { branchPathKey, type LibraryTarget } from './nodeLibraryModel';
 import {
   formatWorkflowCaps,
@@ -150,7 +151,8 @@ const recipeSummaries = {
   'inactivity-payout': 'Send a fixed payout if the wallet stays inactive for a set time.',
   'price-alert': 'Record an alert when the price crosses a chosen target.',
   'price-range-alert': 'Record an alert when the price moves outside a range.',
-  'large-transfer-alert': 'Record an alert when a token transfer exceeds an amount.',
+  'large-transfer-alert':
+    'Record an alert when the watched wallet sends or receives a token amount above the threshold.',
 } as const satisfies Record<WorkflowV2RecipeId, string>;
 
 export function V2Field({
@@ -778,7 +780,7 @@ function WorkflowCopyV2({ listingId, recipe }: { listingId: string; recipe?: Wor
   if (original) return <Editor storageKey={storageKey} original={original} recipe={recipe} />;
   // Once seeded, the private draft can be edited independently of the source listing.
   if (listing.isFetchedAfterMount && listing.isSuccess && !listing.failureReason)
-    setOriginal(copyListingDraft(listing.data));
+    setOriginal(toCopyDraft(decodeWorkflowV2(listing.data.program), listing.data.title));
   return <ListingStatusV2 query={listing} copying />;
 }
 

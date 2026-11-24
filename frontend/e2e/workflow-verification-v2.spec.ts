@@ -57,6 +57,7 @@ const parameters: Record<string, string> = {
   lowerPrice: '1000',
   upperPrice: '3000',
   token,
+  watchedWallet: USER_ADDRESS,
   minimumTransferRaw: '1000',
 };
 

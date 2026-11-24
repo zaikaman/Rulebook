@@ -507,6 +507,7 @@ describe('Telegram account and delivery', () => {
       const program = createWorkflowV2Recipe(recipe, {
         targetPrice: '1500',
         token,
+        watchedWallet: agent,
         minimumTransferRaw: '1000000',
       });
       const client = {

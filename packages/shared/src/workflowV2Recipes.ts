@@ -287,6 +287,7 @@ const recipes = {
     trigger: trigger.transfer,
     build: (b) => {
       b.program.source = b.address('token');
+      b.program.subject = b.address('watchedWallet');
       b.program.once = true;
       return when(check.amountAbove, b.amount('minimumTransferRaw'), alert);
     },

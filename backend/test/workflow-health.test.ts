@@ -11,31 +11,40 @@ const hash = `0x${'1'.repeat(64)}`;
 const workflowId = `0x${'2'.repeat(64)}`;
 const successId = `0x${'3'.repeat(64)}`;
 const failedId = `0x${'4'.repeat(64)}`;
-const inFlightId = `0x${'5'.repeat(64)}`;
+const graceId = `0x${'5'.repeat(64)}`;
+const pendingId = `0x${'6'.repeat(64)}`;
 
-it('derives the latest run, last success, and in-flight callback from indexed evidence', async () => {
+async function healthDatabase() {
   const db = new PGlite();
+  for (const file of [
+    '0014_workflow_v2.sql',
+    '0019_workflow_health.sql',
+    '0020_workflow_health_grace.sql',
+  ]) {
+    await db.exec(await readFile(new URL(`../db/migrations/${file}`, import.meta.url), 'utf8'));
+  }
+  await db.exec(`
+    insert into workflow_v2_accounts values
+      ('current', 5318007, 'agent', 'owner', 'agent'),
+      ('current', 1301, 'vault', 'owner', 'agent');
+    insert into workflow_v2_activations values
+      ('current', 1301, 'agent', '${workflowId}', '1', 'hash-1', 'Recurring transfer');
+  `);
+  return db;
+}
+
+it('derives the latest run, last success, and a grace-period run without a pending callback', async () => {
+  const db = await healthDatabase();
   try {
-    await db.exec(
-      await readFile(new URL('../db/migrations/0014_workflow_v2.sql', import.meta.url), 'utf8'),
-    );
-    await db.exec(
-      await readFile(new URL('../db/migrations/0019_workflow_health.sql', import.meta.url), 'utf8'),
-    );
     await db.exec(`
-      insert into workflow_v2_accounts values
-        ('current', 5318007, 'agent', 'owner', 'agent'),
-        ('current', 1301, 'vault', 'owner', 'agent');
-      insert into workflow_v2_activations values
-        ('current', 1301, 'agent', '${workflowId}', '1', 'hash-1', 'Recurring transfer');
       insert into workflow_v2_runs values
         ('current', 1301, '${successId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '0', '${hash}', 100, 1),
         ('current', 1301, '${failedId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '1', '${hash}', 102, 1),
-        ('current', 1301, '${inFlightId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '2', '${hash}', 103, 9999999999);
+        ('current', 1301, '${graceId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '2', '${hash}', 103, 9999999999);
       insert into workflow_v2_outcomes values
         ('current', 1301, '${successId}', '${workflowId}', 'vault', '1', '${hash}', 90, 0, 1, '0x00000000', 4),
         ('current', 1301, '${failedId}', '${workflowId}', 'vault', '1', '${hash}', 91, 1, 4, '0x12345678', null),
-        ('current', 1301, '${inFlightId}', '${workflowId}', 'vault', '1', '${hash}', 92, 2, 6, '0x00000000', null);
+        ('current', 1301, '${graceId}', '${workflowId}', 'vault', '1', '${hash}', 92, 2, 6, '0x00000000', null);
     `);
     const { rows } = await db.query(`
       select last_run_id, last_status, last_success_id, pending_run_id
@@ -43,11 +52,33 @@ it('derives the latest run, last success, and in-flight callback from indexed ev
     `);
     expect(rows).toEqual([
       {
-        last_run_id: inFlightId,
+        last_run_id: graceId,
         last_status: 'in grace period',
         last_success_id: successId,
-        pending_run_id: inFlightId,
+        pending_run_id: null,
       },
+    ]);
+  } finally {
+    await db.close();
+  }
+});
+
+it('keeps an older unconfirmed callback pending while the newest run is in grace period', async () => {
+  const db = await healthDatabase();
+  try {
+    await db.exec(`
+      insert into workflow_v2_runs values
+        ('current', 1301, '${pendingId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '1', '${hash}', 102, 9999999999),
+        ('current', 1301, '${graceId}', 'agent', '${workflowId}', 'hash-1', '1', 1301, '${hash}', '2', '${hash}', 103, 9999999999);
+      insert into workflow_v2_outcomes values
+        ('current', 1301, '${graceId}', '${workflowId}', 'vault', '1', '${hash}', 92, 2, 6, '0x00000000', null);
+    `);
+    const { rows } = await db.query(`
+      select last_run_id, last_status, pending_run_id
+      from workflow_v2_health('current', 'owner')
+    `);
+    expect(rows).toEqual([
+      { last_run_id: graceId, last_status: 'in grace period', pending_run_id: pendingId },
     ]);
   } finally {
     await db.close();

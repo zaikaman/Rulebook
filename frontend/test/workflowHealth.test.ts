@@ -157,7 +157,7 @@ describe('workflow health', () => {
     expect(
       deriveWorkflowHealth(
         input({
-          lastRun: { status: 'in grace period', reason: null, reasonCode: null, recovery: null },
+          lastRun: { status: 'pending', reason: null, reasonCode: null, recovery: null },
         }),
       ),
     ).toMatchObject({
@@ -166,6 +166,22 @@ describe('workflow health', () => {
       fix: 'run',
       attention: false,
     });
+  });
+
+  it('reports a grace-period payout separately from a pending callback', () => {
+    const health = deriveWorkflowHealth(
+      input({
+        lastRun: { status: 'in grace period', reason: null, reasonCode: null, recovery: null },
+      }),
+    );
+    expect(health).toMatchObject({
+      code: 'grace-period',
+      label: 'Inactivity payout in grace period',
+      tone: 'info',
+      fix: 'run',
+      attention: false,
+    });
+    expect(health.summary).toContain('24 hours');
   });
 
   it('keeps a failed run actionable with its recovery target', () => {

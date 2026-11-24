@@ -8,6 +8,7 @@ import {
   emptyDraft,
   encodeWorkflowV2,
   fieldIssue,
+  toCopyDraft,
   toDraft,
   toProgram,
   workflowGuardrailFields,
@@ -18,6 +19,7 @@ import {
 
 const recipient = '0x0000000000000000000000000000000000000002';
 const other = '0x0000000000000000000000000000000000000003';
+const watched = '0x0000000000000000000000000000000000000004';
 const values = {
   intervalSeconds: '3600',
   expiresAt: '1900000000',
@@ -41,6 +43,7 @@ const values = {
   lowerPrice: '1000',
   upperPrice: '3000',
   token: other,
+  watchedWallet: watched,
   minimumTransferRaw: '1000000',
 };
 
@@ -101,6 +104,15 @@ describe('V2 recipe programs', () => {
     );
   });
 
+  it('names the wallet a large-transfer alert watches', () => {
+    const program = createWorkflowV2Recipe('large-transfer-alert', values);
+    expect(program.source).toBe(other);
+    expect(program.subject).toBe(watched);
+    expect(() =>
+      createWorkflowV2Recipe('large-transfer-alert', { ...values, watchedWallet: '' }),
+    ).toThrow('Enter a watched wallet address.');
+  });
+
   it('retains both trading caps and supports two qualifying sweep paths', () => {
     const sweep = createWorkflowV2Recipe('income-sweep', {
       ...values,
@@ -111,6 +123,28 @@ describe('V2 recipe programs', () => {
     const band = createWorkflowV2Recipe('price-band', values);
     expect(band.usdcCap).toBe(1_500_000n);
     expect(band.wethCap).toBe(1_000_000_000_000_000n);
+  });
+});
+
+describe('V2 marketplace copies', () => {
+  it('keeps the listed per-run caps, watched wallet, and expiry', () => {
+    const listing = createWorkflowV2Recipe('limit-buy', values);
+    const copy = toCopyDraft(listing, 'Limit buy');
+    expect(copy.title).toBe('Limit buy');
+    expect(copy.expires).toBe(values.expiresAt);
+    expect(copy.usdcCap).toBe('1.5');
+    expect(copy.wethCap).toBe('');
+  });
+
+  it('clears payout recipients so the copier chooses them', () => {
+    const listing = createWorkflowV2Recipe('recurring-transfer', values);
+    const copy = toCopyDraft(listing, 'Recurring transfer');
+    expect(copy.usdcCap).toBe('12');
+    expect(copy.root).toEqual({
+      steps: [
+        { kind: workflowV2Action.send, unit: workflowV2Unit.fixed, amount: '12', recipient: '' },
+      ],
+    });
   });
 });
 

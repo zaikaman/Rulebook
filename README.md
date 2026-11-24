@@ -60,21 +60,21 @@ Both runs are recorded in [`deployments/workflows-v2-smoke.json`](deployments/wo
 
 Open **Workflows → New workflow**, pick a recipe, and fill in the amounts. The same screen can start from a blank canvas. A check splits the workflow into a Yes path and an Otherwise path. Each path holds up to three checks and three ordered actions. The review names the network, the amounts, the recipient, the caps, and the expiry before the wallet signs.
 
-| You want                              | Recipe               | What wakes it                           | What the Vault can do                          |
-| ------------------------------------- | -------------------- | --------------------------------------- | ---------------------------------------------- |
-| Buy a fixed amount on a timer         | Scheduled buy        | `Cron100`                               | Swap USDC for WETH                             |
-| Buy only after a drop                 | Buy more on a dip    | `Cron100`, using the latest `Sync`      | Swap, or skip                                  |
-| Buy if the price reaches a limit      | Limit buy            | Pair `Sync`                             | One swap, then the workflow closes             |
-| Sell into strength                    | Take profit          | Pair `Sync`                             | One swap, then the workflow closes             |
-| Sell if the price falls from its high | Trailing stop        | Pair `Sync`                             | One swap off a fixed stop or a trail           |
-| Trade around a reference price        | Price-band trading   | Pair `Sync`                             | Buy below the band, sell above it              |
-| Pay someone on a timer                | Recurring transfer   | `Cron100`                               | Send USDC                                      |
-| Forward part of income                | Income sweep         | USDC `Transfer` into the Vault          | Send a larger or smaller amount, or skip       |
-| Top up the Vault from your wallet     | Balance refill       | `Cron100`                               | `transferFrom` up to the allowance and the cap |
-| Name a recipient if you go quiet      | Inactivity payout    | `Cron100`, plus your own USDC transfers | One payout after a 24-hour grace period        |
-| Hear about a price                    | Price alert          | Pair `Sync`                             | Record an alert, move no funds                 |
-| Hear when a price leaves a range      | Price-range alert    | Pair `Sync`                             | Record an alert                                |
-| Hear about a large movement           | Large-transfer alert | `Transfer` of a token you name          | Record an alert                                |
+| You want                              | Recipe               | What wakes it                                                   | What the Vault can do                          |
+| ------------------------------------- | -------------------- | --------------------------------------------------------------- | ---------------------------------------------- |
+| Buy a fixed amount on a timer         | Scheduled buy        | `Cron100`                                                       | Swap USDC for WETH                             |
+| Buy only after a drop                 | Buy more on a dip    | `Cron100`, using the latest `Sync`                              | Swap, or skip                                  |
+| Buy if the price reaches a limit      | Limit buy            | Pair `Sync`                                                     | One swap, then the workflow closes             |
+| Sell into strength                    | Take profit          | Pair `Sync`                                                     | One swap, then the workflow closes             |
+| Sell if the price falls from its high | Trailing stop        | Pair `Sync`                                                     | One swap off a fixed stop or a trail           |
+| Trade around a reference price        | Price-band trading   | Pair `Sync`                                                     | Buy below the band, sell above it              |
+| Pay someone on a timer                | Recurring transfer   | `Cron100`                                                       | Send USDC                                      |
+| Forward part of income                | Income sweep         | USDC `Transfer` into the Vault                                  | Send a larger or smaller amount, or skip       |
+| Top up the Vault from your wallet     | Balance refill       | `Cron100`                                                       | `transferFrom` up to the allowance and the cap |
+| Name a recipient if you go quiet      | Inactivity payout    | `Cron100`, plus your own USDC transfers                         | One payout after a 24-hour grace period        |
+| Hear about a price                    | Price alert          | Pair `Sync`                                                     | Record an alert, move no funds                 |
+| Hear when a price leaves a range      | Price-range alert    | Pair `Sync`                                                     | Record an alert                                |
+| Hear about a large movement           | Large-transfer alert | `Transfer` of a token you name, from or to the wallet you watch | Record an alert                                |
 
 Price checks use the last `Sync` on the configured USDC/WETH pair, quoted as USDC per WETH. The Agent keeps that price, the previous price, and, for a trailing stop, the high since the workflow was enabled. A dip compares the two prices.
 
@@ -82,7 +82,7 @@ An inactivity payout needs an explicit confirmation in the review, a fixed recip
 
 A weekly spending budget is optional and per asset. It sits on top of the per-run caps. A run that would cross either weekly limit is skipped whole, the workflow stays active, and the reason is **Run would exceed the weekly spending budget**. The counter resets Monday at 00:00 UTC from the Unichain block timestamp. Editing the budget leaves the schedule and the inactivity window where they are.
 
-The Marketplace lists a workflow you choose to publish. The factory reads the program hash from your Agent, so the listing matches the program you enabled. Someone else can copy it. The copy arrives as their draft with the recipient, the watched wallet, the expiry, and the spending limits empty. They sign it onto their own Agent and fund their own Vault. Publishing, or unpublishing, leaves your workflow running.
+The Marketplace lists a workflow you choose to publish. The factory reads the program hash from your Agent, so the listing matches the program you enabled. Someone else can copy it. The copy keeps the listed trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the recipients so the copier chooses where their own funds go. They sign it onto their own Agent and fund their own Vault. Publishing, or unpublishing, leaves your workflow running.
 
 Activity shows each run and the path that was taken. **Public proof** is a link to the origin, the Lasna decision, and the settlement. It opens without a wallet. Telegram can send funding warnings, failure and inactivity warnings, and per-workflow run messages. Those messages are notices. The callback remains the settlement.
 

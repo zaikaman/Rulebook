@@ -267,6 +267,20 @@ export function toDraft(p: WorkflowV2Program, title: string): V2Draft {
   };
 }
 
+/**
+ * Builds an editable draft from a published program. A copy keeps the trigger, checks, amounts,
+ * per-run caps, watched wallet, and expiry so it reproduces the listed program. Recipients are
+ * cleared because they receive the copier's funds and must be chosen by the copier.
+ */
+export function toCopyDraft(program: WorkflowV2Program, title: string): V2Draft {
+  const draft = toDraft(program, title);
+  function clearRecipients(path: DraftPath): DraftPath {
+    if ('steps' in path) return { steps: path.steps.map((step) => ({ ...step, recipient: '' })) };
+    return { ...path, yes: clearRecipients(path.yes), no: clearRecipients(path.no) };
+  }
+  return { ...draft, root: clearRecipients(draft.root) };
+}
+
 function stepAmount(value: string, decimals: number) {
   return readAmountField(value, {
     subject: 'The step amount',
