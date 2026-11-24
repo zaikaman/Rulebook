@@ -16,7 +16,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc --build tsconfig.json --force",
+    "build": "tsc --build tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "generate": "tsx scripts/copy-abis.ts"

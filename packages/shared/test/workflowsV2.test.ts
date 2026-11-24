@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  capIssue,
   createWorkflowV2Recipe,
   decodeWorkflowV2,
+  draftSpending,
+  emptyDraft,
   encodeWorkflowV2,
+  fieldIssue,
+  toDraft,
+  toProgram,
+  workflowGuardrailFields,
+  workflowV2Action,
   workflowV2Recipes,
+  workflowV2Unit,
 } from '../src/index.js';
 
 const recipient = '0x0000000000000000000000000000000000000002';
@@ -102,5 +111,62 @@ describe('V2 recipe programs', () => {
     const band = createWorkflowV2Recipe('price-band', values);
     expect(band.usdcCap).toBe(1_500_000n);
     expect(band.wethCap).toBe(1_000_000_000_000_000n);
+  });
+});
+
+const scheduleDraft = { ...emptyDraft(), title: 'Scheduled buy', interval: '3600' };
+const buyStep = {
+  kind: workflowV2Action.buy,
+  unit: workflowV2Unit.fixed,
+  amount: '1',
+  recipient: '',
+};
+
+describe('V2 per-run caps', () => {
+  it('requires a cap for every asset the workflow can spend', () => {
+    const draft = { ...scheduleDraft, slippage: '0.5', root: { steps: [buyStep] } };
+    expect(draftSpending(draft)).toEqual({ usdc: true, weth: false });
+    expect(() => toProgram(draft)).toThrow(
+      'Enter a per-run USDC cap because this workflow spends USDC.',
+    );
+    expect(capIssue('USDC', draft.usdcCap, true)).toBe(
+      'Enter a per-run USDC cap because this workflow spends USDC.',
+    );
+    expect(capIssue('WETH', draft.wethCap, false)).toBeUndefined();
+  });
+
+  it('rejects a cap below the largest spend in one path', () => {
+    expect(() =>
+      toProgram({ ...scheduleDraft, slippage: '0.5', usdcCap: '0.5', root: { steps: [buyStep] } }),
+    ).toThrow(
+      'The per-run USDC cap is 0.5 USDC, but one run can spend 1 USDC. Raise the cap or lower the spend.',
+    );
+    expect(
+      toProgram({ ...scheduleDraft, slippage: '0.5', usdcCap: '1', root: { steps: [buyStep] } })
+        .usdcCap,
+    ).toBe(1_000_000n);
+  });
+
+  it('allows blank caps only when the workflow does not spend', () => {
+    const program = toProgram({
+      ...scheduleDraft,
+      root: {
+        steps: [
+          { kind: workflowV2Action.alert, unit: workflowV2Unit.fixed, amount: '', recipient: '' },
+        ],
+      },
+    });
+    expect(program.usdcCap).toBe(0n);
+    expect(program.wethCap).toBe(0n);
+    expect(toDraft(program, 'Price alert').usdcCap).toBe('');
+  });
+
+  it('rejects an explicit zero cap', () => {
+    expect(fieldIssue(workflowGuardrailFields.usdcCap, '0')).toBe(
+      'The per-run USDC cap must be between 0.000001 USDC and the contract maximum.',
+    );
+    expect(fieldIssue(workflowGuardrailFields.wethCap, '0')).toBe(
+      'The per-run WETH cap must be between 0.000000000000000001 WETH and the contract maximum.',
+    );
   });
 });

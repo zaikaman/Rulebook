@@ -10,7 +10,12 @@ import {
 import { formatUnits, zeroAddress, type Address } from 'viem';
 import { z } from 'zod';
 import { UNICHAIN_SEPOLIA_CHAIN_ID as UNICHAIN } from './chains.js';
-import { readField, workflowFieldSpecs, workflowGuardrailFields } from './workflowFields.js';
+import {
+  fieldIssue,
+  readField,
+  workflowFieldSpecs,
+  workflowGuardrailFields,
+} from './workflowFields.js';
 import { readAddressField, readAmountField } from './workflowValidation.js';
 
 type Code<T> = T[keyof T];
@@ -95,6 +100,47 @@ export type V2Draft = {
 
 export const weeklyBudgetCeiling = (1n << 96n) - 1n;
 export type WeeklyBudgetAmounts = { readonly usdc: bigint; readonly weth: bigint };
+
+/** The assets a draft can spend in one run. A percent step spends USDC. */
+export interface DraftSpending {
+  readonly usdc: boolean;
+  readonly weth: boolean;
+}
+
+export function draftSpending(draft: Pick<V2Draft, 'root'>): DraftSpending {
+  let usdc = false;
+  let weth = false;
+  function visit(path: DraftPath) {
+    if ('steps' in path) {
+      for (const step of path.steps) {
+        const asset = actions[step.kind].asset;
+        if (asset === 'USDC') usdc = true;
+        if (asset === 'WETH') weth = true;
+      }
+      return;
+    }
+    visit(path.yes);
+    visit(path.no);
+  }
+  visit(draft.root);
+  return { usdc, weth };
+}
+
+/**
+ * Field error for a per-run cap. Blank is valid only when the workflow cannot spend that asset,
+ * because the contract reads a stored zero cap as "this run may spend nothing".
+ */
+export function capIssue(asset: 'USDC' | 'WETH', value: string, needed: boolean) {
+  const issue = fieldIssue(
+    asset === 'USDC' ? workflowGuardrailFields.usdcCap : workflowGuardrailFields.wethCap,
+    value,
+  );
+  if (issue) return issue;
+  if (!needed || value.trim()) return undefined;
+  return asset === 'USDC'
+    ? 'Enter a per-run USDC cap because this workflow spends USDC.'
+    : 'Enter a per-run WETH cap because this workflow sells WETH.';
+}
 
 export const emptyPath = (): DraftPath => ({ steps: [] });
 export const emptyDraft = (): V2Draft => ({
@@ -211,8 +257,8 @@ export function toDraft(p: WorkflowV2Program, title: string): V2Draft {
     expires: p.expires ? p.expires.toString() : '',
     source: p.source === zeroAddress ? '' : p.source,
     subject: p.subject === zeroAddress ? '' : p.subject,
-    usdcCap: formatUnits(p.usdcCap, 6),
-    wethCap: formatUnits(p.wethCap, 18),
+    usdcCap: p.usdcCap === 0n ? '' : formatUnits(p.usdcCap, 6),
+    wethCap: p.wethCap === 0n ? '' : formatUnits(p.wethCap, 18),
     usdcWeeklyBudget: '',
     wethWeeklyBudget: '',
     slippage: formatUnits(BigInt(p.slippage), 2),
@@ -266,6 +312,52 @@ export function weeklyBudgetFromDraft(
   };
 }
 
+function capAmount(value: bigint, decimals: number, asset: string) {
+  const [whole, fraction] = formatUnits(value, decimals).split('.');
+  const trimmed = fraction?.replace(/0+$/, '');
+  return `${whole}${trimmed ? `.${trimmed}` : ''} ${asset}`;
+}
+
+/** Rejects a program whose per-run caps cannot cover its own paths. */
+function checkCaps(nodes: WorkflowV2Program['nodes'], usdcCap: bigint, wethCap: bigint) {
+  let usdc = 0n;
+  let weth = 0n;
+  let percent = false;
+  for (const node of nodes) {
+    if (node.check !== 0) continue;
+    let pathUsdc = 0n;
+    let pathWeth = 0n;
+    for (const step of node.actions) {
+      if (step.kind === A.alert) continue;
+      if (step.unit === U.percent) {
+        percent = true;
+        continue;
+      }
+      if (step.kind === A.sell) pathWeth += step.amount;
+      else pathUsdc += step.amount;
+    }
+    if (pathUsdc > usdc) usdc = pathUsdc;
+    if (pathWeth > weth) weth = pathWeth;
+  }
+  if (usdcCap === 0n && (usdc > 0n || percent)) {
+    throw new Error(
+      usdc > 0n
+        ? 'Enter a per-run USDC cap because this workflow spends USDC.'
+        : 'Enter a per-run USDC cap because this workflow spends a share of the incoming payment.',
+    );
+  }
+  if (weth > 0n && wethCap === 0n)
+    throw new Error('Enter a per-run WETH cap because this workflow sells WETH.');
+  if (usdc > usdcCap)
+    throw new Error(
+      `The per-run USDC cap is ${capAmount(usdcCap, 6, 'USDC')}, but one run can spend ${capAmount(usdc, 6, 'USDC')}. Raise the cap or lower the spend.`,
+    );
+  if (weth > wethCap)
+    throw new Error(
+      `The per-run WETH cap is ${capAmount(wethCap, 18, 'WETH')}, but one run can sell ${capAmount(weth, 18, 'WETH')}. Raise the cap or lower the sale.`,
+    );
+}
+
 export function toProgram(draft: V2Draft): WorkflowV2Program {
   const title = draft.title.trim();
   if (!title || new TextEncoder().encode(title).length > 80)
@@ -310,6 +402,9 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
     draft.trigger === T.schedule
       ? readField(workflowFieldSpecs.intervalSeconds, draft.interval)
       : 0n;
+  const usdcCap = readField(workflowGuardrailFields.usdcCap, draft.usdcCap);
+  const wethCap = readField(workflowGuardrailFields.wethCap, draft.wethCap);
+  checkCaps(nodes, usdcCap, wethCap);
   return {
     chain: draft.chain,
     trigger: draft.trigger,
@@ -317,8 +412,8 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
     expires: readField(workflowGuardrailFields.expires, draft.expires),
     source: account(draft.source, 'a source token address', draft.trigger === T.transfer),
     subject: account(draft.subject, 'a watched wallet address'),
-    usdcCap: readField(workflowGuardrailFields.usdcCap, draft.usdcCap),
-    wethCap: readField(workflowGuardrailFields.wethCap, draft.wethCap),
+    usdcCap,
+    wethCap,
     slippage: Number(readField(workflowGuardrailFields.slippage, draft.slippage)),
     once: draft.once,
     nodes,

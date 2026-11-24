@@ -18,6 +18,7 @@ jobs:
   contracts:
     name: contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: contracts
@@ -28,7 +29,8 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-          cache: false
+          # Version-pinned, so reusing the downloaded toolchain is safe and skips the release fetch.
+          cache: true
       - name: Format
         run: forge fmt --check
       - name: Cache Solidity build
@@ -44,18 +46,39 @@ jobs:
         run: forge test --deny warnings
       - name: Gas snapshot
         run: forge snapshot --check
-      - name: Coverage gate
-        run: node ../scripts/coverage-gate.mjs
       - name: Share compiled contracts
         uses: actions/upload-artifact@v4
         with:
           name: compiled-contracts
           path: contracts/out
           if-no-files-found: error
+          retention-days: 1
+          compression-level: 1
+
+  coverage:
+    # Coverage recompiles the project with instrumentation, so it runs beside the other jobs
+    # instead of holding up the browser suite that needs the compiled contracts.
+    name: contracts coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+          cache: true
+      - name: Coverage gate
+        run: node ../scripts/coverage-gate.mjs
 
   node:
     name: node
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -63,30 +86,23 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
       - run: npm ci --prefer-offline --no-audit --no-fund
+      # Every later gate reads the shared package, and the build typechecks it.
       - name: Build shared package
         run: npm run build -w packages/shared
-      - name: Typecheck
-        run: |
-          npm run typecheck -w packages/shared
-          npm run typecheck -w backend
-      - name: Test
-        run: |
-          npm run test -w packages/shared
-          npm run test -w backend
-          npm run test -w frontend
-      - name: Typecheck and build frontend
-        run: npm run build -w frontend
-      - name: Lint
-        run: npm run lint
-      - name: Design system
-        run: npm run check:design
-      - name: Format check
-        run: npm run format:check
+      # Three independent tracks: static gates, unit tests, and the production bundle
+      # (which also typechecks the frontend). They run at once on the same install.
+      - name: Gates
+        run: >-
+          npx concurrently --kill-others-on-fail --names static,tests,frontend
+          "npm run lint && npm run format:check && npm run check:design && npm run typecheck -w backend"
+          "npm run test -w packages/shared && npm run test -w backend && npm run test -w frontend"
+          "npm run build -w frontend"
 
   browser:
     name: browser and generated artifacts
     needs: contracts
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -107,7 +123,13 @@ jobs:
       - uses: foundry-rs/foundry-toolchain@v1
         with:
           version: ${{ env.FOUNDRY_VERSION }}
-          cache: false
+          cache: true
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('package-lock.json') }}
+          restore-keys: ${{ runner.os }}-playwright-
       - run: npx playwright install --with-deps --only-shell chromium
       - name: Browser and accessibility tests
         run: npx playwright test
@@ -115,6 +137,7 @@ jobs:
   secret-scan:
     name: secret scan
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

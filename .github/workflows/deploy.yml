@@ -62,9 +62,9 @@ jobs:
       - name: Prepare frontend build
         if: steps.revision.outputs.current == 'true'
         run: |
-          npm ci
+          npm ci --prefer-offline --no-audit --no-fund
           npm run build -w packages/shared
-          npm install --global vercel@53.2.0
+          npm install --global vercel@53.2.0 --prefer-offline --no-audit --no-fund
       - name: Pull Vercel project settings and build
         if: steps.revision.outputs.current == 'true'
         env:

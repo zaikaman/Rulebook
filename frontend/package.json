@@ -6,7 +6,7 @@
   "description": "React + Vite SPA: the sentence composer, rule management, and the proof page.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "concurrently --kill-others-on-fail -n \"types,bundle\" \"tsc -p tsconfig.json --noEmit\" \"vite build\"",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests"

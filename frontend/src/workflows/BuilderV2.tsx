@@ -1,7 +1,9 @@
 import {
   addressIssue,
   amountIssue,
+  capIssue,
   createWorkflowV2Recipe,
+  draftSpending,
   decodeWorkflowV2,
   encodeWorkflowV2,
   fieldIssue,
@@ -814,6 +816,7 @@ function Editor({
   const [saved] = useState(() => loadDraft(storageKey));
   const [draft, setDraft] = useState<V2Draft>(() => saved?.draft ?? original ?? emptyDraft());
   const diagram = useMemo(() => diagramV2(draft), [draft]);
+  const spending = useMemo(() => draftSpending(draft), [draft]);
   const [nodeGroup, setNodeGroup] = useState<(typeof nodeGroups)[number]>('Triggers');
   const [canvasSelection, setCanvasSelection] = useState<GraphSelection | null>(null);
   const [canvasStep, setCanvasStep] = useState<number>();
@@ -1081,11 +1084,7 @@ function Editor({
                 value={draft.usdcCap}
                 hint={workflowGuardrailFields.usdcCap.hint}
                 placeholder={workflowGuardrailFields.usdcCap.placeholder}
-                error={
-                  draft.usdcCap.trim()
-                    ? fieldIssue(workflowGuardrailFields.usdcCap, draft.usdcCap)
-                    : undefined
-                }
+                error={capIssue('USDC', draft.usdcCap, spending.usdc)}
                 change={(usdcCap) => update({ usdcCap })}
               />
               <Input
@@ -1093,11 +1092,7 @@ function Editor({
                 value={draft.wethCap}
                 hint={workflowGuardrailFields.wethCap.hint}
                 placeholder={workflowGuardrailFields.wethCap.placeholder}
-                error={
-                  draft.wethCap.trim()
-                    ? fieldIssue(workflowGuardrailFields.wethCap, draft.wethCap)
-                    : undefined
-                }
+                error={capIssue('WETH', draft.wethCap, spending.weth)}
                 change={(wethCap) => update({ wethCap })}
               />
               <Input
