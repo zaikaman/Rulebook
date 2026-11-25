@@ -9,6 +9,7 @@ import {ChainConfig} from "../../chain/ChainConfig.sol";
 import {PriceMath} from "../../libraries/PriceMath.sol";
 import {CallbackConfiguration, IReactiveSystem} from "../../shared/ReactiveTypes.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
+import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
 interface IWorkflowSettlementV2 {
     function execute(address sender, bytes32 workflow, P.Run calldata run) external;
@@ -152,6 +153,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     IReactiveSystem public immutable system;
     address public immutable factory;
+    WorkflowProgramValidatorV2 public immutable validator;
     address public owner;
     mapping(uint32 => address) public vaults;
     mapping(bytes32 => Entry) public entries;
@@ -168,14 +170,16 @@ contract WorkflowAgentV2 is AbstractPayer {
     bytes32[] private active;
     bytes32[] private known;
     uint256 private pendingCount;
-    bool private retrySubscribed;
+    mapping(bytes32 => bool) private retryWaiting;
+    uint256 private retryWaitingCount;
     mapping(uint32 => mapping(address => PriceState)) private prices;
     uint64 private lastActivity;
     mapping(uint32 => ActivityCursor) private activityCursors;
 
-    constructor(IReactiveSystem system_, address factory_) {
+    constructor(IReactiveSystem system_, address factory_, WorkflowProgramValidatorV2 validator_) {
         system = system_;
         factory = factory_;
+        validator = validator_;
     }
 
     function initialize(address owner_) external {
@@ -211,14 +215,19 @@ contract WorkflowAgentV2 is AbstractPayer {
         string calldata title,
         uint64 originAfter
     ) external onlyOwner {
-        P.Program memory program = P.validate(encoded);
+        P.Program memory program = validator.validateProgram(encoded);
         Entry storage entry = entries[workflow];
         if (
             workflow == bytes32(0) || epoch <= entry.epoch || vaults[program.chain] == address(0)
                 || originAfter == 0 || bytes(title).length == 0 || bytes(title).length > 80
         ) revert InvalidWorkflow();
         if (entry.epoch == 0) known.push(workflow);
-        if (entry.trigger != 0) _stop(workflow, entry);
+        if (entry.trigger != 0) {
+            if (entry.chain != program.chain) delete budgets[workflow];
+            _stop(workflow, entry);
+        } else {
+            delete budgets[workflow];
+        }
         if (active.length >= MAX_ACTIVE) revert InvalidWorkflow();
         bytes32 hash = keccak256(encoded);
         entry.hash = hash;
@@ -241,7 +250,13 @@ contract WorkflowAgentV2 is AbstractPayer {
         _paths(workflow, program);
         titles[workflow] = title;
         active.push(workflow);
-        _filters(entry, true);
+        _settlementFilters(entry, true);
+        if ((entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE) && _budgetBlocks(workflow, 0))
+        {
+            _enterPause(workflow, entry);
+        } else {
+            _triggerFilters(entry, true);
+        }
         emit Enabled(workflow, hash, program.chain, epoch, title);
     }
 
@@ -277,9 +292,21 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// wake is ever missed while the Agent has no watching credit.
     function resumeWatching(bytes32 workflow) external {
         Entry storage entry = entries[workflow];
-        if (entry.trigger == 0 || !paused[workflow]) revert NotPaused();
-        if (_budgetBlocks(workflow, 0)) revert BudgetBlocked();
-        _resume(workflow, entry);
+        if (paused[workflow]) {
+            if (entry.trigger == 0) revert NotPaused();
+            if (_budgetBlocks(workflow, 0)) revert BudgetBlocked();
+            _resume(workflow, entry);
+            return;
+        }
+        uint256 count = pending[workflow].length;
+        if (entry.trigger == 0 || count == 0) revert NotPaused();
+        for (uint256 index; index < count; ++index) {
+            if (!_budgetBlocks(workflow, pending[workflow][index].observed)) {
+                _retryPending(workflow);
+                return;
+            }
+        }
+        revert BudgetBlocked();
     }
 
     function publication(bytes32 workflow)
@@ -301,6 +328,7 @@ contract WorkflowAgentV2 is AbstractPayer {
             _filters(entry, false);
         }
         _clearPending(workflow);
+        _unpin(workflow);
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
             if (active[index] != workflow) continue;
@@ -625,8 +653,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     /// @notice Parks a budget-blocked payment or transfer run until its budget recovers.
-    /// @dev Deduplicated on the origin log and bounded by `MAX_PENDING`. The list grows once per
-    /// trigger, and `_park` keeps the cron subscription alive only while something is waiting.
+    /// @dev Deduplicated on the origin log and bounded by `MAX_PENDING`. A workflow whose parked
+    /// runs are all budget-blocked never keeps the wildcard cron filter alive: if any parked run
+    /// can fit after the week resets it pins that single reset block, otherwise it waits passively
+    /// for a budget edit.
     function _park(bytes32 workflow, P.Run memory run) private {
         Pending[] storage queue = pending[workflow];
         uint256 count = queue.length;
@@ -642,10 +672,6 @@ contract WorkflowAgentV2 is AbstractPayer {
             return;
         }
         pendingCount += 1;
-        if (!retrySubscribed) {
-            retrySubscribed = true;
-            _cronFilter(true);
-        }
         queue.push(
             Pending({
                 programHash: run.programHash,
@@ -657,6 +683,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                 actor: run.actor
             })
         );
+        _syncPendingSchedule(workflow);
         emit Queued(workflow, runId, run.observed, run.actor);
     }
 
@@ -677,10 +704,14 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// dispatching a batch could request runs the Vault would then reject.
     function _retryPending(bytes32 workflow) private {
         Pending[] storage queue = pending[workflow];
-        if (queue.length == 0) return;
+        if (queue.length == 0) {
+            _syncPendingSchedule(workflow);
+            return;
+        }
         Entry storage entry = entries[workflow];
         if (entry.trigger == 0) {
             _clearPending(workflow);
+            _unpin(workflow);
             return;
         }
         if (entry.expiry != 0 && block.timestamp > entry.expiry) {
@@ -713,8 +744,10 @@ contract WorkflowAgentV2 is AbstractPayer {
             run.observed = item.observed;
             run.actor = item.actor;
             _dispatch(workflow, entry, run, runId);
+            _syncPendingSchedule(workflow);
             return;
         }
+        _syncPendingSchedule(workflow);
     }
 
     /// @notice Removes one parked run with a swap-and-pop.
@@ -724,10 +757,6 @@ contract WorkflowAgentV2 is AbstractPayer {
         if (index != last) queue[index] = queue[last];
         queue.pop();
         pendingCount -= 1;
-        if (pendingCount == 0 && retrySubscribed) {
-            retrySubscribed = false;
-            _cronFilter(false);
-        }
     }
 
     /// @notice Drops every parked run for a workflow whose epoch or trigger just changed.
@@ -736,13 +765,56 @@ contract WorkflowAgentV2 is AbstractPayer {
         if (count == 0) return;
         delete pending[workflow];
         pendingCount -= count;
-        if (pendingCount == 0 && retrySubscribed) {
-            retrySubscribed = false;
-            _cronFilter(false);
+        _setRetryWaiting(workflow, false);
+    }
+
+    /// @notice Updates wildcard cron vs targeted reset wake subscriptions for `workflow`'s queue.
+    function _syncPendingSchedule(bytes32 workflow) private {
+        Pending[] storage queue = pending[workflow];
+        uint256 count = queue.length;
+        Entry storage entry = entries[workflow];
+        if (count == 0 || entry.trigger == 0) {
+            _setRetryWaiting(workflow, false);
+            if (!paused[workflow]) _unpin(workflow);
+            return;
+        }
+        bool hasUnblocked;
+        bool hasRecoverable;
+        for (uint256 index; index < count; ++index) {
+            uint256 observed = queue[index].observed;
+            if (!_budgetBlocks(workflow, observed)) {
+                hasUnblocked = true;
+                break;
+            }
+            if (!_budgetBlocksFresh(workflow, observed)) {
+                hasRecoverable = true;
+            }
+        }
+        if (hasUnblocked) {
+            if (!paused[workflow]) _unpin(workflow);
+            _setRetryWaiting(workflow, true);
+            return;
+        }
+        _setRetryWaiting(workflow, false);
+        if (!paused[workflow]) {
+            uint64 reset = _resetAt(workflow);
+            if (hasRecoverable && block.timestamp < reset) _pin(workflow, reset);
+            else _unpin(workflow);
         }
     }
 
-    /// @notice Holds the Lasna cron subscription that drives retries while the waiting list exists.
+    function _setRetryWaiting(bytes32 workflow, bool waiting) private {
+        bool current = retryWaiting[workflow];
+        if (waiting == current) return;
+        retryWaiting[workflow] = waiting;
+        if (waiting) {
+            if (retryWaitingCount++ == 0) _cronFilter(true);
+        } else {
+            if (--retryWaitingCount == 0) _cronFilter(false);
+        }
+    }
+
+    /// @notice Holds the Lasna cron subscription that drives retries while runnable items wait.
     function _cronFilter(bool enabled) private {
         ChainConfig.Config memory cfg = ChainConfig.lasna();
         _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
@@ -754,8 +826,12 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// transfer triggers keep watching because their origin log is the only copy of the run.
     function _pause(bytes32 workflow, Entry storage entry) private {
         if (paused[workflow]) return;
-        paused[workflow] = true;
         _triggerFilters(entry, false);
+        _enterPause(workflow, entry);
+    }
+
+    function _enterPause(bytes32 workflow, Entry storage entry) private {
+        paused[workflow] = true;
         uint64 reset = _resetAt(workflow);
         bool recoverable = !_budgetBlocksFresh(workflow, 0);
         if (recoverable) _pin(workflow, reset);
@@ -920,7 +996,10 @@ contract WorkflowAgentV2 is AbstractPayer {
                 // minus one unit per extra step, so this stays a lower bound of the real spend.
                 uint256 aggregated = Math.mulDiv(observed, cost.percent, P.BPS);
                 uint256 floorLoss = uint256(cost.percents) - 1;
-                if (aggregated > floorLoss) usdc += aggregated - floorLoss;
+                if (aggregated > floorLoss) {
+                    uint256 part = aggregated - floorLoss;
+                    usdc = part > type(uint256).max - usdc ? type(uint256).max : usdc + part;
+                }
             }
             if (_exceeds(budget.usdcLimit, usdcSpent, usdc)) continue;
             if (_exceeds(budget.wethLimit, wethSpent, cost.weth)) continue;
@@ -931,7 +1010,9 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice True when `cost` cannot fit in `limit` after `spent`. A zero limit is unlimited.
     function _exceeds(uint96 limit, uint128 spent, uint256 cost) private pure returns (bool) {
-        return limit != 0 && uint256(spent) + cost > limit;
+        if (cost == 0 || limit == 0) return false;
+        if (spent >= limit) return true;
+        return cost > uint256(limit) - uint256(spent);
     }
 
     /// @notice Keeps the mirrored weekly budget in step with the Vault's published snapshot.
@@ -964,8 +1045,19 @@ contract WorkflowAgentV2 is AbstractPayer {
         ) return;
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
-        if (paused[workflow] && !_budgetBlocks(workflow, 0)) {
-            _resume(workflow, entries[workflow]);
+        if (entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE) {
+            bool blocked = _budgetBlocks(workflow, 0);
+            if (paused[workflow]) {
+                if (!blocked) {
+                    _resume(workflow, entry);
+                } else if (_budgetBlocksFresh(workflow, 0)) {
+                    _unpin(workflow);
+                } else {
+                    _pin(workflow, _resetAt(workflow));
+                }
+            } else if (blocked) {
+                _pause(workflow, entry);
+            }
         }
         _retryPending(workflow);
     }

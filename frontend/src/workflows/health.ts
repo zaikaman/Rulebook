@@ -26,7 +26,7 @@ import { useWorkflowCredits } from './WorkflowCredit';
 
 export type WorkflowHealthItem = Pick<
   Awaited<ReturnType<typeof readWorkflowV2>>,
-  'id' | 'active' | 'staged' | 'closed' | 'program' | 'budget' | 'auth'
+  'id' | 'active' | 'staged' | 'partiallyPaused' | 'closed' | 'program' | 'budget' | 'auth'
 >;
 
 export interface WorkflowHealthRow {
@@ -100,6 +100,7 @@ export function useWorkflowHealth(
       health: deriveWorkflowHealth({
         active: item.active,
         readyToActivate: !item.active && item.staged && Boolean(item.auth[3]),
+        partiallyPaused: item.partiallyPaused,
         closed: item.closed,
         program,
         executionCredit,
@@ -149,6 +150,8 @@ export function workflowHealthHref(
       return `${appRoutes.account}${chainQuery}`;
     case 'edit':
       return `${appRoutes.workflows}/${workflowId}/edit`;
+    case 'pause':
+      return `${appRoutes.workflows}/${workflowId}`;
     case 'run':
       return lastRunId
         ? `${appRoutes.runs}/${lastRunId}`

@@ -598,6 +598,139 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertEq(system.requestCount(), 1, "an alert is never gated by the weekly budget");
     }
 
+    function testLongSchedulePausesImmediatelyUponBudgetExhaustion() public {
+        P.Program memory program =
+            _program(P.SCHEDULE, _branch(P.DIP_BY, 500, _action(P.SEND, 1e6, RECIPIENT)));
+        program.interval = 7 days;
+        _enable(program, 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _syncPrice(1, 2_000_000);
+        _syncPrice(2, 1_800_000);
+        _price(1_800_000);
+        uint256 unsubscribesBefore = system.unsubscribeCount();
+        _cron(3);
+        assertEq(system.requestCount(), 1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+        _forwardBudget();
+
+        // Must pause immediately in _syncBudget without waiting 7 days for nextDue.
+        assertTrue(agent.watchingPaused(WORKFLOW), "long schedule pauses right on sync");
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        assertGt(wake, 0, "pinned wake is scheduled for Monday reset");
+        assertEq(system.unsubscribeCount(), unsubscribesBefore + 2, "cron and sync removed");
+        assertEq(system.lastSubscribedTopic1(), wake, "only the exact reset block is subscribed");
+    }
+
+    function testReenablingActiveExhaustedWorkflowEntersPausedImmediately() public {
+        P.Program memory program = _program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        _enable(program, 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        bytes memory encoded = abi.encode(program);
+        uint256 subsBefore = system.subscribeCount();
+        vm.startPrank(OWNER);
+        vault.revoke(WORKFLOW, 1);
+        vault.authorizeWithWeeklyBudget(WORKFLOW, 2, encoded, "Weekly workflow", 1e6, 0);
+        agent.enable(WORKFLOW, 2, encoded, "Weekly workflow", uint64(block.number));
+        vm.stopPrank();
+
+        assertTrue(agent.watchingPaused(WORKFLOW), "re-enabled exhausted epoch starts paused");
+        assertGt(agent.wakeBlock(WORKFLOW), 0);
+        assertGt(system.subscribeCount(), subsBefore);
+    }
+
+    function testReenablingStoppedWorkflowAfterBudgetIncreaseClearsStaleMirror() public {
+        P.Program memory program = _program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        _enable(program, 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        vm.startPrank(OWNER);
+        vault.revoke(WORKFLOW, 1);
+        agent.disable(WORKFLOW, 1);
+        bytes memory encoded = abi.encode(program);
+        vault.authorizeWithWeeklyBudget(WORKFLOW, 2, encoded, "Weekly workflow", 2e6, 0);
+        agent.enable(WORKFLOW, 2, encoded, "Weekly workflow", uint64(block.number));
+        vm.stopPrank();
+
+        assertFalse(agent.watchingPaused(WORKFLOW), "stale mirror from disabled epoch clears");
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
+        _cron(2);
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1);
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testLoweringLimitBelowSpentUnpinsResetAndAllowsZeroCostAlert() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(agent.wakeBlock(WORKFLOW), 0);
+
+        // Lowering limit below single-run cost (0.5 < 1) makes even fresh week impossible -> unpin.
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 0.5e6, 0);
+        _forwardBudget();
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertEq(agent.wakeBlock(WORKFLOW), 0, "unrecoverable limit removes wake pin");
+
+        // Raising back to 1e6 is still blocked this week, but recoverable on reset -> re-pins.
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 2, 1e6, 0);
+        _forwardBudget();
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(agent.wakeBlock(WORKFLOW), 0, "recoverable limit restores reset wake");
+
+        // Zero-cost ALERT path must still run when spent > limit.
+        bytes32 alertId = keccak256("alert when spent exceeds limit");
+        P.Program memory alertProg =
+            _program(P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.ALERT, 0, address(0))));
+        bytes memory encoded = abi.encode(alertProg);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(alertId, 1, encoded, "Alert", 0.5e6, 0);
+        agent.enable(alertId, 1, encoded, "Alert", uint64(block.number));
+        vm.stopPrank();
+
+        IReactive.LogRecord memory budgetLog;
+        budgetLog.chain_id = P.UNICHAIN_SEPOLIA;
+        budgetLog._contract = address(vault);
+        budgetLog.topic_0 = BUDGET_SYNCED;
+        budgetLog.topic_1 = uint256(alertId);
+        budgetLog.data = abi.encode(
+            uint96(0.5e6), uint96(0), uint128(1e6), uint128(0), uint64(MONDAY), uint32(1)
+        );
+        vm.prank(address(system));
+        agent.react(budgetLog);
+        assertFalse(agent.watchingPaused(alertId), "zero-cost path stays active when spent > limit");
+        _sync(2);
+        assertEq(system.requestCount(), 2, "alert still dispatches");
+    }
+
     function _assertBudgetSnapshot(uint128 usdcSpent) private view {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         uint256 matches;
@@ -676,13 +809,17 @@ contract WorkflowWeeklyBudgetTest is Test {
     }
 
     function _sync(uint256 index) private {
+        _syncPrice(index, 2_000_000);
+    }
+
+    function _syncPrice(uint256 index, uint112 quotePerWeth) private {
         IReactive.LogRecord memory log;
         log.chain_id = P.UNICHAIN_SEPOLIA;
         log._contract = ChainConfig.unichainSepolia().pair;
         log.topic_0 = uint256(keccak256("Sync(uint112,uint112)"));
         log.block_number = block.number + index;
         log.tx_hash = index;
-        log.data = abi.encode(2_000_000 * 10_000, 10_000 ether);
+        log.data = abi.encode(quotePerWeth * 10_000, 10_000 ether);
         vm.prank(address(system));
         agent.react(log);
     }

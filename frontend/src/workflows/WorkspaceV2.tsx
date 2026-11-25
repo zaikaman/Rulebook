@@ -228,17 +228,39 @@ export function WorkflowsV2() {
           {workflows.map((row) => {
             const view = health.rows.get(row.id);
             const ready = !row.active && row.staged && row.auth[3];
-            const tone = view?.health.tone ?? (row.active ? 'active' : ready ? 'info' : 'paused');
+            const tone =
+              view?.health.tone ??
+              (row.closed
+                ? 'info'
+                : row.active
+                  ? 'active'
+                  : row.partiallyPaused
+                    ? 'danger'
+                    : ready
+                      ? 'info'
+                      : 'paused');
             const label =
               view?.health.label ??
-              (row.active ? 'Watching' : ready ? 'Ready to activate' : 'Paused');
+              (row.closed
+                ? 'Completed'
+                : row.active
+                  ? 'Watching'
+                  : row.partiallyPaused
+                    ? 'Still watching on Lasna'
+                    : ready
+                      ? 'Ready to activate'
+                      : 'Paused');
             const summary =
               view?.health.summary ??
-              (row.active
-                ? 'This workflow is active and waiting for its next trigger.'
-                : ready
-                  ? 'The Vault authorization is staged. Finish activation to start watching.'
-                  : 'This workflow is not watching for events.');
+              (row.closed
+                ? 'This workflow has finished its one-time run. Its history remains available.'
+                : row.active
+                  ? 'This workflow is active and waiting for its next trigger.'
+                  : row.partiallyPaused
+                    ? 'Vault spending is revoked, but Reactive Lasna is still watching for triggers. Finish pausing so it stops using watching credit.'
+                    : ready
+                      ? 'The Vault authorization is staged. Finish activation to start watching.'
+                      : 'This workflow is not watching for events.');
             const fixHref = view
               ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain)
               : undefined;
@@ -358,9 +380,11 @@ export function WorkflowDetailV2() {
     ? 'Closed after a confirmed run'
     : active
       ? 'Active'
-      : item.auth[3]
-        ? 'Finish activation'
-        : 'Paused';
+      : item.partiallyPaused
+        ? 'Still watching on Lasna'
+        : item.auth[3]
+          ? 'Finish activation'
+          : 'Paused';
   return (
     <section className="app-page">
       <PageHeading
@@ -372,7 +396,15 @@ export function WorkflowDetailV2() {
             <NetworkBadge chainId={item.chain} />
             <span
               className="rb-chip"
-              data-tone={item.closed || active ? 'active' : item.auth[3] ? 'info' : 'paused'}
+              data-tone={
+                item.closed || active
+                  ? 'active'
+                  : item.partiallyPaused
+                    ? 'danger'
+                    : item.auth[3]
+                      ? 'info'
+                      : 'paused'
+              }
             >
               {status}
             </span>
@@ -385,14 +417,14 @@ export function WorkflowDetailV2() {
             {active ? 'Edit workflow' : 'Review and activate'}
           </Link>
         )}
-        {(item.auth[3] || item.entry[4] !== 0) && (
+        {!item.closed && (item.auth[3] || item.entry[4] !== 0) && (
           <button
             type="button"
             className="app-button"
             disabled={wallet.busy}
             onClick={() => void wallet.pause(item)}
           >
-            Pause workflow
+            {item.partiallyPaused ? 'Finish pausing' : 'Pause workflow'}
           </button>
         )}
         {active && payout && (
@@ -1235,14 +1267,14 @@ const fundingActions: Record<FundsOperation, FundingAction> = {
     validateBalance: true,
   },
   'withdraw-agent-eth': {
-    label: 'Recover unused agent ETH',
+    label: 'Recover unused agent lREACT',
     group: 'Recovery',
     kind: 'agent-withdraw',
-    unit: 'ETH',
+    unit: 'lREACT',
     decimals: 18,
-    amountLabel: 'Amount (ETH)',
+    amountLabel: 'Amount (lREACT)',
     requiresAmount: true,
-    hint: 'Returns ETH that was sent directly to the Agent on Reactive Lasna. This balance is separate from watching credit.',
+    hint: 'Returns lREACT that was sent directly to the Agent on Reactive Lasna. This balance is separate from watching credit.',
     balanceKey: 'agentNative',
     balanceLabel: 'Agent balance',
     validateBalance: true,
@@ -1703,7 +1735,7 @@ export function WorkflowAccountV2({
           {funds.agentNative > 0n && (
             <Callout
               tone="recovery"
-              title="Unused agent ETH"
+              title="Unused agent lREACT"
               action={
                 <Button
                   onClick={() => {
@@ -1713,12 +1745,12 @@ export function WorkflowAccountV2({
                     amountRef.current?.focus({ preventScroll: true });
                   }}
                 >
-                  Recover ETH
+                  Recover lREACT
                 </Button>
               }
             >
               <p>
-                {exactUnits(funds.agentNative, 18)} ETH sits in the Agent contract on Reactive
+                {exactUnits(funds.agentNative, 18)} lREACT sits in the Agent contract on Reactive
                 Lasna. It is separate from watching credit and does not pay for trigger evaluations.
               </p>
             </Callout>

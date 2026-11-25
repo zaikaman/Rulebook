@@ -99,7 +99,7 @@ const staticGates = [
 // typecheck gate is needed here.
 const contracts = [
   step('contracts:format', forge, ['fmt', '--check'], 'contracts'),
-  step('contracts:build', forge, ['build'], 'contracts'),
+  step('contracts:build', forge, ['build', '--sizes'], 'contracts'),
   step('contracts:test', forge, ['test', '--deny', 'warnings'], 'contracts'),
   // Fuzz tests average gas over random inputs, so their snapshot row is not reproducible.
   step(

@@ -14,6 +14,11 @@ export const workflowAgentV2Abi = [
         "name": "factory_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "validator_",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
       }
     ],
     "stateMutability": "nonpayable"
@@ -477,6 +482,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "validator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "vaults",
     "inputs": [
       {
@@ -800,11 +818,6 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "error",
-    "name": "InvalidProgram",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidWorkflow",
     "inputs": []
   },
@@ -1005,6 +1018,19 @@ export const workflowAgentFactoryV2Abi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "validator",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "event",

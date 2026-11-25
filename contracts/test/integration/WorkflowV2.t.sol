@@ -272,12 +272,16 @@ contract WorkflowV2SettlementTest is Test {
         agent.react(payment);
         assertEq(system.requestCount(), 0);
         assertEq(agent.pendingRuns(WORKFLOW), 1, "the blocked origin is parked once");
-        assertEq(system.subscribeCount(), 3, "the waiting list holds the cron retry subscription");
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        assertGt(wake, 0, "a recoverable parked run pins only the reset block");
+        assertEq(system.subscribeCount(), 3);
+        assertEq(system.lastSubscribedTopic1(), wake);
 
         _syncBudget(3e6, 1e6, 2);
         assertEq(system.requestCount(), 1, "raising the limit retries the parked run");
         assertEq(agent.pendingRuns(WORKFLOW), 0);
-        assertEq(system.unsubscribeCount(), 1, "an empty waiting list releases the cron");
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
+        assertEq(system.unsubscribeCount(), 1, "an empty waiting list releases the wake pin");
         _deliverRequest(0);
         assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
@@ -330,6 +334,28 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
     }
 
+    function testPermissionlessResumeRetriesParkedPaymentIfWakeMissed() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 2e6);
+        IReactive.LogRecord memory payment = _paymentLog(101, 1e6);
+
+        _syncBudget(1e6, 1e6, 1);
+        vm.prank(address(system));
+        agent.react(payment);
+
+        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        agent.resumeWatching(WORKFLOW);
+
+        vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
+        vm.prank(RECIPIENT);
+        agent.resumeWatching(WORKFLOW);
+        assertEq(
+            system.requestCount(), 1, "missed reset wake can still be recovered permissionlessly"
+        );
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
+    }
+
     function testDisablingAWorkflowDropsItsParkedRuns() public {
         _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
         usdc.mint(address(vault), 2e6);
@@ -359,6 +385,45 @@ contract WorkflowV2SettlementTest is Test {
             agent.react(payment);
         }
         assertEq(agent.pendingRuns(WORKFLOW), 8, "the waiting list is bounded");
+        assertEq(system.requestCount(), 0);
+    }
+
+    function testParkedUnrecoverablePaymentHoldsNeitherCronNorWake() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 2e6, RECIPIENT))));
+        usdc.mint(address(vault), 5e6);
+        _syncBudget(1e6, 1e6, 1);
+        uint256 subsBefore = system.subscribeCount();
+
+        IReactive.LogRecord memory payment = _paymentLog(101, 2e6);
+        vm.prank(address(system));
+        agent.react(payment);
+
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+        assertEq(agent.wakeBlock(WORKFLOW), 0, "unrecoverable amount pins no wake");
+        assertEq(system.subscribeCount(), subsBefore, "neither cron nor wake is subscribed");
+
+        vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
+        _cron(1);
+        assertEq(system.requestCount(), 0, "still unrecoverable after week reset");
+
+        _syncBudget(3e6, 0, 2);
+        assertEq(system.requestCount(), 1, "raising limit above path cost dispatches parked run");
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+    }
+
+    function testMaxUintPercentTransferDoesNotOverflowMirror() public {
+        P.Action memory send = P.Action(P.SEND, P.PERCENT, 5_000, RECIPIENT);
+        P.Program memory program = _program(P.PAYMENT, _path(send));
+        program.usdcCap = 2e6;
+        _enable(program);
+        _syncBudget(1e6, 0.5e6, 1);
+
+        IReactive.LogRecord memory payment = _paymentLog(101, type(uint256).max);
+        vm.prank(address(system));
+        agent.react(payment);
+
+        assertEq(agent.pendingRuns(WORKFLOW), 1, "max uint amount parks cleanly without overflow");
+        assertEq(agent.wakeBlock(WORKFLOW), 0);
         assertEq(system.requestCount(), 0);
     }
 

@@ -86,6 +86,14 @@ describe('workflow health', () => {
       label: 'Paused',
       fix: 'edit',
     });
+    expect(deriveWorkflowHealth(input({ active: false, partiallyPaused: true }))).toMatchObject({
+      code: 'pause-incomplete',
+      label: 'Still watching on Lasna',
+      tone: 'danger',
+      fix: 'pause',
+      fixLabel: 'Finish pausing',
+      attention: true,
+    });
     expect(deriveWorkflowHealth(input({ active: false, readyToActivate: true }))).toMatchObject({
       code: 'ready',
       label: 'Ready to activate',

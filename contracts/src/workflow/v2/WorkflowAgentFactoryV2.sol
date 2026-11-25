@@ -4,6 +4,7 @@ pragma solidity 0.8.29;
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IReactiveSystem} from "../../shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "./WorkflowAgentV2.sol";
+import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
 /// @notice Creates a separate V2 Agent for each wallet on Lasna.
 contract WorkflowAgentFactoryV2 {
@@ -31,13 +32,16 @@ contract WorkflowAgentFactoryV2 {
     }
 
     address public immutable implementation;
+    WorkflowProgramValidatorV2 public immutable validator;
     mapping(address => address) public agentOf;
     mapping(uint256 => Listing) public listings;
     mapping(address => mapping(bytes32 => mapping(bytes32 => uint256))) private listingByVersion;
     uint256 public listingCount;
 
     constructor(IReactiveSystem system) {
-        implementation = address(new WorkflowAgentV2(system, address(this)));
+        WorkflowProgramValidatorV2 validator_ = new WorkflowProgramValidatorV2();
+        validator = validator_;
+        implementation = address(new WorkflowAgentV2(system, address(this), validator_));
     }
 
     function create() external returns (address agent) {

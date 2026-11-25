@@ -373,37 +373,47 @@ async function release() {
     key.startsWith('0x') ? key : `0x${key}`,
   );
   const source = revision();
+  const lasnaOnly = process.argv.includes('--lasna-only');
   const baseOnly = process.argv.includes('--base-only');
+  if (lasnaOnly && baseOnly) fail('Pass at most one of --lasna-only or --base-only.');
+  const mergeOnly = lasnaOnly || baseOnly;
   const includeBase =
     baseOnly || process.argv.includes('--base') || Boolean(process.env[CHAINS.base.rpcEnv]?.trim());
-  const chains = baseOnly
-    ? [CHAINS.base]
-    : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+  const chains = lasnaOnly
+    ? [CHAINS.lasna]
+    : baseOnly
+      ? [CHAINS.base]
+      : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
   const updated = [];
   for (const chain of chains) {
     console.log(`Deploying ${chain.contract} on ${chain.name}...`);
     updated.push(await entry(chain, await deploy(chain, wallet.address), source));
   }
   const existing =
-    baseOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
-  await publish(baseOnly ? mergeRecord(existing, updated) : updated, source);
+    mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+  await publish(mergeOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
 async function recordOnly() {
   const source = revision();
+  const lasnaOnly = process.argv.includes('--lasna-only');
   const baseOnly = process.argv.includes('--base-only');
+  if (lasnaOnly && baseOnly) fail('Pass at most one of --lasna-only or --base-only.');
+  const mergeOnly = lasnaOnly || baseOnly;
   const includeBase =
     baseOnly || process.argv.includes('--base') || existsSync(broadcastPath(CHAINS.base.id));
-  const chains = baseOnly
-    ? [CHAINS.base]
-    : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+  const chains = lasnaOnly
+    ? [CHAINS.lasna]
+    : baseOnly
+      ? [CHAINS.base]
+      : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
   const updated = [];
   for (const chain of chains) {
     updated.push(await entry(chain, readBroadcast(chain.id), source));
   }
   const existing =
-    baseOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
-  await publish(baseOnly ? mergeRecord(existing, updated) : updated, source);
+    mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+  await publish(mergeOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
 try {

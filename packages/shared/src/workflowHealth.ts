@@ -13,6 +13,7 @@ import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './w
 export type WorkflowHealthCode =
   | 'completed'
   | 'expired'
+  | 'pause-incomplete'
   | 'paused'
   | 'ready'
   | 'execution-credit'
@@ -35,6 +36,7 @@ export type WorkflowHealthFix =
   | 'account'
   | 'allowance'
   | 'edit'
+  | 'pause'
   | 'run'
   | 'activity'
   | 'none';
@@ -79,6 +81,7 @@ export interface WorkflowHealthRun {
 export interface WorkflowHealthInput {
   readonly active: boolean;
   readonly readyToActivate: boolean;
+  readonly partiallyPaused?: boolean;
   readonly closed: boolean;
   readonly program: Pick<WorkflowV2Program, 'trigger' | 'nodes' | 'expires'> & {
     readonly chain?: number;
@@ -281,6 +284,18 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
   }
 
   if (!input.active) {
+    if (input.partiallyPaused) {
+      return {
+        code: 'pause-incomplete',
+        label: 'Still watching on Lasna',
+        tone: 'danger',
+        summary:
+          'Vault spending is revoked, but Reactive Lasna is still watching for triggers. Finish pausing so it stops using watching credit.',
+        fix: 'pause',
+        fixLabel: 'Finish pausing',
+        attention: true,
+      };
+    }
     if (input.readyToActivate) {
       return {
         code: 'ready',

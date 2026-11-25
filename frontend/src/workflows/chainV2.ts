@@ -248,7 +248,8 @@ async function workflowVersion(
         args: [id],
       });
   const active = entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
-  return { agent, vault, id, chain, entry, auth, title, active, staged } as const;
+  const partiallyPaused = !active && entry[4] !== 0 && !auth[3];
+  return { agent, vault, id, chain, entry, auth, title, active, staged, partiallyPaused } as const;
 }
 
 async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workflowVersion>>) {
