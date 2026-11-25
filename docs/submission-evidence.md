@@ -32,10 +32,11 @@ See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
 
 ## Verified automated evidence
 
-- **Contracts** — 68 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
-- **Backend** — 34 Vitest tests cover workflow indexing, activity, proof reads, Rulewright, and Telegram linking.
-- **Frontend** — 45 Vitest tests and 59 Playwright tests cover account onboarding, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
-- **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses and indexer start blocks for Reactive Lasna and Unichain Sepolia.
+- **Contracts** — 89 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
+- **Shared** — 36 Vitest tests cover program encoding, validation, recipe generation, health derivation, and chain configuration.
+- **Backend** — 53 Vitest tests cover workflow indexing, activity, proof reads, health, marketplace, Rulewright, Bookkeeper assistant, and Telegram linking.
+- **Frontend** — 73 Vitest tests and 63 Playwright tests cover account onboarding, multichain setup, the builder, execution activity, proof, marketplace, Telegram notifications, and offline recovery.
+- **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses, start blocks, commit `13aac2c4958b81dcca055fd34c895b5d93daaac7`, and bytecode hashes for Reactive Lasna, Unichain Sepolia, and Base Sepolia.
 
 ### Submission checklist
 

@@ -94,3 +94,40 @@ it('translates WorkflowProgramV2 InvalidProgram reverts into actionable copy', (
   );
   expect(formatContractError(unknownRevert, 'Fallback')).toBe('The contract refused this request.');
 });
+
+it('preserves multi-line viem revert reasons, cause reasons, and details', () => {
+  const multilineShort = new BaseError(
+    'The contract function "authorize" reverted with the following reason:\nERC20: transfer amount exceeds allowance',
+  );
+  expect(formatContractError(multilineShort, 'Fallback')).toBe(
+    'The contract function "authorize" reverted with the following reason: ERC20: transfer amount exceeds allowance',
+  );
+
+  const causeWithReason = new BaseError('The contract function "execute" reverted.', {
+    cause: Object.assign(new BaseError('Execution reverted'), {
+      reason: 'Slippage guard triggered',
+    }),
+  });
+  expect(formatContractError(causeWithReason, 'Fallback')).toBe('Slippage guard triggered');
+
+  const withDetails = new BaseError('Internal error.', {
+    details: 'nonce too low: next nonce 14, tx nonce 12',
+  });
+  expect(formatContractError(withDetails, 'Fallback')).toBe(
+    'Internal error. (nonce too low: next nonce 14, tx nonce 12)',
+  );
+
+  const plainViemLike = new Error(
+    [
+      'The contract function "enable" reverted with the following reason:',
+      'Budget below minimum',
+      '',
+      'Contract Call:',
+      '  address: 0x0000000000000000000000000000000000000001',
+      'Version: viem@2.0.0',
+    ].join('\n'),
+  );
+  expect(formatContractError(plainViemLike, 'Fallback')).toBe(
+    'The contract function "enable" reverted with the following reason: Budget below minimum',
+  );
+});

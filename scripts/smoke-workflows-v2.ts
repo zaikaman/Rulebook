@@ -21,6 +21,7 @@ import {
   workflowAgentV2Abi,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
+  type SupportedChainId,
   type WorkflowV2Program,
 } from '@rulebook/shared';
 import {
@@ -48,7 +49,7 @@ function env(name: string) {
   return value;
 }
 
-function connection(id: number, rpc: string, symbol: string) {
+function connection<T extends SupportedChainId>(id: T, rpc: string, symbol: string) {
   const config = getChain(id);
   const chain = defineChain({
     id,
@@ -77,7 +78,7 @@ const agentFactory = factory('WorkflowAgentFactoryV2', LASNA_CHAIN_ID);
 const vaultFactory = factory('WorkflowVaultFactoryV2', UNICHAIN_SEPOLIA_CHAIN_ID);
 
 async function send(
-  network: typeof lasna,
+  network: typeof lasna | typeof uni,
   to: Address,
   data?: Hex,
   value = 0n,

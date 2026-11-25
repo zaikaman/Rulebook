@@ -309,19 +309,116 @@ export function describeError(error: unknown): ContractErrorMessage | null {
   return null;
 }
 
+const HEX_SELECTOR_RE = /^0x[0-9a-fA-F]{8}$/;
+const GENERIC_REVERT_RE = /^execution reverted\.?$/i;
+const DIAGNOSTIC_SECTION_RE =
+  /^(?:Request Arguments|Contract Call|Raw Call Arguments|Estimate Gas Arguments|Docs|Version):/;
+
+interface RevertDetails {
+  reason?: string;
+  errorName?: string;
+  details?: string;
+}
+
+function normalizeInline(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function collectRevertDetails(error: unknown, depth = 0, out: RevertDetails = {}): RevertDetails {
+  if (depth > 6 || error === null || typeof error !== 'object') return out;
+  const record = error as Record<string, unknown>;
+  if (typeof record.reason === 'string') {
+    const reason = normalizeInline(record.reason);
+    if (reason && !HEX_SELECTOR_RE.test(reason) && !GENERIC_REVERT_RE.test(reason) && !out.reason) {
+      out.reason = reason;
+    }
+  }
+  if (record.data && typeof record.data === 'object') {
+    const errorName = (record.data as Record<string, unknown>).errorName;
+    if (
+      typeof errorName === 'string' &&
+      errorName.trim() &&
+      errorName !== 'Error' &&
+      errorName !== 'Panic' &&
+      !out.errorName
+    ) {
+      out.errorName = errorName.trim();
+    }
+  }
+  if (typeof record.details === 'string') {
+    const details = normalizeInline(record.details);
+    if (details && !HEX_SELECTOR_RE.test(details) && !GENERIC_REVERT_RE.test(details)) {
+      out.details = details;
+    }
+  }
+  for (const key of ['cause', 'error', 'originalError']) {
+    collectRevertDetails(record[key], depth + 1, out);
+  }
+  return out;
+}
+
+function formatPlainErrorMessage(message: string): string | undefined {
+  const summaryLines: string[] = [];
+  let details: string | undefined;
+  for (const rawLine of message.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (DIAGNOSTIC_SECTION_RE.test(line)) break;
+    if (line.startsWith('Details:')) {
+      const candidate = normalizeInline(line.slice('Details:'.length));
+      if (candidate && !HEX_SELECTOR_RE.test(candidate) && !GENERIC_REVERT_RE.test(candidate)) {
+        details = candidate;
+      }
+      continue;
+    }
+    summaryLines.push(line);
+  }
+  const summary = summaryLines.join(' ').trim();
+  if (!summary) return details;
+  return appendDetailsIfMissing(summary, details);
+}
+
+function appendDetailsIfMissing(summary: string, details: string | undefined): string {
+  if (!details) return summary;
+  if (summary.toLowerCase().includes(details.toLowerCase())) return summary;
+  return summary.endsWith(':') ? `${summary} ${details}` : `${summary} (${details})`;
+}
+
 /** Returns a concise human-readable message for contract reverts and wallet errors. */
 export function formatContractError(error: unknown, fallback: string): string {
   const described = describeError(error);
   if (described && described.message !== 'The contract refused this request.') {
     return described.message;
   }
+  const { reason, errorName, details } = collectRevertDetails(error);
   if (error instanceof BaseError) {
-    const message = error.shortMessage.split('\n')[0]?.trim();
-    if (message && !message.endsWith(':')) return message;
-    return described?.message ?? (error.message.split('\n')[0] || fallback);
+    const lines = error.shortMessage
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (reason) {
+      const header = lines[0]?.endsWith(':') ? `${lines[0]} ` : '';
+      return `${header}${reason}`;
+    }
+    const remainder = lines.slice(1).join(' ').trim();
+    if (lines[0]?.endsWith(':') && HEX_SELECTOR_RE.test(remainder) && described?.message) {
+      return described.message;
+    }
+    let summary = lines.join(' ').trim();
+    if (summary.endsWith(':') && errorName) {
+      summary = `${summary} ${errorName}`;
+    }
+    if (summary && !summary.endsWith(':')) {
+      return appendDetailsIfMissing(summary, details);
+    }
+    if (summary && details) {
+      return appendDetailsIfMissing(summary, details);
+    }
+    return described?.message ?? formatPlainErrorMessage(error.message) ?? fallback;
   }
+  if (reason) return reason;
   if (error instanceof Error) {
-    return error.message.split('\n')[0] || fallback;
+    return formatPlainErrorMessage(error.message) ?? fallback;
   }
   return fallback;
 }

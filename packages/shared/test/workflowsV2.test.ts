@@ -5,6 +5,7 @@ import {
   FUNDS_CHAIN_IDS,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  UnsupportedChainError,
   capIssue,
   createWorkflowV2Recipe,
   decodeWorkflowV2,
@@ -14,7 +15,9 @@ import {
   encodeWorkflowV2,
   fieldIssue,
   getChain,
+  getFundsChain,
   isFundsChain,
+  isFundsChainConfig,
   slippageIssue,
   toCopyDraft,
   toDraft,
@@ -680,5 +683,26 @@ describe('V2 on-chain constraint mirroring', () => {
       lastRun: null,
     });
     expect(lowCredit.summary).toContain('Base Sepolia');
+  });
+
+  it('keeps Lasna automation config free of funds-chain DEX and token addresses', () => {
+    const lasna = getChain(LASNA_CHAIN_ID);
+    expect(lasna.role).toBe('automation');
+    expect(lasna.isDestination).toBe(false);
+    expect(lasna.systemContract).toBe('0x8888888888888888888888888888888888888888');
+    expect(isFundsChainConfig(lasna)).toBe(false);
+    for (const forbidden of ['router', 'weth', 'usdc', 'pair', 'callbackProxy']) {
+      expect(forbidden in lasna).toBe(false);
+    }
+    expect(() => getFundsChain(LASNA_CHAIN_ID)).toThrow(UnsupportedChainError);
+
+    for (const fundsId of [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID] as const) {
+      const funds = getChain(fundsId);
+      expect(funds.role).toBe('funds');
+      expect(funds.isDestination).toBe(true);
+      expect(isFundsChainConfig(funds)).toBe(true);
+      expect('systemContract' in funds).toBe(false);
+      expect(getFundsChain(fundsId)).toEqual(funds);
+    }
   });
 });

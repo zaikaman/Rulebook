@@ -1,32 +1,18 @@
 import {
-  accountSchema,
   apiErrorSchema,
   assistantChallengeSchema,
   assistantSessionSchema,
-  chainsResponseSchema,
-  executionsResponseSchema,
   healthSchema,
-  leaderboardResponseSchema,
-  listingsResponseSchema,
-  proofSchema,
-  ruleDetailResponseSchema,
-  rulesResponseSchema,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
   rulewrightJobSchema,
   rulewrightSessionSchema,
-  sponsorStatusSchema,
   telegramAvailabilitySchema,
   telegramChallengeSchema,
   telegramPairingSchema,
   telegramSettingsSchema,
-  type Account,
   type Health,
-  type LeaderboardResponse,
-  type Proof,
-  type Rule,
   type RulewrightRequest,
-  type SponsorStatus,
   type TelegramChallenge,
   type TelegramDefault,
   type TelegramPreference,
@@ -148,56 +134,8 @@ export class ApiClient {
     );
   }
 
-  chains() {
-    return this.request('/v1/chains', chainsResponseSchema);
-  }
-
-  account(agent: string): Promise<Account> {
-    return this.request(`/v1/accounts/${agent}`, accountSchema);
-  }
-
-  executions() {
-    return this.request('/v1/executions', executionsResponseSchema);
-  }
-
-  rules(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all'): Promise<Rule[]> {
-    return this.rulesFeed(agent, status).then((response) => response.rules);
-  }
-
-  /** Rules plus their alert activity rows, for the lists that show both. */
-  rulesFeed(agent: string, status: 'active' | 'paused' | 'cancelled' | 'all' = 'all') {
-    return this.request(`/v1/accounts/${agent}/rules?status=${status}`, rulesResponseSchema);
-  }
-
-  ruleDetail(agent: string, ruleId: string) {
-    return this.request(`/v1/accounts/${agent}/rules/${ruleId}`, ruleDetailResponseSchema);
-  }
-
-  marketplace(
-    query: {
-      template?: number;
-      sort?: 'newest' | 'runs' | 'success_rate';
-      cursor?: string;
-      limit?: number;
-    } = {},
-  ): Promise<z.infer<typeof listingsResponseSchema>> {
-    const params = new URLSearchParams();
-    if (query.template !== undefined) params.set('template', String(query.template));
-    if (query.sort) params.set('sort', query.sort);
-    if (query.cursor) params.set('cursor', query.cursor);
-    if (query.limit !== undefined) params.set('limit', String(query.limit));
-    const suffix = params.size > 0 ? `?${params.toString()}` : '';
-    return this.request(`/v1/marketplace${suffix}`, listingsResponseSchema);
-  }
-
-  leaderboard(limit = 50): Promise<LeaderboardResponse> {
-    return this.request(`/v1/leaderboard?limit=${limit}`, leaderboardResponseSchema);
-  }
-
-  sponsor(agent: string): Promise<SponsorStatus> {
-    return this.request(`/v1/sponsor/${agent}`, sponsorStatusSchema);
-  }
-
+  // Telegram endpoints remain mounted under `/v1/` on the backend and are proxied same-origin so
+  // the browser session cookie stays HttpOnly on the app origin.
   telegramAvailability(workflow = false) {
     return this.request(
       workflow ? '/v1/telegram/availability?workflow=true' : '/v1/telegram/availability',
@@ -281,13 +219,6 @@ export class ApiClient {
 
   telegramTest(agent: string) {
     return this.telegramRequest(agent, '/test', telegramSettingsSchema, 'POST');
-  }
-
-  proof(reactiveTxHash: string): Promise<Proof> {
-    return this.request(
-      `/v1/proofs/${encodeURIComponent(reactiveTxHash)}?include=mirrors`,
-      proofSchema,
-    );
   }
 }
 

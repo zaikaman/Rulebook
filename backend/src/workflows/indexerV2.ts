@@ -11,7 +11,10 @@ import {
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
-import { keccak256, type PublicClient } from 'viem';
+import { keccak256, type Address, type PublicClient } from 'viem';
+
+const ADDRESS_BATCH_SIZE = 50;
+const ACCOUNT_PAGE_SIZE = 1000;
 
 type OriginChain =
   typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID;
@@ -69,20 +72,24 @@ export class WorkflowV2Indexer {
     this.stopped = true;
   }
 
+  async syncOnce(): Promise<void> {
+    await Promise.all(
+      this.sources.map(async (source) => {
+        try {
+          await this.poll(source);
+        } catch (err) {
+          this.logger.error(
+            { err, chain: source.chain, deployment: this.deployment },
+            'Workflow V2 indexing failed',
+          );
+        }
+      }),
+    );
+  }
+
   async run() {
     while (!this.stopped) {
-      await Promise.all(
-        this.sources.map(async (source) => {
-          try {
-            await this.poll(source);
-          } catch (err) {
-            this.logger.error(
-              { err, chain: source.chain, deployment: this.deployment },
-              'Workflow V2 indexing failed',
-            );
-          }
-        }),
-      );
+      await this.syncOnce();
       if (!this.stopped) await new Promise((resolve) => setTimeout(resolve, 5_000));
     }
   }
@@ -101,17 +108,20 @@ export class WorkflowV2Indexer {
     if (fromBlock > head) return;
     const toBlock = fromBlock + 199n < head ? fromBlock + 199n : head;
     const lasna = chain === LASNA_CHAIN_ID;
-    const [created, events] = await Promise.all([
-      client.getLogs({
-        address: factory,
-        events: lasna ? AGENT_FACTORY : VAULT_CREATED,
-        fromBlock,
-        toBlock,
-        strict: true,
-      }),
-      client.getLogs({ events: lasna ? AGENT_EVENTS : OUTCOME, fromBlock, toBlock, strict: true }),
-    ]);
-    const accounts = [];
+    const created = await client.getLogs({
+      address: factory,
+      events: lasna ? AGENT_FACTORY : VAULT_CREATED,
+      fromBlock,
+      toBlock,
+      strict: true,
+    });
+    const accounts: Array<{
+      deployment: string;
+      chain: OriginChain;
+      address: Address;
+      owner: string;
+      agent: string;
+    }> = [];
     created.sort(
       (first, second) =>
         Number(first.blockNumber - second.blockNumber) || first.logIndex - second.logIndex,
@@ -123,7 +133,7 @@ export class WorkflowV2Indexer {
           address: (log.eventName === 'AgentCreated'
             ? log.args.agent
             : log.args.vault
-          ).toLowerCase(),
+          ).toLowerCase() as Address,
           owner: log.args.owner.toLowerCase(),
           agent: log.args.agent.toLowerCase(),
         });
@@ -163,10 +173,29 @@ export class WorkflowV2Indexer {
       }
     }
     await this.upsert('workflow_v2_accounts', accounts);
-    const trusted = await this.trusted(
+    const known = await this.knownAddresses(
       chain,
-      events.map(({ address }) => address.toLowerCase()),
+      accounts.map((row) => row.address),
     );
+    const fetchBatch = (address: Address[]) =>
+      client.getLogs({
+        address,
+        events: lasna ? AGENT_EVENTS : OUTCOME,
+        fromBlock,
+        toBlock,
+        strict: true,
+      });
+    const batches: Array<Awaited<ReturnType<typeof fetchBatch>>> = [];
+    for (let start = 0; start < known.length; start += ADDRESS_BATCH_SIZE) {
+      batches.push(await fetchBatch(known.slice(start, start + ADDRESS_BATCH_SIZE)));
+    }
+    const events = batches
+      .flat()
+      .sort(
+        (first, second) =>
+          Number(first.blockNumber - second.blockNumber) || first.logIndex - second.logIndex,
+      );
+    const trusted = new Set<string>(known);
     const activations = [];
     const runs = [];
     const outcomes = [];
@@ -257,19 +286,24 @@ export class WorkflowV2Indexer {
     ]);
   }
 
-  private async trusted(chain: OriginChain, addresses: string[]) {
-    const unique = [...new Set(addresses)];
-    const trusted = new Set<string>();
-    for (let start = 0; start < unique.length; start += 100) {
+  private async knownAddresses(chain: OriginChain, extraAddresses: readonly Address[]) {
+    const known = new Set<Address>(
+      extraAddresses.map((address) => address.toLowerCase() as Address),
+    );
+    for (let offset = 0; ; offset += ACCOUNT_PAGE_SIZE) {
       const { data, error } = await this.db
         .from('workflow_v2_accounts')
         .select('address')
         .match({ deployment: this.deployment, chain })
-        .in('address', unique.slice(start, start + 100));
+        .order('address', { ascending: true })
+        .range(offset, offset + ACCOUNT_PAGE_SIZE - 1);
       if (error) throw error;
-      for (const row of data) trusted.add(row.address);
+      for (const row of data ?? []) {
+        known.add(String(row.address).toLowerCase() as Address);
+      }
+      if (!data || data.length < ACCOUNT_PAGE_SIZE) break;
     }
-    return trusted;
+    return [...known];
   }
 
   private async upsert(table: string, rows: Record<string, unknown>[]) {

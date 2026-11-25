@@ -19,7 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createPublicClient, http, keccak256 } from 'viem';
+import { concat, createPublicClient, encodeAbiParameters, http, keccak256 } from 'viem';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -37,6 +37,7 @@ const CHAINS = {
     name: 'Reactive Lasna',
     explorer: 'https://lasna.reactscan.net',
     rpcEnv: 'LASNA_RPC_URL',
+    defaultRpc: 'https://lasna-rpc.rnk.dev/',
   },
   unichain: {
     id: 1301,
@@ -44,6 +45,7 @@ const CHAINS = {
     name: 'Unichain Sepolia',
     explorer: 'https://sepolia.uniscan.xyz',
     rpcEnv: 'UNICHAIN_RPC_URL',
+    defaultRpc: 'https://sepolia.unichain.org',
   },
   base: {
     id: 84532,
@@ -228,6 +230,18 @@ async function entry(chain, creation, source) {
   };
 }
 
+const LASNA_SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
+
+function expectedCreationInputHash(chain, artifact) {
+  const bytecode = artifact?.bytecode?.object;
+  if (!bytecode) return undefined;
+  if (chain.contract === CHAINS.lasna.contract) {
+    const args = encodeAbiParameters([{ type: 'address' }], [LASNA_SYSTEM_CONTRACT]);
+    return keccak256(concat([bytecode, args]));
+  }
+  return keccak256(bytecode);
+}
+
 async function verify() {
   const record = JSON.parse(readFileSync(RECORD_PATH, 'utf8'));
   const expected = deploymentValue(record);
@@ -241,9 +255,38 @@ async function verify() {
       }
       continue;
     }
+    if (
+      item.source !== 'commit' ||
+      item.dirty !== false ||
+      !/^[0-9a-f]{40}$/i.test(item.commit ?? '')
+    ) {
+      problems.push(
+        `${chain.contract} on ${chain.name} must record a clean 40-character commit (source: "commit", dirty: false)`,
+      );
+    }
+    const artifactPath = join(CONTRACTS, 'out', `${chain.contract}.sol`, `${chain.contract}.json`);
+    if (existsSync(artifactPath) && item.creationInputHash) {
+      const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+      const compiledCreationHash = expectedCreationInputHash(chain, artifact);
+      if (
+        compiledCreationHash &&
+        compiledCreationHash.toLowerCase() !== item.creationInputHash.toLowerCase()
+      ) {
+        problems.push(
+          `${chain.contract} on ${chain.name} creationInputHash (${item.creationInputHash}) does not match compiled artifact (${compiledCreationHash})`,
+        );
+      }
+    }
     const code = await client(rpcUrl(chain)).getCode({ address: item.address });
     if (!code || code === '0x') {
       problems.push(`${chain.contract} on ${chain.name} has no code at ${item.address}`);
+    } else if (
+      item.runtimeCodeHash &&
+      keccak256(code).toLowerCase() !== item.runtimeCodeHash.toLowerCase()
+    ) {
+      problems.push(
+        `${chain.contract} on ${chain.name} on-chain runtimeCodeHash does not match the record`,
+      );
     }
   }
   for (const [file, key] of [
@@ -321,6 +364,9 @@ function mergeRecord(existing, updated) {
 }
 
 async function release() {
+  if (!process.argv.includes('--allow-dirty') && git(['status', '--porcelain'])) {
+    fail('Commit working-tree changes before deploying (or pass --allow-dirty for local testing).');
+  }
   const key = process.env.DEPLOYER_PRIVATE_KEY?.trim() ?? process.env.SPONSOR_PRIVATE_KEY?.trim();
   if (!key) fail('Set DEPLOYER_PRIVATE_KEY (or SPONSOR_PRIVATE_KEY) before deploying.');
   const wallet = (await import('viem/accounts')).privateKeyToAccount(

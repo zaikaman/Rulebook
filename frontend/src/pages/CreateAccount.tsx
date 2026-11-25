@@ -13,6 +13,7 @@ import {
   BASE_SEPOLIA_CHAIN_ID,
   fundsChainIdSchema,
   getChain,
+  getFundsChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
@@ -46,7 +47,6 @@ import {
   type SetupStep,
   type useAccountSetup,
 } from '../hooks/useAccountSetup.js';
-import { DEMO_USDC } from '../lib/contracts.js';
 import {
   isWalletRejection,
   SetupTransactionError,
@@ -291,7 +291,7 @@ export function CreateAccount({
   onFundingComplete?: () => void;
 }) {
   const fundsChain = chainId === BASE_SEPOLIA_CHAIN_ID ? baseSepoliaChain : unichainSepoliaChain;
-  const fundsConfig = getChain(fundsChain.id);
+  const fundsConfig = getFundsChain(fundsChain.id);
   const ethToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseEth : testnetTokens.eth;
   const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
   const requiredChainIds: readonly (
@@ -324,7 +324,7 @@ export function CreateAccount({
   const react = useBalance({ address, chainId: LASNA_CHAIN_ID, query });
   const eth = useBalance({ address, chainId: fundsChain.id, query });
   const usdc = useReadContract({
-    address: fundsConfig.usdc ?? DEMO_USDC,
+    address: fundsConfig.usdc,
     abi: erc20Abi,
     functionName: 'balanceOf',
     args: [address ?? zeroAddress],
