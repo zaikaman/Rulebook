@@ -2,6 +2,7 @@ import {
   decodeWorkflowV2,
   executionCreditAbi,
   fundsChainIdSchema,
+  isFundsChain,
   LASNA_CHAIN_ID,
   readAmount,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -37,6 +38,7 @@ import {
   encodeFunctionData,
   erc20Abi,
   formatUnits,
+  isAddressEqual,
   zeroAddress,
   type Address,
   type Hex,
@@ -66,7 +68,9 @@ import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
   configuredFundsChains,
+  readAgent,
   readFundsV2,
+  readVault,
   readWorkflowsV2,
   readWorkflowV2,
   settlementFactory,
@@ -975,7 +979,11 @@ export function WorkflowActivityV2() {
                     </span>
                   </div>
                   <p className="rb-run-meta">
-                    <span>{v2Network(run.chain).name}</span>
+                    <span>
+                      {isFundsChain(run.originChain) && run.originChain !== run.chain
+                        ? `${v2Network(run.originChain).name} → ${v2Network(run.chain).name}`
+                        : v2Network(run.chain).name}
+                    </span>
                     {run.path !== null && <span>Path {run.path + 1}</span>}
                     {run.reason && <span>{run.reason}</span>}
                   </p>
@@ -1254,34 +1262,83 @@ function exactUnits(value: bigint, decimals: number) {
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
+async function findLinkedWorkflowChain(owner: Address) {
+  const agent = await readAgent(owner);
+  if (agent === zeroAddress) return null;
+  let lastError: unknown;
+  let checkedAny = false;
+  for (const chain of configuredFundsChains()) {
+    try {
+      const vault = await readVault(owner, chain);
+      checkedAny = true;
+      if (vault === zeroAddress) continue;
+      const [linkedVault, linkedAgent] = await Promise.all([
+        workflowClient(LASNA_CHAIN_ID).readContract({
+          address: agent,
+          abi: workflowAgentV2Abi,
+          functionName: 'vaults',
+          args: [chain],
+        }),
+        workflowClient(chain).readContract({
+          address: vault,
+          abi: workflowVaultV2Abi,
+          functionName: 'agent',
+        }),
+      ]);
+      if (isAddressEqual(linkedVault, vault) && isAddressEqual(linkedAgent, agent)) {
+        return { agent, vault, chain };
+      }
+    } catch (cause) {
+      lastError = cause;
+    }
+  }
+  if (!checkedAny && lastError) throw lastError;
+  return null;
+}
+
 export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflow?: boolean }) {
-  const { setupWallet } = useWorkflowV2Wallet();
+  const { setupWalletForChain, fundingWalletForChain } = useWorkflowV2Wallet();
   const [params] = useSearchParams();
   const credit = params.get('credit');
   const funding = credit === 'watching' || credit === 'execution' ? credit : undefined;
   const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
   const initialChain = parsedChain.success ? parsedChain.data : undefined;
+  const chains = configuredFundsChains();
+  const [setupChain, setSetupChain] = useState<SettlementChain>(() =>
+    initialChain && chains.includes(initialChain) ? initialChain : UNICHAIN_SEPOLIA_CHAIN_ID,
+  );
+  useEffect(() => {
+    if (initialChain && configuredFundsChains().includes(initialChain)) {
+      setSetupChain(initialChain);
+    }
+  }, [initialChain]);
   const deployment = workflowV2Deployment;
   const builder = <Navigate to={appRoutes.newWorkflow} replace />;
-  const account = (
+  const accountFor = (chain: SettlementChain) => (
     <AppShell>
       <WorkflowAccountV2
-        key={`${funding ?? 'default'}:${initialChain ?? 'default'}`}
+        key={`${funding ?? 'default'}:${initialChain ?? chain}`}
         funding={funding}
-        initialChain={initialChain}
+        initialChain={initialChain ?? chain}
       />
     </AppShell>
   );
-  if (!deployment) return startWorkflow ? builder : account;
+  if (!deployment) return startWorkflow ? builder : accountFor(setupChain);
   if (startWorkflow && !workflowActivationEnabled) return builder;
 
   return (
     <WalletAccountSetupGate
       title="Account & Vault"
-      wallet={setupWallet}
+      chainId={setupChain}
+      availableChains={chains}
+      onChainChange={setSetupChain}
+      findLinkedChain={findLinkedWorkflowChain}
+      wallet={setupWalletForChain(setupChain)}
+      fundingWallet={fundingWalletForChain(setupChain)}
+      startWorkflow={startWorkflow}
       workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}${deployment.base ? `:${deployment.base.factory}` : ''}`}
     >
-      {() => (startWorkflow ? builder : account)}
+      {({ chain }) => (startWorkflow ? builder : accountFor(chain))}
     </WalletAccountSetupGate>
   );
 }
@@ -1296,9 +1353,13 @@ export function WorkflowAccountV2({
   initialChain?: SettlementChain;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const [params] = useSearchParams();
+  const parsedParamChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
+  const requestedChain =
+    initialChain ?? (parsedParamChain.success ? parsedParamChain.data : undefined);
   const chains = configuredFundsChains();
   const [chain, setChain] = useState<SettlementChain>(() =>
-    initialChain && chains.includes(initialChain) ? initialChain : UNICHAIN_SEPOLIA_CHAIN_ID,
+    requestedChain && chains.includes(requestedChain) ? requestedChain : UNICHAIN_SEPOLIA_CHAIN_ID,
   );
   const [operation, setOperation] = useState<FundsOperation>(
     funding === 'watching' ? 'watch-credit' : funding === 'execution' ? 'run-credit' : 'add-usdc',
@@ -1452,33 +1513,44 @@ export function WorkflowAccountV2({
         title="Account & Vault"
         description="Track testnet balances, watching credit, and execution credit from one place."
         aside={
-          manage ? (
-            <Link to={appRoutes.account} className="app-button">
-              Back to account
-            </Link>
-          ) : chains.length > 1 ? (
-            <Select
-              value={String(chain)}
-              groups={[
-                {
-                  label: 'Vault network',
-                  options: chains.map((id) => ({
-                    value: String(id),
-                    label: v2Network(id).name,
-                  })),
-                },
-              ]}
-              onChange={(nextValue) => {
-                const parsed = fundsChainIdSchema.safeParse(Number(nextValue));
-                if (parsed.success) {
-                  setChain(parsed.data);
-                  setAmount('');
+          <div className="rb-inline">
+            {chains.length > 1 ? (
+              <Select
+                value={String(chain)}
+                aria-label="Vault network"
+                groups={[
+                  {
+                    label: 'Vault network',
+                    options: chains.map((id) => ({
+                      value: String(id),
+                      label: v2Network(id).name,
+                    })),
+                  },
+                ]}
+                onChange={(nextValue) => {
+                  const parsed = fundsChainIdSchema.safeParse(Number(nextValue));
+                  if (parsed.success) {
+                    setChain(parsed.data);
+                    setAmount('');
+                  }
+                }}
+              />
+            ) : (
+              <span className="rb-chip rb-chip--plain">{v2Network(chain).name}</span>
+            )}
+            {manage && (
+              <Link
+                to={
+                  chain === UNICHAIN_SEPOLIA_CHAIN_ID
+                    ? appRoutes.account
+                    : `${appRoutes.account}?chain=${chain}`
                 }
-              }}
-            />
-          ) : (
-            <span className="rb-chip rb-chip--plain">{v2Network(chain).name}</span>
-          )
+                className="app-button"
+              >
+                Back to account
+              </Link>
+            )}
+          </div>
         }
       />
 

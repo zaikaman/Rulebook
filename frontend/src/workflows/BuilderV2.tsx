@@ -17,6 +17,7 @@ import {
   slippageIssue,
   stepAmountRules,
   toCopyDraft,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
   weeklyBudgetFromDraft,
   workflowFieldSpecs,
   workflowGuardrailFields,
@@ -287,6 +288,8 @@ function RecipePicker({
   open: (draft: V2Draft) => void;
   close: () => void;
 }) {
+  const chains = configuredFundsChains();
+  const [recipeChain, setRecipeChain] = useState<SettlementChain>(UNICHAIN_SEPOLIA_CHAIN_ID);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<(typeof recipeCategories)[number]>('All categories');
   const [selected, select] = useState<WorkflowV2RecipeId | undefined>(
@@ -343,7 +346,11 @@ function RecipePicker({
       return;
     }
     try {
-      const program = createWorkflowV2Recipe(recipe.id, values, { inactivityPayout: consent });
+      const program = createWorkflowV2Recipe(recipe.id, values, {
+        inactivityPayout: consent,
+        chain: recipeChain,
+        originChain: recipeChain,
+      });
       open(toDraft(program, recipe.title));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Check the recipe settings.');
@@ -411,7 +418,11 @@ function RecipePicker({
                   <span className="rb-recipe-kicker">{item.category}</span>
                   <span className="rb-recipe-title">{item.title}</span>
                   <span className="rb-recipe-summary">{recipeSummaries[item.id]}</span>
-                  <span className="rb-recipe-meta">{v2Network(item.chain).name}</span>
+                  <span className="rb-recipe-meta">
+                    {chains.length > 1
+                      ? chains.map((id) => v2Network(id).name).join(' · ')
+                      : v2Network(item.chain).name}
+                  </span>
                 </span>
                 <span className="rb-recipe-arrow" aria-hidden="true">
                   <HugeiconsIcon icon={ArrowRight01Icon} size={14} />
@@ -432,12 +443,32 @@ function RecipePicker({
                 {recipe ? recipeSummaries[recipe.id] : 'Choose a card to configure its inputs.'}
               </p>
             </div>
-            {recipe && <NetworkBadge chainId={recipe.chain} />}
+            {recipe && <NetworkBadge chainId={recipeChain} />}
           </div>
           {recipe ? (
             <>
               <div className="rb-configurator-body">
                 <div className="rb-configurator-fields">
+                  {chains.length > 1 && (
+                    <V2Field name="Settlement network">
+                      <Select
+                        value={String(recipeChain)}
+                        groups={[
+                          {
+                            label: 'Settlement network',
+                            options: chains.map((id) => ({
+                              value: String(id),
+                              label: v2Network(id).name,
+                            })),
+                          },
+                        ]}
+                        onChange={(nextValue) => {
+                          const next = Number(nextValue);
+                          if (isFundsChain(next)) setRecipeChain(next);
+                        }}
+                      />
+                    </V2Field>
+                  )}
                   {recipeFields[recipe.id].map((field) => {
                     const spec = workflowFieldSpecs[field];
                     if (!spec) return null;

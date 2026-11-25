@@ -1,5 +1,6 @@
 import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address, type FundsChainId } from '@rulebook/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { isAddressEqual } from 'viem';
 
 export interface SetupWallet {
@@ -113,6 +114,11 @@ export function useAccountSetup({
       ]);
     },
   });
+
+  const resetSetup = setup.reset;
+  useEffect(() => {
+    resetSetup();
+  }, [owner, scope, chainId, resetSetup]);
 
   return {
     ...account,

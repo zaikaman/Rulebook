@@ -139,7 +139,7 @@ export function WorkflowMarketplaceV2() {
                   <p className="rb-card-copy">{item.description}</p>
                 </div>
                 <div className="rb-card-foot">
-                  <span>Published workflow</span>
+                  <NetworkBadge chainId={item.chain} />
                   <span className="rb-card-cue">
                     Open
                     <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />

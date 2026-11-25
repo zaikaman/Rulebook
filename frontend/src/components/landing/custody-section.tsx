@@ -19,8 +19,8 @@ export function CustodySection() {
             Your wallet owns the vault
           </h2>
           <p className="mt-6 max-w-md text-base leading-relaxed text-neutral-300">
-            Funds you deposit go into a vault on Unichain Sepolia. Only your wallet can withdraw
-            them directly.
+            Funds you deposit go into a vault on Unichain Sepolia or Base Sepolia. Only your wallet
+            can withdraw them directly.
           </p>
           <dl className="mt-6 space-y-5">
             <div>

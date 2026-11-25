@@ -39,6 +39,7 @@ import {
 import { useAccount, useSendTransaction } from 'wagmi';
 
 import type { SetupWallet } from '@/hooks/useAccountSetup';
+import type { SetupFundingWallet } from '@/hooks/useAccountFunding';
 import { useChainGuard } from '@/hooks/useChainGuard';
 import { describeError, formatContractError, SetupTransactionError } from '@/lib/errors';
 import { type SignatureDetails } from '@/lib/signatures';
@@ -736,6 +737,68 @@ export function useWorkflowV2Wallet() {
   }
   const setupWallet: SetupWallet = setupWalletForChain(UNICHAIN_SEPOLIA_CHAIN_ID);
 
+  function fundingWalletForChain(_chain: SettlementChain): SetupFundingWallet {
+    return {
+      readFunds: (_signer, targetChain) => readFundsV2(_signer, targetChain),
+      depositWatchingCredit: async (_signer, agent, systemContract, amount, reviewedConnector) => {
+        const receipt = await send(
+          LASNA_CHAIN_ID,
+          systemContract,
+          encodeFunctionData({
+            abi: executionCreditAbi,
+            functionName: 'depositTo',
+            args: [agent],
+          }),
+          'Deposit lREACT as watching credit on Reactive Lasna.',
+          `${formatUnits(amount, 18)} lREACT`,
+          amount,
+          reviewedConnector,
+        );
+        return receipt.transactionHash;
+      },
+      depositExecutionCredit: async (
+        _signer,
+        vault,
+        proxy,
+        targetChain,
+        amount,
+        reviewedConnector,
+      ) => {
+        const receipt = await send(
+          targetChain,
+          proxy,
+          encodeFunctionData({
+            abi: executionCreditAbi,
+            functionName: 'depositTo',
+            args: [vault],
+          }),
+          `Deposit ETH as execution credit on ${v2Network(targetChain).name}.`,
+          `${formatUnits(amount, 18)} ETH`,
+          amount,
+          reviewedConnector,
+        );
+        return receipt.transactionHash;
+      },
+      depositUsdc: async (_signer, vault, usdc, targetChain, amount, reviewedConnector) => {
+        const receipt = await send(
+          targetChain,
+          usdc,
+          encodeFunctionData({
+            abi: erc20Abi,
+            functionName: 'transfer',
+            args: [vault, amount],
+          }),
+          `Deposit USDC to your ${v2Network(targetChain).name} Vault.`,
+          `${formatUnits(amount, 6)} USDC`,
+          0n,
+          reviewedConnector,
+        );
+        return receipt.transactionHash;
+      },
+    };
+  }
+  const fundingWallet: SetupFundingWallet = fundingWalletForChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+
   function activate(
     id: Hex,
     title: string,
@@ -960,5 +1023,7 @@ export function useWorkflowV2Wallet() {
     ensureVault,
     setupWallet,
     setupWalletForChain,
+    fundingWallet,
+    fundingWalletForChain,
   };
 }

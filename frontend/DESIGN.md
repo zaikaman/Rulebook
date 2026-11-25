@@ -231,7 +231,7 @@ Don't:
 
 ## Overview
 
-Rulebook is an Operate surface: users build, fund, publish, and inspect on-chain automations. The visual system is a dark, precise workspace with a cool neutral ladder, one blue action color, and separate network colors for Reactive Lasna and Unichain Sepolia. Brand expression lives in craft details, not decoration. The landing page is the only Persuade surface and keeps its own photographic world; workspace rules stop at its boundary.
+Rulebook is an Operate surface: users build, fund, publish, and inspect on-chain automations. The visual system is a dark, precise workspace with a cool neutral ladder, one blue action color, and separate network colors for Reactive Lasna, Unichain Sepolia, and Base Sepolia. Brand expression lives in craft details, not decoration. The landing page is the only Persuade surface and keeps its own photographic world; workspace rules stop at its boundary.
 
 The system is enforced, not advisory. `src/styles/tokens.css` owns values, `src/ui` owns markup recipes, and `npm run check:design` fails CI when either is bypassed. `AGENTS.md` points every agent at this file before UI work.
 
@@ -240,7 +240,7 @@ The system is enforced, not advisory. `src/styles/tokens.css` owns values, `src/
 The surface ladder is canvas, surface, raised, inset, control. Use the lowest surface that carries the content, then raise only the active or overlay layer. Borders are one step above their surface; never use pure black or pure white in workspace UI.
 
 - Primary blue is the single action color. It marks the primary button, focus ring, active rail edge, and current step. Do not use it for status.
-- Automation violet belongs to Reactive Lasna. Funds teal belongs to Unichain Sepolia. Every network badge reads these tokens and keeps the network name visible.
+- Automation violet belongs to Reactive Lasna. Funds teal belongs to Unichain Sepolia and Base Sepolia. Every network badge reads these tokens and keeps the network name visible.
 - Status colors are semantic and cannot be reassigned. Active, paused, cancelled, latched, and silent are distinct. A silent or waiting rule never borrows active green.
 - Danger red is reserved for failures, destructive actions, and invalid fields. Use `btn-danger` for a destructive button and `rb-error` for a failed read.
 - Depth colors (`highlight`, `rim`, `scrim`, `shadow-*`) are tokens because overlays repeat them. A new shadow is a token change, not a local literal.

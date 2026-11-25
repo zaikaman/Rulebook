@@ -27,6 +27,8 @@ export function AccountSetupFrame({
   compact = false,
   workflow = false,
   manageAccount = false,
+  manageAccountHref = appRoutes.accountFunds,
+  vaultNetwork = 'Unichain Sepolia',
   children,
 }: {
   title: string;
@@ -37,6 +39,8 @@ export function AccountSetupFrame({
   compact?: boolean;
   workflow?: boolean;
   manageAccount?: boolean;
+  manageAccountHref?: string;
+  vaultNetwork?: string;
   children: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -125,7 +129,9 @@ export function AccountSetupFrame({
           <div className="account-setup__main">{children}</div>
           {step ? (
             <aside className="account-setup__aside" aria-label="What account setup creates">
-              <p className="account-setup__aside-label">Setup creates</p>
+              <p className="account-setup__aside-label">
+                {step === ACCOUNT_SETUP_STEPS ? 'Account ready' : 'Setup creates'}
+              </p>
               <ul className="account-setup__aside-list">
                 <li>
                   <span className="account-setup__aside-icon" aria-hidden="true">
@@ -133,7 +139,11 @@ export function AccountSetupFrame({
                   </span>
                   <div>
                     <strong>Automation account</strong>
-                    <p>Watches for triggers and evaluates runs on Reactive Lasna.</p>
+                    <p>
+                      {step === ACCOUNT_SETUP_STEPS
+                        ? 'Created on Reactive Lasna.'
+                        : 'Watches for triggers and evaluates runs on Reactive Lasna.'}
+                    </p>
                   </div>
                 </li>
                 <li>
@@ -142,7 +152,11 @@ export function AccountSetupFrame({
                   </span>
                   <div>
                     <strong>Vault</strong>
-                    <p>Holds test funds and settles approved actions on Unichain Sepolia.</p>
+                    <p>
+                      {step === ACCOUNT_SETUP_STEPS
+                        ? `Created on ${vaultNetwork}.`
+                        : `Holds test funds and settles approved actions on ${vaultNetwork}.`}
+                    </p>
                   </div>
                 </li>
                 <li>
@@ -150,8 +164,14 @@ export function AccountSetupFrame({
                     <HugeiconsIcon icon={Coins01Icon} size={15} strokeWidth={1.8} />
                   </span>
                   <div>
-                    <strong>Fee credit</strong>
-                    <p>Pays for trigger checks and settlement callbacks as workflows run.</p>
+                    <strong>
+                      {step === ACCOUNT_SETUP_STEPS ? 'Fee credit & funds' : 'Fee credit'}
+                    </strong>
+                    <p>
+                      {step === ACCOUNT_SETUP_STEPS
+                        ? 'Prepaid credit pays trigger checks and callbacks; Vault USDC funds workflow actions.'
+                        : 'Pays for trigger checks and settlement callbacks as workflows run.'}
+                    </p>
                   </div>
                 </li>
               </ul>
@@ -168,7 +188,7 @@ export function AccountSetupFrame({
             {workflow ? 'Back to workflows' : 'Back to rules'}
           </Link>
           {manageAccount && (
-            <Link className="account-setup__exit" to={appRoutes.accountFunds}>
+            <Link className="account-setup__exit" to={manageAccountHref}>
               Manage vault funds
             </Link>
           )}

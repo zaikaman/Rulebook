@@ -11,6 +11,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   BASE_SEPOLIA_CHAIN_ID,
+  fundsChainIdSchema,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -35,9 +36,11 @@ import { getAccount } from 'wagmi/actions';
 
 import { WalletControl } from '../components/chrome/WalletControl.js';
 import { Spinner } from '../components/chrome/Spinner.js';
+import { AccountFundingStep } from '../components/AccountFundingStep.js';
 import { AccountSetupFrame } from '../components/AccountSetupFrame.js';
 import { ErrorState } from '../components/ErrorState.js';
 import { TxLink } from '../components/TxLink.js';
+import type { SetupFundingWallet } from '../hooks/useAccountFunding.js';
 import {
   remainingSetupSteps,
   type SetupStep,
@@ -50,6 +53,7 @@ import {
   WalletAuthorizationError,
 } from '../lib/errors.js';
 import { shortAddress } from '../lib/listings.js';
+import { appRoutes } from '../lib/routes.js';
 import { roundUpFee } from '../lib/setupFees.js';
 import {
   allowSetupNetwork,
@@ -59,6 +63,7 @@ import {
 } from '../lib/setupNetworks.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
 import { baseSepoliaChain, lasnaChain, unichainSepoliaChain } from '../lib/wagmi.js';
+import { Field, Select } from '../ui/index.js';
 
 type Balance = { value?: bigint; decimals: number; failed: boolean };
 type Token = (typeof testnetTokens)[keyof typeof testnetTokens];
@@ -72,7 +77,8 @@ const setupStages = {
   networks: {
     number: 2,
     title: 'Set up test networks',
-    description: 'Rulebook uses Reactive Lasna for automation and Unichain Sepolia for your vault.',
+    description:
+      'Rulebook uses Reactive Lasna for automation and your vault network for settlement.',
   },
   tokens: {
     number: 3,
@@ -83,6 +89,12 @@ const setupStages = {
     number: 4,
     title: 'Create your account',
     description: 'Review what Rulebook will set up, then approve the requests in your wallet.',
+  },
+  funding: {
+    number: 5,
+    title: 'Fund your account',
+    description:
+      'Add fee credit for workflow runs and optional test USDC for your vault. You can adjust any amount or skip this step.',
   },
 };
 
@@ -264,13 +276,24 @@ function SetupReview({
 export function CreateAccount({
   setup,
   chainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+  availableChains,
+  onChainChange,
+  fundingWallet,
+  startWorkflow = false,
+  onFundingComplete,
 }: {
   setup: ReturnType<typeof useAccountSetup>;
   chainId?: FundsChainId;
+  availableChains?: readonly FundsChainId[];
+  onChainChange?: (chain: FundsChainId) => void;
+  fundingWallet?: SetupFundingWallet;
+  startWorkflow?: boolean;
+  onFundingComplete?: () => void;
 }) {
   const fundsChain = chainId === BASE_SEPOLIA_CHAIN_ID ? baseSepoliaChain : unichainSepoliaChain;
   const fundsConfig = getChain(fundsChain.id);
   const ethToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseEth : testnetTokens.eth;
+  const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
   const requiredChainIds: readonly (
     typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID | typeof LASNA_CHAIN_ID
   )[] = [fundsChain.id as FundsChainId, LASNA_CHAIN_ID];
@@ -331,7 +354,7 @@ export function CreateAccount({
   const error = setup.setupError;
   const permissionError = error instanceof WalletAuthorizationError ? error : undefined;
   const transactionError = error instanceof SetupTransactionError ? error : undefined;
-  const walletKey = `${connector?.uid}:${address?.toLowerCase()}`;
+  const walletKey = `${connector?.uid}:${address?.toLowerCase()}:${chainId}`;
   const walletNetworks = networkProgress?.walletKey === walletKey ? networkProgress : undefined;
   useEffect(() => {
     setNetworkProgress((progress) => (progress?.walletKey === walletKey ? progress : undefined));
@@ -356,7 +379,7 @@ export function CreateAccount({
   );
   const checkingNetworks = !networksReady && networkCheck.isFetching;
   const walletAccess = useMutation({
-    mutationKey: ['setup-wallet-access', address, connector?.uid],
+    mutationKey: ['setup-wallet-access', address, connector?.uid, chainId],
     retry: false,
     mutationFn: async (action: 'add-networks' | 'refresh-access') => {
       const signal = walletLifetime.current?.signal;
@@ -457,6 +480,10 @@ export function CreateAccount({
   });
   const accessRefreshed = walletAccess.data === true;
   const networkAccess = walletAccess.variables === 'add-networks';
+  const resetWalletAccess = walletAccess.reset;
+  useEffect(() => {
+    resetWalletAccess();
+  }, [walletKey, resetWalletAccess]);
   const tokenChoice = tokenReview?.walletKey === walletKey ? tokenReview.choice : undefined;
   const canAutoAdvance = ready;
   useEffect(() => {
@@ -464,16 +491,27 @@ export function CreateAccount({
       setTokenReview({ walletKey, choice: 'continue' });
     }
   }, [canAutoAdvance, networksReady, tokenChoice, walletKey]);
-  const stage =
-    !connected || (checkingNetworks && !networkCheck.isFetchedAfterMount)
-      ? 'wallet'
-      : !networksReady
-        ? 'networks'
-        : setup.resuming ||
-            tokenChoice === 'continue' ||
-            (tokenChoice === undefined && (error || canAutoAdvance))
-          ? 'create'
-          : 'tokens';
+  const fundingReady = Boolean(
+    connected &&
+    address &&
+    setup.data?.linked &&
+    setup.data.agent &&
+    setup.data.vault &&
+    fundingWallet,
+  );
+  const stage = !connected
+    ? 'wallet'
+    : fundingReady
+      ? 'funding'
+      : checkingNetworks && !networkCheck.isFetchedAfterMount
+        ? 'wallet'
+        : !networksReady
+          ? 'networks'
+          : setup.resuming ||
+              tokenChoice === 'continue' ||
+              (tokenChoice === undefined && (error || canAutoAdvance))
+            ? 'create'
+            : 'tokens';
   useEffect(() => {
     if (accessRefreshed && !networkAccess && document.activeElement === document.body) {
       continueButton.current?.focus();
@@ -507,6 +545,13 @@ export function CreateAccount({
   else if (checkingBalances) nextAction = 'Checking the wallet balances needed for setup…';
 
   const current = setupStages[stage];
+  const currentDescription =
+    stage === 'networks'
+      ? `Rulebook uses Reactive Lasna for automation and ${fundsChain.name} for your vault.`
+      : current.description;
+  const showChainPicker = Boolean(
+    availableChains && availableChains.length > 1 && onChainChange && stage !== 'funding',
+  );
   const accountReadError = setup.error && (
     <ErrorState
       message="Your account status could not be loaded."
@@ -520,11 +565,44 @@ export function CreateAccount({
       title={current.title}
       workflow
       manageAccount={hasVault}
-      description={current.description}
+      manageAccountHref={`${appRoutes.accountFunds}?chain=${chainId}`}
+      vaultNetwork={fundsChain.name}
+      description={currentDescription}
       step={current.number}
       connected={connected}
     >
       <section className="app-panel" aria-labelledby="account-setup-title">
+        {showChainPicker && availableChains && onChainChange && (
+          <div className="account-setup__network-choice">
+            <Field
+              label="Vault network"
+              hint="Choose where your first vault settles. You can add another network later in Account & Vault."
+            >
+              {(ids) => (
+                <Select
+                  value={String(chainId)}
+                  aria-describedby={ids.hint}
+                  disabled={setup.resuming || walletAccess.isPending}
+                  groups={[
+                    {
+                      label: 'Vault network',
+                      options: availableChains.map((id) => ({
+                        value: String(id),
+                        label: getChain(id).name,
+                      })),
+                    },
+                  ]}
+                  onChange={(nextValue) => {
+                    const parsed = fundsChainIdSchema.safeParse(Number(nextValue));
+                    if (parsed.success && parsed.data !== chainId) {
+                      onChainChange(parsed.data);
+                    }
+                  }}
+                />
+              )}
+            </Field>
+          </div>
+        )}
         {stage === 'wallet' && (
           <div className="account-setup__section account-setup__wallet">
             <span className="account-setup__wallet-icon" aria-hidden="true">
@@ -556,7 +634,7 @@ export function CreateAccount({
                         strokeWidth={2}
                         aria-hidden="true"
                       />
-                      Same wallet for both testnets
+                      Same wallet for Reactive Lasna and {fundsChain.name}
                     </li>
                     <li>
                       <HugeiconsIcon
@@ -596,10 +674,10 @@ export function CreateAccount({
               <>
                 <p id="setup-network-instructions">
                   {connector?.type === 'walletConnect'
-                    ? `Add both test networks in your wallet, then disconnect and reconnect here. Allow Reactive Lasna and ${fundsChain.name} when prompted.`
+                    ? `Add Reactive Lasna and ${fundsChain.name} in your wallet, then disconnect and reconnect here. Allow both when prompted.`
                     : missingNetworks.length > 0
                       ? `Allow ${missingNetworks.map((network) => network.name).join(' and ')} in your wallet. Your wallet will ask to add any missing networks.`
-                      : 'Allow Rulebook to use both test networks in your wallet.'}
+                      : `Allow Rulebook to use Reactive Lasna and ${fundsChain.name} in your wallet.`}
                 </p>
                 <div className="account-setup__action">
                   <button
@@ -630,7 +708,8 @@ export function CreateAccount({
             {networkAccess && walletAccess.isPending && (
               <p className="rb-loading" role="status">
                 <Spinner />
-                Approve each request in your wallet. If asked, allow Rulebook on both networks.
+                Approve each request in your wallet. If asked, allow Rulebook on Reactive Lasna and{' '}
+                {fundsChain.name}.
               </p>
             )}
             {networkCheck.isError && (
@@ -705,7 +784,7 @@ export function CreateAccount({
                   }}
                 />
                 <TokenRow
-                  token={testnetTokens.eth}
+                  token={ethToken}
                   purpose={
                     hasVault
                       ? `Your vault is created. Keep ETH for wallet transactions on ${fundsChain.name}.`
@@ -722,7 +801,7 @@ export function CreateAccount({
                   }}
                 />
                 <TokenRow
-                  token={testnetTokens.usdc}
+                  token={usdcToken}
                   purpose="Optional. You can deposit it during funding if a workflow spends USDC."
                   required={false}
                   connected={connected}
@@ -766,8 +845,8 @@ export function CreateAccount({
                 >
                   <p className="mt-2">
                     {connector?.type === 'injected'
-                      ? 'Refresh wallet access and allow this account on both testnets.'
-                      : 'Reconnect with the same wallet and allow both testnets.'}{' '}
+                      ? `Refresh wallet access and allow this account on Reactive Lasna and ${fundsChain.name}.`
+                      : `Reconnect with the same wallet and allow Reactive Lasna and ${fundsChain.name}.`}{' '}
                     Then select “{actionLabel}”. Any confirmed steps are saved.
                   </p>
                   {connector?.type === 'injected' && (
@@ -787,7 +866,7 @@ export function CreateAccount({
                         <summary className="app-link w-fit cursor-pointer">Still blocked?</summary>
                         <p className="mt-2">
                           Disconnect this site in your wallet’s permissions, then reconnect with the
-                          same account and allow both testnets.
+                          same account and allow Reactive Lasna and {fundsChain.name}.
                         </p>
                       </details>
                     </>
@@ -856,6 +935,15 @@ export function CreateAccount({
               </button>
             </div>
           </div>
+        )}
+        {stage === 'funding' && address && fundingWallet && (
+          <AccountFundingStep
+            owner={address.toLowerCase() as Address}
+            chainId={chainId}
+            fundingWallet={fundingWallet}
+            startWorkflow={startWorkflow}
+            onComplete={onFundingComplete ?? (() => {})}
+          />
         )}
       </section>
     </AccountSetupFrame>

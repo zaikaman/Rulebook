@@ -10,7 +10,7 @@ import {
 } from 'viem';
 
 import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
-import { approveSignature, installWallet, walletRequests } from './wallet';
+import { installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
 
@@ -70,18 +70,40 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   await page.getByRole('link', { name: 'Back to account', exact: true }).click();
   await expect(review.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('button', { name: 'Continue account setup' }).click();
-  await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeFocused();
+  await expect(page.getByText('Step 5 of 5')).toBeVisible();
+  await expect(page.getByLabel('Watching credit (lREACT)')).toHaveValue('0.1');
+  await expect(page.getByLabel('Execution credit (ETH)')).toHaveValue('0.001');
+  await expect(page.getByLabel('Vault USDC (USDC)')).toHaveValue('10');
+
+  await page.getByRole('button', { name: 'Deposit funds' }).click();
+  await expect(page.getByRole('button', { name: 'Open Account & Vault' })).toBeVisible({
+    timeout: 60_000,
+  });
   expect(
     (await walletRequests(page))
       .filter(({ method }) => method === 'eth_sendTransaction')
       .map(({ chainId }) => chainId),
-  ).toEqual([LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID, LASNA_CHAIN_ID, LASNA_CHAIN_ID]);
+  ).toEqual([
+    LASNA_CHAIN_ID,
+    UNICHAIN_SEPOLIA_CHAIN_ID,
+    LASNA_CHAIN_ID,
+    LASNA_CHAIN_ID,
+    LASNA_CHAIN_ID,
+    UNICHAIN_SEPOLIA_CHAIN_ID,
+    UNICHAIN_SEPOLIA_CHAIN_ID,
+  ]);
 
-  await page.getByLabel('Amount (USDC)').fill('10');
-  await page.getByRole('button', { name: 'Review transaction' }).click();
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
+  await page.getByRole('button', { name: 'Open Account & Vault' }).click();
+  await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
   await expect(page.locator('.rb-balance').filter({ hasText: 'Vault USDC' })).toContainText(
     /10\s*USDC/,
+  );
+  await expect(page.locator('.rb-balance').filter({ hasText: 'Execution credit' })).toContainText(
+    /0\.001\s*ETH/,
+  );
+  await expect(page.locator('.rb-credit-row').filter({ hasText: 'Watching credit' })).toContainText(
+    /0\.1\s*lREACT/,
   );
 
   await page.getByRole('link', { name: 'New workflow' }).click();

@@ -33,7 +33,7 @@ export function SiteFooter() {
       </div>
       <div className="mx-auto mt-10 max-w-6xl px-6">
         <p className="border-t border-white/5 pt-6 text-xs font-light leading-relaxed text-neutral-400">
-          Reactive Network, Uniswap, and Unichain names and logos identify the networks and
+          Reactive Network, Uniswap, Unichain, and Base names and logos identify the networks and
           protocols Rulebook uses. They belong to their respective owners.
         </p>
       </div>

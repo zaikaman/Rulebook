@@ -19,7 +19,10 @@ export interface SelectProps<Value extends string> {
   /** Option values must be unique across every group. */
   readonly groups: readonly SelectGroup<Value>[];
   readonly onChange: (value: Value) => void;
+  readonly disabled?: boolean;
   readonly className?: string;
+  readonly 'aria-label'?: string;
+  readonly 'aria-labelledby'?: string;
   readonly 'aria-describedby'?: string;
 }
 
@@ -32,7 +35,10 @@ export function Select<Value extends string>({
   value,
   groups,
   onChange,
+  disabled = false,
   className,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
   'aria-describedby': describedBy,
 }: SelectProps<Value>) {
   const id = useId();
@@ -43,8 +49,11 @@ export function Select<Value extends string>({
   const [placement, setPlacement] = useState<'below' | 'above'>('below');
   const flat = useMemo(
     () =>
-      groups.flatMap((group) =>
-        group.options.map((option, index) => ({ option, id: `${id}-${group.label}-${index}` })),
+      groups.flatMap((group, groupIndex) =>
+        group.options.map((option, index) => ({
+          option,
+          id: `${id}-${groupIndex}-${index}`,
+        })),
       ),
     [groups, id],
   );
@@ -55,8 +64,14 @@ export function Select<Value extends string>({
   const [activeIndex, setActiveIndex] = useState(selectedIndex);
   const selected = flat.find((row) => row.option.value === value) ?? flat[0];
   const active = flat[activeIndex];
+  const activeId = active?.id;
+
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
   function show() {
+    if (disabled) return;
     setActiveIndex(selectedIndex);
     const element = trigger.current;
     if (element) {
@@ -75,9 +90,9 @@ export function Select<Value extends string>({
   }
 
   useEffect(() => {
-    if (!open || !active) return;
-    document.getElementById(active.id)?.scrollIntoView({ block: 'nearest' });
-  }, [open, active]);
+    if (!open || !activeId) return;
+    document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' });
+  }, [open, activeId]);
 
   useEffect(() => {
     if (!open) return;
@@ -89,6 +104,7 @@ export function Select<Value extends string>({
   }, [open]);
 
   function onKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (disabled) return;
     if (!open) {
       if (
         event.key === 'ArrowDown' ||
@@ -131,19 +147,26 @@ export function Select<Value extends string>({
         ref={trigger}
         type="button"
         className="app-select__trigger"
+        disabled={disabled}
         role="combobox"
-        aria-expanded={open}
+        aria-expanded={!disabled && open}
         aria-haspopup="listbox"
-        aria-controls={open ? listId : undefined}
-        aria-activedescendant={open ? active?.id : undefined}
+        aria-controls={!disabled && open ? listId : undefined}
+        aria-activedescendant={!disabled && open ? activeId : undefined}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabelledBy}
         aria-describedby={describedBy}
-        onClick={() => (open ? setOpen(false) : show())}
+        onClick={() => {
+          if (disabled) return;
+          if (open) setOpen(false);
+          else show();
+        }}
         onKeyDown={onKeyDown}
       >
         <span className="app-select__value">{selected?.option.label}</span>
         <HugeiconsIcon icon={ArrowDown01Icon} size={15} strokeWidth={1.8} aria-hidden="true" />
       </button>
-      {open ? (
+      {!disabled && open ? (
         <div className="app-select__list" id={listId} role="listbox" data-placement={placement}>
           {groups.map((group) => (
             <div

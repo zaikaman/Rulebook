@@ -119,6 +119,7 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await page.goto(FIXTURE_FRONTEND_URL + '/create');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
   await page.getByRole('button', { name: 'Create my account' }).click();
+  await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
   await fundFixtureWorkflowVault(OWNER, 10_000_000n);
   await page.getByRole('link', { name: 'New workflow' }).click();

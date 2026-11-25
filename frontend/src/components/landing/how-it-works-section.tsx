@@ -25,7 +25,7 @@ const steps = [
     icon: SecurityCheckIcon,
     image: landingImages.execute,
     title: 'Review and sign',
-    body: 'Read the workflow in plain English. Approve it on Unichain Sepolia, then enable it on Reactive Lasna.',
+    body: 'Read the workflow in plain English. Approve it on your vault network, then enable it on Reactive Lasna.',
   },
   {
     icon: Coins01Icon,
