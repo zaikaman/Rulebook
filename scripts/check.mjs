@@ -2,10 +2,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 
 import { computeChangeSet } from './change-set.mjs';
+import { resolveFoundryBinary } from './foundry-env.mjs';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const forge = process.env.FORGE_PATH ?? 'forge';
+const forge = resolveFoundryBinary('forge', process.env.FORGE_PATH);
 
 const args = process.argv.slice(2);
 const fast = args.includes('--fast') && !args.includes('--full');

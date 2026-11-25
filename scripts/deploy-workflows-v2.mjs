@@ -20,13 +20,14 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { concat, createPublicClient, encodeAbiParameters, http, keccak256 } from 'viem';
+import { resolveFoundryBinary } from './foundry-env.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const CONTRACTS = join(ROOT, 'contracts');
 const RECORD_PATH = join(ROOT, 'deployments', 'workflows-v2.json');
 const SCRIPT = 'script/DeployWorkflowsV2.s.sol';
-const FORGE = process.env.FORGE_PATH ?? 'forge';
+const FORGE = resolveFoundryBinary('forge', process.env.FORGE_PATH);
 const LASNA_FEE_CAP = 950_000_000_000_000_000n;
 const GWEI = 1_000_000_000n;
 

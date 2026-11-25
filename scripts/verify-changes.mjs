@@ -12,6 +12,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { absoluteGitDir, computeChangeSet, run } from './change-set.mjs';
+import { ensureFoundryOnPath } from './foundry-env.mjs';
+
+ensureFoundryOnPath();
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const fast = process.argv.includes('--fast');

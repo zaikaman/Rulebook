@@ -3,7 +3,9 @@
  * backend with an in-memory database. No public RPC, faucet, or funded wallet is involved.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -119,7 +121,14 @@ async function waitForAnvil(url: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const anvilPath = process.env.ANVIL_PATH ?? 'anvil';
+  const defaultAnvil = join(
+    homedir(),
+    '.foundry',
+    'bin',
+    process.platform === 'win32' ? 'anvil.exe' : 'anvil',
+  );
+  const anvilPath =
+    process.env.ANVIL_PATH?.trim() || (existsSync(defaultAnvil) ? defaultAnvil : 'anvil');
   const anvil: ChildProcess = spawn(
     anvilPath,
     ['--chain-id', '1301', '--port', String(ANVIL_RPC_PORT), '--silent'],

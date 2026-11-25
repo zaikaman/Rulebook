@@ -3,6 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { resolveFoundryBinary } from './foundry-env.mjs';
+
 // Coverage is enforced with thresholds, not an exact measurement snapshot. Foundry's
 // branch instrumentation counts differ between toolchain releases, so a committed
 // percentage cannot reproduce on both the CI-pinned version and a newer local one.
@@ -34,7 +36,7 @@ if (configErrors.length) {
 }
 const artifact = new URL('../contracts/', import.meta.url);
 const result = spawnSync(
-  process.env.FORGE_PATH ?? 'forge',
+  resolveFoundryBinary('forge', process.env.FORGE_PATH),
   ['coverage', '--report', 'summary', '--ir-minimum'],
   {
     cwd: fileURLToPath(artifact),
