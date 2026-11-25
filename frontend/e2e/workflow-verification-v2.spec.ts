@@ -334,3 +334,77 @@ test('resumes activation after the wallet declines the Lasna signature', async (
     .map(({ chainId }) => chainId);
   expect(sent).toEqual([5_318_007, 1301, 5_318_007, 1301, 5_318_007, 5_318_007]);
 });
+
+test('blocks activating a second payment workflow while allowing other triggers and unblocks after pause', async ({
+  page,
+}) => {
+  test.skip(Boolean(process.env.RULEBOOK_E2E_LIVE_APP), 'Requires the local test wallet');
+  test.setTimeout(180_000);
+  const account = '0x90F79bf6EB2c4f870365E785982E1f101E93b906';
+  await installWallet(page, account, UNICHAIN_SEPOLIA_CHAIN_ID);
+
+  // 1. Activate the first PAYMENT-trigger workflow (Income sweep).
+  await page.goto(builder + '/workflows/new');
+  await page.getByRole('button', { name: 'Income sweep', exact: false }).click();
+  await page.getByLabel('Minimum payment (USDC)').fill('1');
+  await page.getByLabel('USDC to send').fill('0.02');
+  await page.getByLabel('Recipient address').fill(USER_ADDRESS);
+  await page.getByRole('button', { name: 'Open in builder' }).click();
+  await expectReview(page, 'Income sweep');
+  await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await page.getByRole('button', { name: 'Activate workflow' }).click();
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();
+  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+
+  // 2. A non-PAYMENT workflow (Recurring transfer) still activates cleanly alongside it.
+  await fundFixtureWorkflowVault(account, 10_000_000n);
+  await page.goto(builder + '/workflows/new');
+  await page.getByRole('button', { name: 'Recurring transfer', exact: false }).click();
+  await page.getByLabel('Interval in seconds').fill('3600');
+  await page.getByLabel('USDC to send').fill('0.02');
+  await page.getByLabel('Recipient address').fill(USER_ADDRESS);
+  await page.getByRole('button', { name: 'Open in builder' }).click();
+  await expectReview(page, 'Recurring transfer');
+  await page.getByRole('button', { name: 'Activate workflow' }).click();
+  await approveSignature(page, 'Unichain Sepolia');
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(
+    page.getByRole('heading', { name: 'Recurring transfer', exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+
+  // 3. A second PAYMENT-trigger workflow is blocked before any wallet signature.
+  await page.goto(builder + '/workflows/new');
+  await page.getByRole('button', { name: 'Income sweep', exact: false }).click();
+  await page.getByLabel('Minimum payment (USDC)').fill('2');
+  await page.getByLabel('USDC to send').fill('0.05');
+  await page.getByLabel('Recipient address').fill(USER_ADDRESS);
+  await page.getByRole('button', { name: 'Open in builder' }).click();
+  await expectReview(page, 'Income sweep');
+  const activation = page.getByRole('complementary', { name: 'Activation' });
+  await expect(activation.getByText('One payment workflow per Vault')).toBeVisible();
+  await expect(activation.getByRole('button', { name: 'Activate workflow' })).toBeDisabled();
+
+  // 4. Pausing the first payment workflow frees the slot so the second can activate.
+  await activation.getByRole('link', { name: 'Open Income sweep' }).click();
+  await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Pause workflow' }).click();
+  await approveSignature(page, 'Unichain Sepolia');
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.locator('.rb-chip[data-tone="paused"]').first()).toHaveText('Paused');
+
+  await page.goto(builder + '/workflows/new');
+  await expectReview(page, 'Income sweep');
+  await expect(activation.getByText('One payment workflow per Vault')).toBeHidden();
+  await expect(activation.getByRole('button', { name: 'Activate workflow' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Activate workflow' }).click();
+  await approveSignature(page, 'Unichain Sepolia');
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();
+  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+});

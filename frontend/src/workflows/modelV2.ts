@@ -1,5 +1,8 @@
 import {
+  draftHasAction,
+  draftHasCheck,
   workflowFieldSpecs,
+  workflowV2Action as A,
   workflowV2Check as C,
   workflowV2RecipeFields,
   workflowV2Trigger as T,
@@ -60,6 +63,20 @@ export function unavailable(tool: NodeTool, draft: V2Draft) {
       ![T.payment, T.transfer].some((trigger) => trigger === draft.trigger)
     )
       return 'Needs a payment or transfer trigger.';
+  }
+  if (tool.group === 'action') {
+    if (code === A.refill && !draftHasCheck(draft, C.usdcBelow)) {
+      return 'Needs a Vault USDC is below check.';
+    }
+    if (code === A.inactivityPayout) {
+      if (draft.trigger !== T.schedule) return 'Uses a Unichain Sepolia schedule.';
+      if (draftHasAction(draft, A.inactivityPayout)) {
+        return 'Only one inactivity payout per workflow.';
+      }
+      if (!draftHasCheck(draft, C.inactivity)) {
+        return 'Needs a Wallet was inactive for check.';
+      }
+    }
   }
   return undefined;
 }

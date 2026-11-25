@@ -1,10 +1,15 @@
 // @vitest-environment node
 
 import { readFileSync } from 'node:fs';
-import { toFunctionSelector } from 'viem';
+import { BaseError, toFunctionSelector } from 'viem';
 import { expect, it } from 'vitest';
 
-import { humanizeSelector, isRpcRateLimit } from '../src/lib/errors.js';
+import {
+  describeError,
+  formatContractError,
+  humanizeSelector,
+  isRpcRateLimit,
+} from '../src/lib/errors.js';
 
 it.each([
   { code: 429 },
@@ -32,20 +37,60 @@ it.each([
   expect(isRpcRateLimit(error)).toBe(false);
 });
 
-it('has a human message for every Solidity custom error', () => {
-  const source = readFileSync(
-    new URL('../../contracts/src/shared/Errors.sol', import.meta.url),
-    'utf8',
-  );
-  const declarations = [...source.matchAll(/^error\s+(\w+)\(([^)]*)\);/gm)];
-  expect(declarations.length).toBeGreaterThan(0);
-  for (const [, name, parameters] of declarations) {
-    const types = parameters?.split(',').map((parameter) => parameter.trim().split(/\s+/)[0]);
-    const signature = `${name}(${types?.join(',') ?? ''})`;
-    const selector = toFunctionSelector(signature);
-    expect(humanizeSelector(selector), signature).toMatchObject({
-      selector,
-      message: expect.stringMatching(/\w.{8,}/),
-    });
+it('has a human message for every Solidity custom error in Errors.sol and V2 contracts', () => {
+  const files = [
+    '../../contracts/src/shared/Errors.sol',
+    '../../contracts/src/workflow/v2/WorkflowProgramV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowVaultV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowProtocolsV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowVaultFactoryV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowAgentFactoryV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowAgentV2.sol',
+  ];
+  for (const file of files) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+    const declarations = [...source.matchAll(/^\s*error\s+(\w+)\(([^)]*)\);/gm)];
+    expect(declarations.length, file).toBeGreaterThan(0);
+    for (const [, name, parameters] of declarations) {
+      const types = parameters
+        ? parameters
+            .split(',')
+            .map((parameter) => parameter.trim().split(/\s+/)[0])
+            .filter(Boolean)
+        : [];
+      const signature = `${name}(${types.join(',')})`;
+      const selector = toFunctionSelector(signature);
+      expect(humanizeSelector(selector), `${file}: ${signature}`).toMatchObject({
+        selector,
+        message: expect.stringMatching(/\w.{8,}/),
+      });
+    }
   }
+});
+
+it('translates WorkflowProgramV2 InvalidProgram reverts into actionable copy', () => {
+  const selector = toFunctionSelector('InvalidProgram()');
+  const reverted = new BaseError(
+    'The contract function "validateProgram" reverted with the following signature:',
+    {
+      cause: Object.assign(new BaseError('Execution reverted'), {
+        data: { originalError: { data: selector } },
+      }),
+    },
+  );
+  expect(describeError(reverted)).toEqual({
+    selector,
+    message: 'This workflow program violates an on-chain validation rule.',
+  });
+  expect(formatContractError(reverted, 'Fallback')).toBe(
+    'This workflow program violates an on-chain validation rule.',
+  );
+
+  const unknownRevert = new BaseError(
+    'The contract function "validateProgram" reverted with the following signature:\n0x12345678',
+    {
+      cause: Object.assign(new BaseError('Execution reverted'), { raw: '0x12345678' }),
+    },
+  );
+  expect(formatContractError(unknownRevert, 'Fallback')).toBe('The contract refused this request.');
 });

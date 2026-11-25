@@ -30,6 +30,7 @@
     "check:design": "node scripts/design-check.mjs",
     "notify:done": "npm run notify:done -w backend --",
     "verify": "npm run check",
+    "verify:fast": "node scripts/check.mjs --fast",
     "verify:changes": "node scripts/verify-changes.mjs",
     "lint:staged": "lint-staged",
     "prepare": "husky",

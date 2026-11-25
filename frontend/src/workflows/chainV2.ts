@@ -1,14 +1,17 @@
 import {
   addressSchema,
+  decodeWorkflowV2,
   encodeWorkflowV2,
   executionCreditAbi,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  validateWorkflowV2Program,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowProgramValidatorV2Abi,
   workflowV2Action,
+  workflowV2Trigger,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
   workflowV2Limits,
@@ -23,7 +26,9 @@ import {
   formatUnits,
   isAddressEqual,
   keccak256,
+  toFunctionSelector,
   zeroAddress,
+  zeroHash,
   type Address,
   type Hex,
 } from 'viem';
@@ -32,7 +37,7 @@ import { z } from 'zod';
 
 import type { SetupWallet } from '@/hooks/useAccountSetup';
 import { useChainGuard } from '@/hooks/useChainGuard';
-import { SetupTransactionError } from '@/lib/errors';
+import { describeError, formatContractError, SetupTransactionError } from '@/lib/errors';
 import { type SignatureDetails } from '@/lib/signatures';
 import { lasnaPublicClient as lasna, unichainPublicClient } from '@/lib/wagmi';
 import { workflowFundingIssues } from './fundingV2';
@@ -90,7 +95,9 @@ export function formatWorkflowCaps(program: WorkflowV2Program, budget?: WeeklyBu
   return caps.join(', ');
 }
 
-export async function validateV2Program(encoded: Hex) {
+const invalidProgramSelector = toFunctionSelector('InvalidProgram()');
+
+export async function validateV2Program(encoded: Hex, program?: WorkflowV2Program) {
   const factory = settlementFactory();
   if (!factory) return;
   const validator = await unichainPublicClient.readContract({
@@ -98,12 +105,21 @@ export async function validateV2Program(encoded: Hex) {
     abi: workflowVaultFactoryV2Abi,
     functionName: 'validator',
   });
-  await unichainPublicClient.readContract({
-    address: validator,
-    abi: workflowProgramValidatorV2Abi,
-    functionName: 'validateProgram',
-    args: [encoded],
-  });
+  try {
+    await unichainPublicClient.readContract({
+      address: validator,
+      abi: workflowProgramValidatorV2Abi,
+      functionName: 'validateProgram',
+      args: [encoded],
+    });
+  } catch (cause) {
+    const described = describeError(cause);
+    if (described?.selector === invalidProgramSelector) {
+      validateWorkflowV2Program(program ?? decodeWorkflowV2(encoded));
+      throw new Error(described.message, { cause });
+    }
+    throw cause;
+  }
 }
 
 export async function readAgent(owner: Address, blockNumber?: bigint) {
@@ -264,6 +280,50 @@ export async function readActiveWorkflowCount(owner: Address) {
   });
   const entries = await Promise.all(ids.map((id) => v2Entry(agent, id)));
   return entries.filter((entry) => entry[4] !== 0).length;
+}
+
+export interface ActivePaymentWorkflow {
+  readonly id: Hex;
+  readonly title?: string;
+}
+
+export function paymentWorkflowConflictMessage(existingTitle?: string) {
+  return `This Vault already has an active Vault receives USDC workflow${existingTitle ? ` (${existingTitle})` : ''}. Pause or complete it before activating another.`;
+}
+
+async function readPaymentWorkflowFromVault(
+  chain: SettlementChain,
+  vault: Address,
+): Promise<ActivePaymentWorkflow | null> {
+  if (vault === zeroAddress) return null;
+  const client = workflowClient(chain);
+  const id = await client.readContract({
+    address: vault,
+    abi: workflowVaultV2Abi,
+    functionName: 'paymentWorkflow',
+  });
+  if (id === zeroHash) return null;
+  const title = await client
+    .readContract({
+      address: vault,
+      abi: workflowVaultV2Abi,
+      functionName: 'titles',
+      args: [id],
+    })
+    .catch(() => undefined);
+  return { id, title: title || undefined };
+}
+
+/**
+ * Returns the workflow currently occupying `WorkflowVaultV2.paymentWorkflow`, or null when the
+ * wallet has no Vault or no active/staged payment-trigger workflow.
+ */
+export async function readPaymentWorkflow(
+  owner: Address,
+  chain: SettlementChain,
+): Promise<ActivePaymentWorkflow | null> {
+  const vault = await readVault(owner, chain);
+  return readPaymentWorkflowFromVault(chain, vault);
 }
 
 export async function readWorkflowV2(owner: Address, id: Hex) {
@@ -460,9 +520,7 @@ export function useWorkflowV2Wallet() {
       await task(owner);
       return true;
     } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message.split('\n')[0] : 'The wallet request failed.',
-      );
+      setError(formatContractError(cause, 'The wallet request failed.'));
       return false;
     } finally {
       locked.current = false;
@@ -599,8 +657,14 @@ export function useWorkflowV2Wallet() {
       const factory = settlementFactory();
       if (!factory) throw new Error('This testnet deployment is unavailable.');
       const encoded = encodeWorkflowV2(program);
-      await validateV2Program(encoded);
+      await validateV2Program(encoded, program);
       const existingVault = await readVault(signer, chain);
+      if (existingVault !== zeroAddress && program.trigger === workflowV2Trigger.payment) {
+        const activePayment = await readPaymentWorkflowFromVault(chain, existingVault);
+        if (activePayment && activePayment.id.toLowerCase() !== id.toLowerCase()) {
+          throw new Error(paymentWorkflowConflictMessage(activePayment.title));
+        }
+      }
       const { agent, vault } = await ensure(signer, chain);
       // The first activation creates the Vault, so its empty balance cannot block this call.
       // Once a Vault exists, an underfunded balance stops activation before any signatures.

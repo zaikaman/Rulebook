@@ -2,12 +2,19 @@ import {
   addressIssue,
   amountIssue,
   capIssue,
+  checkThresholdRules,
+  checkUpperRules,
   createWorkflowV2Recipe,
+  draftHasAction,
+  draftHasCheck,
+  draftHasSwap,
   draftSpending,
   decodeWorkflowV2,
   encodeWorkflowV2,
   fieldIssue,
   readWeeklyLimit,
+  slippageIssue,
+  stepAmountRules,
   toCopyDraft,
   weeklyBudgetFromDraft,
   workflowFieldSpecs,
@@ -20,8 +27,6 @@ import {
   workflowV2Recipes,
   workflowV2Trigger as T,
   workflowV2Unit as U,
-  type AmountFieldRules,
-  type DraftStep,
   type WeeklyBudgetAmounts,
   type WorkflowFieldName,
   type WorkflowV2Program,
@@ -54,12 +59,13 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { bytesToHex, formatUnits, type Hex } from 'viem';
+import { bytesToHex, formatUnits, parseUnits, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { Callout, Field } from '@/ui';
+import { formatContractError } from '@/lib/errors';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
@@ -78,8 +84,10 @@ import { v2ListingId, v2ListingQuery } from './listingV2';
 import { branchPathKey, type LibraryTarget } from './nodeLibraryModel';
 import {
   formatWorkflowCaps,
+  paymentWorkflowConflictMessage,
   workflowActivationEnabled,
   readActiveWorkflowCount,
+  readPaymentWorkflow,
   readWorkflowV2,
   readWorkflowWeeklyBudget,
   settlementFactory,
@@ -87,13 +95,13 @@ import {
   validateV2Program,
   v2Explorer,
   v2Network,
+  type SettlementChain,
 } from './chainV2';
 import {
   actions,
   checks,
   emptyDraft,
   emptyPath,
-  checkDecimals,
   recipeFields,
   toDraft,
   toProgram,
@@ -228,18 +236,15 @@ function Input({
   );
 }
 
-function stepAmountRules(
-  asset: 'USDC' | 'WETH' | 'ETH',
-  unit: DraftStep['unit'],
-): AmountFieldRules {
-  const percent = unit === U.percent;
-  return {
-    subject: 'The step amount',
-    noun: 'an amount',
-    decimals: percent ? 2 : asset === 'USDC' ? 6 : 18,
-    unit: percent ? '%' : asset,
-    minimum: 1n,
-  };
+function priceOutsideUpperIssue(lowerValue: string, upperValue: string) {
+  const issue = amountIssue(upperValue, checkUpperRules(C.priceOutside));
+  if (issue) return issue;
+  if (!lowerValue.trim() || amountIssue(lowerValue, checkThresholdRules(C.priceOutside, T.price))) {
+    return undefined;
+  }
+  return parseUnits(upperValue.trim(), 18) <= parseUnits(lowerValue.trim(), 18)
+    ? 'Set an upper price above the lower price.'
+    : undefined;
 }
 
 export function V2Feedback({ wallet }: { wallet: ReturnType<typeof useWorkflowV2Wallet> }) {
@@ -664,7 +669,7 @@ export function WorkflowProgramSummary({
               <dd>{draft.slippage}%</dd>
             </div>
           )}
-          {draft.source && (
+          {draft.trigger === T.transfer && draft.source && (
             <div>
               <dt>Token contract</dt>
               <dd className="workflow-v2-address">{draft.source}</dd>
@@ -824,6 +829,9 @@ function Editor({
   const [draft, setDraft] = useState<V2Draft>(() => saved?.draft ?? original ?? emptyDraft());
   const diagram = useMemo(() => diagramV2(draft), [draft]);
   const spending = useMemo(() => draftSpending(draft), [draft]);
+  const hasSwap = useMemo(() => draftHasSwap(draft), [draft]);
+  const hasInactivityPayout = useMemo(() => draftHasAction(draft, A.inactivityPayout), [draft]);
+  const hasPaymentFrom = useMemo(() => draftHasCheck(draft, C.paymentFrom), [draft]);
   const [nodeGroup, setNodeGroup] = useState<(typeof nodeGroups)[number]>('Triggers');
   const [canvasSelection, setCanvasSelection] = useState<GraphSelection | null>(null);
   const [canvasStep, setCanvasStep] = useState<number>();
@@ -850,6 +858,22 @@ function Editor({
   });
   const capReached =
     !active && slots.data !== undefined && slots.data >= workflowV2Limits.activePerAgent;
+  const paymentSlot = useQuery({
+    queryKey: ['workflow-v2', 'payment-workflow', wallet.owner, draft.chain],
+    enabled: Boolean(
+      wallet.owner &&
+      (program ? program.trigger === T.payment : draft.trigger === T.payment) &&
+      workflowActivationEnabled &&
+      settlementFactory(),
+    ),
+    queryFn: () => readPaymentWorkflow(wallet.owner!, draft.chain as SettlementChain),
+  });
+  const paymentConflict =
+    (program ? program.trigger === T.payment : draft.trigger === T.payment) &&
+    paymentSlot.data &&
+    paymentSlot.data.id.toLowerCase() !== workflowId.toLowerCase()
+      ? paymentSlot.data
+      : null;
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
@@ -876,14 +900,67 @@ function Editor({
     setConsent(false);
   }
 
+  function placementIssue(
+    tool: NodeTool,
+    branch: (typeof diagram.paths)[number],
+    afterStep?: number,
+  ): string | undefined {
+    const problem = unavailable(tool, draft);
+    if (problem) return problem;
+    if (!('steps' in branch.path)) return 'Choose a step path on the canvas.';
+    const leaf = branch.path;
+    if (tool.group === 'check') {
+      if (branch.depth >= workflowLimits.conditionDepth) {
+        return 'A path can have up to three checks.';
+      }
+      if (afterStep !== undefined && afterStep !== 0) {
+        return 'Place conditions at the start of a path.';
+      }
+      if (
+        tool.code === C.inactivity &&
+        leaf.steps.some((step) => step.kind !== A.inactivityPayout && step.kind !== A.alert)
+      ) {
+        return 'Only an inactivity payout or alert can run inside the Yes branch of an inactivity check.';
+      }
+      return undefined;
+    }
+    if (leaf.steps.length >= workflowLimits.stepsPerPath) {
+      return 'A path can have up to three actions.';
+    }
+    if (leaf.steps.some((step) => step.kind === A.inactivityPayout)) {
+      return 'Send inactivity payout cannot be combined with other actions on the same path.';
+    }
+    if (tool.code === A.refill && !branch.activeChecks.has(C.usdcBelow)) {
+      return 'Refill Vault USDC must be inside the Yes branch of a Vault USDC is below check.';
+    }
+    if (tool.code === A.inactivityPayout) {
+      if (!branch.activeChecks.has(C.inactivity)) {
+        return 'Send inactivity payout must be inside the Yes branch of a Wallet was inactive for check.';
+      }
+      if (leaf.steps.length > 0) {
+        return 'Send inactivity payout cannot be combined with other actions on the same path.';
+      }
+      return undefined;
+    }
+    if (tool.code !== A.alert && branch.activeChecks.has(C.inactivity)) {
+      return 'Only a single inactivity payout can run inside the Yes branch of an inactivity check.';
+    }
+    if (
+      (tool.code === A.buy || tool.code === A.sell) &&
+      leaf.steps.some((step) => step.kind === A.buy || step.kind === A.sell)
+    ) {
+      return 'A single path can include at most one buy or sell action.';
+    }
+    return undefined;
+  }
+
   function place(
     tool: NodeTool,
-    leaf: Extract<DraftPath, { steps: unknown }>,
+    branch: (typeof diagram.paths)[number],
     change: (path: DraftPath) => void,
-    depth: number,
     afterStep?: number,
   ) {
-    const problem = unavailable(tool, draft);
+    const problem = placementIssue(tool, branch, afterStep);
     if (problem) {
       setError(problem);
       return false;
@@ -892,17 +969,11 @@ function Editor({
       update({ trigger: tool.code });
       return true;
     }
+    if (!('steps' in branch.path)) return false;
+    const leaf = branch.path;
     if (tool.group === 'check') {
-      if (depth >= workflowLimits.conditionDepth) {
-        setError('A path can have up to three checks.');
-        return false;
-      }
       change({ check: tool.code, value: '', upper: '', yes: leaf, no: emptyPath() });
     } else {
-      if (leaf.steps.length >= workflowLimits.stepsPerPath) {
-        setError('A path can have up to three actions.');
-        return false;
-      }
       const steps = leaf.steps.slice();
       steps.splice(afterStep === undefined ? steps.length : afterStep + 1, 0, {
         kind: tool.code,
@@ -923,10 +994,7 @@ function Editor({
     if (target.owner === 'trigger') return false;
     const branch = diagram.paths[target.owner];
     if (!branch || !('steps' in branch.path)) return false;
-    return tool.group === 'check'
-      ? branch.depth < workflowLimits.conditionDepth &&
-          (target.afterStep === undefined || target.afterStep === 0)
-      : branch.path.steps.length < workflowLimits.stepsPerPath;
+    return !placementIssue(tool, branch, target.afterStep);
   }
 
   function drop(value: string, target?: LibraryTarget) {
@@ -948,9 +1016,8 @@ function Editor({
     if (
       place(
         tool,
-        match.path,
+        match,
         (path) => update({ root: replacePath(draft.root, match.path, path) }),
-        match.depth,
         target.afterStep,
       )
     )
@@ -975,11 +1042,8 @@ function Editor({
     const target = diagram.paths[index];
     if (!target || !('steps' in target.path)) return;
     const step = selected.group === 'action' ? target.path.steps.length : undefined;
-    const placed = place(
-      selected,
-      target.path,
-      (path) => update({ root: replacePath(draft.root, target.path, path) }),
-      target.depth,
+    const placed = place(selected, target, (path) =>
+      update({ root: replacePath(draft.root, target.path, path) }),
     );
     if (placed) selectNode(index, step);
   }
@@ -1003,7 +1067,7 @@ function Editor({
     try {
       const next = toProgram(draft);
       const nextBudget = weeklyBudgetFromDraft(draft);
-      await validateV2Program(encodeWorkflowV2(next));
+      await validateV2Program(encodeWorkflowV2(next), next);
       if (current !== revision.current) return;
       review(next);
       setBudget(nextBudget);
@@ -1011,15 +1075,26 @@ function Editor({
       setError(undefined);
     } catch (cause) {
       if (current === revision.current) {
-        setError(
-          cause instanceof Error ? cause.message.split('\n')[0] : 'Check the workflow settings.',
-        );
+        setError(formatContractError(cause, 'Check the workflow settings.'));
         inspectorBody.current?.scrollTo({ top: 0 });
       }
     } finally {
       setValidating(false);
     }
   }
+
+  const paymentConflictCallout = paymentConflict ? (
+    <Callout
+      title="One payment workflow per Vault"
+      action={
+        <Link className="app-button" to={`/workflows/${paymentConflict.id}`}>
+          Open {paymentConflict.title ?? 'existing workflow'}
+        </Link>
+      }
+    >
+      <p>{paymentWorkflowConflictMessage(paymentConflict.title)}</p>
+    </Callout>
+  ) : null;
 
   const spendKinds = program?.nodes.flatMap((node) => node.actions.map((step) => step.kind)) ?? [];
   const hasPayout = spendKinds.includes(A.inactivityPayout);
@@ -1128,11 +1203,7 @@ function Editor({
                 value={draft.slippage}
                 hint={workflowGuardrailFields.slippage.hint}
                 placeholder={workflowGuardrailFields.slippage.placeholder}
-                error={
-                  draft.slippage.trim()
-                    ? fieldIssue(workflowGuardrailFields.slippage, draft.slippage)
-                    : undefined
-                }
+                error={slippageIssue(draft.slippage, hasSwap)}
                 change={(slippage) => update({ slippage })}
               />
               <Input
@@ -1156,6 +1227,11 @@ function Editor({
               />
               Close after a confirmed run
             </label>
+            {hasInactivityPayout && !draft.once && (
+              <p className="rb-inspector-error" role="alert">
+                Enable &ldquo;Close after a confirmed run&rdquo; for an inactivity payout.
+              </p>
+            )}
           </div>
           <p className="rb-inspector-note">Select any node on the canvas to edit its settings.</p>
         </>
@@ -1198,6 +1274,7 @@ function Editor({
                 })}
               </select>
             </V2Field>
+            {paymentConflictCallout}
             <div className="rb-inspector-fields">
               {draft.trigger === T.schedule && (
                 <Input
@@ -1234,12 +1311,18 @@ function Editor({
                   <Input
                     name="Watched wallet address"
                     value={draft.subject}
-                    hint="Optional. Limits the live check to activity from this wallet."
+                    hint={
+                      hasPaymentFrom && draft.trigger === T.payment
+                        ? 'Required for the Payment is from the specified wallet check.'
+                        : 'Optional. Limits the live check to activity from this wallet.'
+                    }
                     placeholder="0x…"
                     error={
                       draft.subject.trim()
                         ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
-                        : undefined
+                        : hasPaymentFrom && draft.trigger === T.payment
+                          ? 'Enter a watched wallet address.'
+                          : undefined
                     }
                     change={(subject) => update({ subject })}
                     text
@@ -1257,6 +1340,7 @@ function Editor({
 
     if ('check' in path) {
       const metadata = checks[path.check];
+      const conditionTriggerIssue = unavailable({ group: 'check', code: path.check }, draft);
       function openBranch(anchor: string) {
         const index = diagram.paths.findIndex((entry) => entry.anchor === anchor);
         if (index >= 0) selectNode(index);
@@ -1271,7 +1355,29 @@ function Editor({
             back={showWorkflow}
           />
           <div className="rb-inspector-section">
+            {conditionTriggerIssue && (
+              <p className="rb-inspector-error" role="alert">
+                {conditionTriggerIssue}
+              </p>
+            )}
             <div className="rb-inspector-fields">
+              {path.check === C.paymentFrom && (
+                <Input
+                  name="Watched wallet address"
+                  value={draft.subject}
+                  hint="Required. The sender wallet that satisfies this check."
+                  placeholder="0x…"
+                  error={
+                    draft.subject.trim()
+                      ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
+                      : hasPaymentFrom && draft.trigger === T.payment
+                        ? 'Enter a watched wallet address.'
+                        : undefined
+                  }
+                  change={(subject) => update({ subject })}
+                  text
+                />
+              )}
               {metadata.decimals !== undefined && (
                 <Input
                   name={`${metadata.name} threshold`}
@@ -1279,12 +1385,7 @@ function Editor({
                   hint="The value this condition compares against."
                   error={
                     path.value.trim()
-                      ? amountIssue(path.value, {
-                          subject: 'The condition threshold',
-                          noun: 'a threshold',
-                          decimals: checkDecimals(path.check, draft.trigger),
-                          minimum: 1n,
-                        })
+                      ? amountIssue(path.value, checkThresholdRules(path.check, draft.trigger))
                       : undefined
                   }
                   change={(value) => changePath({ ...path, value })}
@@ -1294,15 +1395,17 @@ function Editor({
                 <Input
                   name={metadata.upper}
                   value={path.upper}
-                  hint="Must be above the lower price."
+                  hint={
+                    path.check === C.priceOutside
+                      ? 'Must be above the lower price.'
+                      : 'Optional starting reference price.'
+                  }
+                  required={path.check === C.priceOutside}
                   error={
                     path.upper.trim()
-                      ? amountIssue(path.upper, {
-                          subject: 'The upper price',
-                          noun: 'an upper price',
-                          decimals: 18,
-                          minimum: 1n,
-                        })
+                      ? path.check === C.priceOutside
+                        ? priceOutsideUpperIssue(path.value, path.upper)
+                        : amountIssue(path.upper, checkUpperRules(path.check))
                       : undefined
                   }
                   change={(upper) => changePath({ ...path, upper })}
@@ -1359,6 +1462,24 @@ function Editor({
           changePath({
             steps: path.steps.map((current, index) => (index === stepIndex ? next : current)),
           });
+        const stepContextIssue =
+          step.kind === A.refill && !selectedEntry.activeChecks.has(C.usdcBelow)
+            ? 'Refill Vault USDC must be inside the Yes branch of a Vault USDC is below check.'
+            : step.kind === A.inactivityPayout && !selectedEntry.activeChecks.has(C.inactivity)
+              ? 'Send inactivity payout must be inside the Yes branch of a Wallet was inactive for check.'
+              : step.kind === A.inactivityPayout && path.steps.length !== 1
+                ? 'Send inactivity payout cannot be combined with other actions on the same path.'
+                : step.kind === A.inactivityPayout && !draft.once
+                  ? 'Enable "Close after a confirmed run" for an inactivity payout.'
+                  : step.kind !== A.inactivityPayout &&
+                      step.kind !== A.alert &&
+                      selectedEntry.activeChecks.has(C.inactivity)
+                    ? 'Only a single inactivity payout can run inside the Yes branch of an inactivity check.'
+                    : (step.kind === A.buy || step.kind === A.sell) &&
+                        path.steps.filter((item) => item.kind === A.buy || item.kind === A.sell)
+                          .length > 1
+                      ? 'A single path can include at most one buy or sell action.'
+                      : undefined;
         return (
           <>
             <InspectorHead
@@ -1369,13 +1490,25 @@ function Editor({
               back={showWorkflow}
             />
             <div className="rb-inspector-section">
+              {stepContextIssue && (
+                <p className="rb-inspector-error" role="alert">
+                  {stepContextIssue}
+                </p>
+              )}
               {(metadata.asset || metadata.recipient) && (
                 <div className="rb-inspector-fields">
                   {metadata.asset && (
                     <>
-                      {draft.trigger === T.payment &&
+                      {(draft.trigger === T.payment || step.unit === U.percent) &&
                         (step.kind === A.send || step.kind === A.buy) && (
-                          <V2Field name="Amount type">
+                          <V2Field
+                            name="Amount type"
+                            error={
+                              step.unit === U.percent && draft.trigger !== T.payment
+                                ? 'Percent of payment requires the Vault receives USDC trigger.'
+                                : undefined
+                            }
+                          >
                             <select
                               className="app-input"
                               value={step.unit}
@@ -1406,7 +1539,7 @@ function Editor({
                         }
                         error={
                           step.amount.trim()
-                            ? amountIssue(step.amount, stepAmountRules(metadata.asset, step.unit))
+                            ? amountIssue(step.amount, stepAmountRules(step.kind, step.unit))
                             : undefined
                         }
                         change={(amount) => updateStep({ ...step, amount })}
@@ -1647,7 +1780,15 @@ function Editor({
                 </button>
               </div>
               <p className="rb-inspector-copy">
-                No path can accept this node. Change the trigger or remove a step first.
+                No path can accept this node.{' '}
+                {selected.group === 'action' &&
+                (selected.code === A.buy || selected.code === A.sell)
+                  ? 'A path can include at most one buy or sell action, and at most three steps.'
+                  : selected.group === 'action' && selected.code === A.refill
+                    ? 'Add Refill Vault USDC inside the Yes branch of a Vault USDC is below check.'
+                    : selected.group === 'action' && selected.code === A.inactivityPayout
+                      ? 'Add Send inactivity payout to an empty Yes branch of a Wallet was inactive for check.'
+                      : 'Change the trigger or remove a step first.'}
               </p>
             </div>
           ))}
@@ -1753,6 +1894,7 @@ function Editor({
                   </p>
                 </Callout>
               )}
+              {paymentConflictCallout}
               {hasPayout && (
                 <label className="rb-consent">
                   <input
@@ -1785,6 +1927,7 @@ function Editor({
                     !budget ||
                     funding.blocked ||
                     capReached ||
+                    Boolean(paymentConflict) ||
                     (hasPayout && !consent)
                   }
                   onClick={async () => {

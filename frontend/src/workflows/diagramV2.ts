@@ -5,15 +5,25 @@ import {
   type WorkflowV2Program,
 } from '@rulebook/shared';
 import type { CanvasDraft, CanvasNode } from './Graph';
-import { actions, checks, triggers, type DraftPath, type V2Draft } from './modelV2';
+import { actions, checks, triggers, type CheckCode, type DraftPath, type V2Draft } from './modelV2';
 import { branchPathKey, workflowRootKey } from './nodeLibraryModel';
 
 export function diagramV2(draft: V2Draft) {
-  const paths: { path: DraftPath; anchor: string; depth: number }[] = [];
+  const paths: {
+    path: DraftPath;
+    anchor: string;
+    depth: number;
+    activeChecks: ReadonlySet<CheckCode>;
+  }[] = [];
   const nodes: CanvasNode[] = [];
-  function visit(path: DraftPath, anchor: string, depth: number): number {
+  function visit(
+    path: DraftPath,
+    anchor: string,
+    depth: number,
+    activeChecks: ReadonlySet<CheckCode>,
+  ): number {
     const index = paths.length;
-    paths.push({ path, anchor, depth });
+    paths.push({ path, anchor, depth, activeChecks });
     if ('steps' in path) {
       nodes[index] = {
         actions: path.steps.map((step) => {
@@ -33,17 +43,19 @@ export function diagramV2(draft: V2Draft) {
         }),
       };
     } else {
+      const yesChecks = new Set(activeChecks);
+      yesChecks.add(path.check);
       nodes[index] = {
         title: [checks[path.check].name, path.value, path.upper && `– ${path.upper}`]
           .filter(Boolean)
           .join(' '),
-        yes: visit(path.yes, branchPathKey(anchor, 'yes'), depth + 1),
-        no: visit(path.no, branchPathKey(anchor, 'otherwise'), depth + 1),
+        yes: visit(path.yes, branchPathKey(anchor, 'yes'), depth + 1, yesChecks),
+        no: visit(path.no, branchPathKey(anchor, 'otherwise'), depth + 1, activeChecks),
       };
     }
     return index;
   }
-  visit(draft.root, workflowRootKey, 0);
+  visit(draft.root, workflowRootKey, 0, new Set());
   const trigger =
     draft.trigger === T.schedule && draft.interval
       ? `Every ${draft.interval} seconds`

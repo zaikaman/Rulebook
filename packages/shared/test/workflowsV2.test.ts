@@ -8,12 +8,16 @@ import {
   emptyDraft,
   encodeWorkflowV2,
   fieldIssue,
+  slippageIssue,
   toCopyDraft,
   toDraft,
   toProgram,
+  validateWorkflowV2Program,
   workflowGuardrailFields,
   workflowV2Action,
+  workflowV2Check,
   workflowV2Recipes,
+  workflowV2Trigger,
   workflowV2Unit,
 } from '../src/index.js';
 
@@ -192,7 +196,10 @@ describe('V2 per-run caps', () => {
     });
     expect(program.usdcCap).toBe(0n);
     expect(program.wethCap).toBe(0n);
-    expect(toDraft(program, 'Price alert').usdcCap).toBe('');
+    const roundTripped = toDraft(program, 'Price alert');
+    expect(roundTripped.usdcCap).toBe('');
+    expect(roundTripped.slippage).toBe('');
+    expect(() => toProgram(roundTripped)).not.toThrow();
   });
 
   it('rejects an explicit zero cap', () => {
@@ -202,5 +209,379 @@ describe('V2 per-run caps', () => {
     expect(fieldIssue(workflowGuardrailFields.wethCap, '0')).toBe(
       'The per-run WETH cap must be between 0.000000000000000001 WETH and the contract maximum.',
     );
+  });
+});
+
+const skipLeaf = { steps: [] };
+const alertStep = {
+  kind: workflowV2Action.alert,
+  unit: workflowV2Unit.fixed,
+  amount: '',
+  recipient: '',
+};
+const sellStep = {
+  kind: workflowV2Action.sell,
+  unit: workflowV2Unit.fixed,
+  amount: '0.001',
+  recipient: '',
+};
+const sendStep = {
+  kind: workflowV2Action.send,
+  unit: workflowV2Unit.fixed,
+  amount: '1',
+  recipient,
+};
+const refillStep = {
+  kind: workflowV2Action.refill,
+  unit: workflowV2Unit.fixed,
+  amount: '1',
+  recipient: '',
+};
+const payoutStep = {
+  kind: workflowV2Action.inactivityPayout,
+  unit: workflowV2Unit.fixed,
+  amount: '1',
+  recipient,
+};
+
+describe('V2 on-chain constraint mirroring', () => {
+  it('requires positive slippage when a draft swaps and rejects explicit zero slippage', () => {
+    expect(slippageIssue('', true)).toBe(
+      'Enter a maximum swap slippage because this workflow buys or sells WETH.',
+    );
+    expect(slippageIssue('', false)).toBeUndefined();
+    expect(slippageIssue('0', false)).toBe('The maximum slippage must be between 0.01% and 10%.');
+    expect(() =>
+      toProgram({ ...scheduleDraft, usdcCap: '1', slippage: '', root: { steps: [buyStep] } }),
+    ).toThrow('Enter a maximum swap slippage because this workflow buys or sells WETH.');
+    expect(() =>
+      toProgram({ ...scheduleDraft, usdcCap: '1', slippage: '0', root: { steps: [buyStep] } }),
+    ).toThrow('The maximum slippage must be between 0.01% and 10%.');
+  });
+
+  it('rejects more than one swap on a single path while allowing swaps on separate branches', () => {
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        wethCap: '0.001',
+        slippage: '0.5',
+        root: { steps: [buyStep, sellStep] },
+      }),
+    ).toThrow('A single path can include at most one buy or sell action.');
+
+    const split = toProgram({
+      ...emptyDraft(),
+      title: 'Split swaps',
+      trigger: workflowV2Trigger.price,
+      usdcCap: '1',
+      wethCap: '0.001',
+      slippage: '0.5',
+      root: {
+        check: workflowV2Check.priceAtLeast,
+        value: '2000',
+        upper: '',
+        yes: { steps: [sellStep] },
+        no: { steps: [buyStep] },
+      },
+    });
+    expect(() => validateWorkflowV2Program(split)).not.toThrow();
+  });
+
+  it('requires REFILL to sit inside the Yes branch of a USDC_BELOW check', () => {
+    expect(() =>
+      toProgram({ ...scheduleDraft, usdcCap: '1', root: { steps: [refillStep] } }),
+    ).toThrow('Refill Vault USDC must be inside the Yes branch of a Vault USDC is below check.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        root: {
+          check: workflowV2Check.usdcBelow,
+          value: '5',
+          upper: '',
+          yes: skipLeaf,
+          no: { steps: [refillStep] },
+        },
+      }),
+    ).toThrow('Refill Vault USDC must be inside the Yes branch of a Vault USDC is below check.');
+
+    const valid = toProgram({
+      ...scheduleDraft,
+      usdcCap: '1',
+      root: {
+        check: workflowV2Check.usdcBelow,
+        value: '5',
+        upper: '',
+        yes: {
+          check: workflowV2Check.priceBelow,
+          value: '2000',
+          upper: '',
+          yes: { steps: [refillStep] },
+          no: skipLeaf,
+        },
+        no: skipLeaf,
+      },
+    });
+    expect(() => validateWorkflowV2Program(valid)).not.toThrow();
+  });
+
+  it('enforces INACTIVITY_PAYOUT exclusivity, once flag, branch, and 24-hour minimum', () => {
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        once: true,
+        root: { steps: [payoutStep] },
+      }),
+    ).toThrow(
+      'Send inactivity payout must be inside the Yes branch of a Wallet was inactive for check.',
+    );
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '2',
+        once: true,
+        root: {
+          check: workflowV2Check.inactivity,
+          value: '86400',
+          upper: '',
+          yes: { steps: [payoutStep, alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Send inactivity payout cannot be combined with other actions on the same path.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        once: false,
+        root: {
+          check: workflowV2Check.inactivity,
+          value: '86400',
+          upper: '',
+          yes: { steps: [payoutStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Enable "Close after a confirmed run" for an inactivity payout.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        once: true,
+        root: {
+          check: workflowV2Check.inactivity,
+          value: '86400',
+          upper: '',
+          yes: { steps: [sendStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Only a single inactivity payout can run inside the Yes branch');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        once: true,
+        root: {
+          check: workflowV2Check.inactivity,
+          value: '3600',
+          upper: '',
+          yes: { steps: [payoutStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('24 hours (86,400 seconds)');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        usdcCap: '1',
+        once: true,
+        root: {
+          check: workflowV2Check.inactivity,
+          value: '86400',
+          upper: '',
+          yes: {
+            check: workflowV2Check.priceBelow,
+            value: '2000',
+            upper: '',
+            yes: { steps: [payoutStep] },
+            no: { steps: [payoutStep] },
+          },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('A workflow can include at most one inactivity payout.');
+  });
+
+  it('requires PAYMENT trigger and non-empty subject for PAYMENT_FROM', () => {
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        root: {
+          check: workflowV2Check.paymentFrom,
+          value: '',
+          upper: '',
+          yes: { steps: [alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Payment is from the specified wallet requires the Vault receives USDC trigger.');
+
+    expect(() =>
+      toProgram({
+        ...emptyDraft(),
+        title: 'From wallet',
+        trigger: workflowV2Trigger.payment,
+        subject: '',
+        root: {
+          check: workflowV2Check.paymentFrom,
+          value: '',
+          upper: '',
+          yes: { steps: [alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Enter a watched wallet address.');
+
+    const valid = toProgram({
+      ...emptyDraft(),
+      title: 'From wallet',
+      trigger: workflowV2Trigger.payment,
+      subject: watched,
+      root: {
+        check: workflowV2Check.paymentFrom,
+        value: '',
+        upper: '',
+        yes: { steps: [alertStep] },
+        no: skipLeaf,
+      },
+    });
+    expect(() => validateWorkflowV2Program(valid)).not.toThrow();
+  });
+
+  it('restricts percent-unit actions to PAYMENT trigger, SEND/BUY, and at most 100% per path', () => {
+    const percentSend = {
+      kind: workflowV2Action.send,
+      unit: workflowV2Unit.percent,
+      amount: '50',
+      recipient,
+    };
+    expect(() =>
+      toProgram({ ...scheduleDraft, usdcCap: '1', root: { steps: [percentSend] } }),
+    ).toThrow('Percent of payment amounts require the Vault receives USDC trigger.');
+
+    expect(() =>
+      toProgram({
+        ...emptyDraft(),
+        title: 'Percent sell',
+        trigger: workflowV2Trigger.payment,
+        wethCap: '1',
+        slippage: '0.5',
+        root: {
+          steps: [
+            {
+              kind: workflowV2Action.sell,
+              unit: workflowV2Unit.percent,
+              amount: '50',
+              recipient: '',
+            },
+          ],
+        },
+      }),
+    ).toThrow(
+      'Percent of payment amounts are only supported for Send USDC and Buy WETH with USDC.',
+    );
+
+    expect(() =>
+      toProgram({
+        ...emptyDraft(),
+        title: 'Over 100%',
+        trigger: workflowV2Trigger.payment,
+        usdcCap: '10',
+        slippage: '0.5',
+        root: {
+          steps: [
+            percentSend,
+            {
+              kind: workflowV2Action.buy,
+              unit: workflowV2Unit.percent,
+              amount: '60',
+              recipient: '',
+            },
+          ],
+        },
+      }),
+    ).toThrow('A single path can spend at most 100% of an incoming payment.');
+  });
+
+  it('rejects inverted PRICE_OUTSIDE ranges, out-of-range percentage checks, and mismatched check triggers', () => {
+    expect(() =>
+      toProgram({
+        ...emptyDraft(),
+        title: 'Bad range',
+        trigger: workflowV2Trigger.price,
+        root: {
+          check: workflowV2Check.priceOutside,
+          value: '3000',
+          upper: '2000',
+          yes: { steps: [alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Set an upper price above the lower price.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        root: {
+          check: workflowV2Check.dipBy,
+          value: '100',
+          upper: '',
+          yes: { steps: [alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('The condition threshold must be between 0.01% and 99.99%.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        root: {
+          check: workflowV2Check.amountAtLeast,
+          value: '10',
+          upper: '',
+          yes: { steps: [alertStep] },
+          no: skipLeaf,
+        },
+      }),
+    ).toThrow('Amount is at least requires a payment or transfer trigger.');
+
+    expect(() =>
+      toProgram({
+        ...scheduleDraft,
+        expires: (1n << 64n).toString(),
+        root: { steps: [alertStep] },
+      }),
+    ).toThrow('The expiry must be at most the contract maximum.');
+
+    const inactivityAlert = toProgram({
+      ...scheduleDraft,
+      root: {
+        check: workflowV2Check.inactivity,
+        value: '86400',
+        upper: '',
+        yes: { steps: [alertStep] },
+        no: skipLeaf,
+      },
+    });
+    expect(() => validateWorkflowV2Program(inactivityAlert)).not.toThrow();
   });
 });

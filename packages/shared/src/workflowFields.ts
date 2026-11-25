@@ -11,6 +11,7 @@ import type { Address } from 'viem';
 
 const maxAmount = (1n << 96n) - 1n;
 const maxThreshold = (1n << 128n) - 1n;
+const maxTimestamp = (1n << 64n) - 1n;
 
 export type NumberFieldSpec = AmountFieldRules & {
   readonly kind: 'number';
@@ -59,6 +60,8 @@ export const workflowFieldSpecs = {
     subject: 'The expiry',
     noun: 'an expiry time',
     decimals: 0,
+    maximum: maxTimestamp,
+    maximumText: 'the contract maximum',
     future: true,
     hint: 'A Unix timestamp in the future.',
     placeholder: String(Math.floor(Date.now() / 1_000) + 86_400),
@@ -389,9 +392,10 @@ export const workflowGuardrailFields = {
     noun: 'a slippage percentage',
     unit: '%',
     decimals: 2,
+    minimum: 1n,
     maximum: 1_000n,
     optional: true,
-    hint: 'At least 0.01% and at most 10%.',
+    hint: 'Required when a path swaps. At least 0.01% and at most 10%.',
     placeholder: '1',
   },
 } as const satisfies Record<string, NumberFieldSpec>;

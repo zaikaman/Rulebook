@@ -175,6 +175,78 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     signature: 'RegistryNotConfigured()',
     message: 'Publishing rules is not configured on this deployment.',
   },
+  {
+    signature: 'InvalidProgram()',
+    message: 'This workflow program violates an on-chain validation rule.',
+  },
+  {
+    signature: 'Unauthorized()',
+    message: 'Only the authorized account or proxy can perform this action.',
+  },
+  {
+    signature: 'InvalidAuthorization()',
+    message: 'This workflow authorization is invalid or expired.',
+  },
+  {
+    signature: 'StaleBudget()',
+    message: 'The weekly budget changed on-chain. Refresh and try again.',
+  },
+  {
+    signature: 'CapExceeded()',
+    message: 'This execution exceeds the workflow per-run cap.',
+  },
+  {
+    signature: 'WeeklyBudgetExceeded()',
+    message: 'This execution exceeds the weekly spending budget.',
+  },
+  {
+    signature: 'DuplicateOrigin()',
+    message: 'This event was already processed.',
+  },
+  {
+    signature: 'StaleObservation()',
+    message: 'This observation is older than the latest recorded run.',
+  },
+  {
+    signature: 'SettlementInterrupted()',
+    message: 'Settlement was interrupted and could not complete.',
+  },
+  {
+    signature: 'InsufficientVaultBalance(address,uint256,uint256)',
+    message: 'The Vault does not hold enough balance for this action.',
+  },
+  {
+    signature: 'InvalidMarket()',
+    message: 'The pool market configuration is invalid.',
+  },
+  {
+    signature: 'NoLongerEligible()',
+    message: 'The market conditions are no longer met for this swap.',
+  },
+  {
+    signature: 'AgentMismatch()',
+    message: 'This Vault is linked to a different Agent.',
+  },
+  {
+    signature: 'InactiveDeployment()',
+    message: 'This workflow deployment is inactive.',
+  },
+  {
+    signature: 'InvalidListing()',
+    message: 'This marketplace listing is invalid.',
+  },
+  {
+    signature: 'InvalidWorkflow()',
+    message: 'This workflow cannot be activated in its current state.',
+  },
+  {
+    signature: 'NotPaused()',
+    message: 'Pause the workflow before performing this action.',
+  },
+  {
+    signature: 'BudgetBlocked()',
+    message: 'The execution credit balance is too low to continue.',
+  },
 ];
 
 /** True when a wallet prompt was rejected by the user rather than failing for another reason. */
@@ -209,13 +281,17 @@ export function humanizeSelector(selector: string): ContractErrorMessage | null 
 function findSelector(value: unknown, depth = 0): string | null {
   if (depth > 6 || value === null || typeof value !== 'object') return null;
   const record = value as Record<string, unknown>;
-  for (const key of ['data', 'selector', 'revertData']) {
+  for (const key of ['data', 'selector', 'revertData', 'raw', 'signature']) {
     const candidate = record[key];
     if (typeof candidate === 'string' && /^0x[0-9a-fA-F]{8}/.test(candidate)) {
       return candidate.slice(0, 10).toLowerCase();
     }
   }
-  return findSelector(record.cause, depth + 1) ?? findSelector(record.error, depth + 1);
+  for (const key of ['cause', 'error', 'data', 'originalError']) {
+    const nested = findSelector(record[key], depth + 1);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 /**
@@ -231,4 +307,21 @@ export function describeError(error: unknown): ContractErrorMessage | null {
     return { selector: selector as `0x${string}`, message: 'The contract refused this request.' };
   }
   return null;
+}
+
+/** Returns a concise human-readable message for contract reverts and wallet errors. */
+export function formatContractError(error: unknown, fallback: string): string {
+  const described = describeError(error);
+  if (described && described.message !== 'The contract refused this request.') {
+    return described.message;
+  }
+  if (error instanceof BaseError) {
+    const message = error.shortMessage.split('\n')[0]?.trim();
+    if (message && !message.endsWith(':')) return message;
+    return described?.message ?? (error.message.split('\n')[0] || fallback);
+  }
+  if (error instanceof Error) {
+    return error.message.split('\n')[0] || fallback;
+  }
+  return fallback;
 }

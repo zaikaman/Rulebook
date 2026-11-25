@@ -61,7 +61,8 @@ function composeMessage(summary: string | undefined, username: string) {
   const cleaned = summary?.replace(/\s+/g, ' ').trim().slice(0, 800);
   return [
     'Rulebook agent finished a task.',
-    `Task: ${cleaned || 'No summary provided.'}`,
+    // The Stop hook sends the ping without a summary, so the line is only added on manual runs.
+    cleaned ? `Task: ${cleaned}` : undefined,
     `Project: ${basename(repoRoot)}${branch ? ` (${branch})` : ''}`,
     head ? `Head: ${head}` : undefined,
     `Working tree: ${changes ? `${changes} changed file${changes === 1 ? '' : 's'}` : 'clean'}`,
