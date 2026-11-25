@@ -1,4 +1,4 @@
-import { LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { BASE_SEPOLIA_CHAIN_ID, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { expect, it, vi } from 'vitest';
 
 import { checkSetupNetworks } from '../src/lib/setupNetworks.js';
@@ -36,4 +36,26 @@ it('uses the active network if the browser wallet cannot report approved network
 
   await expect(checkSetupNetworks(connector, owner)).resolves.toEqual([UNICHAIN_SEPOLIA_CHAIN_ID]);
   expect(request).toHaveBeenCalledExactlyOnceWith({ method: 'wallet_getPermissions' });
+});
+
+it('recognizes Base Sepolia in WalletConnect approved namespaces', async () => {
+  const connector = {
+    type: 'walletConnect',
+    getChainId: vi.fn(),
+    getProvider: async () => ({
+      session: {
+        namespaces: {
+          [`eip155:${LASNA_CHAIN_ID}`]: { accounts: [`eip155:${LASNA_CHAIN_ID}:${owner}`] },
+          [`eip155:${BASE_SEPOLIA_CHAIN_ID}`]: {
+            accounts: [`eip155:${BASE_SEPOLIA_CHAIN_ID}:${owner}`],
+          },
+        },
+      },
+    }),
+  };
+
+  await expect(checkSetupNetworks(connector, owner)).resolves.toEqual([
+    LASNA_CHAIN_ID,
+    BASE_SEPOLIA_CHAIN_ID,
+  ]);
 });

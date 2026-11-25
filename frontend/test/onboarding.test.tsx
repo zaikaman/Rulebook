@@ -1,4 +1,4 @@
-import type { Address } from '@rulebook/shared';
+import { BASE_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
@@ -93,5 +93,28 @@ describe('useAccountSetup', () => {
     expect(wallet.createAgent).not.toHaveBeenCalled();
     expect(wallet.createVault).not.toHaveBeenCalled();
     expect(wallet.linkVault).not.toHaveBeenCalled();
+  });
+
+  it('links the Vault on Base Sepolia when chainId is BASE_SEPOLIA_CHAIN_ID', async () => {
+    const wallet = makeWallet();
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    function wrapper({ children }: { readonly children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    }
+    const { result } = renderHook(
+      () => useAccountSetup({ owner: OWNER, wallet, chainId: BASE_SEPOLIA_CHAIN_ID }),
+      { wrapper },
+    );
+    act(() => result.current.resume({ steps: allSteps, connectorUid }));
+    await waitFor(() => expect(result.current.data?.linked).toBe(true));
+    expect(wallet.linkVault).toHaveBeenCalledWith(
+      OWNER,
+      AGENT,
+      VAULT,
+      BASE_SEPOLIA_CHAIN_ID,
+      connectorUid,
+    );
   });
 });

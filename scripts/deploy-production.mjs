@@ -55,10 +55,24 @@ async function workflowSettings() {
   }
   const agentFactory = deployment('WorkflowAgentFactoryV2', 5318007);
   const vaultFactory = deployment('WorkflowVaultFactoryV2', 1301);
+  const baseEntry = records.find(
+    (item) => item.contract === 'WorkflowVaultFactoryV2' && item.chainId === 84532,
+  );
+  if (
+    baseEntry &&
+    (!/^0x[0-9a-f]{40}$/i.test(baseEntry.address) ||
+      !Number.isSafeInteger(baseEntry.blockNumber) ||
+      baseEntry.blockNumber <= 0)
+  ) {
+    throw new Error('Invalid deployment record for Base Sepolia WorkflowVaultFactoryV2');
+  }
   return {
     WORKFLOW_V2_DEPLOYMENT: JSON.stringify({
       lasna: { factory: agentFactory.address, startBlock: agentFactory.blockNumber },
       unichain: { factory: vaultFactory.address, startBlock: vaultFactory.blockNumber },
+      ...(baseEntry
+        ? { base: { factory: baseEntry.address, startBlock: baseEntry.blockNumber } }
+        : {}),
     }),
   };
 }
@@ -266,6 +280,14 @@ try {
           [
             'VITE_API_BASE_URL=' + server,
             'VITE_WORKFLOW_V2_DEPLOYMENT=' + settings.WORKFLOW_V2_DEPLOYMENT,
+            ...(process.env.VITE_BASE_SEPOLIA_RPC_URL?.trim() ||
+            process.env.BASE_SEPOLIA_RPC_URL?.trim()
+              ? [
+                  'VITE_BASE_SEPOLIA_RPC_URL=' +
+                    (process.env.VITE_BASE_SEPOLIA_RPC_URL?.trim() ||
+                      process.env.BASE_SEPOLIA_RPC_URL?.trim()),
+                ]
+              : []),
             ...(process.env.WORKFLOW_V2_ACTIVATION
               ? ['VITE_WORKFLOW_V2_ACTIVATION=' + process.env.WORKFLOW_V2_ACTIVATION]
               : []),

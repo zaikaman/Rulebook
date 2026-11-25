@@ -773,6 +773,7 @@ contract WorkflowWeeklyBudgetTest is Test {
     {
         program.version = 2;
         program.chain = P.UNICHAIN_SEPOLIA;
+        program.originChain = P.UNICHAIN_SEPOLIA;
         program.trigger = trigger;
         program.interval = trigger == P.SCHEDULE ? 1 hours : 0;
         program.usdcCap = 2e6;

@@ -1,4 +1,4 @@
-import type { WeeklyBudgetAmounts, WorkflowV2Program } from '@rulebook/shared';
+import { isFundsChain, type WeeklyBudgetAmounts, type WorkflowV2Program } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import type { Address } from 'viem';
@@ -13,10 +13,12 @@ export function useWorkflowFunding(
   program: WorkflowV2Program | undefined,
   budget: WeeklyBudgetAmounts | undefined,
 ) {
+  const chain: SettlementChain | undefined =
+    program && isFundsChain(program.chain) ? program.chain : undefined;
   const query = useQuery({
-    queryKey: ['workflow-v2', 'funding-check', owner?.toLowerCase(), program?.chain],
-    enabled: Boolean(owner && program && budget && settlementFactory()),
-    queryFn: () => readFundsV2(owner!, program!.chain as SettlementChain),
+    queryKey: ['workflow-v2', 'funding-check', owner?.toLowerCase(), chain],
+    enabled: Boolean(owner && chain && budget && settlementFactory(chain)),
+    queryFn: () => readFundsV2(owner!, chain!),
     refetchInterval: 12_000,
     retry: 1,
   });
@@ -28,7 +30,7 @@ export function useWorkflowFunding(
   const blocked =
     Boolean(owner && program && budget) &&
     (query.isPending || query.isError || blocking.length > 0);
-  return { query, issues, blocked };
+  return { chain, query, issues, blocked };
 }
 
 export function WorkflowFundingNotice({
@@ -40,7 +42,8 @@ export function WorkflowFundingNotice({
   funding: ReturnType<typeof useWorkflowFunding>;
   onEdit: () => void;
 }) {
-  if (!owner || !settlementFactory()) return null;
+  const chain = funding.chain;
+  if (!owner || !chain || !settlementFactory(chain)) return null;
   const { query, issues } = funding;
 
   if (query.isPending) {
@@ -80,7 +83,7 @@ export function WorkflowFundingNotice({
       title={title}
       action={
         account ? (
-          <Link className="app-button" to={appRoutes.account}>
+          <Link className="app-button" to={`${appRoutes.account}?chain=${chain}`}>
             Open Account &amp; Vault
           </Link>
         ) : (

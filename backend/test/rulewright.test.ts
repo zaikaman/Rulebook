@@ -2,9 +2,13 @@ import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  BASE_SEPOLIA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
   emptyDraft,
+  getChain,
   rulewrightRequestSchema,
   workflowV2Action,
+  workflowV2Trigger,
   workflowV2Unit,
 } from '@rulebook/shared';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -199,5 +203,57 @@ describe('Gemini request handling', () => {
       generateRulewrightDraft(provider, request, validate, new AbortController().signal),
     ).resolves.toMatchObject({ type: 'error' });
     expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('supports Base Sepolia chain switching and cross-chain origin triggers', async () => {
+    const baseUsdc = getChain(BASE_SEPOLIA_CHAIN_ID).usdc;
+    const completion = {
+      type: 'draft',
+      message: '',
+      settings: [
+        { field: 'title', value: 'Base transfer alert' },
+        { field: 'chain', value: String(UNICHAIN_SEPOLIA_CHAIN_ID) },
+        { field: 'originChain', value: String(BASE_SEPOLIA_CHAIN_ID) },
+        { field: 'trigger', value: String(workflowV2Trigger.transfer) },
+        { field: 'source', value: baseUsdc },
+        { field: 'subject', value: wallet },
+        { field: 'once', value: 'true' },
+      ],
+      nodes: [
+        {
+          path: '',
+          check: 0,
+          value: '',
+          upper: '',
+          steps: [
+            { kind: workflowV2Action.alert, unit: workflowV2Unit.fixed, amount: '', recipient: '' },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', async () =>
+      Response.json({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(completion) } }],
+      }),
+    );
+    const validate = vi.fn().mockResolvedValue(true);
+    const result = await generateRulewrightDraft(
+      provider,
+      {
+        prompt: `Watch ${baseUsdc} transfers from ${wallet} on Base Sepolia and alert on Unichain`,
+        followUps: [],
+      },
+      validate,
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      type: 'draft',
+      draft: {
+        chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        originChain: BASE_SEPOLIA_CHAIN_ID,
+        trigger: workflowV2Trigger.transfer,
+      },
+    });
+    expect(validate).toHaveBeenCalledTimes(1);
   });
 });

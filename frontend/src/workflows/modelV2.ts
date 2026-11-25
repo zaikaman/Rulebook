@@ -54,8 +54,7 @@ export function unavailable(tool: NodeTool, draft: V2Draft) {
     )
       return 'Needs the pool price trigger.';
     if (code === C.dipBy && draft.trigger !== T.schedule) return 'Needs a schedule.';
-    if (code === C.inactivity && draft.trigger !== T.schedule)
-      return 'Uses a Unichain Sepolia schedule.';
+    if (code === C.inactivity && draft.trigger !== T.schedule) return 'Needs a schedule.';
     if (code === C.paymentFrom && draft.trigger !== T.payment)
       return 'Needs the USDC payment trigger.';
     if (
@@ -69,7 +68,7 @@ export function unavailable(tool: NodeTool, draft: V2Draft) {
       return 'Needs a Vault USDC is below check.';
     }
     if (code === A.inactivityPayout) {
-      if (draft.trigger !== T.schedule) return 'Uses a Unichain Sepolia schedule.';
+      if (draft.trigger !== T.schedule) return 'Needs a schedule.';
       if (draftHasAction(draft, A.inactivityPayout)) {
         return 'Only one inactivity payout per workflow.';
       }

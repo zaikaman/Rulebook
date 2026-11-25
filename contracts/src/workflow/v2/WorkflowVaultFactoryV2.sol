@@ -19,8 +19,10 @@ contract WorkflowVaultFactoryV2 {
     WorkflowProtocolsV2.Networks private market;
 
     constructor() {
-        if (block.chainid != ChainConfig.UNICHAIN_SEPOLIA) revert InactiveDeployment();
-        ChainConfig.Config memory config = ChainConfig.unichainSepolia();
+        if (block.chainid == ChainConfig.LASNA || !ChainConfig.isSupported(block.chainid)) {
+            revert InactiveDeployment();
+        }
+        ChainConfig.Config memory config = ChainConfig.get(block.chainid);
         callbackProxy = config.callbackProxy;
         market = WorkflowProtocolsV2.Networks(config.usdc, config.weth, config.router, config.pair);
         if (callbackProxy.code.length == 0) revert InactiveDeployment();

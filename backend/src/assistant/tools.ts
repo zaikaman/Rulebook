@@ -1,9 +1,12 @@
 import {
   actions,
+  BASE_SEPOLIA_CHAIN_ID,
   checks,
   decodeWorkflowV2,
   executionCreditAbi,
+  FUNDS_CHAIN_IDS,
   getChain,
+  isFundsChain,
   LASNA_CHAIN_ID,
   toDraft,
   triggers,
@@ -18,12 +21,13 @@ import {
   type AssistantReference,
   type DraftPath,
   type DraftStep,
+  type FundsChainId,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { erc20Abi, formatUnits, zeroAddress, type Hex } from 'viem';
 
-import type { ChainClients } from '../chain/clients.js';
+import { clientFor, type ChainClients } from '../chain/clients.js';
 import type { WorkflowV2Deployment } from '../workflows/indexerV2.js';
 import { workflowV2FailureReason } from '../workflows/failureReasons.js';
 
@@ -171,6 +175,7 @@ const marketplaceArguments = z
 const activityRow = z.object({
   id: workflowIdSchema,
   workflow_id: workflowIdSchema,
+  chain: z.number().int().default(UNICHAIN_SEPOLIA_CHAIN_ID),
   title: z.string(),
   status: z.string(),
   reason: z.string().nullable(),
@@ -206,6 +211,11 @@ type ActivityRow = z.infer<typeof activityRow>;
 
 interface WorkflowSnapshot {
   readonly id: Hex;
+  readonly chain: FundsChainId;
+  readonly chainName: string;
+  readonly originChain: FundsChainId;
+  readonly originChainName: string;
+  readonly crossChain: boolean;
   readonly title: string;
   readonly status: 'active' | 'ready to activate' | 'paused' | 'completed';
   readonly active: boolean;
@@ -287,7 +297,10 @@ async function readOrNull<T>(read: () => Promise<T>): Promise<T | null> {
 export class AssistantToolExecutor {
   private readonly deploymentId: string;
   private readonly workflows = new Map<string, Promise<WorkflowSnapshot>>();
-  private addressesCache?: Promise<{ agent: Address; vault: Address }>;
+  private addressesCache?: Promise<{
+    agent: Address;
+    vaults: Partial<Record<FundsChainId, Address>>;
+  }>;
 
   constructor(
     private readonly db: SupabaseClient,
@@ -296,6 +309,18 @@ export class AssistantToolExecutor {
     private readonly owner: Address,
   ) {
     this.deploymentId = deployment.lasna.factory.toLowerCase();
+  }
+
+  private configuredFundsChains(): readonly FundsChainId[] {
+    return FUNDS_CHAIN_IDS.filter((chain) =>
+      chain === BASE_SEPOLIA_CHAIN_ID ? Boolean(this.deployment.base && this.clients.base) : true,
+    );
+  }
+
+  private factoryFor(chain: FundsChainId): Address | undefined {
+    return chain === BASE_SEPOLIA_CHAIN_ID
+      ? this.deployment.base?.factory
+      : this.deployment.unichain.factory;
   }
 
   async execute(name: string, input: unknown): Promise<AssistantToolResult> {
@@ -349,26 +374,117 @@ export class AssistantToolExecutor {
   }
 
   private addresses() {
-    this.addressesCache ??= Promise.all([
-      this.clients.lasna.readContract({
-        address: this.deployment.lasna.factory,
-        abi: workflowAgentFactoryV2Abi,
-        functionName: 'agentOf',
-        args: [this.owner],
-      }),
-      this.clients.unichain.readContract({
-        address: this.deployment.unichain.factory,
-        abi: workflowVaultFactoryV2Abi,
-        functionName: 'vaultOf',
-        args: [this.owner],
-      }),
-    ]).then(([agent, vault]) => ({ agent, vault }));
+    this.addressesCache ??= (async () => {
+      const chains = this.configuredFundsChains();
+      const [agent, ...vaultList] = await Promise.all([
+        this.clients.lasna.readContract({
+          address: this.deployment.lasna.factory,
+          abi: workflowAgentFactoryV2Abi,
+          functionName: 'agentOf',
+          args: [this.owner],
+        }),
+        ...chains.map((chain) => {
+          const factory = this.factoryFor(chain);
+          if (!factory) return Promise.resolve(zeroAddress);
+          return clientFor(this.clients, chain).readContract({
+            address: factory,
+            abi: workflowVaultFactoryV2Abi,
+            functionName: 'vaultOf',
+            args: [this.owner],
+          });
+        }),
+      ]);
+      const vaults: Partial<Record<FundsChainId, Address>> = {};
+      chains.forEach((chain, index) => {
+        vaults[chain] = vaultList[index] ?? zeroAddress;
+      });
+      return { agent, vaults };
+    })();
     return this.addressesCache;
   }
 
+  private async fundsOverview(chain: FundsChainId, vault: Address) {
+    const client = clientFor(this.clients, chain);
+    const factory = this.factoryFor(chain);
+    const chainMeta = getChain(chain);
+    const { usdc, weth } = chainMeta;
+    const proxy = factory
+      ? await readOrNull(() =>
+          client.readContract({
+            address: factory,
+            abi: workflowVaultFactoryV2Abi,
+            functionName: 'callbackProxy',
+          }),
+        )
+      : null;
+    const tokenBalance = (token: Address, account: Address) =>
+      account === zeroAddress
+        ? Promise.resolve(null)
+        : client.readContract({
+            address: token,
+            abi: erc20Abi,
+            functionName: 'balanceOf',
+            args: [account],
+          });
+    const [
+      vaultUsdc,
+      vaultWeth,
+      walletUsdc,
+      walletWeth,
+      refillAllowance,
+      vaultEth,
+      walletEth,
+      execution,
+    ] = await Promise.all([
+      readOrNull(() => tokenBalance(usdc, vault)),
+      readOrNull(() => tokenBalance(weth, vault)),
+      readOrNull(() => tokenBalance(usdc, this.owner)),
+      readOrNull(() => tokenBalance(weth, this.owner)),
+      readOrNull(() =>
+        vault === zeroAddress || usdc === zeroAddress
+          ? Promise.resolve(null)
+          : client.readContract({
+              address: usdc,
+              abi: erc20Abi,
+              functionName: 'allowance',
+              args: [this.owner, vault],
+            }),
+      ),
+      readOrNull(() =>
+        vault === zeroAddress ? Promise.resolve(null) : client.getBalance({ address: vault }),
+      ),
+      readOrNull(() => client.getBalance({ address: this.owner })),
+      readOrNull(() =>
+        vault === zeroAddress || !proxy
+          ? Promise.resolve(null)
+          : client.readContract({
+              address: proxy,
+              abi: executionCreditAbi,
+              functionName: 'reserves',
+              args: [vault],
+            }),
+      ),
+    ]);
+    return {
+      chain,
+      name: chainMeta.name,
+      vault,
+      executionCreditEth: amount(execution, 18),
+      walletEth: amount(walletEth, 18),
+      vaultEth: amount(vaultEth, 18),
+      vaultUsdc: amount(vaultUsdc, 6),
+      vaultWeth: amount(vaultWeth, 18),
+      walletUsdc: amount(walletUsdc, 6),
+      walletWeth: amount(walletWeth, 18),
+      refillAllowanceUsdc: amount(refillAllowance, 6),
+    };
+  }
+
   private async accountOverview(): Promise<AssistantToolResult> {
-    const { agent, vault } = await this.addresses();
-    if (agent === zeroAddress && vault === zeroAddress) {
+    const { agent, vaults } = await this.addresses();
+    const chains = this.configuredFundsChains();
+    const anyVault = chains.some((chain) => vaults[chain] && vaults[chain] !== zeroAddress);
+    if (agent === zeroAddress && !anyVault) {
       return this.result(
         {
           owner: this.owner,
@@ -382,56 +498,7 @@ export class AssistantToolExecutor {
     }
 
     const system = getChain(LASNA_CHAIN_ID).systemContract;
-    const { usdc, weth } = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
-    const proxy = await readOrNull(() =>
-      this.clients.unichain.readContract({
-        address: this.deployment.unichain.factory,
-        abi: workflowVaultFactoryV2Abi,
-        functionName: 'callbackProxy',
-      }),
-    );
-    const tokenBalance = (token: Address, account: Address) =>
-      account === zeroAddress
-        ? Promise.resolve(null)
-        : this.clients.unichain.readContract({
-            address: token,
-            abi: erc20Abi,
-            functionName: 'balanceOf',
-            args: [account],
-          });
-
-    const [
-      vaultUsdc,
-      vaultWeth,
-      walletUsdc,
-      walletWeth,
-      refillAllowance,
-      vaultEth,
-      walletEth,
-      walletReact,
-      watching,
-      execution,
-    ] = await Promise.all([
-      readOrNull(() => tokenBalance(usdc, vault)),
-      readOrNull(() => tokenBalance(weth, vault)),
-      readOrNull(() => tokenBalance(usdc, this.owner)),
-      readOrNull(() => tokenBalance(weth, this.owner)),
-      readOrNull(() =>
-        vault === zeroAddress || usdc === zeroAddress
-          ? Promise.resolve(null)
-          : this.clients.unichain.readContract({
-              address: usdc,
-              abi: erc20Abi,
-              functionName: 'allowance',
-              args: [this.owner, vault],
-            }),
-      ),
-      readOrNull(() =>
-        vault === zeroAddress
-          ? Promise.resolve(null)
-          : this.clients.unichain.getBalance({ address: vault }),
-      ),
-      readOrNull(() => this.clients.unichain.getBalance({ address: this.owner })),
+    const [walletReact, watching, perChain] = await Promise.all([
       readOrNull(() => this.clients.lasna.getBalance({ address: this.owner })),
       readOrNull(() =>
         agent === zeroAddress
@@ -443,22 +510,16 @@ export class AssistantToolExecutor {
               args: [agent],
             }),
       ),
-      readOrNull(() =>
-        vault === zeroAddress || !proxy
-          ? Promise.resolve(null)
-          : this.clients.unichain.readContract({
-              address: proxy,
-              abi: executionCreditAbi,
-              functionName: 'reserves',
-              args: [vault],
-            }),
-      ),
+      Promise.all(chains.map((chain) => this.fundsOverview(chain, vaults[chain] ?? zeroAddress))),
     ]);
+    const primary = perChain[0]!;
+    const vaultsByChain = Object.fromEntries(perChain.map((entry) => [entry.chain, entry]));
 
     const data = {
       owner: this.owner,
       agent,
-      vault,
+      vault: primary.vault,
+      vaults: vaultsByChain,
       networks: {
         automation: {
           name: 'Reactive Lasna',
@@ -466,18 +527,28 @@ export class AssistantToolExecutor {
           walletReact: amount(walletReact, 18),
         },
         funds: {
-          name: 'Unichain Sepolia',
-          executionCreditEth: amount(execution, 18),
-          walletEth: amount(walletEth, 18),
-          vaultEth: amount(vaultEth, 18),
+          name: primary.name,
+          executionCreditEth: primary.executionCreditEth,
+          walletEth: primary.walletEth,
+          vaultEth: primary.vaultEth,
         },
+        allFundsChains: perChain.map(
+          ({ chain, name, vault, executionCreditEth, walletEth, vaultEth }) => ({
+            chain,
+            name,
+            vault,
+            executionCreditEth,
+            walletEth,
+            vaultEth,
+          }),
+        ),
       },
       balances: {
-        vaultUsdc: amount(vaultUsdc, 6),
-        vaultWeth: amount(vaultWeth, 18),
-        walletUsdc: amount(walletUsdc, 6),
-        walletWeth: amount(walletWeth, 18),
-        refillAllowanceUsdc: amount(refillAllowance, 6),
+        vaultUsdc: primary.vaultUsdc,
+        vaultWeth: primary.vaultWeth,
+        walletUsdc: primary.walletUsdc,
+        walletWeth: primary.walletWeth,
+        refillAllowanceUsdc: primary.refillAllowanceUsdc,
       },
       note: 'A null value means the balance is unavailable because the contract does not exist yet or the read failed. Do not report it as zero.',
     };
@@ -485,27 +556,46 @@ export class AssistantToolExecutor {
   }
 
   private async listWorkflows(): Promise<AssistantToolResult> {
-    const { agent, vault } = await this.addresses();
-    if (agent === zeroAddress || vault === zeroAddress) {
+    const { agent, vaults } = await this.addresses();
+    const deployedChains = this.configuredFundsChains().filter(
+      (chain) => vaults[chain] && vaults[chain] !== zeroAddress,
+    );
+    if (agent === zeroAddress || deployedChains.length === 0) {
       return this.result(
         { workflows: [], message: 'This wallet has no workflow account yet.' },
         'No workflows',
         [accountReference],
       );
     }
-    const ids = await this.clients.unichain.readContract({
-      address: vault,
-      abi: workflowVaultV2Abi,
-      functionName: 'workflowIds',
-    });
-    const selected = ids.slice().reverse().slice(0, 6);
+    const perChainIds = await Promise.all(
+      deployedChains.map(async (chain) => ({
+        chain,
+        ids: await clientFor(this.clients, chain).readContract({
+          address: vaults[chain]!,
+          abi: workflowVaultV2Abi,
+          functionName: 'workflowIds',
+        }),
+      })),
+    );
+    const allIds = perChainIds.flatMap(({ chain, ids }) => ids.map((id) => ({ id, chain })));
+    const seen = new Set<string>();
+    const uniqueReverse = allIds
+      .slice()
+      .reverse()
+      .filter(({ id }) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
+    const selected = uniqueReverse.slice(0, 6);
     const workflows = await Promise.all(
-      selected.map(async (id) => {
+      selected.map(async ({ id, chain }) => {
         try {
-          return await this.workflow(id);
+          return await this.workflow(id, chain);
         } catch (error) {
           return {
             id,
+            chain,
             error: error instanceof Error ? error.message : 'This workflow could not be read.',
           };
         }
@@ -526,9 +616,9 @@ export class AssistantToolExecutor {
     return this.result(
       {
         count: workflows.length,
-        totalSaved: ids.length,
+        totalSaved: uniqueReverse.length,
         note:
-          ids.length > selected.length
+          uniqueReverse.length > selected.length
             ? `Only the ${selected.length} newest saved workflows are listed.`
             : undefined,
         workflows,
@@ -538,44 +628,68 @@ export class AssistantToolExecutor {
     );
   }
 
-  private async workflow(id: Hex): Promise<WorkflowSnapshot> {
-    const cached = this.workflows.get(id);
+  private async workflow(id: Hex, hintChain?: FundsChainId): Promise<WorkflowSnapshot> {
+    const key = hintChain ? `${hintChain}:${id}` : id;
+    const cached = this.workflows.get(key) ?? this.workflows.get(id);
     if (cached) return cached;
-    const pending = this.readWorkflow(id);
-    this.workflows.set(id, pending);
+    const pending = this.readWorkflow(id, hintChain);
+    this.workflows.set(key, pending);
     return pending;
   }
 
-  private async readWorkflow(id: Hex): Promise<WorkflowSnapshot> {
-    const { agent, vault } = await this.addresses();
-    if (agent === zeroAddress || vault === zeroAddress)
+  private async readWorkflow(id: Hex, hintChain?: FundsChainId): Promise<WorkflowSnapshot> {
+    const { agent, vaults } = await this.addresses();
+    const deployedChains = this.configuredFundsChains().filter(
+      (chain) => vaults[chain] && vaults[chain] !== zeroAddress,
+    );
+    if (agent === zeroAddress || deployedChains.length === 0)
       throw new Error('This wallet has no workflow account yet.');
 
-    const [entry, auth] = await Promise.all([
-      this.clients.lasna.readContract({
-        address: agent,
-        abi: workflowAgentV2Abi,
-        functionName: 'entries',
-        args: [id],
-      }),
-      this.clients.unichain.readContract({
-        address: vault,
+    const entry = await this.clients.lasna.readContract({
+      address: agent,
+      abi: workflowAgentV2Abi,
+      functionName: 'entries',
+      args: [id],
+    });
+    const entryChain = isFundsChain(entry[5]) ? entry[5] : undefined;
+    let targetChain = hintChain ?? entryChain;
+    let auth: readonly [Hex, bigint, bigint, boolean] | undefined;
+
+    if (targetChain && vaults[targetChain] && vaults[targetChain] !== zeroAddress) {
+      auth = await clientFor(this.clients, targetChain).readContract({
+        address: vaults[targetChain]!,
         abi: workflowVaultV2Abi,
         functionName: 'authorizations',
         args: [id],
-      }),
-    ]);
-    if (entry[1] === 0n && auth[1] === 0n)
+      });
+    } else {
+      for (const candidate of deployedChains) {
+        const result = await clientFor(this.clients, candidate).readContract({
+          address: vaults[candidate]!,
+          abi: workflowVaultV2Abi,
+          functionName: 'authorizations',
+          args: [id],
+        });
+        if (result[1] !== 0n || result[3]) {
+          targetChain = candidate;
+          auth = result;
+          break;
+        }
+      }
+    }
+
+    if (!targetChain || !auth || (entry[1] === 0n && auth[1] === 0n))
       throw new Error('This workflow was not found for the connected wallet.');
+    const vault = vaults[targetChain]!;
+    const sink = clientFor(this.clients, targetChain);
 
     const staged = auth[1] > entry[1] && (auth[3] || entry[1] === 0n);
     const active = entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
     const version = staged ? auth[0] : entry[0];
     const lesna = this.clients.lasna;
-    const unichain = this.clients.unichain;
     const [title, encoded, memory, budget] = await Promise.all([
       staged
-        ? unichain.readContract({
+        ? sink.readContract({
             address: vault,
             abi: workflowVaultV2Abi,
             functionName: 'titles',
@@ -588,7 +702,7 @@ export class AssistantToolExecutor {
             args: [id],
           }),
       staged
-        ? unichain.readContract({
+        ? sink.readContract({
             address: vault,
             abi: workflowVaultV2Abi,
             functionName: 'programs',
@@ -600,13 +714,13 @@ export class AssistantToolExecutor {
             functionName: 'programs',
             args: [version],
           }),
-      unichain.readContract({
+      sink.readContract({
         address: vault,
         abi: workflowVaultV2Abi,
         functionName: 'workflowMemory',
         args: [id],
       }),
-      unichain.readContract({
+      sink.readContract({
         address: vault,
         abi: workflowVaultV2Abi,
         functionName: 'weeklyBudget',
@@ -623,8 +737,14 @@ export class AssistantToolExecutor {
         : !active && staged && auth[3]
           ? 'ready to activate'
           : 'paused';
+    const originChain = isFundsChain(program.originChain) ? program.originChain : targetChain;
     return {
       id,
+      chain: targetChain,
+      chainName: getChain(targetChain).name,
+      originChain,
+      originChainName: getChain(originChain).name,
+      crossChain: originChain !== targetChain,
       title,
       status,
       active,
@@ -656,7 +776,7 @@ export class AssistantToolExecutor {
     let query = this.db
       .from('workflow_v2_activity')
       .select(
-        'id,workflow_id,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
+        'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
       .match({ deployment: this.deploymentId, owner: this.owner });
     if (input.workflowId) query = query.eq('workflow_id', input.workflowId);
@@ -687,7 +807,7 @@ export class AssistantToolExecutor {
     const { data, error } = await this.db
       .from('workflow_v2_activity')
       .select(
-        'id,workflow_id,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
+        'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
       .match({ deployment: this.deploymentId, owner: this.owner, id: runId })
       .order('lasna_block', { ascending: false })
@@ -706,6 +826,8 @@ export class AssistantToolExecutor {
     return {
       id: row.id,
       workflowId: row.workflow_id,
+      chain: row.chain,
+      chainName: isFundsChain(row.chain) ? getChain(row.chain).name : String(row.chain),
       title: row.title,
       status: row.status,
       path: row.path === null ? null : row.path + 1,
@@ -715,6 +837,11 @@ export class AssistantToolExecutor {
       transactions: {
         origin: row.origin_transaction,
         originChain: row.origin_chain,
+        originChainName: isFundsChain(row.origin_chain)
+          ? getChain(row.origin_chain).name
+          : row.origin_chain === LASNA_CHAIN_ID
+            ? getChain(LASNA_CHAIN_ID).name
+            : String(row.origin_chain),
         lasna: row.lasna_transaction,
         destination: row.destination_transaction,
       },

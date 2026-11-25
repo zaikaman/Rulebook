@@ -3,7 +3,9 @@
  * frontend fetch is parsed through these; types are inferred, never hand-written duplicates
  * (Constitution IV).
  */
+import { zeroAddress } from 'viem';
 import { z } from 'zod';
+import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
 
 const MAX_UINT256 = (1n << 256n) - 1n;
 
@@ -31,6 +33,31 @@ export type Uint256 = z.infer<typeof uint256Schema>;
 
 export const templateIdSchema = z.number().int().min(1).max(13);
 export const chainIdSchema = z.number().int().positive();
+export const fundsChainIdSchema = z.union([
+  z.literal(UNICHAIN_SEPOLIA_CHAIN_ID),
+  z.literal(BASE_SEPOLIA_CHAIN_ID),
+]);
+
+export const workflowV2ChainDeploymentSchema = z
+  .object({
+    factory: addressSchema.refine(
+      (factory) => factory !== zeroAddress,
+      'Use the deployed factory address',
+    ),
+    startBlock: z.number().int().positive().safe(),
+  })
+  .strict();
+
+export const workflowV2DeploymentSchema = z
+  .object({
+    lasna: workflowV2ChainDeploymentSchema,
+    unichain: workflowV2ChainDeploymentSchema,
+    base: workflowV2ChainDeploymentSchema.optional(),
+  })
+  .strict();
+
+export type WorkflowV2ChainDeployment = z.infer<typeof workflowV2ChainDeploymentSchema>;
+export type WorkflowV2Deployment = z.infer<typeof workflowV2DeploymentSchema>;
 export const blockTimeSchema = z.string().datetime({ offset: true });
 
 export const ruleStatusSchema = z.enum(['active', 'paused', 'cancelled']);

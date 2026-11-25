@@ -87,7 +87,7 @@ export function AppSidebar() {
             <span className="app-live-dot" aria-hidden="true" />
             Reactive Lasna
           </p>
-          <p>Watches for triggers. Unichain Sepolia settles from your vault.</p>
+          <p>Watches for triggers. Unichain Sepolia and Base Sepolia settle from your vaults.</p>
         </div>
 
         <Link to={appRoutes.landing} className="app-rail-back">

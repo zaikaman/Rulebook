@@ -1,9 +1,10 @@
 import {
   CHAIN_CONFIGS,
   LASNA_CHAIN_ID,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
+  isFundsChain,
   workflowIdSchema,
   workflowV2RunProofSchema,
+  type FundsChainId,
   type WorkflowV2RunProof,
 } from '@rulebook/shared';
 import {
@@ -432,13 +433,13 @@ function statusIcon(status: WorkflowV2RunProof['status']) {
 
 function ProofTransaction({ chain, hash }: { chain: number; hash: Hex }) {
   const network = CHAIN_CONFIGS.get(chain);
-  const supported = chain === LASNA_CHAIN_ID || chain === UNICHAIN_SEPOLIA_CHAIN_ID;
+  const supported = chain === LASNA_CHAIN_ID || isFundsChain(chain);
   const executionGas = useQuery({
     queryKey: ['workflow-v2', 'proof-execution-gas', chain, hash],
     enabled: supported,
     queryFn: async () => {
       const { gasUsed, effectiveGasPrice } = await workflowClient(
-        chain as typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID,
+        chain as typeof LASNA_CHAIN_ID | FundsChainId,
       ).getTransactionReceipt({ hash });
       // Some Lasna receipts omit the effective price even when gas usage is recorded.
       return typeof gasUsed === 'bigint' && typeof effectiveGasPrice === 'bigint'

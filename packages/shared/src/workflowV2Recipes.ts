@@ -1,6 +1,6 @@
 import { formatUnits, zeroAddress, type Address } from 'viem';
 
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
+import { UNICHAIN_SEPOLIA_CHAIN_ID, type FundsChainId } from './chains.js';
 import { readField, workflowFieldSpecs, type WorkflowFieldName } from './workflowFields.js';
 import {
   workflowV2Action as action,
@@ -18,6 +18,8 @@ type Values = Readonly<Record<string, string | undefined>>;
 
 interface RecipeOptions {
   inactivityPayout?: boolean;
+  chain?: FundsChainId;
+  originChain?: FundsChainId;
 }
 
 interface Recipe {
@@ -57,9 +59,12 @@ class RecipeBuilder {
   constructor(
     recipe: Recipe,
     readonly values: Values,
+    options: RecipeOptions = {},
   ) {
+    const chain = options.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
     this.program = {
-      chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      chain,
+      originChain: options.originChain ?? chain,
       trigger: recipe.trigger,
       interval: recipe.trigger === schedule ? Number(this.amount('intervalSeconds')) : 0,
       expires: 0n,
@@ -313,6 +318,6 @@ export function createWorkflowV2Recipe(
   options: RecipeOptions = {},
 ) {
   const recipe = recipes[id];
-  const builder = new RecipeBuilder(recipe, values);
+  const builder = new RecipeBuilder(recipe, values, options);
   return builder.finish(recipe.build(builder, options));
 }

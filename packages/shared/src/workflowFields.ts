@@ -196,7 +196,7 @@ export const workflowFieldSpecs = {
     kind: 'address',
     label: 'Recipient address',
     noun: 'a recipient address',
-    hint: 'A wallet on Unichain Sepolia other than your vault.',
+    hint: 'A wallet on the settlement network other than your vault.',
     placeholder: '0x…',
   },
   sendUsdc: {
@@ -323,7 +323,7 @@ export const workflowFieldSpecs = {
     kind: 'address',
     label: 'Token contract address',
     noun: 'a token contract address',
-    hint: 'The token contract to watch on Unichain Sepolia.',
+    hint: 'The token contract to watch on the origin network.',
     placeholder: '0x…',
   },
   watchedWallet: {

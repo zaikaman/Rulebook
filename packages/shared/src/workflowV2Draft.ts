@@ -9,7 +9,12 @@ import {
 } from './workflowsV2.js';
 import { formatUnits, zeroAddress, type Address } from 'viem';
 import { z } from 'zod';
-import { UNICHAIN_SEPOLIA_CHAIN_ID as UNICHAIN } from './chains.js';
+import {
+  isFundsChain,
+  UNICHAIN_SEPOLIA_CHAIN_ID as UNICHAIN,
+  type FundsChainId,
+} from './chains.js';
+import { fundsChainIdSchema } from './schemas.js';
 import {
   fieldIssue,
   readField,
@@ -84,7 +89,8 @@ export type DraftPath =
   | { check: CheckCode; value: string; upper: string; yes: DraftPath; no: DraftPath };
 export type V2Draft = {
   title: string;
-  chain: typeof UNICHAIN;
+  chain: FundsChainId;
+  originChain: FundsChainId;
   trigger: TriggerCode;
   interval: string;
   expires: string;
@@ -189,9 +195,10 @@ export function slippageIssue(value: string, needed: boolean) {
 }
 
 export const emptyPath = (): DraftPath => ({ steps: [] });
-export const emptyDraft = (): V2Draft => ({
+export const emptyDraft = (chain: FundsChainId = UNICHAIN): V2Draft => ({
   title: '',
-  chain: UNICHAIN,
+  chain,
+  originChain: chain,
   trigger: T.schedule,
   interval: '',
   expires: '',
@@ -236,7 +243,8 @@ const pathSchema: z.ZodType<DraftPath> = z.lazy(() =>
 
 const draftObject = z.object({
   title: z.string(),
-  chain: z.literal(UNICHAIN),
+  chain: fundsChainIdSchema,
+  originChain: fundsChainIdSchema,
   trigger: code(Object.values(T)),
   interval: z.string(),
   expires: z.string(),
@@ -251,10 +259,16 @@ const draftObject = z.object({
   root: pathSchema,
 });
 
-/** Older local drafts and Marketplace copies predate weekly budgets; blank means unlimited. */
+/** Older local drafts and Marketplace copies predate weekly budgets and originChain. */
 export const v2DraftSchema = z.preprocess((value) => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  return { usdcWeeklyBudget: '', wethWeeklyBudget: '', ...(value as Record<string, unknown>) };
+  const record = value as Record<string, unknown>;
+  return {
+    usdcWeeklyBudget: '',
+    wethWeeklyBudget: '',
+    originChain: record.chain ?? UNICHAIN,
+    ...record,
+  };
 }, draftObject);
 
 export function actionDecimals(kind: ActionCode, unit: DraftStep['unit']) {
@@ -297,7 +311,8 @@ export function toDraft(p: WorkflowV2Program, title: string): V2Draft {
   }
   return {
     title,
-    chain: p.chain as typeof UNICHAIN,
+    chain: p.chain as FundsChainId,
+    originChain: p.originChain as FundsChainId,
     trigger,
     interval: p.interval ? String(p.interval) : '',
     expires: p.expires ? p.expires.toString() : '',
@@ -635,7 +650,8 @@ export function validateWorkflowV2Program(
   program: WorkflowV2Program,
   options?: { skipCaps?: boolean },
 ): void {
-  if (program.chain !== UNICHAIN) throw new Error('Select a supported workflow testnet.');
+  if (!isFundsChain(program.chain) || !isFundsChain(program.originChain))
+    throw new Error('Select a supported workflow testnet.');
   if (!validTriggers.has(program.trigger)) throw new Error('Select a supported trigger.');
   if (program.slippage < 0 || program.slippage > 1_000) {
     throw new Error('The maximum slippage must be between 0.01% and 10%.');
@@ -649,8 +665,18 @@ export function validateWorkflowV2Program(
   } else if (program.interval !== 0) {
     throw new Error('Only scheduled workflows can have an interval.');
   }
-  if (program.trigger === T.transfer && program.source === zeroAddress) {
-    throw new Error('Enter a source token address.');
+  if (program.trigger === T.payment && program.originChain !== program.chain) {
+    throw new Error('Vault receives USDC must watch the same network as its settlement Vault.');
+  }
+  if (program.trigger === T.transfer) {
+    if (program.source === zeroAddress) {
+      throw new Error('Enter a source token address.');
+    }
+    if (program.originChain !== program.chain && program.subject === zeroAddress) {
+      throw new Error(
+        'Enter a watched wallet address when watching a token transfer on another network.',
+      );
+    }
   }
 
   const count = program.nodes.length;
@@ -705,6 +731,13 @@ export function validateWorkflowV2Program(
   }
 
   if (!executable) throw new Error('Add at least one action or notification.');
+  if (
+    program.trigger === T.schedule &&
+    program.originChain !== program.chain &&
+    !program.nodes.some((node) => node.check === C.dipBy)
+  ) {
+    throw new Error('Cross-chain schedules are only supported with a Price dipped by check.');
+  }
 }
 
 export function toProgram(draft: V2Draft): WorkflowV2Program {
@@ -761,6 +794,7 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
   const wethCap = readField(workflowGuardrailFields.wethCap, draft.wethCap);
   const program: WorkflowV2Program = {
     chain: draft.chain,
+    originChain: draft.originChain,
     trigger: draft.trigger,
     interval: Number(interval),
     expires: readField(workflowGuardrailFields.expires, draft.expires),

@@ -1,13 +1,17 @@
 import {
   addressSchema,
+  BASE_SEPOLIA_CHAIN_ID,
   executionCreditAbi,
   feeCreditWarningThreshold,
+  FUNDS_CHAIN_IDS,
+  fundsChainIdSchema,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentV2Abi,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
   type Address,
+  type FundsChainId,
 } from '@rulebook/shared';
 import { formatEther, type Hex } from 'viem';
 import { z } from 'zod';
@@ -15,7 +19,7 @@ import { z } from 'zod';
 import { clientFor, type ChainClients } from '../chain/clients.js';
 import type { TelegramDatabase } from './service.js';
 
-const chainSchema = z.union([z.literal(LASNA_CHAIN_ID), z.literal(UNICHAIN_SEPOLIA_CHAIN_ID)]);
+const chainSchema = z.union([z.literal(LASNA_CHAIN_ID), fundsChainIdSchema]);
 type FundingChain = z.infer<typeof chainSchema>;
 const balances = z.enum(['healthy', 'low', 'empty', 'debt']);
 const jobs = z.array(
@@ -45,6 +49,13 @@ const funding = {
     route: 'execution',
     effect: 'The Vault may be unable to finish workflow runs.',
   },
+  [BASE_SEPOLIA_CHAIN_ID]: {
+    label: 'execution credit',
+    token: 'test ETH',
+    network: 'Base Sepolia',
+    route: 'execution',
+    effect: 'The Vault may be unable to finish workflow runs.',
+  },
 } as const;
 
 type CreditReading = { reserve: bigint; debt: bigint; state: z.infer<typeof balances> };
@@ -56,18 +67,28 @@ function fundingState(chain: FundingChain, reserve: bigint, debt: bigint): Credi
 }
 
 export class TelegramFundingAlerts {
+  private readonly vaultFactories: Partial<Record<FundsChainId, Address>>;
+
   constructor(
     private readonly db: Pick<TelegramDatabase, 'rpc'>,
     private readonly clients: ChainClients,
     private readonly deployment: Address,
-    private readonly vaultFactory: Address,
+    vaultFactories: Partial<Record<FundsChainId, Address>> | Address,
     private readonly origin: string,
-  ) {}
+  ) {
+    this.vaultFactories =
+      typeof vaultFactories === 'string'
+        ? { [UNICHAIN_SEPOLIA_CHAIN_ID]: vaultFactories }
+        : vaultFactories;
+  }
 
   async process() {
+    const activeFundsChains = FUNDS_CHAIN_IDS.filter((chain) =>
+      Boolean(this.vaultFactories[chain]),
+    );
     const checks = await Promise.allSettled([
       this.checkChain(LASNA_CHAIN_ID),
-      this.checkChain(UNICHAIN_SEPOLIA_CHAIN_ID),
+      ...activeFundsChains.map((chain) => this.checkChain(chain)),
     ]);
     if (checks.some(({ status }) => status === 'rejected')) {
       throw new Error('Some Telegram funding checks failed');
@@ -150,7 +171,6 @@ export class TelegramFundingAlerts {
     timestamp: bigint,
   ) {
     const source = this.clients.lasna;
-    const sink = this.clients.unichain;
     const sourceBlock =
       chain === LASNA_CHAIN_ID ? blockNumber : await source.getBlockNumber({ cacheTime: 0 });
     const sourceCall = {
@@ -171,13 +191,15 @@ export class TelegramFundingAlerts {
       });
     }
     if (!vault) return false;
+    const sink = clientFor(this.clients, chain);
     return this.anyWorkflow(ids, async (id) => {
       const entry = await source.readContract({
         ...sourceCall,
         functionName: 'entries',
         args: [id],
       });
-      if (entry[4] === 0 || (entry[7] !== 0n && entry[7] <= timestamp)) return false;
+      if (entry[4] === 0 || entry[5] !== chain || (entry[7] !== 0n && entry[7] <= timestamp))
+        return false;
       const auth = await sink.readContract({
         address: vault,
         abi: workflowVaultV2Abi,
@@ -200,20 +222,24 @@ export class TelegramFundingAlerts {
 
   private async credit(chain: FundingChain, beneficiary: Address, blockNumber: bigint) {
     const client = clientFor(this.clients, chain);
-    const address =
-      chain === LASNA_CHAIN_ID
-        ? await client.readContract({
-            address: beneficiary,
-            abi: workflowAgentV2Abi,
-            functionName: 'system',
-            blockNumber,
-          })
-        : await client.readContract({
-            address: this.vaultFactory,
-            abi: workflowVaultFactoryV2Abi,
-            functionName: 'callbackProxy',
-            blockNumber,
-          });
+    let address: Address;
+    if (chain === LASNA_CHAIN_ID) {
+      address = await client.readContract({
+        address: beneficiary,
+        abi: workflowAgentV2Abi,
+        functionName: 'system',
+        blockNumber,
+      });
+    } else {
+      const vaultFactory = this.vaultFactories[chain];
+      if (!vaultFactory) throw new Error(`No Vault factory configured for chain ${chain}`);
+      address = await client.readContract({
+        address: vaultFactory,
+        abi: workflowVaultFactoryV2Abi,
+        functionName: 'callbackProxy',
+        blockNumber,
+      });
+    }
     const call = { address, abi: executionCreditAbi, args: [beneficiary], blockNumber } as const;
     const [reserve, debt] = await Promise.all([
       client.readContract({ ...call, functionName: 'reserves' }),

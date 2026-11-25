@@ -1,10 +1,12 @@
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   executionCreditAbi,
   feeCreditWarningThreshold,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowVaultFactoryV2Abi,
+  type FundsChainId,
 } from '@rulebook/shared';
 import {
   Alert02Icon,
@@ -21,6 +23,7 @@ import { formatEther, zeroAddress, type Address } from 'viem';
 
 import { appRoutes } from '@/lib/routes';
 import {
+  configuredFundsChains,
   readAgent,
   readVault,
   settlementFactory,
@@ -31,6 +34,16 @@ import {
 export const workflowCredits = [
   { kind: 'watching', title: 'Watching credit', unit: 'lREACT', chain: LASNA_CHAIN_ID },
   { kind: 'execution', title: 'Execution credit', unit: 'ETH', chain: UNICHAIN_SEPOLIA_CHAIN_ID },
+  ...(workflowV2Deployment?.base
+    ? [
+        {
+          kind: 'execution',
+          title: 'Execution credit',
+          unit: 'ETH',
+          chain: BASE_SEPOLIA_CHAIN_ID,
+        } as const,
+      ]
+    : []),
 ] as const;
 
 export type CreditBalance = { reserve: bigint; debt: bigint; blockNumber: bigint };
@@ -60,10 +73,12 @@ async function readCredit(
     ? readAgent(owner, blockNumber)
     : readVault(owner, chain, blockNumber));
   if (beneficiary === zeroAddress) return null;
+  const factory = lasna ? undefined : settlementFactory(chain);
+  if (!lasna && !factory) return null;
   const target = lasna
     ? getChain(LASNA_CHAIN_ID).systemContract
     : await client.readContract({
-        address: settlementFactory()!,
+        address: factory!,
         abi: workflowVaultFactoryV2Abi,
         functionName: 'callbackProxy',
         blockNumber,
@@ -92,50 +107,75 @@ function reading(
 }
 
 /** Shared credit reads for the health surface and the fee notice; React Query dedupes the keys. */
-export function useWorkflowCredits(owner?: Address) {
+export function useWorkflowCredits(owner?: Address, chain?: FundsChainId) {
   const enabled = Boolean(owner && workflowV2Deployment);
   const queries = useQueries({
-    queries: workflowCredits.map(({ chain }) => ({
-      queryKey: ['workflow-v2', 'fee-credit', owner?.toLowerCase(), chain],
+    queries: workflowCredits.map(({ chain: targetChain }) => ({
+      queryKey: ['workflow-v2', 'fee-credit', owner?.toLowerCase(), targetChain],
       enabled,
       queryFn: ({ client, queryKey }) =>
-        readCredit(owner!, chain, client.getQueryData<CreditBalance | null>(queryKey)),
+        readCredit(owner!, targetChain, client.getQueryData<CreditBalance | null>(queryKey)),
       refetchInterval: 12_000,
       retry: 1,
     })),
   });
   const watching = queries[0]!;
   const execution = queries[1]!;
+  const relevantIndices = workflowCredits
+    .map((credit, index) =>
+      credit.kind === 'watching' || chain === undefined || credit.chain === chain ? index : -1,
+    )
+    .filter((index) => index >= 0);
+  const byChain: Partial<Record<FundsChainId, WorkflowCreditReading | null>> = {};
+  workflowCredits.forEach((credit, index) => {
+    if (credit.kind === 'execution') {
+      byChain[credit.chain] = reading(queries[index]?.data, credit.chain);
+    }
+  });
+  const relevantQueries = relevantIndices.map((index) => queries[index]!);
+  const vaultMissing =
+    chain !== undefined
+      ? relevantIndices.some(
+          (index) => workflowCredits[index]?.kind === 'execution' && queries[index]?.data === null,
+        )
+      : workflowCredits.every(
+          (credit, index) => credit.kind === 'watching' || queries[index]?.data === null,
+        );
   return {
     enabled,
     queries,
+    relevantIndices,
     watching,
     execution,
+    byChain,
     readings: {
       watching: reading(watching.data, LASNA_CHAIN_ID),
       execution: reading(execution.data, UNICHAIN_SEPOLIA_CHAIN_ID),
     },
-    checking: queries.some((result) => result.isPending),
-    unavailable: queries.some((result) => result.isError),
-    needsSetup: queries.some((result) => result.data === null),
+    checking: relevantQueries.some((result) => result.isPending),
+    unavailable: relevantQueries.some((result) => result.isError),
+    needsSetup: watching.data === null || vaultMissing,
   };
 }
 
 export function WorkflowCreditNotice({
   owner,
   review = false,
+  chain,
 }: {
   owner?: Address;
   review?: boolean;
+  chain?: FundsChainId;
 }) {
-  const credits = useWorkflowCredits(owner);
-  const { enabled, checking, unavailable, needsSetup } = credits;
+  const credits = useWorkflowCredits(owner, chain);
+  const { enabled, checking, unavailable, needsSetup, relevantIndices } = credits;
   if (!enabled) return null;
-  const attention = workflowCredits.flatMap((credit) => {
-    const result = credit.kind === 'watching' ? credits.watching : credits.execution;
-    const balance = result.data;
+  const attention = relevantIndices.flatMap((index) => {
+    const credit = workflowCredits[index]!;
+    const result = credits.queries[index];
+    const balance = result?.data;
     const minimum = feeCreditWarningThreshold(credit.chain);
-    if (!balance || (balance.debt === 0n && balance.reserve >= minimum)) return [];
+    if (!result || !balance || (balance.debt === 0n && balance.reserve >= minimum)) return [];
     return [{ credit, ...balance, minimum, stale: result.isError }];
   });
   if (!attention.length && !unavailable && !(review && (needsSetup || checking))) return null;
@@ -171,7 +211,9 @@ export function WorkflowCreditNotice({
           <p className="rb-panel-copy">
             {attention.length
               ? 'Low reserves or outstanding fees can delay a run even while the workflow is active.'
-              : 'Credit pays for trigger monitoring on Reactive Lasna and settlement on Unichain Sepolia.'}
+              : `Credit pays for trigger monitoring on Reactive Lasna and settlement on ${configuredFundsChains()
+                  .map((id) => getChain(id).name)
+                  .join(' and ')}.`}
           </p>
         </div>
       </header>
@@ -185,7 +227,10 @@ export function WorkflowCreditNotice({
         {needsSetup && review && (
           <p className="rb-fee-status">
             Add watching and execution credit after your account and vault are created.{' '}
-            <Link className="app-link" to={appRoutes.account}>
+            <Link
+              className="app-link"
+              to={chain ? `${appRoutes.account}?chain=${chain}` : appRoutes.account}
+            >
               Open Account &amp; Vault
             </Link>
           </p>
@@ -200,7 +245,7 @@ export function WorkflowCreditNotice({
               return (
                 <li
                   className="rb-fee-lane"
-                  key={credit.kind}
+                  key={`${credit.kind}-${credit.chain}`}
                   data-chain-role={chain.role}
                   data-state={stale ? 'stale' : debt > 0n ? 'due' : 'low'}
                 >
@@ -224,7 +269,7 @@ export function WorkflowCreditNotice({
                     </div>
                     <Link
                       className="app-button rb-fee-action"
-                      to={`${appRoutes.account}?credit=${credit.kind}`}
+                      to={`${appRoutes.account}?credit=${credit.kind}&chain=${credit.chain}`}
                     >
                       Add {credit.title.toLowerCase()}
                     </Link>

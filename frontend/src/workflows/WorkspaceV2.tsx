@@ -1,6 +1,7 @@
 import {
   decodeWorkflowV2,
   executionCreditAbi,
+  fundsChainIdSchema,
   LASNA_CHAIN_ID,
   readAmount,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -64,6 +65,7 @@ import { Badge, Button, Callout, Select } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
+  configuredFundsChains,
   readFundsV2,
   readWorkflowsV2,
   readWorkflowV2,
@@ -74,6 +76,7 @@ import {
   workflowV2Deployment,
   workflowActivationEnabled,
   workflowClient,
+  type SettlementChain,
 } from './chainV2';
 import { toDraft } from './modelV2';
 import { WorkflowCanvas } from './Graph';
@@ -136,7 +139,7 @@ export function WorkflowsV2() {
             {
               icon: TradeUpIcon,
               title: 'Actions',
-              copy: 'Your vault executes the swap, transfer, or alert on Unichain Sepolia.',
+              copy: 'Your vault executes the swap, transfer, or alert on Unichain Sepolia or Base Sepolia.',
             },
           ]}
         />
@@ -171,7 +174,11 @@ export function WorkflowsV2() {
           <div className="rb-metric">
             <p className="rb-metric-label">Workflows</p>
             <p className="rb-metric-value">{workflows.length}</p>
-            <p className="rb-metric-note">Saved in this vault</p>
+            <p className="rb-metric-note">
+              {configuredFundsChains().length > 1
+                ? 'Saved across your vaults'
+                : 'Saved in this vault'}
+            </p>
           </div>
           <div className="rb-metric" data-tone="active">
             <p className="rb-metric-label">Active</p>
@@ -229,7 +236,7 @@ export function WorkflowsV2() {
                   ? 'The Vault authorization is staged. Finish activation to start watching.'
                   : 'This workflow is not watching for events.');
             const fixHref = view
-              ? workflowHealthHref(view.health, row.id, view.lastRun?.id)
+              ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain)
               : undefined;
             return (
               <li key={row.id}>
@@ -413,7 +420,7 @@ export function WorkflowDetailV2() {
       </div>
       <WorkflowHealthPanel item={item} owner={wallet.owner} />
       <WorkflowWeeklyBudget item={item} wallet={wallet} />
-      {!item.closed && <WorkflowCreditNotice owner={wallet.owner} />}
+      {!item.closed && <WorkflowCreditNotice owner={wallet.owner} chain={item.chain} />}
       <div className="rb-canvas-panel">
         <WorkflowCanvas draft={diagramV2(toDraft(program, item.title)).canvas} />
         <div className="rb-panel-body">
@@ -678,7 +685,7 @@ function Publication({
   );
 }
 
-const settlementChainSchema = z.literal(UNICHAIN_SEPOLIA_CHAIN_ID);
+const settlementChainSchema = fundsChainIdSchema;
 const runSchema = z.object({
   id: workflowIdSchema,
   workflowId: workflowIdSchema,
@@ -926,7 +933,11 @@ export function WorkflowActivityV2() {
           steps={
             requestedId
               ? undefined
-              : ['Trigger fires on Lasna', 'Checks are evaluated', 'Vault settles on Unichain']
+              : [
+                  'Trigger fires on Lasna',
+                  'Checks are evaluated',
+                  'Vault settles on destination chain',
+                ]
           }
         />
       )}
@@ -1162,7 +1173,7 @@ const fundingActions: Record<FundsOperation, FundingAction> = {
     decimals: 18,
     amountLabel: 'Amount (ETH)',
     requiresAmount: true,
-    hint: 'Sends test ETH to the Unichain callback proxy for this vault. This credit pays workflow callbacks; it is not held in the vault.',
+    hint: 'Sends test ETH to the settlement callback proxy for this vault. This credit pays workflow callbacks; it is not held in the vault.',
     balanceKey: 'walletNative',
     balanceLabel: 'Wallet balance',
     validateBalance: true,
@@ -1248,11 +1259,17 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
   const [params] = useSearchParams();
   const credit = params.get('credit');
   const funding = credit === 'watching' || credit === 'execution' ? credit : undefined;
+  const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
+  const initialChain = parsedChain.success ? parsedChain.data : undefined;
   const deployment = workflowV2Deployment;
   const builder = <Navigate to={appRoutes.newWorkflow} replace />;
   const account = (
     <AppShell>
-      <WorkflowAccountV2 key={funding} funding={funding} />
+      <WorkflowAccountV2
+        key={`${funding ?? 'default'}:${initialChain ?? 'default'}`}
+        funding={funding}
+        initialChain={initialChain}
+      />
     </AppShell>
   );
   if (!deployment) return startWorkflow ? builder : account;
@@ -1262,7 +1279,7 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
     <WalletAccountSetupGate
       title="Account & Vault"
       wallet={setupWallet}
-      workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}`}
+      workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}${deployment.base ? `:${deployment.base.factory}` : ''}`}
     >
       {() => (startWorkflow ? builder : account)}
     </WalletAccountSetupGate>
@@ -1272,12 +1289,17 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
 export function WorkflowAccountV2({
   manage = false,
   funding,
+  initialChain,
 }: {
   manage?: boolean;
   funding?: 'watching' | 'execution';
+  initialChain?: SettlementChain;
 }) {
   const wallet = useWorkflowV2Wallet();
-  const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
+  const chains = configuredFundsChains();
+  const [chain, setChain] = useState<SettlementChain>(() =>
+    initialChain && chains.includes(initialChain) ? initialChain : UNICHAIN_SEPOLIA_CHAIN_ID,
+  );
   const [operation, setOperation] = useState<FundsOperation>(
     funding === 'watching' ? 'watch-credit' : funding === 'execution' ? 'run-credit' : 'add-usdc',
   );
@@ -1286,7 +1308,7 @@ export function WorkflowAccountV2({
   const formRef = useRef<HTMLFormElement>(null);
   const data = useQuery({
     queryKey: ['workflow-v2', 'funding', wallet.owner, chain],
-    enabled: Boolean(wallet.owner && settlementFactory()),
+    enabled: Boolean(wallet.owner && settlementFactory(chain)),
     queryFn: () => readFundsV2(wallet.owner!, chain),
     refetchInterval: 12_000,
   });
@@ -1434,8 +1456,28 @@ export function WorkflowAccountV2({
             <Link to={appRoutes.account} className="app-button">
               Back to account
             </Link>
+          ) : chains.length > 1 ? (
+            <Select
+              value={String(chain)}
+              groups={[
+                {
+                  label: 'Vault network',
+                  options: chains.map((id) => ({
+                    value: String(id),
+                    label: v2Network(id).name,
+                  })),
+                },
+              ]}
+              onChange={(nextValue) => {
+                const parsed = fundsChainIdSchema.safeParse(Number(nextValue));
+                if (parsed.success) {
+                  setChain(parsed.data);
+                  setAmount('');
+                }
+              }}
+            />
           ) : (
-            <span className="rb-chip rb-chip--plain">Unichain Sepolia</span>
+            <span className="rb-chip rb-chip--plain">{v2Network(chain).name}</span>
           )
         }
       />
@@ -1453,7 +1495,7 @@ export function WorkflowAccountV2({
             {
               icon: Coins01Icon,
               title: 'Vault funds',
-              copy: 'USDC and WETH principal held by the vault on Unichain Sepolia.',
+              copy: `USDC and WETH principal held by the vault on ${v2Network(chain).name}.`,
             },
             {
               icon: Pulse01Icon,
@@ -1469,10 +1511,10 @@ export function WorkflowAccountV2({
         />
       )}
 
-      {!settlementFactory() && (
+      {!settlementFactory(chain) && (
         <p className="rb-note">
           <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
-          The V2 Vault factory is unavailable on this testnet.
+          The V2 Vault factory is unavailable on {v2Network(chain).name}.
         </p>
       )}
 
@@ -1482,7 +1524,7 @@ export function WorkflowAccountV2({
         </div>
       )}
 
-      {!!wallet.owner && Boolean(settlementFactory()) && data.isPending && (
+      {!!wallet.owner && Boolean(settlementFactory(chain)) && data.isPending && (
         <LoadingRegion label="Reading your testnet account…" className="rb-page-skeleton">
           <div className="rb-balance-grid" aria-hidden="true">
             {[0, 1, 2].map((index) => (
@@ -1500,12 +1542,32 @@ export function WorkflowAccountV2({
         </LoadingRegion>
       )}
 
-      {manage && funds?.vault === zeroAddress && (
-        <p className="rb-note">This wallet has no vault. Create one through account setup.</p>
-      )}
+      {funds &&
+        funds.vault === zeroAddress &&
+        (manage ? (
+          <p className="rb-note">This wallet has no vault. Create one through account setup.</p>
+        ) : (
+          <Callout
+            title={`No ${v2Network(chain).name} Vault yet`}
+            action={
+              <Button
+                variant="primary"
+                disabled={wallet.busy}
+                onClick={() => void wallet.ensureVault(chain)}
+              >
+                {wallet.busy ? 'Setting up Vault…' : `Create & link ${v2Network(chain).name} Vault`}
+              </Button>
+            }
+          >
+            <p>
+              Deploy a settlement Vault on {v2Network(chain).name} and link it to your Reactive
+              Lasna Agent so workflows can settle on {v2Network(chain).name}.
+            </p>
+          </Callout>
+        ))}
       {funds && funds.vault !== zeroAddress && (
         <>
-          <WorkflowCreditNotice owner={wallet.owner} />
+          <WorkflowCreditNotice owner={wallet.owner} chain={chain} />
           <div className="rb-balance-grid">
             <div className="rb-balance" data-role="funds">
               <p className="rb-balance-head">
@@ -1538,7 +1600,7 @@ export function WorkflowAccountV2({
                 {displayUnits(funds.execution, 18)}
                 <span>ETH</span>
               </p>
-              <p className="rb-balance-foot">Pays callback gas on Unichain Sepolia</p>
+              <p className="rb-balance-foot">Pays callback gas on {v2Network(chain).name}</p>
             </div>
           </div>
 
@@ -1703,10 +1765,10 @@ export function WorkflowAccountV2({
                   </div>
                 </div>
                 <p className="rb-credit-note">
-                  Watching credit is held on Reactive Lasna and execution credit on the Unichain
-                  callback proxy. Both are prepaid to the network and consumed as fees; the network
-                  exposes no withdrawal for unspent credit. The refill allowance is approved on
-                  Unichain Sepolia.
+                  Watching credit is held on Reactive Lasna and execution credit on the{' '}
+                  {v2Network(chain).name} callback proxy. Both are prepaid to the network and
+                  consumed as fees; the network exposes no withdrawal for unspent credit. The refill
+                  allowance is approved on {v2Network(chain).name}.
                 </p>
               </div>
             </div>

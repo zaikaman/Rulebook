@@ -1,4 +1,8 @@
-import { createWorkflowV2Recipe, type WorkflowV2Program } from '@rulebook/shared';
+import {
+  BASE_SEPOLIA_CHAIN_ID,
+  createWorkflowV2Recipe,
+  type WorkflowV2Program,
+} from '@rulebook/shared';
 import { describe, expect, it } from 'vitest';
 import { zeroAddress, type Address } from 'viem';
 
@@ -127,5 +131,17 @@ describe('workflow funding preflight', () => {
   it('passes when balances and limits cover the largest run', () => {
     expect(workflowFundingIssues(scheduledBuy(), unlimited, balances)).toEqual([]);
     expect(workflowFundingIssues(takeProfit(), unlimited, balances)).toEqual([]);
+  });
+
+  it('validates funding for workflows targeting Base Sepolia', () => {
+    const baseBuy = createWorkflowV2Recipe(
+      'scheduled-buy',
+      { intervalSeconds: '3600', buyUsdc: '0.02', slippagePercent: '1' },
+      { chain: BASE_SEPOLIA_CHAIN_ID },
+    );
+    expect(workflowFundingIssues(baseBuy, unlimited, balances)).toEqual([]);
+    expect(
+      workflowFundingIssues(baseBuy, unlimited, { ...balances, stable: 0n }).map((i) => i.code),
+    ).toEqual(['vault-usdc']);
   });
 });

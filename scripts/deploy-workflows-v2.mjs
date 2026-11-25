@@ -45,6 +45,14 @@ const CHAINS = {
     explorer: 'https://sepolia.uniscan.xyz',
     rpcEnv: 'UNICHAIN_RPC_URL',
   },
+  base: {
+    id: 84532,
+    contract: 'WorkflowVaultFactoryV2',
+    name: 'Base Sepolia',
+    explorer: 'https://sepolia.basescan.org',
+    rpcEnv: 'BASE_SEPOLIA_RPC_URL',
+    defaultRpc: 'https://sepolia.base.org',
+  },
 };
 
 function fail(message) {
@@ -55,6 +63,10 @@ function env(name) {
   const value = process.env[name]?.trim();
   if (!value) fail(`Set ${name} before running the Workflow V2 release.`);
   return value;
+}
+
+function rpcUrl(chain) {
+  return process.env[chain.rpcEnv]?.trim() || chain.defaultRpc || env(chain.rpcEnv);
 }
 
 function git(args) {
@@ -80,10 +92,14 @@ function deploymentValue(record) {
   const unichain = record.find(
     (entry) => entry.contract === CHAINS.unichain.contract && entry.chainId === CHAINS.unichain.id,
   );
+  const base = record.find(
+    (entry) => entry.contract === CHAINS.base.contract && entry.chainId === CHAINS.base.id,
+  );
   if (!lasna || !unichain) fail('deployments/workflows-v2.json is missing the factory pair.');
   return JSON.stringify({
     lasna: { factory: lasna.address, startBlock: lasna.blockNumber },
     unichain: { factory: unichain.address, startBlock: unichain.blockNumber },
+    ...(base ? { base: { factory: base.address, startBlock: base.blockNumber } } : {}),
   });
 }
 
@@ -139,7 +155,7 @@ function cliApp() {
 }
 
 async function deploy(chain, account) {
-  const rpc = env(chain.rpcEnv);
+  const rpc = rpcUrl(chain);
   const publicClient = client(rpc);
   const args = ['script', SCRIPT, '--rpc-url', rpc];
   if (chain === CHAINS.lasna) {
@@ -148,7 +164,8 @@ async function deploy(chain, account) {
     if (!gas) fail('Could not read the Lasna gas estimate from the dry run.');
     const suggested = await publicClient.getGasPrice();
     const balance = await publicClient.getBalance({ address: account });
-    const ceiling = LASNA_FEE_CAP / BigInt(gas);
+    const budget = balance < LASNA_FEE_CAP ? balance : LASNA_FEE_CAP;
+    const ceiling = budget / BigInt(gas);
     const price = ((suggested * 2n < ceiling ? suggested * 2n : ceiling) / GWEI) * GWEI;
     if (price <= suggested) {
       fail(
@@ -164,14 +181,18 @@ async function deploy(chain, account) {
   return readBroadcast(chain.id);
 }
 
-function readBroadcast(chainId) {
-  const path = join(
+function broadcastPath(chainId) {
+  return join(
     CONTRACTS,
     'broadcast',
     'DeployWorkflowsV2.s.sol',
     String(chainId),
     'run-latest.json',
   );
+}
+
+function readBroadcast(chainId) {
+  const path = broadcastPath(chainId);
   if (!existsSync(path)) fail(`Missing broadcast receipts at ${path}.`);
   const broadcast = JSON.parse(readFileSync(path, 'utf8'));
   const creation = (broadcast.transactions ?? []).find(
@@ -183,7 +204,7 @@ function readBroadcast(chainId) {
 }
 
 async function entry(chain, creation, source) {
-  const rpc = env(chain.rpcEnv);
+  const rpc = rpcUrl(chain);
   const publicClient = client(rpc);
   const transaction = await publicClient.getTransaction({ hash: creation.hash });
   const receipt = await publicClient.getTransactionReceipt({ hash: creation.hash });
@@ -211,14 +232,19 @@ async function verify() {
   const record = JSON.parse(readFileSync(RECORD_PATH, 'utf8'));
   const expected = deploymentValue(record);
   const problems = [];
-  for (const chain of Object.values(CHAINS)) {
+  const requireBase = process.argv.includes('--base');
+  for (const chain of [CHAINS.lasna, CHAINS.unichain, CHAINS.base]) {
     const item = record.find((row) => row.contract === chain.contract && row.chainId === chain.id);
     if (!item) {
-      problems.push(`missing ${chain.contract} record`);
+      if (chain !== CHAINS.base || requireBase) {
+        problems.push(`missing ${chain.contract} record for ${chain.name}`);
+      }
       continue;
     }
-    const code = await client(env(chain.rpcEnv)).getCode({ address: item.address });
-    if (!code || code === '0x') problems.push(`${chain.contract} has no code at ${item.address}`);
+    const code = await client(rpcUrl(chain)).getCode({ address: item.address });
+    if (!code || code === '0x') {
+      problems.push(`${chain.contract} on ${chain.name} has no code at ${item.address}`);
+    }
   }
   for (const [file, key] of [
     [join(ROOT, 'backend', '.env'), 'WORKFLOW_V2_DEPLOYMENT'],
@@ -286,6 +312,14 @@ async function publish(record, source) {
   console.log(`WORKFLOW_V2_DEPLOYMENT=${value}`);
 }
 
+function mergeRecord(existing, updated) {
+  const next = existing.filter(
+    (item) =>
+      !updated.some((row) => row.contract === item.contract && row.chainId === item.chainId),
+  );
+  return [...next, ...updated];
+}
+
 async function release() {
   const key = process.env.DEPLOYER_PRIVATE_KEY?.trim() ?? process.env.SPONSOR_PRIVATE_KEY?.trim();
   if (!key) fail('Set DEPLOYER_PRIVATE_KEY (or SPONSOR_PRIVATE_KEY) before deploying.');
@@ -293,21 +327,37 @@ async function release() {
     key.startsWith('0x') ? key : `0x${key}`,
   );
   const source = revision();
-  const record = [];
-  for (const chain of Object.values(CHAINS)) {
+  const baseOnly = process.argv.includes('--base-only');
+  const includeBase =
+    baseOnly || process.argv.includes('--base') || Boolean(process.env[CHAINS.base.rpcEnv]?.trim());
+  const chains = baseOnly
+    ? [CHAINS.base]
+    : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+  const updated = [];
+  for (const chain of chains) {
     console.log(`Deploying ${chain.contract} on ${chain.name}...`);
-    record.push(await entry(chain, await deploy(chain, wallet.address), source));
+    updated.push(await entry(chain, await deploy(chain, wallet.address), source));
   }
-  await publish(record, source);
+  const existing =
+    baseOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+  await publish(baseOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
 async function recordOnly() {
   const source = revision();
-  const record = [];
-  for (const chain of Object.values(CHAINS)) {
-    record.push(await entry(chain, readBroadcast(chain.id), source));
+  const baseOnly = process.argv.includes('--base-only');
+  const includeBase =
+    baseOnly || process.argv.includes('--base') || existsSync(broadcastPath(CHAINS.base.id));
+  const chains = baseOnly
+    ? [CHAINS.base]
+    : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+  const updated = [];
+  for (const chain of chains) {
+    updated.push(await entry(chain, readBroadcast(chain.id), source));
   }
-  await publish(record, source);
+  const existing =
+    baseOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+  await publish(baseOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
 try {

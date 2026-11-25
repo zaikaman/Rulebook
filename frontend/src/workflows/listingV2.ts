@@ -1,7 +1,7 @@
 import {
   addressSchema,
+  fundsChainIdSchema,
   LASNA_CHAIN_ID,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentFactoryV2Abi,
   workflowHexSchema,
   workflowIdSchema,
@@ -28,7 +28,7 @@ const listing = z.object({
   agent: addressSchema,
   workflow_id: workflowIdSchema,
   program_hash: workflowIdSchema,
-  chain: z.literal(UNICHAIN_SEPOLIA_CHAIN_ID),
+  chain: fundsChainIdSchema,
   program: workflowHexSchema,
 });
 export const v2MarketPage = z.object({

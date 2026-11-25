@@ -116,7 +116,12 @@ test('finds a public workflow proof from workspace costs without connecting a wa
     .click();
   await expect(page.getByRole('heading', { name: 'Workflow costs' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Watching credit' })).toContainText('gwei');
-  await expect(page.getByRole('region', { name: 'Execution credit' })).toContainText('gwei');
+  await expect(
+    page.getByRole('region', { name: 'Execution credit (Unichain Sepolia)' }),
+  ).toContainText('gwei');
+  await expect(page.getByRole('region', { name: 'Execution credit (Base Sepolia)' })).toContainText(
+    'gwei',
+  );
   await page.getByRole('link', { name: 'Open workflow proof' }).click();
   await page.getByLabel('Run ID').fill(run.id);
   await page.getByRole('button', { name: 'Open proof' }).click();

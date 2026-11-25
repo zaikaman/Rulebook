@@ -1,7 +1,7 @@
 import { decodeAbiParameters, encodeAbiParameters, getAbiItem, type Hex } from 'viem';
 
 import { workflowProgramValidatorV2Abi } from './abi/index.js';
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
+import { isFundsChain } from './chains.js';
 import { workflowLimits } from './workflows.js';
 
 export const workflowV2Trigger = {
@@ -96,7 +96,7 @@ export function workflowV2Nodes(root: WorkflowV2Branch): WorkflowV2Program['node
 
 /** Uses the settlement validator's generated ABI so its tuple order stays in sync with Solidity. */
 export function encodeWorkflowV2(program: WorkflowV2Program): Hex {
-  if (program.chain !== UNICHAIN_SEPOLIA_CHAIN_ID)
+  if (!isFundsChain(program.chain) || !isFundsChain(program.originChain))
     throw new Error('Select a supported workflow testnet.');
   return encodeAbiParameters(workflowV2ProgramParameters, [{ ...program, version: 2 }]);
 }

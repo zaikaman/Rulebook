@@ -36,3 +36,4 @@ int_types = "long"
 [rpc_endpoints]
 lasna = "${LASNA_RPC_URL}"
 unichain_sepolia = "${UNICHAIN_RPC_URL}"
+base_sepolia = "${BASE_SEPOLIA_RPC_URL}"

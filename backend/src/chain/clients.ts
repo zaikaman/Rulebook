@@ -1,3 +1,4 @@
+import { BASE_SEPOLIA_CHAIN_ID, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import {
   createPublicClient,
   defineChain,
@@ -11,7 +12,7 @@ import type { AppConfig } from '../config.js';
 
 /** Reactive Lasna, the automation network. */
 export const lasnaChain: Chain = defineChain({
-  id: 5_318_007,
+  id: LASNA_CHAIN_ID,
   name: 'Reactive Lasna',
   nativeCurrency: { name: 'Lasna REACT', symbol: 'REACT', decimals: 18 },
   rpcUrls: { default: { http: ['https://lasna-rpc.rnk.dev/'] } },
@@ -21,7 +22,7 @@ export const lasnaChain: Chain = defineChain({
 
 /** Unichain Sepolia, the funds network. */
 export const unichainSepoliaChain: Chain = defineChain({
-  id: 1301,
+  id: UNICHAIN_SEPOLIA_CHAIN_ID,
   name: 'Unichain Sepolia',
   nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
   rpcUrls: { default: { http: ['https://sepolia.unichain.org'] } },
@@ -31,9 +32,22 @@ export const unichainSepoliaChain: Chain = defineChain({
   testnet: true,
 });
 
+/** Base Sepolia, the funds and origin network. */
+export const baseSepoliaChain: Chain = defineChain({
+  id: BASE_SEPOLIA_CHAIN_ID,
+  name: 'Base Sepolia',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: ['https://sepolia.base.org'] } },
+  blockExplorers: {
+    default: { name: 'BaseScan', url: 'https://sepolia.basescan.org' },
+  },
+  testnet: true,
+});
+
 export interface ChainClients {
   readonly lasna: PublicClient;
   readonly unichain: PublicClient;
+  readonly base?: PublicClient;
 }
 
 /**
@@ -53,6 +67,13 @@ export function createChainClients(config: AppConfig): ChainClients {
       },
       transport: fallback([http(config.UNICHAIN_RPC_URL), http('https://sepolia.unichain.org')]),
     }),
+    base: createPublicClient({
+      chain: {
+        ...baseSepoliaChain,
+        rpcUrls: { default: { http: [config.BASE_SEPOLIA_RPC_URL] } },
+      },
+      transport: fallback([http(config.BASE_SEPOLIA_RPC_URL), http('https://sepolia.base.org')]),
+    }),
   };
 }
 
@@ -60,6 +81,7 @@ export function createChainClients(config: AppConfig): ChainClients {
 export function clientFor(clients: ChainClients, chainId: number): PublicClient {
   if (chainId === lasnaChain.id) return clients.lasna;
   if (chainId === unichainSepoliaChain.id) return clients.unichain;
+  if (chainId === baseSepoliaChain.id && clients.base) return clients.base;
   throw new Error(`No RPC client configured for chain ${chainId}`);
 }
 

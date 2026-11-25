@@ -4,6 +4,8 @@ pragma solidity 0.8.29;
 /// @notice The ABI and limits shared by the V2 Agent and settlement Vaults.
 library WorkflowProgramV2 {
     uint32 internal constant UNICHAIN_SEPOLIA = 1301;
+    uint32 internal constant BASE_SEPOLIA = 84_532;
+    uint32 internal constant LASNA = 5_318_007;
     uint8 internal constant VERSION = 2;
     uint8 internal constant MAX_NODES = 15;
     uint8 internal constant MAX_DEPTH = 3;
@@ -60,6 +62,7 @@ library WorkflowProgramV2 {
     struct Program {
         uint8 version;
         uint32 chain;
+        uint32 originChain;
         uint8 trigger;
         uint32 interval;
         uint64 expires;
@@ -92,21 +95,34 @@ library WorkflowProgramV2 {
 
     error InvalidProgram();
 
+    function isFundsChain(uint32 chainId) internal pure returns (bool) {
+        return chainId == UNICHAIN_SEPOLIA || chainId == BASE_SEPOLIA;
+    }
+
     /// @notice Decodes and validates a canonical program before it can be installed.
     function validate(bytes calldata encoded) internal pure returns (Program memory program) {
         if (encoded.length > 12_288) revert InvalidProgram();
         program = abi.decode(encoded, (Program));
         if (
             keccak256(encoded) != keccak256(abi.encode(program)) || program.version != VERSION
-                || program.chain != UNICHAIN_SEPOLIA || program.trigger < SCHEDULE
-                || program.trigger > TRANSFER || program.slippage > 1000
+                || !isFundsChain(program.chain) || !isFundsChain(program.originChain)
+                || program.trigger < SCHEDULE || program.trigger > TRANSFER
+                || program.slippage > 1000
         ) revert InvalidProgram();
         if (program.trigger == SCHEDULE) {
             if (program.interval < 120 || program.interval > 30 days) revert InvalidProgram();
         } else if (program.interval != 0) {
             revert InvalidProgram();
         }
-        if (program.trigger == TRANSFER && program.source == address(0)) revert InvalidProgram();
+        if (program.trigger == PAYMENT && program.originChain != program.chain) {
+            revert InvalidProgram();
+        }
+        if (program.trigger == TRANSFER) {
+            if (
+                program.source == address(0)
+                    || (program.originChain != program.chain && program.subject == address(0))
+            ) revert InvalidProgram();
+        }
 
         uint256 count = program.nodes.length;
         if (count == 0 || count > MAX_NODES) revert InvalidProgram();
@@ -142,6 +158,10 @@ library WorkflowProgramV2 {
             }
         }
         if (!executable) revert InvalidProgram();
+        if (
+            program.trigger == SCHEDULE && program.originChain != program.chain
+                && !hasCheck(program, DIP_BY)
+        ) revert InvalidProgram();
     }
 
     function _condition(Program memory program, Node memory node) private pure {

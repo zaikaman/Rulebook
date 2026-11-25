@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
@@ -132,6 +132,63 @@ it('scopes Activity by wallet and workflow and exposes only chain evidence in pu
     expect(requests[1]?.searchParams.get('select')).not.toContain('title');
     expect((await app.inject({ url: '/v3/runs/invalid' })).statusCode).toBe(400);
     expect((await app.inject({ url: `/v3/runs/${hash}` })).statusCode).toBe(404);
+  } finally {
+    await app.close();
+  }
+});
+
+it('queries and exposes public proofs for Base Sepolia settlement and cross-chain origin runs', async () => {
+  const factory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const runId = `0x${'4'.repeat(64)}`;
+  const hash = `0x${'5'.repeat(64)}`;
+  const requests: URL[] = [];
+  const row = {
+    id: runId,
+    chain: BASE_SEPOLIA_CHAIN_ID,
+    program_hash: hash,
+    origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+    origin_transaction: hash,
+    origin_log_index: '2',
+    lasna_transaction: hash,
+    destination_transaction: hash,
+    expires_at: 200,
+    reason: null,
+    path: 1,
+    status: 'confirmed',
+  };
+  const db = createClient('https://database.example', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        return Response.json([row]);
+      },
+    },
+  });
+  const app = Fastify();
+  registerWorkflowV2Routes(app, db, factory);
+  try {
+    const published = await app.inject({ url: `/v3/runs/${runId}` });
+    expect(published.statusCode).toBe(200);
+    expect(published.json()).toEqual({
+      id: runId,
+      chain: BASE_SEPOLIA_CHAIN_ID,
+      programHash: hash,
+      originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      originTransaction: hash,
+      originLogIndex: '2',
+      lasnaTransaction: hash,
+      destinationTransaction: hash,
+      expiresAt: 200,
+      status: 'confirmed',
+      path: 1,
+      reason: null,
+    });
+    expect(requests[0]?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
+    );
+    expect((await app.inject({ url: `/v3/runs/${runId}?owner=${owner}` })).statusCode).toBe(200);
   } finally {
     await app.close();
   }

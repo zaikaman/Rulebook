@@ -1,6 +1,9 @@
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  type WorkflowV2ChainDeployment,
+  type WorkflowV2Deployment,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowVaultFactoryV2Abi,
@@ -8,18 +11,11 @@ import {
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
-import { keccak256, type Address, type PublicClient } from 'viem';
+import { keccak256, type PublicClient } from 'viem';
 
-type OriginChain = typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID;
-export interface WorkflowV2ChainDeployment {
-  factory: Address;
-  startBlock: number;
-}
-
-export interface WorkflowV2Deployment {
-  lasna: WorkflowV2ChainDeployment;
-  unichain: WorkflowV2ChainDeployment;
-}
+type OriginChain =
+  typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID;
+export type { WorkflowV2ChainDeployment, WorkflowV2Deployment };
 
 interface ChainSource extends WorkflowV2ChainDeployment {
   chain: OriginChain;
@@ -44,7 +40,7 @@ export class WorkflowV2Indexer {
 
   constructor(
     private readonly db: SupabaseClient,
-    clients: { lasna: PublicClient; unichain: PublicClient },
+    clients: { lasna: PublicClient; unichain: PublicClient; base?: PublicClient },
     config: WorkflowV2Deployment,
     private readonly logger: FastifyBaseLogger,
     private readonly stageTelegram = false,
@@ -59,6 +55,14 @@ export class WorkflowV2Indexer {
         confirmations: 12n,
       },
     ];
+    if (config.base && clients.base) {
+      this.sources.push({
+        ...config.base,
+        chain: BASE_SEPOLIA_CHAIN_ID,
+        client: clients.base,
+        confirmations: 12n,
+      });
+    }
   }
 
   stop() {

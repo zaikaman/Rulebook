@@ -2,6 +2,7 @@ import {
   actions,
   checks,
   emptyDraft,
+  getChain,
   rulewrightFollowUpLimit,
   rulewrightPromptLimit,
   rulewrightSignIn,
@@ -70,6 +71,8 @@ type Change = { field: string; before: string; after: string };
 function diffDraft(previous: V2Draft, next: V2Draft) {
   const fields = {
     title: 'Workflow name',
+    chain: 'Settlement network',
+    originChain: 'Trigger network',
     trigger: 'Trigger',
     interval: 'Schedule interval',
     expires: 'Expiry',
@@ -83,6 +86,9 @@ function diffDraft(previous: V2Draft, next: V2Draft) {
 
   function display(draft: V2Draft, field: keyof typeof fields) {
     switch (field) {
+      case 'chain':
+      case 'originChain':
+        return getChain(draft[field]).name;
       case 'trigger':
         return triggers[draft.trigger];
       case 'once':

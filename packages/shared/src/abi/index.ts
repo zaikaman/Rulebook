@@ -209,6 +209,11 @@ export const workflowAgentV2Abi = [
         "name": "originAfter",
         "type": "uint64",
         "internalType": "uint64"
+      },
+      {
+        "name": "originChain",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "stateMutability": "view"
@@ -812,6 +817,17 @@ export const workflowAgentV2Abi = [
     "type": "error",
     "name": "Unauthorized",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
   }
 ] as const;
 
@@ -2443,6 +2459,17 @@ export const workflowVaultFactoryV2Abi = [
     "type": "error",
     "name": "InactiveDeployment",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UnsupportedChain",
+    "inputs": [
+      {
+        "name": "chainId",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ]
   }
 ] as const;
 
@@ -2470,6 +2497,11 @@ export const workflowProgramValidatorV2Abi = [
           },
           {
             "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "originChain",
             "type": "uint32",
             "internalType": "uint32"
           },

@@ -1,11 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 import {
+  ANVIL_BASE_RPC_URL,
   ANVIL_RPC_URL,
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_PORT,
   FIXTURE_FRONTEND_URL,
   WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+  WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './frontend/e2e/fixtureConfig';
 
@@ -44,9 +46,11 @@ export default defineConfig({
         VITE_WALLETCONNECT_PROJECT_ID: '',
         VITE_LASNA_RPC_URL: ANVIL_RPC_URL,
         VITE_UNICHAIN_RPC_URL: ANVIL_RPC_URL,
+        VITE_BASE_SEPOLIA_RPC_URL: ANVIL_BASE_RPC_URL,
         VITE_WORKFLOW_V2_DEPLOYMENT: JSON.stringify({
           lasna: { factory: WORKFLOW_V2_AGENT_FACTORY_ADDRESS, startBlock: 1 },
           unichain: { factory: WORKFLOW_V2_VAULT_FACTORY_ADDRESS, startBlock: 1 },
+          base: { factory: WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS, startBlock: 1 },
         }),
         VITE_WORKFLOW_V2_ACTIVATION: 'true',
       },

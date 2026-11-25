@@ -9,7 +9,7 @@ import {
   type Hex,
 } from 'viem';
 import { z } from 'zod';
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
+import { fundsChainIdSchema } from './schemas.js';
 
 const PROG = [
   {
@@ -281,7 +281,7 @@ export const workflowV2RunStatusSchema = z.enum([
 
 export const workflowV2RunProofSchema = z.object({
   id: workflowIdSchema,
-  chain: z.literal(UNICHAIN_SEPOLIA_CHAIN_ID),
+  chain: fundsChainIdSchema,
   programHash: workflowIdSchema,
   originChain: z.number().int(),
   originTransaction: workflowIdSchema,

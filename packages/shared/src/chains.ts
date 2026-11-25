@@ -26,6 +26,14 @@ export interface ChainConfig {
 
 export const LASNA_CHAIN_ID = 5_318_007;
 export const UNICHAIN_SEPOLIA_CHAIN_ID = 1301;
+export const BASE_SEPOLIA_CHAIN_ID = 84_532;
+
+export const FUNDS_CHAIN_IDS = [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID] as const;
+export type FundsChainId = (typeof FUNDS_CHAIN_IDS)[number];
+
+export function isFundsChain(chainId: number): chainId is FundsChainId {
+  return chainId === UNICHAIN_SEPOLIA_CHAIN_ID || chainId === BASE_SEPOLIA_CHAIN_ID;
+}
 
 const ALL_TEMPLATES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] as const;
 
@@ -57,7 +65,7 @@ export const CHAIN_CONFIGS: ReadonlyMap<number, ChainConfig> = new Map([
       role: 'funds',
       rpcUrl: 'https://sepolia.unichain.org',
       explorerUrl: 'https://sepolia.uniscan.xyz',
-      isOrigin: false,
+      isOrigin: true,
       isDestination: true,
       router: '0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF',
       weth: '0x4200000000000000000000000000000000000006',
@@ -68,9 +76,32 @@ export const CHAIN_CONFIGS: ReadonlyMap<number, ChainConfig> = new Map([
       supportedTemplates: ALL_TEMPLATES,
     },
   ],
+  [
+    BASE_SEPOLIA_CHAIN_ID,
+    {
+      chainId: BASE_SEPOLIA_CHAIN_ID,
+      name: 'Base Sepolia',
+      role: 'funds',
+      rpcUrl: 'https://sepolia.base.org',
+      explorerUrl: 'https://sepolia.basescan.org',
+      isOrigin: true,
+      isDestination: true,
+      router: '0x1689E7B1F10000AE47eBfE339a4f69dECd19F602',
+      weth: '0x4200000000000000000000000000000000000006',
+      usdc: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      pair: '0x0B9Ab53880be6fF805ebF8FBce515E5715ccE1bE',
+      callbackProxy: '0x476F44b11F5C942c58f4c8E3d0300E5710743585',
+      systemContract: '0x8888888888888888888888888888888888888888',
+      supportedTemplates: ALL_TEMPLATES,
+    },
+  ],
 ]);
 
-export const SUPPORTED_CHAIN_IDS = [LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID] as const;
+export const SUPPORTED_CHAIN_IDS = [
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+] as const;
 
 /** Error thrown for a chain this release does not configure. */
 export class UnsupportedChainError extends Error {

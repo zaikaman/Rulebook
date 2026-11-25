@@ -30,13 +30,6 @@
             "commandWindows": "node scripts\\verify-changes.mjs --fast",
             "timeout": 3600,
             "statusMessage": "Verifying the change set (fast gates)"
-          },
-          {
-            "type": "command",
-            "command": "node scripts/notify-done.mjs",
-            "commandWindows": "node scripts\\notify-done.mjs",
-            "timeout": 120,
-            "statusMessage": "Sending the completion ping"
           }
         ]
       }

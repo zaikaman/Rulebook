@@ -10,10 +10,12 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
+  BASE_SEPOLIA_CHAIN_ID,
+  getChain,
   LASNA_CHAIN_ID,
-  SUPPORTED_CHAIN_IDS,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
+  type FundsChainId,
 } from '@rulebook/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
@@ -56,7 +58,7 @@ import {
   permittedSetupChains,
 } from '../lib/setupNetworks.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
-import { lasnaChain, unichainSepoliaChain } from '../lib/wagmi.js';
+import { baseSepoliaChain, lasnaChain, unichainSepoliaChain } from '../lib/wagmi.js';
 
 type Balance = { value?: bigint; decimals: number; failed: boolean };
 type Token = (typeof testnetTokens)[keyof typeof testnetTokens];
@@ -219,12 +221,20 @@ function FaucetAddress({ address }: { address: Address }) {
   );
 }
 
-function SetupReview({ steps, running }: { steps: readonly SetupStep[]; running: boolean }) {
+function SetupReview({
+  steps,
+  running,
+  vaultNetwork,
+}: {
+  steps: readonly SetupStep[];
+  running: boolean;
+  vaultNetwork: string;
+}) {
   const actions = {
     agent: { label: 'Create your automation account', network: testnetTokens.react.network.name },
     vault: {
       label: 'Create your vault',
-      network: testnetTokens.eth.network.name,
+      network: vaultNetwork,
     },
     link: {
       label: 'Link your automation account and vault',
@@ -251,7 +261,19 @@ function SetupReview({ steps, running }: { steps: readonly SetupStep[]; running:
   );
 }
 
-export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSetup> }) {
+export function CreateAccount({
+  setup,
+  chainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+}: {
+  setup: ReturnType<typeof useAccountSetup>;
+  chainId?: FundsChainId;
+}) {
+  const fundsChain = chainId === BASE_SEPOLIA_CHAIN_ID ? baseSepoliaChain : unichainSepoliaChain;
+  const fundsConfig = getChain(fundsChain.id);
+  const ethToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseEth : testnetTokens.eth;
+  const requiredChainIds: readonly (
+    typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID | typeof LASNA_CHAIN_ID
+  )[] = [fundsChain.id as FundsChainId, LASNA_CHAIN_ID];
   const { address, connector, isReconnecting } = useAccount();
   const config = useConfig();
   const [tokenReview, setTokenReview] = useState<{
@@ -277,13 +299,13 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
   const walletSteps = setup.data ? remainingSetupSteps(setup.data) : [];
   const query = { enabled: connected, refetchOnWindowFocus: 'always' } as const;
   const react = useBalance({ address, chainId: LASNA_CHAIN_ID, query });
-  const eth = useBalance({ address, chainId: UNICHAIN_SEPOLIA_CHAIN_ID, query });
+  const eth = useBalance({ address, chainId: fundsChain.id, query });
   const usdc = useReadContract({
-    address: DEMO_USDC,
+    address: fundsConfig.usdc ?? DEMO_USDC,
     abi: erc20Abi,
     functionName: 'balanceOf',
     args: [address ?? zeroAddress],
-    chainId: UNICHAIN_SEPOLIA_CHAIN_ID,
+    chainId: fundsChain.id,
     query,
   });
 
@@ -328,8 +350,8 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
     walletNetworks?.done ??
     (networkCheck.isSuccess &&
       !networkCheck.isFetching &&
-      SUPPORTED_CHAIN_IDS.every((id) => knownChains.includes(id)));
-  const missingNetworks = [testnetTokens.eth.network, testnetTokens.react.network].filter(
+      requiredChainIds.every((id) => knownChains.includes(id)));
+  const missingNetworks = [ethToken.network, testnetTokens.react.network].filter(
     (chain) => !knownChains.includes(chain.chainId),
   );
   const checkingNetworks = !networksReady && networkCheck.isFetching;
@@ -357,7 +379,7 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
       const chains = [...knownChains];
       if (action === 'add-networks') {
         // The last approval can leave MetaMask on Lasna for fresh account creation.
-        for (const chain of [unichainSepoliaChain, lasnaChain].filter(
+        for (const chain of [fundsChain, lasnaChain].filter(
           (chain) => !knownChains.includes(chain.id),
         )) {
           checkWallet();
@@ -419,9 +441,9 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
         }
       }
       const permittedChains = permittedSetupChains(permissions);
-      if (permittedChains && permittedChains.length !== SUPPORTED_CHAIN_IDS.length) {
+      if (permittedChains && !requiredChainIds.every((id) => permittedChains.includes(id))) {
         throw new Error(
-          'Allow both Reactive Lasna and Unichain Sepolia in your wallet and try again.',
+          `Allow both Reactive Lasna and ${fundsChain.name} in your wallet and try again.`,
         );
       }
       const [selected] = await connector.getAccounts();
@@ -471,7 +493,7 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
     error instanceof BaseError &&
     error.walk((cause) => cause instanceof InsufficientFundsError) instanceof InsufficientFundsError
   ) {
-    const feeToken = hasAgent && !hasVault ? testnetTokens.eth : testnetTokens.react;
+    const feeToken = hasAgent && !hasVault ? ethToken : testnetTokens.react;
     setupErrorMessage = `Add more test ${feeToken.symbol} on ${feeToken.network.name} to cover the transaction fee.`;
     setupErrorChain = feeToken.network.chainId;
   }
@@ -574,7 +596,7 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
               <>
                 <p id="setup-network-instructions">
                   {connector?.type === 'walletConnect'
-                    ? 'Add both test networks in your wallet, then disconnect and reconnect here. Allow Reactive Lasna and Unichain Sepolia when prompted.'
+                    ? `Add both test networks in your wallet, then disconnect and reconnect here. Allow Reactive Lasna and ${fundsChain.name} when prompted.`
                     : missingNetworks.length > 0
                       ? `Allow ${missingNetworks.map((network) => network.name).join(' and ')} in your wallet. Your wallet will ask to add any missing networks.`
                       : 'Allow Rulebook to use both test networks in your wallet.'}
@@ -686,8 +708,8 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
                   token={testnetTokens.eth}
                   purpose={
                     hasVault
-                      ? 'Your vault is created. Keep ETH for wallet transactions on Unichain.'
-                      : 'Pays to create your vault on Unichain.'
+                      ? `Your vault is created. Keep ETH for wallet transactions on ${fundsChain.name}.`
+                      : `Pays to create your vault on ${fundsChain.name}.`
                   }
                   required={!hasVault}
                   connected={connected}
@@ -794,7 +816,13 @@ export function CreateAccount({ setup }: { setup: ReturnType<typeof useAccountSe
                 )}
               </ErrorState>
             )}
-            {walletSteps.length > 0 && <SetupReview steps={walletSteps} running={setup.resuming} />}
+            {walletSteps.length > 0 && (
+              <SetupReview
+                steps={walletSteps}
+                running={setup.resuming}
+                vaultNetwork={fundsChain.name}
+              />
+            )}
             <div className="account-setup__action account-setup__action--split">
               {!setup.resuming && (
                 <button

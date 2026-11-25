@@ -1,18 +1,25 @@
 import {
   decodeWorkflowV2,
   deriveWorkflowHealth,
+  isFundsChain,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowHealthResponseSchema,
+  type FundsChainId,
   type WorkflowHealth,
   type WorkflowHealthEntry,
   type WorkflowHealthRunSchema,
   type WorkflowHealthSuccess,
 } from '@rulebook/shared';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { zeroAddress, type Address } from 'viem';
 
 import { appRoutes } from '@/lib/routes';
-import { readFundsV2, readWorkflowV2, workflowV2Deployment } from './chainV2';
+import {
+  configuredFundsChains,
+  readFundsV2,
+  readWorkflowV2,
+  workflowV2Deployment,
+} from './chainV2';
 import { workflowFundingNeeds } from './fundingV2';
 import { v2ApiBase } from './listingV2';
 import { useWorkflowCredits } from './WorkflowCredit';
@@ -23,6 +30,7 @@ export type WorkflowHealthItem = Pick<
 >;
 
 export interface WorkflowHealthRow {
+  readonly chain: FundsChainId;
   readonly health: WorkflowHealth;
   readonly lastRun: WorkflowHealthRunSchema | null;
   readonly lastSuccess: WorkflowHealthSuccess | null;
@@ -54,15 +62,20 @@ export function useWorkflowHealth(
     refetchInterval: 12_000,
     retry: 1,
   });
-  // The Vault's principal is read live so a shortfall is reported before the next trigger, not
-  // only after a run the Vault had to skip.
-  const funds = useQuery({
-    queryKey: ['workflow-v2', 'vault-funds', owner?.toLowerCase()],
-    enabled: Boolean(owner && workflowV2Deployment),
-    queryFn: () => readFundsV2(owner!, UNICHAIN_SEPOLIA_CHAIN_ID),
-    refetchInterval: 12_000,
-    retry: 1,
+  const chains = configuredFundsChains();
+  const fundQueries = useQueries({
+    queries: chains.map((chain) => ({
+      queryKey: ['workflow-v2', 'vault-funds', owner?.toLowerCase(), chain],
+      enabled: Boolean(owner && workflowV2Deployment),
+      queryFn: () => readFundsV2(owner!, chain),
+      refetchInterval: 12_000,
+      retry: 1,
+    })),
   });
+  const funds = fundQueries[0]!;
+  const fundsByChain = new Map<FundsChainId, Awaited<ReturnType<typeof readFundsV2>> | undefined>(
+    chains.map((chain, index) => [chain, fundQueries[index]?.data]),
+  );
   const indexed = new Map<string, WorkflowHealthEntry>(
     (query.data?.workflows ?? []).map((entry) => [entry.workflowId, entry]),
   );
@@ -75,16 +88,21 @@ export function useWorkflowHealth(
     } catch {
       continue;
     }
+    const settlementChain: FundsChainId = isFundsChain(program.chain)
+      ? program.chain
+      : UNICHAIN_SEPOLIA_CHAIN_ID;
     const entry = indexed.get(item.id);
     const needs = workflowFundingNeeds(program);
-    const balances = funds.data;
+    const balances = fundsByChain.get(settlementChain);
+    const executionCredit = credits.byChain?.[settlementChain] ?? null;
     rows.set(item.id, {
+      chain: settlementChain,
       health: deriveWorkflowHealth({
         active: item.active,
         readyToActivate: !item.active && item.staged && Boolean(item.auth[3]),
         closed: item.closed,
         program,
-        executionCredit: credits.readings.execution,
+        executionCredit,
         watchingCredit: credits.readings.watching,
         budget: item.budget,
         funding:
@@ -115,17 +133,20 @@ export function workflowHealthHref(
   health: WorkflowHealth,
   workflowId: string,
   lastRunId?: string | null,
+  chain?: FundsChainId,
 ) {
+  const chainSuffix = chain ? `&chain=${chain}` : '';
+  const chainQuery = chain ? `?chain=${chain}` : '';
   switch (health.fix) {
     case 'execution-credit':
-      return `${appRoutes.account}?credit=execution`;
+      return `${appRoutes.account}?credit=execution${chainSuffix}`;
     case 'watching-credit':
       return `${appRoutes.account}?credit=watching`;
     case 'weekly-budget':
       return `${appRoutes.workflows}/${workflowId}?budget=1#weekly-budget`;
     case 'account':
     case 'allowance':
-      return appRoutes.account;
+      return `${appRoutes.account}${chainQuery}`;
     case 'edit':
       return `${appRoutes.workflows}/${workflowId}/edit`;
     case 'run':

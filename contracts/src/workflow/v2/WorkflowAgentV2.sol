@@ -56,6 +56,21 @@ contract WorkflowAgentV2 is AbstractPayer {
         bool inactivity;
         bool once;
         uint64 originAfter;
+        uint32 originChain;
+    }
+
+    struct PriceState {
+        uint128 price;
+        uint128 previousPrice;
+        uint64 time;
+        bytes32 observation;
+        uint256 blockNumber;
+        uint256 logIndex;
+    }
+
+    struct ActivityCursor {
+        uint256 blockNumber;
+        uint256 logIndex;
     }
 
     struct PriceHigh {
@@ -154,15 +169,9 @@ contract WorkflowAgentV2 is AbstractPayer {
     bytes32[] private known;
     uint256 private pendingCount;
     bool private retrySubscribed;
-    uint128 private price;
-    uint128 private previousPrice;
-    uint64 private priceTime;
-    bytes32 private priceObservation;
-    uint256 private priceBlock;
-    uint256 private priceIndex;
+    mapping(uint32 => mapping(address => PriceState)) private prices;
     uint64 private lastActivity;
-    uint256 private activityBlock;
-    uint256 private activityIndex;
+    mapping(uint32 => ActivityCursor) private activityCursors;
 
     constructor(IReactiveSystem system_, address factory_) {
         system = system_;
@@ -184,7 +193,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     function linkVault(uint32 chain, address vault) external onlyOwner {
-        if (chain != P.UNICHAIN_SEPOLIA || vault == address(0) || vaults[chain] != address(0)) {
+        if (!P.isFundsChain(chain) || vault == address(0) || vaults[chain] != address(0)) {
             revert InvalidWorkflow();
         }
         vaults[chain] = vault;
@@ -226,6 +235,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         entry.inactivity = P.hasCheck(program, P.INACTIVITY);
         entry.once = program.once;
         entry.originAfter = originAfter;
+        entry.originChain = program.originChain;
         delete highs[workflow];
         programs[hash] = encoded;
         _paths(workflow, program);
@@ -324,28 +334,53 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
     function _triggerFilters(Entry storage entry, bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        ChainConfig.Config memory lasnaCfg = ChainConfig.lasna();
+        ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
         if (entry.trigger == P.SCHEDULE) {
-            _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
-            if (entry.dip) _filter(Filter(P.UNICHAIN_SEPOLIA, cfg.pair, SYNC, ANY, ANY), enabled);
+            _filter(Filter(LASNA, lasnaCfg.cronSource, CRON, ANY, ANY), enabled);
+            if (entry.dip) {
+                _filter(Filter(entry.originChain, originCfg.pair, SYNC, ANY, ANY), enabled);
+            }
             if (entry.inactivity) {
                 _filter(
-                    Filter(P.UNICHAIN_SEPOLIA, cfg.usdc, TRANSFER, uint160(owner), ANY), enabled
+                    Filter(
+                        P.UNICHAIN_SEPOLIA,
+                        ChainConfig.unichainSepolia().usdc,
+                        TRANSFER,
+                        uint160(owner),
+                        ANY
+                    ),
+                    enabled
+                );
+                _filter(
+                    Filter(
+                        P.BASE_SEPOLIA,
+                        ChainConfig.baseSepolia().usdc,
+                        TRANSFER,
+                        uint160(owner),
+                        ANY
+                    ),
+                    enabled
                 );
             }
         } else if (entry.trigger == P.PRICE) {
-            _filter(Filter(P.UNICHAIN_SEPOLIA, cfg.pair, SYNC, ANY, ANY), enabled);
+            _filter(Filter(entry.originChain, originCfg.pair, SYNC, ANY, ANY), enabled);
         } else if (entry.trigger == P.PAYMENT) {
             _filter(
-                Filter(entry.chain, cfg.usdc, TRANSFER, ANY, uint160(vaults[entry.chain])), enabled
+                Filter(
+                    entry.originChain, originCfg.usdc, TRANSFER, ANY, uint160(vaults[entry.chain])
+                ),
+                enabled
             );
         } else if (entry.trigger == P.TRANSFER) {
             uint160 destination =
                 uint160(entry.subject == address(0) ? vaults[entry.chain] : entry.subject);
             if (entry.subject != address(0)) {
-                _filter(Filter(entry.chain, entry.source, TRANSFER, destination, ANY), enabled);
+                _filter(
+                    Filter(entry.originChain, entry.source, TRANSFER, destination, ANY), enabled
+                );
             }
-            _filter(Filter(entry.chain, entry.source, TRANSFER, ANY, destination), enabled);
+            _filter(Filter(entry.originChain, entry.source, TRANSFER, ANY, destination), enabled);
         }
     }
 
@@ -384,25 +419,32 @@ contract WorkflowAgentV2 is AbstractPayer {
             }
             return;
         }
-        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        ChainConfig.Config memory lasnaCfg = ChainConfig.lasna();
         // A Lasna cron tick also drives the waiting list, which is how a run parked by an
         // exhausted week resumes as soon as the week rolls over.
-        if (log.chain_id == LASNA && log._contract == cfg.cronSource && log.topic_0 == CRON) {
+        if (log.chain_id == LASNA && log._contract == lasnaCfg.cronSource && log.topic_0 == CRON) {
             _retryFromCron();
         }
-        bool market = log.chain_id == P.UNICHAIN_SEPOLIA && log._contract == cfg.pair
-            && log.topic_0 == SYNC && _recordPrice(cfg, log);
-        if (
-            log.chain_id == P.UNICHAIN_SEPOLIA && log._contract == cfg.usdc
-                && log.topic_0 == TRANSFER && log.topic_1 == uint160(owner)
-                && log.topic_2 != log.topic_1 && log.data.length == 32
-                && (log.block_number > activityBlock
-                    || (log.block_number == activityBlock && log.log_index > activityIndex))
-                && abi.decode(log.data, (uint256)) != 0
-        ) {
-            activityBlock = log.block_number;
-            activityIndex = log.log_index;
-            lastActivity = uint64(block.timestamp);
+        bool market;
+        if (log.chain_id <= type(uint32).max && P.isFundsChain(uint32(log.chain_id))) {
+            uint32 logChain = uint32(log.chain_id);
+            ChainConfig.Config memory logCfg = ChainConfig.get(logChain);
+            market =
+                log._contract == logCfg.pair && log.topic_0 == SYNC && _recordPrice(logCfg, log);
+            ActivityCursor storage cursor = activityCursors[logChain];
+            if (
+                log._contract == logCfg.usdc && log.topic_0 == TRANSFER
+                    && log.topic_1 == uint160(owner) && log.topic_2 != log.topic_1
+                    && log.data.length == 32
+                    && (log.block_number > cursor.blockNumber
+                        || (log.block_number == cursor.blockNumber
+                            && log.log_index > cursor.logIndex))
+                    && abi.decode(log.data, (uint256)) != 0
+            ) {
+                cursor.blockNumber = log.block_number;
+                cursor.logIndex = log.log_index;
+                if (block.timestamp > lastActivity) lastActivity = uint64(block.timestamp);
+            }
         }
         // Retiring an entry removes it with a swap-and-pop, so the loop re-reads the same index
         // rather than stepping past the workflow that moved into it.
@@ -414,7 +456,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                 _retire(workflow, entry);
                 continue;
             }
-            _route(workflow, log, cfg, market);
+            _route(workflow, log, lasnaCfg, market);
             ++index;
         }
     }
@@ -423,9 +465,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         private
         returns (bool)
     {
+        PriceState storage state = prices[uint32(log.chain_id)][log._contract];
         if (
-            log.data.length != 64 || log.block_number < priceBlock
-                || (log.block_number == priceBlock && log.log_index <= priceIndex)
+            log.data.length != 64 || log.block_number < state.blockNumber
+                || (log.block_number == state.blockNumber && log.log_index <= state.logIndex)
         ) return false;
         (uint256 first, uint256 second) = abi.decode(log.data, (uint256, uint256));
         if (first == 0 || second == 0 || first > type(uint112).max || second > type(uint112).max) {
@@ -435,61 +478,66 @@ contract WorkflowAgentV2 is AbstractPayer {
             ? PriceMath.usdcPerWeth(uint112(first), uint112(second))
             : PriceMath.usdcPerWeth(uint112(second), uint112(first));
         if (observed == 0 || observed > type(uint128).max) return false;
-        priceBlock = log.block_number;
-        priceIndex = log.log_index;
-        priceTime = uint64(block.timestamp);
-        priceObservation = keccak256(abi.encode(log.tx_hash, log.log_index));
-        previousPrice = price;
-        price = uint128(observed);
+        state.blockNumber = log.block_number;
+        state.logIndex = log.log_index;
+        state.time = uint64(block.timestamp);
+        state.observation = keccak256(abi.encode(log.chain_id, log.tx_hash, log.log_index));
+        state.previousPrice = state.price;
+        state.price = uint128(observed);
         return true;
     }
 
     function _route(
         bytes32 workflow,
         IReactive.LogRecord calldata log,
-        ChainConfig.Config memory cfg,
+        ChainConfig.Config memory lasnaCfg,
         bool market
     ) private {
         Entry storage entry = entries[workflow];
         if (paused[workflow]) {
-            _wakeIfDue(workflow, entry, log, cfg);
+            _wakeIfDue(workflow, entry, log, lasnaCfg);
             return;
         }
         P.Run memory run;
         if (entry.trigger == P.SCHEDULE) {
             if (
-                log.chain_id != LASNA || log._contract != cfg.cronSource || log.topic_0 != CRON
+                log.chain_id != LASNA || log._contract != lasnaCfg.cronSource || log.topic_0 != CRON
                     || log.topic_1 != log.block_number || log.block_number <= entry.lasnaAfter
                     || block.timestamp < entry.nextDue
             ) return;
             if (entry.dip) {
-                run.observed = price;
-                run.previous = previousPrice;
-                run.observationTime = priceTime;
-                run.observationId = priceObservation;
+                PriceState storage state =
+                    prices[entry.originChain][ChainConfig.get(entry.originChain).pair];
+                run.observed = state.price;
+                run.previous = state.previousPrice;
+                run.observationTime = state.time;
+                run.observationId = state.observation;
             }
             if (entry.inactivity) run.activityTime = lastActivity;
         } else {
-            if (log.chain_id != entry.chain || log.block_number <= entry.originAfter) return;
+            if (log.chain_id != entry.originChain) return;
+            if (entry.originChain == entry.chain && log.block_number <= entry.originAfter) return;
+            ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
             if (entry.trigger == P.PRICE) {
                 if (!market) return;
+                PriceState storage state = prices[entry.originChain][originCfg.pair];
                 PriceHigh storage high = highs[workflow];
-                if (price > high.value) {
-                    high.value = price;
+                if (state.price > high.value) {
+                    high.value = state.price;
                     high.blockNumber = uint64(log.block_number);
                 }
-                run.observed = price;
-                run.previous = previousPrice;
+                run.observed = state.price;
+                run.previous = state.previousPrice;
                 run.high = high.value;
                 run.highBlock = high.blockNumber;
-                run.observationTime = priceTime;
+                run.observationTime = state.time;
             } else {
                 if (log.data.length != 32) return;
                 uint256 amount = abi.decode(log.data, (uint256));
                 if (amount == 0) return;
                 if (entry.trigger == P.PAYMENT) {
                     if (
-                        log._contract != cfg.usdc || log.topic_0 != TRANSFER
+                        log._contract != originCfg.usdc || log.topic_0 != TRANSFER
                             || log.topic_2 != uint160(vaults[entry.chain])
                             || log.topic_1 == log.topic_2
                     ) return;
@@ -643,7 +691,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         while (index < queue.length) {
             Pending memory item = queue[index];
             bytes32 runId =
-                _runId(workflow, entry.chain, item.originTransaction, item.originLogIndex);
+                _runId(workflow, entry.originChain, item.originTransaction, item.originLogIndex);
             if (seen[runId]) {
                 _removePending(workflow, index);
                 continue;
@@ -657,7 +705,7 @@ contract WorkflowAgentV2 is AbstractPayer {
             P.Run memory run;
             run.epoch = item.epoch;
             run.programHash = item.programHash;
-            run.originChain = entry.chain;
+            run.originChain = entry.originChain;
             run.originTransaction = item.originTransaction;
             run.originLogIndex = item.originLogIndex;
             run.originBlock = item.originBlock;
@@ -696,7 +744,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice Holds the Lasna cron subscription that drives retries while the waiting list exists.
     function _cronFilter(bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        ChainConfig.Config memory cfg = ChainConfig.lasna();
         _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
     }
 
@@ -766,7 +814,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice One exact cron block, used only by a paused workflow.
     function _wakeFilter(uint64 target, bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        ChainConfig.Config memory cfg = ChainConfig.lasna();
         _filter(Filter(LASNA, cfg.cronSource, CRON, target, ANY), enabled);
     }
 
@@ -890,11 +938,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev Only a strictly newer snapshot wins, so reordered or repeated delivery cannot undo a
     /// recorded spend; a different week start always wins because it carries the reset.
     function _syncBudget(IReactive.LogRecord calldata log) private {
-        if (
-            log.chain_id != P.UNICHAIN_SEPOLIA || log._contract != vaults[P.UNICHAIN_SEPOLIA]
-                || log.data.length != 192 || entries[bytes32(log.topic_1)].epoch == 0
-        ) return;
+        if (log.data.length != 192) return;
         bytes32 workflow = bytes32(log.topic_1);
+        Entry storage entry = entries[workflow];
+        if (entry.epoch == 0 || log.chain_id != entry.chain || log._contract != vaults[entry.chain])
+        {
+            return;
+        }
         (
             uint96 usdcLimit,
             uint96 wethLimit,

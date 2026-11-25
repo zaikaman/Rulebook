@@ -1,14 +1,16 @@
 // @vitest-environment node
 
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { zeroAddress, zeroHash, type Address, type Hex } from 'viem';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readContract = vi.fn();
+const baseReadContract = vi.fn();
 
 vi.mock('@/lib/wagmi', () => ({
   lasnaPublicClient: { readContract: vi.fn() },
   unichainPublicClient: { readContract },
+  basePublicClient: { readContract: baseReadContract },
 }));
 
 vi.stubEnv(
@@ -16,6 +18,7 @@ vi.stubEnv(
   JSON.stringify({
     lasna: { factory: '0x0000000000000000000000000000000000000011', startBlock: 1 },
     unichain: { factory: '0x0000000000000000000000000000000000000022', startBlock: 1 },
+    base: { factory: '0x0000000000000000000000000000000000000033', startBlock: 1 },
   }),
 );
 
@@ -29,6 +32,7 @@ const workflowId: Hex = `0x${'ab'.repeat(32)}`;
 describe('readPaymentWorkflow', () => {
   beforeEach(() => {
     readContract.mockReset();
+    baseReadContract.mockReset();
   });
 
   it('returns null when the wallet has no Vault', async () => {
@@ -60,5 +64,17 @@ describe('readPaymentWorkflow', () => {
     expect(paymentWorkflowConflictMessage()).toBe(
       'This Vault already has an active Vault receives USDC workflow. Pause or complete it before activating another.',
     );
+  });
+
+  it('reads active payment workflows on Base Sepolia using the Base public client', async () => {
+    baseReadContract
+      .mockResolvedValueOnce(vault)
+      .mockResolvedValueOnce(workflowId)
+      .mockResolvedValueOnce('Base sweep');
+    await expect(readPaymentWorkflow(owner, BASE_SEPOLIA_CHAIN_ID)).resolves.toEqual({
+      id: workflowId,
+      title: 'Base sweep',
+    });
+    expect(readContract).not.toHaveBeenCalled();
   });
 });

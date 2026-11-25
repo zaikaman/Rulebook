@@ -5,6 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_LASNA_RPC_URL: string;
   readonly VITE_UNICHAIN_RPC_URL: string;
   readonly VITE_UNICHAIN_WALLET_RPC_URL?: string;
+  readonly VITE_BASE_SEPOLIA_RPC_URL?: string;
+  readonly VITE_BASE_SEPOLIA_WALLET_RPC_URL?: string;
   readonly VITE_WALLETCONNECT_PROJECT_ID: string;
   readonly VITE_AGENT_FACTORY_ADDRESS?: string;
   readonly VITE_VAULT_FACTORY_ADDRESS?: string;

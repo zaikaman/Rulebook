@@ -1,4 +1,4 @@
-import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address } from '@rulebook/shared';
+import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address, type FundsChainId } from '@rulebook/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { isAddressEqual } from 'viem';
 
@@ -63,13 +63,15 @@ export function useAccountSetup({
   owner,
   wallet,
   scope,
+  chainId = UNICHAIN_SEPOLIA_CHAIN_ID,
 }: {
   owner?: Address;
   wallet: SetupWallet;
   scope?: string;
+  chainId?: FundsChainId;
 }) {
   const queryClient = useQueryClient();
-  const key = ['wallet-setup', owner, scope];
+  const key = ['wallet-setup', owner, scope, chainId];
   const account = useQuery({
     queryKey: key,
     enabled: !!owner,
@@ -93,7 +95,7 @@ export function useAccountSetup({
       if (current.vault && !isAddressEqual(await wallet.getVaultAgent(current.vault), agent)) {
         throw new Error('This vault is linked to a different automation account.');
       }
-      await wallet.linkVault(owner, agent, vault, UNICHAIN_SEPOLIA_CHAIN_ID, connectorUid);
+      await wallet.linkVault(owner, agent, vault, chainId, connectorUid);
       return { agent, vault, linked: true };
     },
     onSuccess: async (result) => {

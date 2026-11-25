@@ -131,7 +131,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     ) AbstractCallback(proxy) WorkflowProtocolsV2(cfg) {
         if (
             proxy == address(0) || owner_ == address(0) || agent_ == address(0)
-                || chain_ != P.UNICHAIN_SEPOLIA
+                || !P.isFundsChain(chain_)
         ) revert InvalidAuthorization();
         owner = owner_;
         agent = agent_;
@@ -244,7 +244,10 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (auth.epoch == 0) knownWorkflows.push(workflow);
         programs[hash] = encoded;
         titles[workflow] = title;
-        // Keep the one-shot latch across workflow epochs.
+        // Keep the one-shot latch across workflow epochs, but clear the origin price cursor so
+        // switching to a lower-block origin chain never trips StaleObservation.
+        memory_.positionBlock = 0;
+        memory_.positionIndex = 0;
         memory_.peak = 0;
         memory_.referencePrice = 0;
         memory_.eligibleAt = 0;
@@ -411,10 +414,14 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             memory_.positionBlock = run.originBlock;
             memory_.positionIndex = run.originLogIndex;
             if (run.observed > memory_.peak) memory_.peak = uint128(run.observed);
-            if (run.high > memory_.peak && run.highBlock > authorizations[workflow].originAfter) {
+            if (
+                run.high > memory_.peak
+                    && (run.originChain != chain
+                        || run.highBlock > authorizations[workflow].originAfter)
+            ) {
                 memory_.peak = run.high;
             }
-            ctx.price = _price();
+            ctx.price = program.originChain == chain ? _price() : run.observed;
         }
 
         if (run.activityTime > memory_.activity) {
@@ -489,7 +496,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
-        if (ctx.price == 0) ctx.price = _price();
+        if (ctx.price == 0) ctx.price = program.originChain == chain ? _price() : run.observed;
+        if (ctx.price == 0) return false;
         uint256 price = ctx.price;
         if (check == P.PRICE_AT_LEAST) return price >= threshold;
         if (check == P.PRICE_AT_MOST) return price <= threshold;

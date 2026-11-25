@@ -1,4 +1,4 @@
-import { LASNA_CONFIG, UNICHAIN_CONFIG } from './contracts.js';
+import { BASE_CONFIG, LASNA_CONFIG, UNICHAIN_CONFIG } from './contracts.js';
 
 export const testnetTokens = {
   react: {
@@ -21,5 +21,19 @@ export const testnetTokens = {
     faucet: 'https://faucet.circle.com/',
     linkLabel: 'Get Unichain Sepolia USDC',
     instructions: 'Choose USDC and Unichain Sepolia in the Circle faucet.',
+  },
+  baseEth: {
+    symbol: 'ETH',
+    network: BASE_CONFIG,
+    faucet: 'https://console.optimism.io/faucet',
+    linkLabel: 'Get Base Sepolia ETH',
+    instructions: 'Choose Base Sepolia in the Superchain Faucet or Coinbase Developer faucet.',
+  },
+  baseUsdc: {
+    symbol: 'USDC',
+    network: BASE_CONFIG,
+    faucet: 'https://faucet.circle.com/',
+    linkLabel: 'Get Base Sepolia USDC',
+    instructions: 'Choose USDC and Base Sepolia in the Circle faucet.',
   },
 } as const;

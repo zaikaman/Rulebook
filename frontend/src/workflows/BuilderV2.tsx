@@ -12,6 +12,7 @@ import {
   decodeWorkflowV2,
   encodeWorkflowV2,
   fieldIssue,
+  isFundsChain,
   readWeeklyLimit,
   slippageIssue,
   stepAmountRules,
@@ -27,6 +28,7 @@ import {
   workflowV2Recipes,
   workflowV2Trigger as T,
   workflowV2Unit as U,
+  type FundsChainId,
   type WeeklyBudgetAmounts,
   type WorkflowFieldName,
   type WorkflowV2Program,
@@ -64,7 +66,7 @@ import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
-import { Callout, Field } from '@/ui';
+import { Callout, Field, Select } from '@/ui';
 import { formatContractError } from '@/lib/errors';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
@@ -83,6 +85,7 @@ import { ListingStatusV2 } from './ListingStatusV2';
 import { v2ListingId, v2ListingQuery } from './listingV2';
 import { branchPathKey, type LibraryTarget } from './nodeLibraryModel';
 import {
+  configuredFundsChains,
   formatWorkflowCaps,
   paymentWorkflowConflictMessage,
   workflowActivationEnabled,
@@ -645,6 +648,12 @@ export function WorkflowProgramSummary({
           <h3>Guardrails</h3>
         </header>
         <dl className="rb-spec-facts">
+          {draft.originChain !== draft.chain && (
+            <div>
+              <dt>Trigger network</dt>
+              <dd>{v2Network(draft.originChain).name}</dd>
+            </div>
+          )}
           <div>
             <dt>Settlement network</dt>
             <dd>{v2Network(draft.chain).name}</dd>
@@ -864,7 +873,7 @@ function Editor({
       wallet.owner &&
       (program ? program.trigger === T.payment : draft.trigger === T.payment) &&
       workflowActivationEnabled &&
-      settlementFactory(),
+      settlementFactory(draft.chain as SettlementChain),
     ),
     queryFn: () => readPaymentWorkflow(wallet.owner!, draft.chain as SettlementChain),
   });
@@ -1161,6 +1170,45 @@ function Editor({
                 onChange={(event) => update({ title: event.target.value })}
               />
             </V2Field>
+            {configuredFundsChains().length > 1 && (
+              <V2Field
+                name="Settlement network"
+                hint={
+                  id
+                    ? 'The Vault network is fixed once a workflow is created.'
+                    : 'Choose which testnet Vault holds funds and settles this workflow.'
+                }
+              >
+                {id ? (
+                  <p className="rb-note">{v2Network(draft.chain).name}</p>
+                ) : (
+                  <Select
+                    value={String(draft.chain)}
+                    groups={[
+                      {
+                        label: 'Funds & settlement networks',
+                        options: configuredFundsChains().map((chainId) => ({
+                          value: String(chainId),
+                          label: v2Network(chainId).name,
+                        })),
+                      },
+                    ]}
+                    onChange={(nextValue) => {
+                      const nextChain = Number(nextValue);
+                      if (!isFundsChain(nextChain)) return;
+                      const crossCapable =
+                        draft.trigger === T.price || draft.trigger === T.transfer;
+                      update({
+                        chain: nextChain as FundsChainId,
+                        ...(draft.originChain === draft.chain || !crossCapable
+                          ? { originChain: nextChain as FundsChainId }
+                          : {}),
+                      });
+                    }}
+                  />
+                )}
+              </V2Field>
+            )}
           </div>
           <div className="rb-inspector-section">
             <div className="rb-inspector-section-head">
@@ -1256,7 +1304,15 @@ function Editor({
                   const next = Object.values(T).find(
                     (value) => String(value) === event.target.value,
                   );
-                  if (next) update({ trigger: next });
+                  if (next) {
+                    const crossCapable = next === T.price || next === T.transfer;
+                    update({
+                      trigger: next,
+                      ...(!crossCapable && draft.originChain !== draft.chain
+                        ? { originChain: draft.chain }
+                        : {}),
+                    });
+                  }
                 }}
               >
                 {Object.values(T).map((code) => {
@@ -1274,6 +1330,32 @@ function Editor({
                 })}
               </select>
             </V2Field>
+            {configuredFundsChains().length > 1 &&
+              (draft.trigger === T.price || draft.trigger === T.transfer) && (
+                <V2Field
+                  name="Trigger network"
+                  hint={`Watch pool prices or token transfers on this network and settle on ${v2Network(draft.chain).name}.`}
+                >
+                  <Select
+                    value={String(draft.originChain)}
+                    groups={[
+                      {
+                        label: 'Origin networks',
+                        options: configuredFundsChains().map((chainId) => ({
+                          value: String(chainId),
+                          label: v2Network(chainId).name,
+                        })),
+                      },
+                    ]}
+                    onChange={(nextValue) => {
+                      const nextOrigin = Number(nextValue);
+                      if (isFundsChain(nextOrigin)) {
+                        update({ originChain: nextOrigin as FundsChainId });
+                      }
+                    }}
+                  />
+                </V2Field>
+              )}
             {paymentConflictCallout}
             <div className="rb-inspector-fields">
               {draft.trigger === T.schedule && (
@@ -1905,10 +1987,17 @@ function Editor({
                   Authorize the fixed payout after the 24-hour grace period.
                 </label>
               )}
-              {(!settlementFactory() || !workflowActivationEnabled) && (
+              {(!settlementFactory(draft.chain as SettlementChain) ||
+                !workflowActivationEnabled) && (
                 <p className="rb-alert">Testnet activation is disabled.</p>
               )}
-              {workflowActivationEnabled && <WorkflowCreditNotice owner={wallet.owner} review />}
+              {workflowActivationEnabled && (
+                <WorkflowCreditNotice
+                  owner={wallet.owner}
+                  review
+                  chain={draft.chain as SettlementChain}
+                />
+              )}
               {workflowActivationEnabled && (
                 <WorkflowFundingNotice
                   owner={wallet.owner}
@@ -1923,7 +2012,7 @@ function Editor({
                   disabled={
                     wallet.busy ||
                     !workflowActivationEnabled ||
-                    !settlementFactory() ||
+                    !settlementFactory(draft.chain as SettlementChain) ||
                     !budget ||
                     funding.blocked ||
                     capReached ||
@@ -1948,8 +2037,8 @@ function Editor({
                 <WalletControl setup />
               )}
               <p className="rb-activation-note">
-                Your wallet approves vault authorization on Unichain Sepolia and activation on
-                Reactive Lasna. First-time setup can require additional approvals.
+                Your wallet approves vault authorization on {v2Network(draft.chain).name} and
+                activation on Reactive Lasna. First-time setup can require additional approvals.
               </p>
               <V2Feedback wallet={wallet} />
             </div>

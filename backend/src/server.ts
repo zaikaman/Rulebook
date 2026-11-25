@@ -1,10 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
+import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import { createChainClients, lasnaChain, ping, unichainSepoliaChain } from './chain/clients.js';
+import {
+  baseSepoliaChain,
+  createChainClients,
+  lasnaChain,
+  ping,
+  unichainSepoliaChain,
+} from './chain/clients.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
 import type { ServerDeps } from './deps.js';
@@ -83,9 +90,18 @@ export async function startServer(): Promise<void> {
   const supabase = createServiceClient(config);
   const clients = createChainClients(config);
   const v2 = config.workflowsV2;
+  const vaultFactories = v2
+    ? {
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: v2.unichain.factory,
+        ...(v2.base ? { [BASE_SEPOLIA_CHAIN_ID]: v2.base.factory } : {}),
+      }
+    : undefined;
+  const fundsChains = v2?.base
+    ? ([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID] as const)
+    : ([UNICHAIN_SEPOLIA_CHAIN_ID] as const);
   const rulewright =
-    config.gemini && v2
-      ? new RulewrightService(supabase, clients, v2.unichain.factory, config.gemini)
+    config.gemini && v2 && vaultFactories
+      ? new RulewrightService(supabase, clients, vaultFactories, config.gemini)
       : undefined;
   const assistant =
     config.gemini && v2 ? new AssistantService(supabase, clients, v2, config.gemini) : undefined;
@@ -95,18 +111,19 @@ export async function startServer(): Promise<void> {
     config.telegram && telegramDb && v2
       ? new WorkflowTelegramAlerts(
           telegramDb,
-          clients.unichain,
+          clients,
           v2.lasna.factory,
           config.telegram.appOrigin,
+          fundsChains,
         )
       : undefined;
   const fundingAlerts =
-    config.telegram && telegramDb && v2
+    config.telegram && telegramDb && v2 && vaultFactories
       ? new TelegramFundingAlerts(
           telegramDb,
           clients,
           v2.lasna.factory,
-          v2.unichain.factory,
+          vaultFactories,
           config.telegram.appOrigin,
         )
       : undefined;
@@ -128,6 +145,9 @@ export async function startServer(): Promise<void> {
     rpcHealth: async () => [
       { chain_id: lasnaChain.id, rpc_ok: await ping(clients.lasna) },
       { chain_id: unichainSepoliaChain.id, rpc_ok: await ping(clients.unichain) },
+      ...(v2?.base && clients.base
+        ? [{ chain_id: baseSepoliaChain.id, rpc_ok: await ping(clients.base) }]
+        : []),
     ],
   });
 

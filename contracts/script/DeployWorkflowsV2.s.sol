@@ -20,6 +20,7 @@ contract DeployWorkflowsV2 is Script {
                 address(new WorkflowAgentFactoryV2(IReactiveSystem(system)))
             );
         } else {
+            // Deploys identically on Unichain Sepolia and Base Sepolia via ChainConfig.get(block.chainid).
             console2.log("WorkflowVaultFactoryV2", address(new WorkflowVaultFactoryV2()));
         }
         vm.stopBroadcast();

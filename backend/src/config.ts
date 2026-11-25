@@ -1,17 +1,11 @@
-import { addressSchema, type Address } from '@rulebook/shared';
+import {
+  addressSchema,
+  workflowV2DeploymentSchema,
+  type Address,
+  type WorkflowV2Deployment,
+} from '@rulebook/shared';
 import { zeroAddress } from 'viem';
 import { z } from 'zod';
-import type { WorkflowV2Deployment } from './workflows/indexerV2.js';
-
-const v2ChainDeployment = z
-  .object({
-    factory: addressSchema.refine(
-      (factory) => factory !== zeroAddress,
-      'Use the deployed factory address',
-    ),
-    startBlock: z.number().int().positive().safe(),
-  })
-  .strict();
 
 const workflowV2DeploymentJson = z
   .string()
@@ -23,14 +17,7 @@ const workflowV2DeploymentJson = z
       return z.NEVER;
     }
   })
-  .pipe(
-    z
-      .object({
-        lasna: v2ChainDeployment,
-        unichain: v2ChainDeployment,
-      })
-      .strict(),
-  );
+  .pipe(workflowV2DeploymentSchema);
 
 /**
  * Every environment variable the backend reads. Validation happens once, at boot, so a missing
@@ -43,6 +30,7 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   LASNA_RPC_URL: z.string().url().default('https://lasna-rpc.rnk.dev/'),
   UNICHAIN_RPC_URL: z.string().url().default('https://sepolia.unichain.org'),
+  BASE_SEPOLIA_RPC_URL: z.string().url().default('https://sepolia.base.org'),
   INDEXER_ENABLED: z
     .enum(['true', 'false'])
     .default('false')
@@ -91,6 +79,7 @@ export interface AppConfig {
   readonly SUPABASE_SERVICE_ROLE_KEY: string;
   readonly LASNA_RPC_URL: string;
   readonly UNICHAIN_RPC_URL: string;
+  readonly BASE_SEPOLIA_RPC_URL: string;
   readonly INDEXER_ENABLED: boolean;
   readonly corsOrigins: readonly string[];
   readonly telegram?: TelegramConfig;

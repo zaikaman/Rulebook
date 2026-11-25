@@ -1,6 +1,7 @@
 import { formatUnits, toFunctionSelector } from 'viem';
 import { z } from 'zod';
 
+import { CHAIN_CONFIGS, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
 import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './workflowsV2.js';
 
@@ -79,7 +80,9 @@ export interface WorkflowHealthInput {
   readonly active: boolean;
   readonly readyToActivate: boolean;
   readonly closed: boolean;
-  readonly program: Pick<WorkflowV2Program, 'trigger' | 'nodes' | 'expires'>;
+  readonly program: Pick<WorkflowV2Program, 'trigger' | 'nodes' | 'expires'> & {
+    readonly chain?: number;
+  };
   readonly executionCredit: WorkflowCreditState | null;
   readonly watchingCredit: WorkflowCreditState | null;
   readonly budget: WorkflowBudgetState | null;
@@ -208,12 +211,15 @@ function fundingBlock(funding: WorkflowFundingShortfall | null): WorkflowHealth 
 function creditBlock(
   credit: WorkflowCreditState | null,
   kind: 'execution' | 'watching',
+  chainId: number,
 ): { label: string; tone: WorkflowHealthTone; summary: string; fix: WorkflowHealthFix } | null {
   if (!credit) return null;
   const execution = kind === 'execution';
   const name = execution ? 'Execution credit' : 'Watching credit';
   const asset = execution ? 'ETH' : 'lREACT';
-  const network = execution ? 'Unichain Sepolia' : 'Reactive Lasna';
+  const network =
+    CHAIN_CONFIGS.get(execution ? chainId : LASNA_CHAIN_ID)?.name ??
+    (execution ? 'Unichain Sepolia' : 'Reactive Lasna');
   const fix = execution ? 'execution-credit' : 'watching-credit';
   const label = `Blocked by low ${execution ? 'execution' : 'watching'} credit`;
   const reserve = displayAmount(credit.reserve, 18, asset);
@@ -299,7 +305,10 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     };
   }
 
-  const execution = creditBlock(input.executionCredit, 'execution');
+  const settlementChainId = input.program.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
+  const settlementName = CHAIN_CONFIGS.get(settlementChainId)?.name ?? 'Unichain Sepolia';
+
+  const execution = creditBlock(input.executionCredit, 'execution', settlementChainId);
   if (execution) {
     return {
       code: 'execution-credit',
@@ -312,7 +321,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     };
   }
 
-  const watching = creditBlock(input.watchingCredit, 'watching');
+  const watching = creditBlock(input.watchingCredit, 'watching', LASNA_CHAIN_ID);
   if (watching) {
     return {
       code: 'watching-credit',
@@ -380,8 +389,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
       code: 'callback-pending',
       label: 'Callback pending',
       tone: 'paused',
-      summary:
-        'A run was dispatched and is waiting for settlement on Unichain Sepolia. Open the run to follow its receipt.',
+      summary: `A run was dispatched and is waiting for settlement on ${settlementName}. Open the run to follow its receipt.`,
       fix: 'run',
       fixLabel: 'Open pending run',
       attention: false,

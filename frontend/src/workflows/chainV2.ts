@@ -1,9 +1,11 @@
 import {
-  addressSchema,
+  BASE_SEPOLIA_CHAIN_ID,
   decodeWorkflowV2,
   encodeWorkflowV2,
   executionCreditAbi,
+  FUNDS_CHAIN_IDS,
   getChain,
+  isFundsChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   validateWorkflowV2Program,
@@ -11,10 +13,12 @@ import {
   workflowAgentV2Abi,
   workflowProgramValidatorV2Abi,
   workflowV2Action,
+  workflowV2DeploymentSchema,
   workflowV2Trigger,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
   workflowV2Limits,
+  type FundsChainId,
   type WeeklyBudgetAmounts,
   type WorkflowV2Program,
 } from '@rulebook/shared';
@@ -33,24 +37,20 @@ import {
   type Hex,
 } from 'viem';
 import { useAccount, useSendTransaction } from 'wagmi';
-import { z } from 'zod';
 
 import type { SetupWallet } from '@/hooks/useAccountSetup';
 import { useChainGuard } from '@/hooks/useChainGuard';
 import { describeError, formatContractError, SetupTransactionError } from '@/lib/errors';
 import { type SignatureDetails } from '@/lib/signatures';
-import { lasnaPublicClient as lasna, unichainPublicClient } from '@/lib/wagmi';
+import { basePublicClient, lasnaPublicClient as lasna, unichainPublicClient } from '@/lib/wagmi';
 import { workflowFundingIssues } from './fundingV2';
 
-export type SettlementChain = typeof UNICHAIN_SEPOLIA_CHAIN_ID;
+export type SettlementChain = FundsChainId;
 type WalletChain = SignatureDetails['chainId'];
-
-const target = z.object({ factory: addressSchema, startBlock: z.number().int().positive() });
-const deploymentSchema = z.object({ lasna: target, unichain: target });
 
 function deployment() {
   try {
-    return deploymentSchema.parse(
+    return workflowV2DeploymentSchema.parse(
       JSON.parse(import.meta.env.VITE_WORKFLOW_V2_DEPLOYMENT ?? 'null'),
     );
   } catch {
@@ -61,12 +61,21 @@ function deployment() {
 export const workflowV2Deployment = deployment();
 export const workflowActivationEnabled = import.meta.env.VITE_WORKFLOW_V2_ACTIVATION === 'true';
 
-export function settlementFactory() {
-  return workflowV2Deployment?.unichain.factory;
+export function configuredFundsChains(): readonly SettlementChain[] {
+  return FUNDS_CHAIN_IDS.filter(
+    (chain) => chain === UNICHAIN_SEPOLIA_CHAIN_ID || Boolean(workflowV2Deployment?.base),
+  );
+}
+
+export function settlementFactory(chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID) {
+  return chain === BASE_SEPOLIA_CHAIN_ID
+    ? workflowV2Deployment?.base?.factory
+    : workflowV2Deployment?.unichain.factory;
 }
 
 export function workflowClient(chain: WalletChain) {
   if (chain === LASNA_CHAIN_ID) return lasna;
+  if (chain === BASE_SEPOLIA_CHAIN_ID) return basePublicClient;
   return unichainPublicClient;
 }
 
@@ -75,7 +84,7 @@ export function v2Network(chain: WalletChain) {
 }
 
 export function v2Explorer(chain: number, hash: Hex) {
-  if (chain !== LASNA_CHAIN_ID && chain !== UNICHAIN_SEPOLIA_CHAIN_ID) return undefined;
+  if (chain !== LASNA_CHAIN_ID && !isFundsChain(chain)) return undefined;
   return `${v2Network(chain).explorerUrl}/tx/${hash}`;
 }
 
@@ -98,15 +107,23 @@ export function formatWorkflowCaps(program: WorkflowV2Program, budget?: WeeklyBu
 const invalidProgramSelector = toFunctionSelector('InvalidProgram()');
 
 export async function validateV2Program(encoded: Hex, program?: WorkflowV2Program) {
-  const factory = settlementFactory();
+  const resolvedProgram = program ?? decodeWorkflowV2(encoded);
+  const chain: SettlementChain = isFundsChain(resolvedProgram.chain)
+    ? resolvedProgram.chain
+    : UNICHAIN_SEPOLIA_CHAIN_ID;
+  const factoryChain: SettlementChain = settlementFactory(chain)
+    ? chain
+    : UNICHAIN_SEPOLIA_CHAIN_ID;
+  const factory = settlementFactory(factoryChain);
   if (!factory) return;
-  const validator = await unichainPublicClient.readContract({
+  const client = workflowClient(factoryChain);
+  const validator = await client.readContract({
     address: factory,
     abi: workflowVaultFactoryV2Abi,
     functionName: 'validator',
   });
   try {
-    await unichainPublicClient.readContract({
+    await client.readContract({
       address: validator,
       abi: workflowProgramValidatorV2Abi,
       functionName: 'validateProgram',
@@ -115,7 +132,7 @@ export async function validateV2Program(encoded: Hex, program?: WorkflowV2Progra
   } catch (cause) {
     const described = describeError(cause);
     if (described?.selector === invalidProgramSelector) {
-      validateWorkflowV2Program(program ?? decodeWorkflowV2(encoded));
+      validateWorkflowV2Program(resolvedProgram);
       throw new Error(described.message, { cause });
     }
     throw cause;
@@ -136,7 +153,7 @@ export async function readAgent(owner: Address, blockNumber?: bigint) {
 }
 
 export async function readVault(owner: Address, chain: SettlementChain, blockNumber?: bigint) {
-  const factory = settlementFactory();
+  const factory = settlementFactory(chain);
   return factory
     ? workflowClient(chain).readContract({
         address: factory,
@@ -201,14 +218,23 @@ export async function readWorkflowWeeklyBudget(
   };
 }
 
-async function workflowVersion(agent: Address, vault: Address, id: Hex) {
-  const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
-  const [entry, auth] = await Promise.all([v2Entry(agent, id), v2Authorization(chain, vault, id)]);
+async function workflowVersion(
+  agent: Address,
+  vault: Address,
+  id: Hex,
+  chain: SettlementChain,
+  preloadedEntry?: Awaited<ReturnType<typeof v2Entry>>,
+) {
+  const client = workflowClient(chain);
+  const [entry, auth] = await Promise.all([
+    preloadedEntry ?? v2Entry(agent, id),
+    v2Authorization(chain, vault, id),
+  ]);
   if (entry[1] === 0n && auth[1] === 0n)
     throw new Error('This workflow was not found for the connected wallet.');
   const staged = auth[1] > entry[1] && (auth[3] || entry[1] === 0n);
   const title = staged
-    ? await unichainPublicClient.readContract({
+    ? await client.readContract({
         address: vault,
         abi: workflowVaultV2Abi,
         functionName: 'titles',
@@ -225,9 +251,10 @@ async function workflowVersion(agent: Address, vault: Address, id: Hex) {
 }
 
 async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workflowVersion>>) {
+  const client = workflowClient(item.chain);
   const [program, memory, budget] = await Promise.all([
     item.staged
-      ? unichainPublicClient.readContract({
+      ? client.readContract({
           address: item.vault,
           abi: workflowVaultV2Abi,
           functionName: 'programs',
@@ -239,7 +266,7 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
           functionName: 'programs',
           args: [item.entry[0]],
         }),
-    unichainPublicClient.readContract({
+    client.readContract({
       address: item.vault,
       abi: workflowVaultV2Abi,
       functionName: 'workflowMemory',
@@ -251,21 +278,44 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
 }
 
 export async function readWorkflowsV2(owner: Address) {
-  const [agent, vault] = await Promise.all([
+  const chains = configuredFundsChains();
+  const [agent, ...vaultList] = await Promise.all([
     readAgent(owner),
-    readVault(owner, UNICHAIN_SEPOLIA_CHAIN_ID),
+    ...chains.map((chain) => readVault(owner, chain)),
   ]);
-  if (agent === zeroAddress || vault === zeroAddress) return [];
-  const ids = await unichainPublicClient.readContract({
-    address: vault,
-    abi: workflowVaultV2Abi,
-    functionName: 'workflowIds',
-  });
-  return Promise.all(
+  if (agent === zeroAddress) return [];
+  const deployed = chains
+    .map((chain, index) => ({ chain, vault: vaultList[index] ?? zeroAddress }))
+    .filter((item) => item.vault !== zeroAddress);
+  if (!deployed.length) return [];
+  const perChain = await Promise.all(
+    deployed.map(async ({ chain, vault }) => ({
+      chain,
+      vault,
+      ids: await workflowClient(chain).readContract({
+        address: vault,
+        abi: workflowVaultV2Abi,
+        functionName: 'workflowIds',
+      }),
+    })),
+  );
+  const items = perChain.flatMap(({ chain, vault, ids }) =>
     ids
       .slice()
       .reverse()
-      .map(async (id) => readWorkflowVersionDetails(await workflowVersion(agent, vault, id))),
+      .map((id) => ({ chain, vault, id })),
+  );
+  const seen = new Set<string>();
+  const unique = items.filter(({ id }) => {
+    const key = id.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return Promise.all(
+    unique.map(async ({ chain, vault, id }) =>
+      readWorkflowVersionDetails(await workflowVersion(agent, vault, id, chain)),
+    ),
   );
 }
 
@@ -327,20 +377,40 @@ export async function readPaymentWorkflow(
 }
 
 export async function readWorkflowV2(owner: Address, id: Hex) {
-  const [agent, vault] = await Promise.all([
+  const chains = configuredFundsChains();
+  const [agent, ...vaultList] = await Promise.all([
     readAgent(owner),
-    readVault(owner, UNICHAIN_SEPOLIA_CHAIN_ID),
+    ...chains.map((chain) => readVault(owner, chain)),
   ]);
-  if (agent === zeroAddress || vault === zeroAddress)
+  const deployed = chains
+    .map((chain, index) => ({ chain, vault: vaultList[index] ?? zeroAddress }))
+    .filter((item) => item.vault !== zeroAddress);
+  if (agent === zeroAddress || !deployed.length)
     throw new Error('This wallet has no workflow account.');
-  return readWorkflowVersionDetails(await workflowVersion(agent, vault, id));
+  const entry = await v2Entry(agent, id);
+  const entryChain = isFundsChain(entry[5]) ? entry[5] : undefined;
+  const preferred = entryChain ? deployed.find((item) => item.chain === entryChain) : undefined;
+  if (preferred) {
+    return readWorkflowVersionDetails(
+      await workflowVersion(agent, preferred.vault, id, preferred.chain, entry),
+    );
+  }
+  for (const item of deployed) {
+    const auth = await v2Authorization(item.chain, item.vault, id);
+    if (auth[1] !== 0n || auth[3]) {
+      return readWorkflowVersionDetails(
+        await workflowVersion(agent, item.vault, id, item.chain, entry),
+      );
+    }
+  }
+  throw new Error('This workflow was not found for the connected wallet.');
 }
 
 export async function readFundsV2(owner: Address, chain: SettlementChain) {
   const [agent, vault] = await Promise.all([readAgent(owner), readVault(owner, chain)]);
   const client = workflowClient(chain);
   const lasnaSystem = getChain(LASNA_CHAIN_ID).systemContract;
-  const factory = settlementFactory();
+  const factory = settlementFactory(chain);
   const proxy = factory
     ? await client.readContract({
         address: factory,
@@ -549,9 +619,14 @@ export function useWorkflowV2Wallet() {
     );
   }
 
-  async function createVault(signer: Address, agent: Address, reviewedConnector?: string) {
-    const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
-    const vaultFactory = settlementFactory();
+  async function createVault(
+    signer: Address,
+    agent: Address,
+    reviewedConnector?: string,
+    _mode?: 'mirror',
+    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+  ) {
+    const vaultFactory = settlementFactory(chain);
     if (!vaultFactory) throw new Error('This testnet deployment is unavailable.');
     const receipt = await send(
       chain,
@@ -569,27 +644,37 @@ export function useWorkflowV2Wallet() {
     );
   }
 
-  const getVaultAgent = (vault: Address) =>
-    unichainPublicClient.readContract({
+  const getVaultAgent = (vault: Address, chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID) =>
+    workflowClient(chain).readContract({
       address: vault,
       abi: workflowVaultV2Abi,
       functionName: 'agent',
     });
-  const getLink = (agent: Address, blockNumber?: bigint) =>
+  const getLink = (
+    agent: Address,
+    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+    blockNumber?: bigint,
+  ) =>
     lasna.readContract({
       address: agent,
       abi: workflowAgentV2Abi,
       functionName: 'vaults',
-      args: [UNICHAIN_SEPOLIA_CHAIN_ID],
+      args: [chain],
       blockNumber,
     });
 
-  async function linkVault(agent: Address, vault: Address, reviewedConnector?: string) {
-    const chain = UNICHAIN_SEPOLIA_CHAIN_ID;
-    const linked = await getLink(agent);
+  async function linkVault(
+    agent: Address,
+    vault: Address,
+    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+    reviewedConnector?: string,
+  ) {
+    const linked = await getLink(agent, chain);
     if (linked !== zeroAddress) {
       if (isAddressEqual(linked, vault)) return;
-      throw new Error('This testnet Agent is already linked to another Vault.');
+      throw new Error(
+        `This testnet Agent is already linked to another ${v2Network(chain).name} Vault.`,
+      );
     }
     const receipt = await send(
       LASNA_CHAIN_ID,
@@ -605,7 +690,7 @@ export function useWorkflowV2Wallet() {
       reviewedConnector,
     );
     await waitForState(
-      () => getLink(agent, receipt.blockNumber),
+      () => getLink(agent, chain, receipt.blockNumber),
       (address) => isAddressEqual(address, vault),
       { chain: LASNA_CHAIN_ID, hash: receipt.transactionHash },
     );
@@ -617,32 +702,39 @@ export function useWorkflowV2Wallet() {
       readVault(signer, chain),
     ]);
     const agent = existingAgent === zeroAddress ? await createAgent(signer) : existingAgent;
-    const vault = existingVault === zeroAddress ? await createVault(signer, agent) : existingVault;
-    if (existingVault !== zeroAddress && !isAddressEqual(await getVaultAgent(vault), agent))
+    const vault =
+      existingVault === zeroAddress
+        ? await createVault(signer, agent, undefined, undefined, chain)
+        : existingVault;
+    if (existingVault !== zeroAddress && !isAddressEqual(await getVaultAgent(vault, chain), agent))
       throw new Error('This testnet Vault is linked to another Agent.');
-    await linkVault(agent, vault);
+    await linkVault(agent, vault, chain);
     return { agent, vault };
   }
 
-  const setupWallet: SetupWallet = {
-    getAgent: async (signer) => {
-      const agent = await readAgent(signer);
-      return agent === zeroAddress ? null : agent;
-    },
-    getVault: async (signer) => {
-      const vault = await readVault(signer, UNICHAIN_SEPOLIA_CHAIN_ID);
-      return vault === zeroAddress ? null : vault;
-    },
-    getLink: async (agent) => {
-      const vault = await getLink(agent);
-      return vault === zeroAddress ? null : vault;
-    },
-    getVaultAgent,
-    createAgent,
-    createVault,
-    linkVault: (_signer, agent, vault, _chain, reviewedConnector) =>
-      linkVault(agent, vault, reviewedConnector),
-  };
+  function setupWalletForChain(chain: SettlementChain): SetupWallet {
+    return {
+      getAgent: async (signer) => {
+        const agent = await readAgent(signer);
+        return agent === zeroAddress ? null : agent;
+      },
+      getVault: async (signer) => {
+        const vault = await readVault(signer, chain);
+        return vault === zeroAddress ? null : vault;
+      },
+      getLink: async (agent) => {
+        const vault = await getLink(agent, chain);
+        return vault === zeroAddress ? null : vault;
+      },
+      getVaultAgent: (vault) => getVaultAgent(vault, chain),
+      createAgent,
+      createVault: (signer, agent, reviewedConnector, mode) =>
+        createVault(signer, agent, reviewedConnector, mode, chain),
+      linkVault: (_signer, agent, vault, targetChain, reviewedConnector) =>
+        linkVault(agent, vault, isFundsChain(targetChain) ? targetChain : chain, reviewedConnector),
+    };
+  }
+  const setupWallet: SetupWallet = setupWalletForChain(UNICHAIN_SEPOLIA_CHAIN_ID);
 
   function activate(
     id: Hex,
@@ -654,7 +746,7 @@ export function useWorkflowV2Wallet() {
       if (!workflowActivationEnabled) throw new Error('New activations are disabled.');
       const chain = program.chain as SettlementChain;
       const client = workflowClient(chain);
-      const factory = settlementFactory();
+      const factory = settlementFactory(chain);
       if (!factory) throw new Error('This testnet deployment is unavailable.');
       const encoded = encodeWorkflowV2(program);
       await validateV2Program(encoded, program);
@@ -848,6 +940,12 @@ export function useWorkflowV2Wallet() {
     });
   }
 
+  function ensureVault(chain: SettlementChain) {
+    return perform(async (signer) => {
+      await ensure(signer, chain);
+    });
+  }
+
   return {
     owner,
     busy,
@@ -859,6 +957,8 @@ export function useWorkflowV2Wallet() {
     activate,
     pause,
     setWeeklyBudget,
+    ensureVault,
     setupWallet,
+    setupWalletForChain,
   };
 }

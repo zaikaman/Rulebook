@@ -1,4 +1,5 @@
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   createWorkflowV2Recipe,
   deriveWorkflowHealth,
   insufficientVaultBalanceSelector,
@@ -294,5 +295,20 @@ describe('workflow health', () => {
       label: 'Completed',
       attention: false,
     });
+  });
+
+  it('attributes Base Sepolia network name in execution credit warnings', () => {
+    const baseProgram = createWorkflowV2Recipe(
+      'recurring-transfer',
+      { intervalSeconds: '3600', sendUsdc: '0.02', recipient },
+      { chain: BASE_SEPOLIA_CHAIN_ID },
+    );
+    const health = deriveWorkflowHealth(
+      input({
+        program: baseProgram,
+        executionCredit: { reserve: 0n, debt: 0n, threshold: executionThreshold },
+      }),
+    );
+    expect(health.summary).toContain('Base Sepolia');
   });
 });

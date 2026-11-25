@@ -2,14 +2,18 @@ import { createHash, randomBytes } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 
 import {
+  decodeWorkflowV2,
+  isFundsChain,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
   rulewrightResultSchema,
   rulewrightSignIn,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowProgramValidatorV2Abi,
   workflowVaultFactoryV2Abi,
   type Address,
+  type FundsChainId,
   type RulewrightChallenge,
   type RulewrightRequest,
   type RulewrightResult,
@@ -19,7 +23,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { BaseError, ContractFunctionRevertedError, verifyMessage, type Hex } from 'viem';
 import { z } from 'zod';
 
-import type { ChainClients } from '../chain/clients.js';
+import { clientFor, type ChainClients } from '../chain/clients.js';
 import type { GeminiConfig } from '../config.js';
 import { generateRulewrightDraft } from './gemini.js';
 
@@ -48,13 +52,19 @@ const jobsSchema = z
 
 export class RulewrightService {
   private queueChanged = new AbortController();
+  private readonly factories: Partial<Record<FundsChainId, Address>>;
 
   constructor(
     private readonly db: SupabaseClient,
     private readonly clients: ChainClients,
-    private readonly factory: Address,
+    factoryOrFactories: Partial<Record<FundsChainId, Address>> | Address,
     private readonly provider: GeminiConfig,
-  ) {}
+  ) {
+    this.factories =
+      typeof factoryOrFactories === 'string'
+        ? { [UNICHAIN_SEPOLIA_CHAIN_ID]: factoryOrFactories }
+        : factoryOrFactories;
+  }
 
   async ready() {
     const { error } = await this.db
@@ -250,12 +260,20 @@ export class RulewrightService {
   }
 
   private async validateOnChain(encoded: Hex) {
-    const validator = await this.clients.unichain.readContract({
-      address: this.factory,
+    const decodedChain = decodeWorkflowV2(encoded).chain;
+    const chain =
+      isFundsChain(decodedChain) && this.factories[decodedChain]
+        ? decodedChain
+        : UNICHAIN_SEPOLIA_CHAIN_ID;
+    const factory = this.factories[chain];
+    if (!factory) throw new Error(`No Vault factory configured for chain ${chain}`);
+    const client = clientFor(this.clients, chain);
+    const validator = await client.readContract({
+      address: factory,
       abi: workflowVaultFactoryV2Abi,
       functionName: 'validator',
     });
-    await this.clients.unichain.readContract({
+    await client.readContract({
       address: validator,
       abi: workflowProgramValidatorV2Abi,
       functionName: 'validateProgram',

@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BASE_SEPOLIA_CHAIN_ID,
+  FUNDS_CHAIN_IDS,
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
   capIssue,
   createWorkflowV2Recipe,
   decodeWorkflowV2,
+  deriveWorkflowHealth,
   draftSpending,
   emptyDraft,
   encodeWorkflowV2,
   fieldIssue,
+  getChain,
+  isFundsChain,
   slippageIssue,
   toCopyDraft,
   toDraft,
@@ -16,6 +23,7 @@ import {
   workflowGuardrailFields,
   workflowV2Action,
   workflowV2Check,
+  workflowV2DeploymentSchema,
   workflowV2Recipes,
   workflowV2Trigger,
   workflowV2Unit,
@@ -583,5 +591,94 @@ describe('V2 on-chain constraint mirroring', () => {
       },
     });
     expect(() => validateWorkflowV2Program(inactivityAlert)).not.toThrow();
+  });
+
+  it('supports Base Sepolia chain config, deployment parsing, cross-chain triggers, and multi-chain health', () => {
+    expect(FUNDS_CHAIN_IDS).toEqual([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]);
+    expect(isFundsChain(BASE_SEPOLIA_CHAIN_ID)).toBe(true);
+    expect(isFundsChain(UNICHAIN_SEPOLIA_CHAIN_ID)).toBe(true);
+    expect(isFundsChain(LASNA_CHAIN_ID)).toBe(false);
+
+    const base = getChain(BASE_SEPOLIA_CHAIN_ID);
+    expect(base.name).toBe('Base Sepolia');
+    expect(base.isOrigin).toBe(true);
+    expect(base.isDestination).toBe(true);
+    expect(base.callbackProxy).toBe('0x476F44b11F5C942c58f4c8E3d0300E5710743585');
+    expect(base.usdc).toBe('0x036CbD53842c5426634e7929541eC2318f3dCF7e');
+    expect(base.weth).toBe('0x4200000000000000000000000000000000000006');
+    expect(base.router).toBe('0x1689E7B1F10000AE47eBfE339a4f69dECd19F602');
+    expect(base.pair).toBe('0x0B9Ab53880be6fF805ebF8FBce515E5715ccE1bE');
+
+    const factory = '0x1111111111111111111111111111111111111111';
+    const twoChain = workflowV2DeploymentSchema.parse({
+      lasna: { factory, startBlock: 1 },
+      unichain: { factory, startBlock: 2 },
+    });
+    expect(twoChain.base).toBeUndefined();
+    const threeChain = workflowV2DeploymentSchema.parse({
+      lasna: { factory, startBlock: 1 },
+      unichain: { factory, startBlock: 2 },
+      base: { factory, startBlock: 3 },
+    });
+    expect(threeChain.base?.startBlock).toBe(3);
+
+    const baseLimitBuy = createWorkflowV2Recipe('limit-buy', values, {
+      chain: BASE_SEPOLIA_CHAIN_ID,
+      originChain: BASE_SEPOLIA_CHAIN_ID,
+    });
+    const decodedSame = decodeWorkflowV2(encodeWorkflowV2(baseLimitBuy));
+    expect(decodedSame.chain).toBe(BASE_SEPOLIA_CHAIN_ID);
+    expect(decodedSame.originChain).toBe(BASE_SEPOLIA_CHAIN_ID);
+    expect(getChain(decodedSame.chain).name).toBe('Base Sepolia');
+
+    const crossTransfer = createWorkflowV2Recipe(
+      'large-transfer-alert',
+      {
+        ...values,
+        token: base.usdc,
+        watchedWallet: watched,
+      },
+      {
+        chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        originChain: BASE_SEPOLIA_CHAIN_ID,
+      },
+    );
+    const decodedCross = decodeWorkflowV2(encodeWorkflowV2(crossTransfer));
+    expect(decodedCross.chain).toBe(UNICHAIN_SEPOLIA_CHAIN_ID);
+    expect(decodedCross.originChain).toBe(BASE_SEPOLIA_CHAIN_ID);
+    expect(toDraft(decodedCross, 'Cross-chain watch')).toMatchObject({
+      chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      originChain: BASE_SEPOLIA_CHAIN_ID,
+    });
+
+    expect(toCopyDraft(decodedCross, 'Cross-chain copy')).toMatchObject({
+      chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      originChain: BASE_SEPOLIA_CHAIN_ID,
+    });
+
+    expect(() =>
+      validateWorkflowV2Program(
+        toProgram({
+          ...emptyDraft(UNICHAIN_SEPOLIA_CHAIN_ID),
+          title: 'Cross payment',
+          originChain: BASE_SEPOLIA_CHAIN_ID,
+          trigger: workflowV2Trigger.payment,
+          root: { steps: [alertStep] },
+        }),
+      ),
+    ).toThrow(/same network as its settlement Vault/i);
+
+    const lowCredit = deriveWorkflowHealth({
+      active: true,
+      readyToActivate: false,
+      closed: false,
+      program: baseLimitBuy,
+      executionCredit: { reserve: 0n, debt: 0n, threshold: 100n },
+      watchingCredit: null,
+      budget: null,
+      funding: null,
+      lastRun: null,
+    });
+    expect(lowCredit.summary).toContain('Base Sepolia');
   });
 });

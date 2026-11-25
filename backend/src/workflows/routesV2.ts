@@ -1,10 +1,11 @@
 import {
+  FUNDS_CHAIN_IDS,
   addressSchema,
+  fundsChainIdSchema,
   workflowHealthResponseSchema,
   workflowIdSchema,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -12,7 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 
 import { workflowV2FailureReason } from './failureReasons.js';
-const settlementChain = z.literal(UNICHAIN_SEPOLIA_CHAIN_ID);
+const settlementChain = fundsChainIdSchema;
 const cursor = z.object({
   block: z.number().int().nonnegative().safe(),
   id: workflowIdSchema,
@@ -280,7 +281,8 @@ export function registerWorkflowV2Routes(
       .from('workflow_v2_activity')
       .select(proofColumns)
       .eq('deployment', deployment)
-      .match({ chain: UNICHAIN_SEPOLIA_CHAIN_ID, id: params.data.id })
+      .in('chain', [...FUNDS_CHAIN_IDS])
+      .eq('id', params.data.id)
       .order('lasna_block', { ascending: false })
       .limit(1)
       .maybeSingle();

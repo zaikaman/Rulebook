@@ -1,4 +1,4 @@
-import { feeCreditWarningThreshold } from '@rulebook/shared';
+import { feeCreditWarningThreshold, getChain } from '@rulebook/shared';
 import {
   ArrowRight01Icon,
   ArrowUpRight01Icon,
@@ -70,7 +70,7 @@ export function WorkflowCost() {
             </span>
             <div>
               <h2 id="credit-cost" className="rb-panel-title">
-                Two balances, two jobs
+                {workflowCredits.length > 2 ? 'Fee credits by network' : 'Two balances, two jobs'}
               </h2>
               <p className="rb-panel-copy">
                 Credit is shared by workflows owned by the same wallet. Suggested reserves are
@@ -95,9 +95,9 @@ export function WorkflowCost() {
             return (
               <section
                 className="rb-cost-lane"
-                key={kind}
+                key={`${kind}-${chain}`}
                 data-chain-role={role}
-                aria-label={title}
+                aria-label={kind === 'watching' ? title : `${title} (${getChain(chain).name})`}
               >
                 <header className="rb-cost-lane-head">
                   <span className="rb-cost-lane-icon" aria-hidden="true">
@@ -167,7 +167,10 @@ export function WorkflowCost() {
                 )}
 
                 <footer className="rb-cost-lane-foot">
-                  <Link className="app-button" to={`${appRoutes.account}?credit=${kind}`}>
+                  <Link
+                    className="app-button"
+                    to={`${appRoutes.account}?credit=${kind}&chain=${chain}`}
+                  >
                     Add {title.toLowerCase()}
                     <HugeiconsIcon icon={ArrowRight01Icon} size={15} aria-hidden="true" />
                   </Link>

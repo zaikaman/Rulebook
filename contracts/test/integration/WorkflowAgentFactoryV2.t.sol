@@ -214,6 +214,7 @@ contract WorkflowAgentFactoryV2Test is Test {
         nodes[0].actions[0] = P.Action(P.SEND, P.FIXED, amount, RECIPIENT);
         program.version = 2;
         program.chain = P.UNICHAIN_SEPOLIA;
+        program.originChain = P.UNICHAIN_SEPOLIA;
         program.trigger = P.PAYMENT;
         program.usdcCap = 2e6;
         program.wethCap = 0.1 ether;

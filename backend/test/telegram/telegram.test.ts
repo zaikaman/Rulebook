@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   createWorkflowV2Recipe,
   encodeWorkflowV2,
   getChain,
@@ -159,6 +160,7 @@ const { app } = buildServer(
       SUPABASE_SERVICE_ROLE_KEY: 'unused',
       LASNA_RPC_URL: 'https://lasna-rpc.rnk.dev/',
       UNICHAIN_RPC_URL: 'https://sepolia.unichain.org',
+      BASE_SEPOLIA_RPC_URL: 'https://sepolia.base.org',
       INDEXER_ENABLED: false,
       corsOrigins: [],
     },
@@ -623,6 +625,100 @@ describe('Telegram account and delivery', () => {
     }
   });
 
+  it('routes Base Sepolia inactivity payout preflight checks to the Base Sepolia client', async () => {
+    const baseVault = '0x6666666666666666666666666666666666666666' as const;
+    const headers = await signIn();
+    await pair(headers);
+    await seedWorkflow();
+    await db.query(
+      `insert into workflow_v2_accounts (deployment, chain, address, owner, agent)
+        values ($1, $2, $3, $4, $5)`,
+      [deployment, BASE_SEPOLIA_CHAIN_ID, baseVault, owner.address.toLowerCase(), agent],
+    );
+    await db.query('insert into workflow_v2_activations values ($1, $2, $3, $4, $5, $6, $7)', [
+      deployment,
+      BASE_SEPOLIA_CHAIN_ID,
+      agent,
+      workflowId,
+      '2',
+      programHash,
+      'Base inactivity payout',
+    ]);
+    const baseRun = hashed('f');
+    await db.query(
+      `insert into workflow_v2_runs values ($1, $2, $3, $4, $5, $6, '2', $2, $7, '1', $6, 5,
+        extract(epoch from now())::bigint - 180)`,
+      [deployment, BASE_SEPOLIA_CHAIN_ID, baseRun, agent, workflowId, programHash, programHash],
+    );
+    await db.query(
+      `insert into workflow_v2_outcomes (deployment, chain, run_id, workflow_id, vault, epoch,
+        transaction_hash, block_number, log_index, status, reason, telegram_block_time)
+      values ($1, $2, $3, $4, $5, '2', $6, 10, 0, 6, '0x00000000', clock_timestamp())`,
+      [deployment, BASE_SEPOLIA_CHAIN_ID, baseRun, workflowId, baseVault, hashed('9')],
+    );
+
+    const baseDeadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+    const queriedChains: number[] = [];
+    const makeClient = (chainId: number) =>
+      ({
+        getTransactionReceipt: async () => ({
+          blockNumber: 10n,
+          logs: [],
+        }),
+        readContract: async ({ functionName }: { functionName: string }) => {
+          queriedChains.push(chainId);
+          return functionName === 'authorizations'
+            ? [programHash, 2n, 1n, true]
+            : [
+                0n,
+                0n,
+                0n,
+                0n,
+                chainId === BASE_SEPOLIA_CHAIN_ID ? baseDeadline : 0n,
+                0n,
+                0n,
+                false,
+              ];
+        },
+        getBlock: async () => {
+          queriedChains.push(chainId);
+          return { number: 20n, timestamp: BigInt(Math.floor(Date.now() / 1000)) };
+        },
+      }) as unknown as PublicClient;
+
+    const multiAlerts = new WorkflowTelegramAlerts(
+      databaseAdapter,
+      {
+        lasna: makeClient(LASNA_CHAIN_ID),
+        unichain: makeClient(UNICHAIN_SEPOLIA_CHAIN_ID),
+        base: makeClient(BASE_SEPOLIA_CHAIN_ID),
+      },
+      deployment,
+      telegramConfig.appOrigin,
+      [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+    );
+    const multiTelegram = new TelegramService(
+      telegramConfig,
+      databaseAdapter,
+      {
+        verify: async (target, signer, challenge, signature) =>
+          target === agent &&
+          signer === owner.address.toLowerCase() &&
+          verifyTypedData({ address: signer, signature, ...telegramSignIn(target, challenge) }),
+      },
+      multiAlerts,
+    );
+
+    await multiTelegram.processNotifications();
+    const { result } = await prepareNext();
+    const preflight = payoutPreflight.parse(result[0]?.preflight);
+    expect(preflight.chain).toBe(BASE_SEPOLIA_CHAIN_ID);
+    expect(preflight.vault.toLowerCase()).toBe(baseVault.toLowerCase());
+    queriedChains.length = 0;
+    expect(await multiAlerts.stillInGrace(preflight)).toBe(true);
+    expect(queriedChains.every((id) => id === BASE_SEPOLIA_CHAIN_ID)).toBe(true);
+  });
+
   it('checks both chain cursors before flagging an unfinished run and cancels it after a receipt', async () => {
     const headers = await signIn();
     await pair(headers);
@@ -754,6 +850,74 @@ describe('Telegram account and delivery', () => {
     await expect(monitoring.currentMessage(preflight)).resolves.toContain('0.000025 test ETH');
     ethReserve *= 20n;
     await expect(monitoring.currentMessage(preflight)).resolves.toBeNull();
+  });
+
+  it('claims and alerts Base Sepolia funding checks when a Base Vault has an active workflow', async () => {
+    const headers = await signIn();
+    await pair(headers);
+    const baseVault = '0x6666666666666666666666666666666666666666' as const;
+    const baseWorkflowId = `0x${'d'.repeat(64)}` as const;
+    await db.query(
+      `insert into workflow_v2_accounts (deployment, chain, address, owner, agent)
+        values ($1, $2, $4, $5, $4), ($1, $3, $6, $5, $4)`,
+      [
+        deployment,
+        LASNA_CHAIN_ID,
+        BASE_SEPOLIA_CHAIN_ID,
+        agent,
+        owner.address.toLowerCase(),
+        baseVault,
+      ],
+    );
+    await db.query('insert into workflow_v2_activations values ($1, $2, $3, $4, $5, $6, $7)', [
+      deployment,
+      BASE_SEPOLIA_CHAIN_ID,
+      agent,
+      baseWorkflowId,
+      '2',
+      programHash,
+      'Base schedule',
+    ]);
+    const block = async () => ({ number: 15n, timestamp: BigInt(Math.floor(Date.now() / 1000)) });
+    const lasna = {
+      getBlock: block,
+      getBlockNumber: async () => 15n,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'workflowIds') return [baseWorkflowId];
+        if (functionName === 'entries')
+          return [programHash, 2n, 0n, 0n, 1, BASE_SEPOLIA_CHAIN_ID, 3600, 0n];
+        if (functionName === 'system') return otherAgent;
+        return functionName === 'debt' ? 0n : 10n ** 18n;
+      },
+    } as unknown as PublicClient;
+    const unichain = {
+      getBlock: block,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'callbackProxy') return otherAgent;
+        return functionName === 'debt' ? 0n : 10n ** 18n;
+      },
+    } as unknown as PublicClient;
+    const baseClient = {
+      getBlock: block,
+      readContract: async ({ functionName, args }: { functionName: string; args?: Address[] }) => {
+        if (functionName === 'callbackProxy') return otherAgent;
+        if (functionName === 'authorizations') return [programHash, 2n, 0n, true];
+        expect(args).toEqual([baseVault]);
+        return functionName === 'reserves' ? 50_000_000_000_000n : 0n;
+      },
+    } as unknown as PublicClient;
+    const monitoring = new TelegramFundingAlerts(
+      databaseAdapter,
+      { lasna, unichain, base: baseClient },
+      deployment,
+      { [UNICHAIN_SEPOLIA_CHAIN_ID]: unavailableVault, [BASE_SEPOLIA_CHAIN_ID]: otherAgent },
+      telegramConfig.appOrigin,
+    );
+    await monitoring.process();
+    const { result } = await prepareNext();
+    expect(result).toHaveLength(1);
+    expect(result[0]?.message).toContain('Base Sepolia');
+    expect(result[0]?.message).toContain('0.00005 test ETH');
   });
 
   it('authorizes only the owner, rejects forged and reused challenges, and scopes the session', async () => {

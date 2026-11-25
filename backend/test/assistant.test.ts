@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
-import { UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import type { Address } from 'viem';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -313,5 +313,54 @@ describe('assistant data tools', () => {
     expect(result.detail).toBe('1 run');
     expect(result.content).toContain('"title":"Recurring transfer"');
     expect(result.references.map((reference) => reference.kind)).toEqual(['run', 'activity']);
+  });
+
+  it('aggregates Unichain Sepolia and Base Sepolia vaults and credits in get_account_overview', async () => {
+    const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
+    const agent = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
+    const uniVault = '0x1111111111111111111111111111111111111111' as const;
+    const baseVault = '0x2222222222222222222222222222222222222222' as const;
+    const deployment = {
+      lasna: { factory: '0x3333333333333333333333333333333333333333' as const, startBlock: 1 },
+      unichain: { factory: '0x4444444444444444444444444444444444444444' as const, startBlock: 1 },
+      base: { factory: '0x5555555555555555555555555555555555555555' as const, startBlock: 1 },
+    };
+    const mkClient = (vault: Address, usdcBalance: bigint) => ({
+      getBalance: async () => 500_000_000_000_000_000n,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'agentOf') return agent;
+        if (functionName === 'vaultOf') return vault;
+        if (functionName === 'callbackProxy') return '0x6666666666666666666666666666666666666666';
+        if (functionName === 'balanceOf') return usdcBalance;
+        if (functionName === 'allowance') return 2_000_000n;
+        if (functionName === 'reserves') return 100_000_000_000_000_000n;
+        return 0n;
+      },
+    });
+    const clients = {
+      lasna: mkClient(agent, 0n),
+      unichain: mkClient(uniVault, 10_000_000n),
+      base: mkClient(baseVault, 25_000_000n),
+    };
+    const executor = new AssistantToolExecutor({} as never, clients as never, deployment, owner);
+    const overview = await executor.execute('get_account_overview', {});
+    const parsed = JSON.parse(overview.content) as {
+      vaults: Record<string, { name: string; vault: string; vaultUsdc: string }>;
+      networks: { allFundsChains: { chain: number; name: string }[] };
+    };
+    expect(parsed.vaults[String(UNICHAIN_SEPOLIA_CHAIN_ID)]).toMatchObject({
+      name: 'Unichain Sepolia',
+      vault: uniVault,
+      vaultUsdc: '10',
+    });
+    expect(parsed.vaults[String(BASE_SEPOLIA_CHAIN_ID)]).toMatchObject({
+      name: 'Base Sepolia',
+      vault: baseVault,
+      vaultUsdc: '25',
+    });
+    expect(parsed.networks.allFundsChains.map((c) => c.chain)).toEqual([
+      UNICHAIN_SEPOLIA_CHAIN_ID,
+      BASE_SEPOLIA_CHAIN_ID,
+    ]);
   });
 });

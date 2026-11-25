@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -21,6 +22,8 @@ import type { AppConfig } from '../../backend/src/config.js';
 import { buildServer } from '../../backend/src/server.js';
 import { registerWorkflowV2Routes } from '../../backend/src/workflows/routesV2.js';
 import {
+  ANVIL_BASE_RPC_PORT,
+  ANVIL_BASE_RPC_URL,
   ANVIL_RPC_PORT,
   ANVIL_RPC_URL,
   FIXTURE_API_PORT,
@@ -29,6 +32,7 @@ import {
   SPONSOR_PRIVATE_KEY,
   USER_ADDRESS,
   WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+  WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig.js';
 
@@ -85,15 +89,22 @@ const anvilChain = {
   rpcUrls: { default: { http: [ANVIL_RPC_URL] } },
 } as const;
 
+const baseAnvilChain = {
+  id: 84532,
+  name: 'Base Anvil',
+  nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+  rpcUrls: { default: { http: [ANVIL_BASE_RPC_URL] } },
+} as const;
+
 const ERC20 = parseAbi([
   'function mint(address to, uint256 amount)',
   'function balanceOf(address account) view returns (uint256)',
 ]);
 
-async function waitForAnvil(): Promise<void> {
+async function waitForAnvil(url: string): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      const response = await fetch(ANVIL_RPC_URL, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_chainId', params: [] }),
@@ -104,7 +115,7 @@ async function waitForAnvil(): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
-  throw new Error('anvil did not start');
+  throw new Error(`anvil did not start at ${url}`);
 }
 
 async function main(): Promise<void> {
@@ -114,16 +125,22 @@ async function main(): Promise<void> {
     ['--chain-id', '1301', '--port', String(ANVIL_RPC_PORT), '--silent'],
     { stdio: 'inherit' },
   );
+  const baseAnvil: ChildProcess = spawn(
+    anvilPath,
+    ['--chain-id', '84532', '--port', String(ANVIL_BASE_RPC_PORT), '--silent'],
+    { stdio: 'inherit' },
+  );
   const serverRef: { current?: ReturnType<typeof buildServer>['app'] } = {};
 
   const shutdown = (): void => {
     void serverRef.current?.close();
     anvil.kill();
+    baseAnvil.kill();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  await waitForAnvil();
+  await Promise.all([waitForAnvil(ANVIL_RPC_URL), waitForAnvil(ANVIL_BASE_RPC_URL)]);
 
   const account = privateKeyToAccount(SPONSOR_PRIVATE_KEY);
   const publicClient = createPublicClient({ chain: anvilChain, transport: http(ANVIL_RPC_URL) });
@@ -132,18 +149,35 @@ async function main(): Promise<void> {
     chain: anvilChain,
     transport: http(ANVIL_RPC_URL),
   });
+  const basePublicClient = createPublicClient({
+    chain: baseAnvilChain,
+    transport: http(ANVIL_BASE_RPC_URL),
+  });
+  const baseWallet = createWalletClient({
+    account,
+    chain: baseAnvilChain,
+    transport: http(ANVIL_BASE_RPC_URL),
+  });
 
-  // Lasna's system contract is at a fixed address with no code locally. Installing the double
-  // there lets subscription calls succeed, exactly as they do on the real network.
-  for (const billingContract of [
-    getChain(LASNA_CHAIN_ID).systemContract,
-    getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy,
-  ]) {
-    await publicClient.request({
-      method: 'anvil_setCode',
-      params: [billingContract, mockSystemArtifact.deployedBytecode.object],
-    } as never);
-  }
+  // Lasna's system contract and destination callback proxies have no code on clean anvils.
+  await publicClient.request({
+    method: 'anvil_setCode',
+    params: [getChain(LASNA_CHAIN_ID).systemContract, mockSystemArtifact.deployedBytecode.object],
+  } as never);
+  await publicClient.request({
+    method: 'anvil_setCode',
+    params: [
+      getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy,
+      mockSystemArtifact.deployedBytecode.object,
+    ],
+  } as never);
+  await basePublicClient.request({
+    method: 'anvil_setCode',
+    params: [
+      getChain(BASE_SEPOLIA_CHAIN_ID).callbackProxy,
+      mockSystemArtifact.deployedBytecode.object,
+    ],
+  } as never);
 
   for (const [factory, args, expectedAddress] of [
     [
@@ -163,26 +197,45 @@ async function main(): Promise<void> {
       throw new Error('V2 workflow factory was not deployed at its expected address');
   }
 
-  const usdc = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
-  const weth = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).weth;
-  for (const token of [usdc, weth]) {
-    await publicClient.request({
-      method: 'anvil_setCode',
-      params: [token, mockErc20Artifact.deployedBytecode.object],
-    } as never);
+  const baseFactoryHash = await baseWallet.deployContract({
+    abi: workflowVaultFactoryV2Artifact.abi,
+    bytecode: workflowVaultFactoryV2Artifact.bytecode.object,
+    args: [],
+  });
+  const baseFactoryReceipt = await basePublicClient.waitForTransactionReceipt({
+    hash: baseFactoryHash,
+  });
+  if (
+    baseFactoryReceipt.contractAddress?.toLowerCase() !==
+    WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS.toLowerCase()
+  ) {
+    throw new Error('Base V2 workflow vault factory was not deployed at its expected address');
   }
 
-  for (const [token, amount] of [
-    [usdc, 1_000_000_000_000n],
-    [weth, 1_000_000n * 10n ** 18n],
+  for (const [client, walletClient, chainId] of [
+    [publicClient, wallet, UNICHAIN_SEPOLIA_CHAIN_ID],
+    [basePublicClient, baseWallet, BASE_SEPOLIA_CHAIN_ID],
   ] as const) {
-    const hash = await wallet.writeContract({
-      address: token as Address,
-      abi: ERC20,
-      functionName: 'mint',
-      args: [USER_ADDRESS, amount],
-    });
-    await publicClient.waitForTransactionReceipt({ hash });
+    const usdc = getChain(chainId).usdc;
+    const weth = getChain(chainId).weth;
+    for (const token of [usdc, weth]) {
+      await client.request({
+        method: 'anvil_setCode',
+        params: [token, mockErc20Artifact.deployedBytecode.object],
+      } as never);
+    }
+    for (const [token, amount] of [
+      [usdc, 1_000_000_000_000n],
+      [weth, 1_000_000n * 10n ** 18n],
+    ] as const) {
+      const hash = await walletClient.writeContract({
+        address: token as Address,
+        abi: ERC20,
+        functionName: 'mint',
+        args: [USER_ADDRESS, amount],
+      });
+      await client.waitForTransactionReceipt({ hash });
+    }
   }
 
   const config: AppConfig = {
@@ -192,10 +245,12 @@ async function main(): Promise<void> {
     SUPABASE_SERVICE_ROLE_KEY: 'fixture',
     LASNA_RPC_URL: ANVIL_RPC_URL,
     UNICHAIN_RPC_URL: ANVIL_RPC_URL,
+    BASE_SEPOLIA_RPC_URL: ANVIL_BASE_RPC_URL,
     INDEXER_ENABLED: false,
     WORKFLOW_V2_DEPLOYMENT: {
       lasna: { factory: WORKFLOW_V2_AGENT_FACTORY_ADDRESS, startBlock: 1 },
       unichain: { factory: WORKFLOW_V2_VAULT_FACTORY_ADDRESS, startBlock: 1 },
+      base: { factory: WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS, startBlock: 1 },
     },
     corsOrigins: [FIXTURE_FRONTEND_URL],
   };
@@ -208,6 +263,7 @@ async function main(): Promise<void> {
       rpcHealth: async () => [
         { chain_id: LASNA_CHAIN_ID, rpc_ok: true },
         { chain_id: UNICHAIN_SEPOLIA_CHAIN_ID, rpc_ok: true },
+        { chain_id: BASE_SEPOLIA_CHAIN_ID, rpc_ok: true },
       ],
     },
     { logger: false },

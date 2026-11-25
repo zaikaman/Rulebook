@@ -21,7 +21,7 @@ export function WorkflowHealthPanel({
   const { rows, pending, runsUnavailable, creditsUnavailable } = useWorkflowHealth(owner, [item]);
   const view = rows.get(item.id);
   if (!view) return null;
-  const href = workflowHealthHref(view.health, item.id, view.lastRun?.id);
+  const href = workflowHealthHref(view.health, item.id, view.lastRun?.id, view.chain);
   const facts = [
     {
       term: 'Last successful run',

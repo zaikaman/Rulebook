@@ -1,10 +1,12 @@
 import { expect, type Page } from '@playwright/test';
 import {
+  BASE_SEPOLIA_CHAIN_ID,
   getChain,
   LASNA_CHAIN_ID,
   SUPPORTED_CHAIN_IDS,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowVaultFactoryV2Abi,
+  type FundsChainId,
 } from '@rulebook/shared';
 import {
   createPublicClient,
@@ -18,9 +20,11 @@ import {
 } from 'viem';
 
 import {
+  ANVIL_BASE_RPC_URL,
   ANVIL_RPC_URL,
   SPONSOR_ADDRESS,
   USER_ADDRESS,
+  WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig.js';
 
@@ -55,9 +59,11 @@ export async function installWallet(
     ({
       user,
       rpc,
+      baseRpc,
       initialChainId,
       lasnaId,
       unichainId,
+      baseId,
       approvedTestnets,
       installedTestnets,
       options,
@@ -137,7 +143,7 @@ export async function installWallet(
             walletRequests.push({ method, chainId: Number.parseInt(chainId, 16) });
             grantedChains = omitLasna
               ? [unichainId]
-              : [unichainId, lasnaId].filter(
+              : [unichainId, baseId, lasnaId].filter(
                   (id) => grantedChains.includes(id) || requestedChains.has(id),
                 );
             omitLasna = false;
@@ -175,7 +181,8 @@ export async function installWallet(
           if (method === 'eth_signTypedData_v4' && typeof args[1] === 'string') {
             args[1] = JSON.parse(args[1]);
           }
-          const response = await fetch(rpc, {
+          const endpoint = chainId === baseId ? baseRpc : rpc;
+          const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method, params: args }),
@@ -209,9 +216,11 @@ export async function installWallet(
     {
       user,
       rpc: ANVIL_RPC_URL,
+      baseRpc: ANVIL_BASE_RPC_URL,
       initialChainId,
       lasnaId: numberToHex(LASNA_CHAIN_ID),
       unichainId: numberToHex(UNICHAIN_SEPOLIA_CHAIN_ID),
+      baseId: numberToHex(BASE_SEPOLIA_CHAIN_ID),
       installedTestnets: (
         options.installedTestnets ??
         options.approvedTestnets ??
@@ -250,13 +259,22 @@ export async function skipRuleFunding(page: Page) {
 }
 
 /** Funds the V2 workflow vault that account setup creates for this owner. */
-export async function fundFixtureWorkflowVault(owner: Address, amount: bigint) {
-  const transport = http(ANVIL_RPC_URL);
+export async function fundFixtureWorkflowVault(
+  owner: Address,
+  amount: bigint,
+  chain: FundsChainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+) {
+  const rpcUrl = chain === BASE_SEPOLIA_CHAIN_ID ? ANVIL_BASE_RPC_URL : ANVIL_RPC_URL;
+  const factoryAddress =
+    chain === BASE_SEPOLIA_CHAIN_ID
+      ? WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS
+      : WORKFLOW_V2_VAULT_FACTORY_ADDRESS;
+  const transport = http(rpcUrl);
   const client = createPublicClient({ transport });
   const wallet = createWalletClient({ transport });
-  const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
+  const token = getChain(chain).usdc;
   const vault = await client.readContract({
-    address: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+    address: factoryAddress,
     abi: workflowVaultFactoryV2Abi,
     functionName: 'vaultOf',
     args: [owner],

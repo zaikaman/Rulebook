@@ -64,6 +64,7 @@ contract WorkflowV2Test is Test {
         program = P.Program({
             version: 2,
             chain: P.UNICHAIN_SEPOLIA,
+            originChain: P.UNICHAIN_SEPOLIA,
             trigger: P.SCHEDULE,
             interval: 1 hours,
             expires: 0,
@@ -197,7 +198,7 @@ contract WorkflowV2SettlementTest is Test {
         vm.prank(address(system));
         agent.react(tick);
         assertEq(system.requestCount(), 0, "an expired workflow never dispatches");
-        (,,,, uint8 trigger,,,,,,,,,) = agent.entries(WORKFLOW);
+        (,,,, uint8 trigger,,,,,,,,,,) = agent.entries(WORKFLOW);
         assertEq(trigger, 0, "the expired workflow is no longer active");
 
         vm.prank(address(system));
@@ -908,6 +909,7 @@ contract WorkflowV2SettlementTest is Test {
     {
         program.version = 2;
         program.chain = P.UNICHAIN_SEPOLIA;
+        program.originChain = P.UNICHAIN_SEPOLIA;
         program.trigger = trigger;
         program.interval = trigger == P.SCHEDULE ? 1 hours : 0;
         program.usdcCap = 2e6;

@@ -16,12 +16,12 @@ Rulebook is a no-code builder for personal on-chain automations. Users choose a 
 
 ## Positioning
 
-Each workflow maps to an on-chain program signed by the user. A wallet-owned Agent on Reactive Lasna evaluates incoming events and timer ticks. When conditions are satisfied, the Agent dispatches a callback to the user's Unichain Sepolia Vault. The Vault holds principal and enforces limits, caps, and weekly budgets before executing any swap or transfer. The indexer reads chain activity to make execution evidence transparent and inspectable.
+Each workflow maps to an on-chain program signed by the user. A wallet-owned Agent on Reactive Lasna evaluates incoming events and timer ticks across supported origin chains. When conditions are satisfied, the Agent dispatches a callback to the user's Vault on the chosen settlement chain (Unichain Sepolia or Base Sepolia). The Vault holds principal and enforces limits, caps, and weekly budgets before executing any swap or transfer. The indexer reads chain activity across all configured chains to make execution evidence transparent and inspectable.
 
 ## Operating Context
 
 - The current experience uses testnet tokens. Users fund their own setup, monitoring, execution, and trades.
-- The same wallet operates on two networks: Reactive Lasna handles workflow configuration and event monitoring; Unichain Sepolia handles the Vault, funds, and settlement.
+- The same wallet operates across Reactive Lasna (workflow configuration and event monitoring) and each supported funds chain (Unichain Sepolia and Base Sepolia for Vault principal and settlement, plus cross-chain origin triggers).
 - Account setup resumes seamlessly when one contract already exists. Account and Vault views display watching credit, execution credit, and vault principal separately.
 - Execution proof tracks the origin event, Reactive evaluation, and destination settlement transaction. Public proofs can be shared and inspected without connecting a wallet.
 - Optional Telegram notifications deliver funding alerts, failure notices, inactivity warnings, and workflow updates directly to the user.
