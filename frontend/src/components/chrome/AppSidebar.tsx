@@ -1,9 +1,12 @@
 import { ArrowLeft01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
+import { getChain } from '@rulebook/shared';
 import type { ComponentProps } from 'react';
 import { Link, useLocation } from 'react-router';
 
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
+import { Badge } from '@/ui';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { Wordmark } from './Wordmark.js';
 import { workflowNavigation } from './workflowNavigation.js';
@@ -56,14 +59,51 @@ function RailLink({ label, href, icon, activeOn = [], exact }: RailItem) {
   );
 }
 
+function formatChainList(names: readonly string[]): string {
+  if (names.length === 0) return '';
+  if (names.length === 1) return names[0] ?? '';
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+function formatSettlementSummary(
+  chainNames: readonly string[],
+  isDeploymentConfigured: boolean,
+): string {
+  const formattedChains = formatChainList(chainNames);
+  if (!isDeploymentConfigured) {
+    return formattedChains
+      ? `Contracts are not deployed in this environment yet. Settlement targets ${formattedChains}.`
+      : 'Contracts are not deployed in this environment yet.';
+  }
+  if (chainNames.length === 0) {
+    return 'Watches for triggers and settles approved actions from your vaults.';
+  }
+  if (chainNames.length === 1) {
+    return `Watches for triggers. ${formattedChains} settles from your vault.`;
+  }
+  return `Watches for triggers. ${formattedChains} settle from your vaults.`;
+}
+
 export function AppSidebar() {
+  const { mode, isMainnet, automationName, configuredFundsChains, isDeploymentConfigured } =
+    useNetworkMode();
+  const fundsChainNames = configuredFundsChains.map((chainId) => getChain(chainId).name);
+  const settlementSummary = formatSettlementSummary(fundsChainNames, isDeploymentConfigured);
+
   return (
-    <aside className="app-rail">
+    <aside className="app-rail" data-network-mode={mode}>
       <div className="app-rail-brand">
         <Link to={appRoutes.landing} aria-label="Rulebook home">
           <Wordmark />
         </Link>
-        <span className="rb-chip rb-chip--plain">Testnet</span>
+        <Badge
+          tone={isMainnet ? 'paused' : undefined}
+          plain={!isMainnet}
+          data-testid="sidebar-network-mode"
+        >
+          {isMainnet ? 'Mainnet' : 'Testnet'}
+        </Badge>
       </div>
 
       <div className="app-rail-cta">
@@ -82,12 +122,12 @@ export function AppSidebar() {
       </nav>
 
       <div className="app-rail-footer">
-        <div className="app-rail-note">
-          <p className="app-rail-note-title">
-            <span className="app-live-dot" aria-hidden="true" />
-            Reactive Lasna
+        <div className="app-rail-note" data-testid="sidebar-network-note">
+          <p className="app-rail-note-title" data-testid="sidebar-automation-network">
+            {isDeploymentConfigured && <span className="app-live-dot" aria-hidden="true" />}
+            {automationName}
           </p>
-          <p>Watches for triggers. Unichain Sepolia and Base Sepolia settle from your vaults.</p>
+          <p data-testid="sidebar-funds-summary">{settlementSummary}</p>
         </div>
 
         <Link to={appRoutes.landing} className="app-rail-back">

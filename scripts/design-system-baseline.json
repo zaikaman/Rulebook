@@ -6,7 +6,6 @@
     "frontend/src/components/SignatureSummary.tsx",
     "frontend/src/components/TelegramNotifications.tsx",
     "frontend/src/components/WalletPrompt.tsx",
-    "frontend/src/components/chrome/AppSidebar.tsx",
     "frontend/src/components/chrome/AppTopbar.tsx",
     "frontend/src/components/chrome/CopyButton.tsx",
     "frontend/src/components/chrome/HowItWorks.tsx",

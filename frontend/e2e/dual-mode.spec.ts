@@ -19,24 +19,45 @@ test('defaults to Testnet and cleanly switches between Testnet and Mainnet witho
   const testnetToggle = page.getByTestId('network-mode-testnet');
   const mainnetToggle = page.getByTestId('network-mode-mainnet');
   const activeNetwork = page.getByTestId('active-automation-network');
+  const sidebarMode = page.getByTestId('sidebar-network-mode');
+  const sidebarAutomation = page.getByTestId('sidebar-automation-network');
+  const sidebarFundsSummary = page.getByTestId('sidebar-funds-summary');
+  const sidebarNote = page.getByTestId('sidebar-network-note');
 
   await expect(testnetToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'false');
   await expect(activeNetwork).toContainText('Reactive Lasna');
+  await expect(sidebarMode).toHaveText('Testnet');
+  await expect(sidebarAutomation).toContainText('Reactive Lasna');
+  await expect(sidebarFundsSummary).toContainText('Unichain Sepolia');
 
   await mainnetToggle.click();
   await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(testnetToggle).toHaveAttribute('aria-pressed', 'false');
   await expect(activeNetwork).toContainText('Reactive Mainnet');
+  await expect(sidebarMode).toHaveText('Mainnet');
+  await expect(sidebarMode).toHaveAttribute('data-tone', 'paused');
+  await expect(sidebarAutomation).toContainText('Reactive Mainnet');
+  await expect(sidebarFundsSummary).toContainText('Unichain');
+  await expect(sidebarFundsSummary).not.toContainText('Sepolia');
+  await expect(sidebarNote).not.toContainText('Reactive Lasna');
   await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeVisible();
 
   await page.reload();
   await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(activeNetwork).toContainText('Reactive Mainnet');
+  await expect(sidebarMode).toHaveText('Mainnet');
+  await expect(sidebarMode).toHaveAttribute('data-tone', 'paused');
+  await expect(sidebarAutomation).toContainText('Reactive Mainnet');
+  await expect(sidebarFundsSummary).toContainText('Unichain');
+  await expect(sidebarFundsSummary).not.toContainText('Sepolia');
+  await expect(sidebarNote).not.toContainText('Reactive Lasna');
 
   await page.getByRole('button', { name: 'Switch to Testnet' }).click();
   await expect(testnetToggle).toHaveAttribute('aria-pressed', 'true');
   await expect(activeNetwork).toContainText('Reactive Lasna');
+  await expect(sidebarMode).toHaveText('Testnet');
+  await expect(sidebarAutomation).toContainText('Reactive Lasna');
   await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeHidden();
 
   expect(pageErrors).toEqual([]);
@@ -54,10 +75,14 @@ test('?network= query parameter initializes and preserves network mode across re
   await page.goto(`${appUrl}/workflows`);
   await expect(page.getByTestId('network-mode-mainnet')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Mainnet');
+  await expect(page.getByTestId('sidebar-network-mode')).toHaveText('Mainnet');
+  await expect(page.getByTestId('sidebar-automation-network')).toContainText('Reactive Mainnet');
 
   await page.goto(`${appUrl}/marketplace?network=testnet`);
   await expect(page.getByTestId('network-mode-testnet')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Lasna');
+  await expect(page.getByTestId('sidebar-network-mode')).toHaveText('Testnet');
+  await expect(page.getByTestId('sidebar-automation-network')).toContainText('Reactive Lasna');
 
   expect(pageErrors).toEqual([]);
 });
