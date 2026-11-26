@@ -41,3 +41,23 @@ test('defaults to Testnet and cleanly switches between Testnet and Mainnet witho
 
   expect(pageErrors).toEqual([]);
 });
+
+test('?network= query parameter initializes and preserves network mode across reloads', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message);
+  });
+
+  await page.goto(`${appUrl}/runs/nonexistent-run?network=mainnet`);
+  await page.goto(`${appUrl}/workflows`);
+  await expect(page.getByTestId('network-mode-mainnet')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Mainnet');
+
+  await page.goto(`${appUrl}/marketplace?network=testnet`);
+  await expect(page.getByTestId('network-mode-testnet')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Lasna');
+
+  expect(pageErrors).toEqual([]);
+});

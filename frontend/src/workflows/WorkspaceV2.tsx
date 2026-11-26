@@ -66,7 +66,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { Badge, Button, Callout, Select } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
@@ -311,7 +311,7 @@ export function WorkflowsV2() {
                           Last success{' '}
                           <Link
                             className="app-link"
-                            to={`${appRoutes.runs}/${view.lastSuccess.id}`}
+                            to={withNetworkQuery(`${appRoutes.runs}/${view.lastSuccess.id}`, mode)}
                           >
                             {shortRun(view.lastSuccess.id)}
                           </Link>
@@ -344,17 +344,24 @@ export function WorkflowsV2() {
 }
 
 export function WorkflowDetailV2() {
-  const { mode, automationName } = useNetworkMode();
+  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const wallet = useWorkflowV2Wallet();
   const data = useQuery({
     queryKey: ['workflow-v2', 'detail', mode, wallet.owner, raw],
-    enabled: Boolean(wallet.owner && id.success),
+    enabled: Boolean(wallet.owner && id.success && isDeploymentConfigured),
     queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode),
     refetchInterval: 12_000,
   });
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
+  if (!isDeploymentConfigured) {
+    return isMainnet ? (
+      <MainnetUnavailableCallout context="Workflow details" />
+    ) : (
+      <p className="rb-note">Contracts are not configured for {automationName}.</p>
+    );
+  }
   if (!wallet.owner)
     return (
       <section className="app-page">
@@ -597,7 +604,10 @@ function Publication({
             </dl>
           </div>
           <footer className="rb-publication-foot">
-            <Link className="app-button app-button--primary" to={`/marketplace/${published.id}`}>
+            <Link
+              className="app-button app-button--primary"
+              to={withNetworkQuery(`/marketplace/${published.id}`, mode)}
+            >
               View listing
               <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
             </Link>
@@ -794,8 +804,7 @@ const activityFilterStatuses = {
 
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
-  const { mode, isMainnet, automationChainId, automationName, isDeploymentConfigured } =
-    useNetworkMode();
+  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const [params] = useSearchParams();
   const run = params.get('run');
   const workflow = params.get('workflow');
@@ -841,8 +850,6 @@ export function WorkflowActivityV2() {
     requestedId || filter === 'all'
       ? rows
       : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
-  const decisionLabel =
-    automationName === 'Reactive Mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
   return (
     <section className="app-page">
       <PageHeading
@@ -902,7 +909,7 @@ export function WorkflowActivityV2() {
             },
             {
               icon: Shield01Icon,
-              title: decisionLabel,
+              title: isMainnet ? 'Reactive Mainnet decision' : 'Lasna decision',
               copy: 'The agent evaluates the checks and records which path it chose.',
             },
             {
@@ -982,7 +989,7 @@ export function WorkflowActivityV2() {
               className="app-button"
               to={
                 requestedId
-                  ? `${appRoutes.runs}/${requestedId}`
+                  ? withNetworkQuery(`${appRoutes.runs}/${requestedId}`, mode)
                   : workflowId
                     ? `${appRoutes.workflows}/${workflowId}`
                     : appRoutes.workflows
@@ -1016,6 +1023,10 @@ export function WorkflowActivityV2() {
                   : run.status === 'pending' || run.status === 'in grace period'
                     ? 'paused'
                     : undefined;
+            const runMode = networkModeForChain(run.chain);
+            const runAutomationChain = automationChainFor(runMode);
+            const runDecisionLabel =
+              runMode === 'mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
             return (
               <li key={`${run.chain}:${run.id}`} className="rb-run" data-tone={tone}>
                 <span className="rb-run-marker" aria-hidden="true">
@@ -1051,16 +1062,18 @@ export function WorkflowActivityV2() {
                       label="Origin event"
                     />
                     <TransactionLink
-                      chain={automationChainId}
+                      chain={runAutomationChain}
                       hash={run.lasnaTransaction}
-                      label={decisionLabel}
+                      label={runDecisionLabel}
                     />
                     <TransactionLink
                       chain={run.chain}
                       hash={run.destinationTransaction}
                       label="Settlement transaction"
                     />
-                    <Link to={`${appRoutes.runs}/${run.id}`}>Public proof</Link>
+                    <Link to={withNetworkQuery(`${appRoutes.runs}/${run.id}`, runMode)}>
+                      Public proof
+                    </Link>
                     {!requestedId && (
                       <Link to={`${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}`}>
                         Run details
@@ -1372,16 +1385,17 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
       ? parsedChain.data
       : undefined;
   const chains = configuredFundsChains(mode);
-  const [setupChain, setSetupChain] = useState<SettlementChain>(() =>
-    initialChain && chains.includes(initialChain) ? initialChain : defaultFundsChainId,
-  );
-  useEffect(() => {
-    if (initialChain && configuredFundsChains(mode).includes(initialChain)) {
-      setSetupChain(initialChain);
-    } else if (!configuredFundsChains(mode).includes(setupChain)) {
-      setSetupChain(defaultFundsChainId);
-    }
-  }, [defaultFundsChainId, initialChain, mode, setupChain]);
+  const [selectedSetup, setSelectedSetup] = useState<{
+    readonly mode: NetworkMode;
+    readonly initialChain: SettlementChain | undefined;
+    readonly chain: SettlementChain;
+  }>();
+  const setupChain =
+    selectedSetup?.mode === mode &&
+    selectedSetup.initialChain === initialChain &&
+    chains.includes(selectedSetup.chain)
+      ? selectedSetup.chain
+      : (initialChain ?? defaultFundsChainId);
   const builder = <Navigate to={appRoutes.newWorkflow} replace />;
   const accountFor = (chain: SettlementChain) => (
     <AppShell>
@@ -1411,7 +1425,7 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
       title="Account & Vault"
       chainId={setupChain}
       availableChains={chains}
-      onChainChange={setSetupChain}
+      onChainChange={(nextChain) => setSelectedSetup({ mode, initialChain, chain: nextChain })}
       findLinkedChain={(owner) => findLinkedWorkflowChain(owner, mode)}
       wallet={setupWalletForChain(setupChain)}
       fundingWallet={fundingWalletForChain(setupChain)}
@@ -1447,17 +1461,19 @@ export function WorkflowAccountV2({
   const requestedChain =
     initialChain ?? (parsedParamChain.success ? parsedParamChain.data : undefined);
   const chains = configuredFundsChains(mode);
-  const [chain, setChain] = useState<SettlementChain>(() =>
-    requestedChain && chains.includes(requestedChain) ? requestedChain : defaultFundsChainId,
-  );
-  useEffect(() => {
-    const availableChains = configuredFundsChains(mode);
-    if (requestedChain && availableChains.includes(requestedChain)) {
-      setChain(requestedChain);
-      return;
-    }
-    setChain((current) => (availableChains.includes(current) ? current : defaultFundsChainId));
-  }, [defaultFundsChainId, mode, requestedChain]);
+  const [selectedChain, setSelectedChain] = useState<{
+    readonly mode: NetworkMode;
+    readonly requestedChain: SettlementChain | undefined;
+    readonly chain: SettlementChain;
+  }>();
+  const chain =
+    selectedChain?.mode === mode &&
+    selectedChain.requestedChain === requestedChain &&
+    chains.includes(selectedChain.chain)
+      ? selectedChain.chain
+      : requestedChain && chains.includes(requestedChain)
+        ? requestedChain
+        : defaultFundsChainId;
   const [operation, setOperation] = useState<FundsOperation>(
     funding === 'watching' ? 'watch-credit' : funding === 'execution' ? 'run-credit' : 'add-usdc',
   );
@@ -1638,7 +1654,7 @@ export function WorkflowAccountV2({
                 onChange={(nextValue) => {
                   const parsed = fundsChainIdSchema.safeParse(Number(nextValue));
                   if (parsed.success) {
-                    setChain(parsed.data);
+                    setSelectedChain({ mode, requestedChain, chain: parsed.data });
                     setAmount('');
                   }
                 }}
@@ -1648,11 +1664,12 @@ export function WorkflowAccountV2({
             )}
             {manage && (
               <Link
-                to={
+                to={withNetworkQuery(
                   chain === defaultFundsChainId
                     ? appRoutes.account
-                    : `${appRoutes.account}?chain=${chain}`
-                }
+                    : `${appRoutes.account}?chain=${chain}`,
+                  mode,
+                )}
                 className="app-button"
               >
                 Back to account

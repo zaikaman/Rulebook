@@ -2,17 +2,23 @@ import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowDeploymentKey,
 } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
-import type { Address } from 'viem';
+import Fastify from 'fastify';
+import type { Address, Hex } from 'viem';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GeminiConfig } from '../src/config.js';
 import { runAssistantTurn } from '../src/assistant/provider.js';
+import { registerAssistantRoutes } from '../src/assistant/routes.js';
+import { AssistantService } from '../src/assistant/service.js';
 import { AssistantToolExecutor } from '../src/assistant/tools.js';
 
 const db = new PGlite();
@@ -369,5 +375,188 @@ describe('assistant data tools', () => {
       UNICHAIN_SEPOLIA_CHAIN_ID,
       BASE_SEPOLIA_CHAIN_ID,
     ]);
+  });
+
+  it('supports Mainnet mode in AssistantToolExecutor and scopes SQL & references to Mainnet', async () => {
+    const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
+    const agent = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
+    const uniVault = '0x1111111111111111111111111111111111111111' as const;
+    const baseVault = '0x2222222222222222222222222222222222222222' as const;
+    const deployment = {
+      reactive: { factory: '0x3333333333333333333333333333333333333333' as const, startBlock: 1 },
+      unichain: { factory: '0x4444444444444444444444444444444444444444' as const, startBlock: 1 },
+      base: { factory: '0x5555555555555555555555555555555555555555' as const, startBlock: 1 },
+    };
+    const mkClient = (vault: Address, usdcBalance: bigint) => ({
+      getBalance: async () => 1_000_000_000_000_000_000n,
+      readContract: async ({ functionName }: { functionName: string }) => {
+        if (functionName === 'agentOf') return agent;
+        if (functionName === 'vaultOf') return vault;
+        if (functionName === 'callbackProxy') return '0x6666666666666666666666666666666666666666';
+        if (functionName === 'balanceOf') return usdcBalance;
+        if (functionName === 'allowance') return 2_000_000n;
+        if (functionName === 'reserves') return 500_000_000_000_000_000n;
+        return 0n;
+      },
+    });
+    const requests: URL[] = [];
+    const runId = `0x${'7'.repeat(64)}`;
+    const workflowId = `0x${'8'.repeat(64)}`;
+    const hash = `0x${'9'.repeat(64)}`;
+    const client = createClient('https://database.example', 'fixture-key', {
+      global: {
+        fetch: async (input) => {
+          const url = new URL(String(input));
+          requests.push(url);
+          if (url.pathname.endsWith('/workflow_v2_activity')) {
+            return Response.json([
+              {
+                id: runId,
+                workflow_id: workflowId,
+                chain: UNICHAIN_MAINNET_CHAIN_ID,
+                title: 'Mainnet DCA',
+                status: 'confirmed',
+                reason: null,
+                path: 0,
+                origin_chain: BASE_MAINNET_CHAIN_ID,
+                origin_transaction: hash,
+                lasna_transaction: hash,
+                destination_transaction: hash,
+                lasna_block: 42,
+                expires_at: 999,
+              },
+            ]);
+          }
+          if (url.pathname.endsWith('/telegram_accounts')) {
+            return Response.json({
+              chat_id: '123',
+              profile: 'Mainnet',
+              blocked: false,
+              enabled: true,
+              default_mode: 'all',
+            });
+          }
+          return Response.json([]);
+        },
+      },
+    });
+    const clients = {
+      lasna: { getBalance: vi.fn(), readContract: vi.fn() },
+      unichain: { getBalance: vi.fn(), readContract: vi.fn() },
+      reactiveMainnet: mkClient(agent, 0n),
+      unichainMainnet: mkClient(uniVault, 42_000_000n),
+      baseMainnet: mkClient(baseVault, 15_000_000n),
+    };
+    const executor = new AssistantToolExecutor(client, clients as never, deployment, owner);
+    const overview = await executor.execute('get_account_overview', {});
+    const parsed = JSON.parse(overview.content) as {
+      network: string;
+      networks: { automation: { name: string }; allFundsChains: { chain: number }[] };
+      vaults: Record<string, { vaultUsdc: string }>;
+    };
+    expect(parsed.network).toBe('mainnet');
+    expect(parsed.networks.automation.name).toBe('Reactive Mainnet');
+    expect(parsed.networks.allFundsChains.map((c) => c.chain)).toEqual([
+      UNICHAIN_MAINNET_CHAIN_ID,
+      BASE_MAINNET_CHAIN_ID,
+    ]);
+    expect(parsed.vaults[String(UNICHAIN_MAINNET_CHAIN_ID)]?.vaultUsdc).toBe('42');
+    expect(overview.references[0]?.href).toBe('/account?network=mainnet');
+    expect(clients.lasna.readContract).not.toHaveBeenCalled();
+
+    const runs = await executor.execute('list_runs', { limit: 1 });
+    expect(requests[0]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, deployment.reactive.factory)}`,
+    );
+    expect(runs.references.map((r) => r.href)).toEqual([
+      `/runs/${runId}?network=mainnet`,
+      '/activity?network=mainnet',
+    ]);
+
+    await executor.execute('get_notifications', {});
+    const telegramReq = requests.find((u) => u.pathname.endsWith('/telegram_accounts'));
+    expect(telegramReq?.searchParams.get('automation_chain')).toBe(
+      `eq.${REACTIVE_MAINNET_CHAIN_ID}`,
+    );
+  });
+
+  it('supports mainnet-only AssistantService, per-mode availability, and symmetric ERC-1271 signIn', async () => {
+    const mainnetDeployment = {
+      reactive: { factory: '0x3333333333333333333333333333333333333333' as const, startBlock: 1 },
+      unichain: { factory: '0x4444444444444444444444444444444444444444' as const, startBlock: 1 },
+    };
+    const expiresAtIso = new Date(Math.floor(Date.now() / 1000) * 1000 + 60_000).toISOString();
+    const challengeRow = {
+      nonce: `0x${'1'.repeat(64)}`,
+      owner: wallet,
+      origin,
+      expires_at: expiresAtIso,
+    };
+    const selectChain = {
+      limit: vi.fn(() => ({ abortSignal: vi.fn(async () => ({ error: null })) })),
+      eq: vi.fn(),
+      is: vi.fn(),
+      gt: vi.fn(),
+      abortSignal: vi.fn(),
+      maybeSingle: vi.fn(async () => ({ data: challengeRow, error: null })),
+    };
+    selectChain.eq.mockReturnValue(selectChain);
+    selectChain.is.mockReturnValue(selectChain);
+    selectChain.gt.mockReturnValue(selectChain);
+    selectChain.abortSignal.mockReturnValue(selectChain);
+    const supabase = {
+      from: vi.fn(() => ({
+        select: vi.fn(() => selectChain),
+      })),
+    } as never;
+    const clients = {
+      lasna: { verifyMessage: vi.fn().mockResolvedValue(false) },
+      unichain: {},
+      reactiveMainnet: { verifyMessage: vi.fn().mockRejectedValue(new Error('rpc down')) },
+    } as never;
+    const service = new AssistantService(
+      supabase,
+      clients,
+      { mainnet: mainnetDeployment },
+      provider,
+    );
+    await expect(service.ready('mainnet')).resolves.toBe(true);
+    await expect(service.ready('testnet')).resolves.toBe(false);
+
+    // Dual-mode service: flaky reactiveMainnet RPC does not throw 500 when lasna evaluates invalid signature to false.
+    const dualService = new AssistantService(
+      supabase,
+      clients,
+      {
+        testnet: {
+          lasna: { factory: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', startBlock: 1 },
+          unichain: { factory: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', startBlock: 1 },
+        },
+        mainnet: mainnetDeployment,
+      },
+      provider,
+    );
+    await expect(
+      dualService.signIn(`0x${'1'.repeat(64)}` as Hex, origin, '0x1234' as Hex),
+    ).resolves.toBeNull();
+
+    const app = Fastify();
+    registerAssistantRoutes(app, {
+      config: { corsOrigins: [origin] } as never,
+      assistant: service,
+      databaseReachable: async () => true,
+      rpcHealth: async () => [],
+    });
+    expect(
+      (
+        await app.inject({ method: 'GET', url: '/v2/assistant/availability?network=testnet' })
+      ).json(),
+    ).toEqual({ available: false });
+    expect(
+      (
+        await app.inject({ method: 'GET', url: '/v2/assistant/availability?network=mainnet' })
+      ).json(),
+    ).toEqual({ available: true });
+    await app.close();
   });
 });

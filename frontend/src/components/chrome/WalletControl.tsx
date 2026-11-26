@@ -12,6 +12,7 @@ import { useId, useRef, useState, useSyncExternalStore, type CSSProperties } fro
 import { useAccount, useConnect, useDisconnect, useSwitchChain } from 'wagmi';
 
 import { isWalletRejection } from '@/lib/errors';
+import { useNetworkMode } from '@/lib/networkMode';
 import { Spinner } from './Spinner';
 
 function subscribeToBrowserWallet(onChange: () => void) {
@@ -34,6 +35,7 @@ function walletAvatar(address: Address): CSSProperties {
 
 export function WalletControl({ setup = false }: { setup?: boolean }) {
   const { address, chainId, connector } = useAccount();
+  const { mode, isMainnet } = useNetworkMode();
   const connection = useConnect();
   const disconnection = useDisconnect();
   const network = useSwitchChain();
@@ -52,8 +54,12 @@ export function WalletControl({ setup = false }: { setup?: boolean }) {
   const quickConnect = !address && wallets.length === 1 && onlyWallet?.id === 'injected';
   const connecting = connection.isPending;
   const chain = chainId === undefined ? undefined : CHAIN_CONFIGS.get(chainId);
+  const wrongEnvironment = Boolean(chain && chain.network !== mode);
+  const modeChains = network.chains.filter(
+    (candidate) => CHAIN_CONFIGS.get(candidate.id)?.network === mode,
+  );
   const networkLabel = chain?.name ?? (chainId === undefined ? 'Network unknown' : 'Wrong network');
-  const networkTone = chain?.role ?? 'warning';
+  const networkTone = wrongEnvironment ? 'warning' : (chain?.role ?? 'warning');
   const shortAddress = address && `${address.slice(0, 6)}…${address.slice(-4)}`;
 
   function closePanel() {
@@ -156,14 +162,20 @@ export function WalletControl({ setup = false }: { setup?: boolean }) {
             </div>
 
             <div className="wallet-popover-section">
-              <p className="wallet-section-label">Network</p>
-              {!chain && (
+              <p className="wallet-section-label">
+                {isMainnet ? 'Mainnet networks' : 'Testnet networks'}
+              </p>
+              {(!chain || wrongEnvironment) && (
                 <p className="wallet-network wallet-network--notice" data-tone="warning">
                   <span className="wallet-dot" aria-hidden="true" />
-                  {chainId === undefined ? networkLabel : `Unsupported network (${chainId})`}
+                  {!chain
+                    ? chainId === undefined
+                      ? networkLabel
+                      : `Unsupported network (${chainId})`
+                    : `Wallet is on ${chain.name} (${chain.network}). Switch to a ${mode} network below.`}
                 </p>
               )}
-              {network.chains.map((candidate) => {
+              {modeChains.map((candidate) => {
                 const current = chainId === candidate.id;
                 const switching = network.isPending && network.variables?.chainId === candidate.id;
                 return (

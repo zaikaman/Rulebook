@@ -46,6 +46,19 @@ import {
 import { privateKeyToAccount } from 'viem/accounts';
 
 const IS_MAINNET = process.argv.includes('--mainnet');
+const MAINNET_CONFIRMED =
+  process.argv.includes('--confirm-mainnet') ||
+  process.env.CONFIRM_MAINNET_SMOKE === 'I_UNDERSTAND_REAL_FUNDS';
+if (IS_MAINNET && !MAINNET_CONFIRMED) {
+  process.stderr.write(
+    [
+      'Refusing to run mainnet smoke test without explicit confirmation.',
+      'This script spends real REACT, ETH, and USDC on live mainnet networks.',
+      'Re-run with --confirm-mainnet or CONFIRM_MAINNET_SMOKE=I_UNDERSTAND_REAL_FUNDS.',
+    ].join('\n') + '\n',
+  );
+  process.exit(1);
+}
 const AUTOMATION_CHAIN_ID = IS_MAINNET ? REACTIVE_MAINNET_CHAIN_ID : LASNA_CHAIN_ID;
 const FUNDS_CHAIN_ID = IS_MAINNET ? UNICHAIN_MAINNET_CHAIN_ID : UNICHAIN_SEPOLIA_CHAIN_ID;
 const RECORD_FILE = IS_MAINNET
@@ -191,9 +204,11 @@ async function setup() {
   } else if (linked.toLowerCase() !== vault.toLowerCase()) {
     throw new Error('The Agent is linked to a different Vault.');
   }
+  const autoTargetReserve = IS_MAINNET ? parseEther('1') : parseEther('0.4');
+  const settlementTargetReserve = IS_MAINNET ? parseEther('0.002') : parseEther('0.00035');
   for (const [network, service, target, amount] of [
-    [lasna, lasna.config.systemContract, agent, parseEther('0.4')],
-    [uni, uni.config.callbackProxy, vault, parseEther('0.00035')],
+    [lasna, lasna.config.systemContract, agent, autoTargetReserve],
+    [uni, uni.config.callbackProxy, vault, settlementTargetReserve],
   ] as const) {
     const reserve = await network.public.readContract({
       address: service,

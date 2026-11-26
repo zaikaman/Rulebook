@@ -3,7 +3,11 @@ import { setTimeout as pause } from 'node:timers/promises';
 
 import {
   decodeWorkflowV2,
+  fundsChainsFor,
   isFundsChain,
+  LASNA_CHAIN_ID,
+  networkModeForChain,
+  REACTIVE_MAINNET_CHAIN_ID,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
@@ -13,17 +17,20 @@ import {
   workflowProgramValidatorV2Abi,
   workflowVaultFactoryV2Abi,
   type Address,
+  type AutomationChainId,
   type FundsChainId,
+  type NetworkMode,
   type RulewrightChallenge,
   type RulewrightRequest,
   type RulewrightResult,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
-import { BaseError, ContractFunctionRevertedError, verifyMessage, type Hex } from 'viem';
+import { BaseError, ContractFunctionRevertedError, type Hex } from 'viem';
 import { z } from 'zod';
 
 import { clientFor, type ChainClients } from '../chain/clients.js';
+import { verifyWalletSignature } from '../chain/verifySignature.js';
 import type { GeminiConfig } from '../config.js';
 import { generateRulewrightDraft } from './gemini.js';
 
@@ -66,7 +73,31 @@ export class RulewrightService {
         : factoryOrFactories;
   }
 
-  async ready() {
+  hasNetwork(network: NetworkMode): boolean {
+    return fundsChainsFor(network).some((chain) => Boolean(this.factories[chain]));
+  }
+
+  private targetNetworkFor(request: Pick<RulewrightRequest, 'network' | 'draft'>): NetworkMode {
+    return (
+      request.network ?? (request.draft ? networkModeForChain(request.draft.chain) : 'testnet')
+    );
+  }
+
+  private configuredAutomationChains(): AutomationChainId[] {
+    const chains: AutomationChainId[] = [];
+    if (this.hasNetwork('testnet')) chains.push(LASNA_CHAIN_ID);
+    if (this.hasNetwork('mainnet')) chains.push(REACTIVE_MAINNET_CHAIN_ID);
+    return chains;
+  }
+
+  async ready(network?: NetworkMode) {
+    if (
+      network
+        ? !this.hasNetwork(network)
+        : !this.hasNetwork('testnet') && !this.hasNetwork('mainnet')
+    ) {
+      return false;
+    }
     const { error } = await this.db
       .from('rulewright_sessions')
       .select('nonce', { head: true })
@@ -107,23 +138,17 @@ export class RulewrightService {
       message: rulewrightSignIn(challenge),
       signature,
     };
-    const eoa = await verifyMessage(verification).catch(() => false);
-    if (!eoa) {
-      let contractVerified = false;
-      try {
-        contractVerified = await this.clients.lasna.verifyMessage(verification);
-      } catch {
-        contractVerified = false;
-      }
-      if (!contractVerified && this.clients.reactiveMainnet) {
-        try {
-          contractVerified = await this.clients.reactiveMainnet.verifyMessage(verification);
-        } catch {
-          throw new Error('Rulewright could not verify the wallet signature.');
-        }
-      }
-      if (!contractVerified) return null;
+    let verified: boolean;
+    try {
+      verified = await verifyWalletSignature(
+        this.clients,
+        verification,
+        this.configuredAutomationChains(),
+      );
+    } catch {
+      throw new Error('Rulewright could not verify the wallet signature.');
     }
+    if (!verified) return null;
 
     const token = randomBytes(32).toString('base64url');
     const expiresAt = timestamp() + sessionSeconds;
@@ -142,6 +167,17 @@ export class RulewrightService {
   }
 
   async enqueue(token: string, origin: string, request: RulewrightRequest) {
+    if (
+      request.network &&
+      request.draft &&
+      networkModeForChain(request.draft.chain) !== request.network
+    ) {
+      throw new Error('Rulewright draft network does not match the selected network mode.');
+    }
+    const targetNetwork = this.targetNetworkFor(request);
+    if (!this.hasNetwork(targetNetwork)) {
+      return { status: 'network_unavailable' as const, network: targetNetwork };
+    }
     const { data, error } = await this.db
       .rpc('rulewright_enqueue', {
         p_session: hash(token),
@@ -201,18 +237,26 @@ export class RulewrightService {
         const [job] = jobsSchema.parse(data);
         if (job && !signal.aborted) {
           let result: RulewrightResult;
-          try {
-            result = await generateRulewrightDraft(
-              this.provider,
-              job.payload,
-              (encoded, abort) => this.validate(encoded, abort),
-              signal,
-            );
-          } catch {
+          const targetNetwork = this.targetNetworkFor(job.payload);
+          if (!this.hasNetwork(targetNetwork)) {
             result = {
               type: 'error',
-              message: 'Rulewright could not validate the draft. Try again shortly.',
+              message: `Rulewright is not configured for ${targetNetwork}.`,
             };
+          } else {
+            try {
+              result = await generateRulewrightDraft(
+                this.provider,
+                job.payload,
+                (encoded, abort) => this.validate(encoded, abort),
+                signal,
+              );
+            } catch {
+              result = {
+                type: 'error',
+                message: 'Rulewright could not validate the draft. Try again shortly.',
+              };
+            }
           }
           if (signal.aborted) return;
           const finished = await this.db

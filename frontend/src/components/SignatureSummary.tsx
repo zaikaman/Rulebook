@@ -1,3 +1,5 @@
+import { Alert02Icon } from '@hugeicons/core-free-icons';
+import { HugeiconsIcon } from '@hugeicons/react';
 import { getChain } from '@rulebook/shared';
 
 import type { SignatureDetails } from '../lib/signatures.js';
@@ -8,14 +10,24 @@ export function SignatureSummary({
   ...actions
 }: WalletPromptActions & { readonly details: SignatureDetails }) {
   const network = getChain(details.chainId);
+  const isMainnet = network.network === 'mainnet';
   return (
     <WalletPrompt
       {...actions}
-      eyebrow="Signature review"
+      eyebrow={isMainnet ? 'Mainnet signature · Real funds' : 'Signature review'}
       title={`Review signature on ${network.name}`}
-      confirmLabel="Continue to wallet"
+      confirmLabel={isMainnet ? 'Continue to wallet (Mainnet)' : 'Continue to wallet'}
       chainId={network.chainId}
     >
+      {isMainnet && (
+        <div className="rb-wallet-prompt__mainnet-warning" role="note">
+          <HugeiconsIcon icon={Alert02Icon} size={16} strokeWidth={1.8} aria-hidden="true" />
+          <p>
+            You are signing on {network.name} Mainnet. Real funds and network fees cannot be
+            reversed once confirmed.
+          </p>
+        </div>
+      )}
       <p className="rb-wallet-prompt__lede">{details.effect}</p>
       <dl className="rb-wallet-prompt__facts">
         <div>

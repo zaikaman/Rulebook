@@ -3,6 +3,7 @@ import {
   assistantStreamEventSchema,
   type AssistantPage,
   type AssistantStreamEvent,
+  type NetworkMode,
 } from '@rulebook/shared';
 
 import { ApiError, apiBaseUrl } from './api.js';
@@ -64,6 +65,7 @@ export interface AssistantStreamInput {
   readonly message: string;
   readonly conversationId?: string;
   readonly page?: AssistantPage;
+  readonly network?: NetworkMode;
 }
 
 /** Opens the SSE chat response and forwards each parsed event until the stream closes. */

@@ -35,7 +35,7 @@ import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { workflowClient } from './chainV2';
 import { v2ApiBase } from './listingV2';
@@ -63,7 +63,7 @@ function proofGuideFor(automationName: string) {
 }
 
 export function WorkflowProofLookup() {
-  const { automationName } = useNetworkMode();
+  const { mode, automationName } = useNetworkMode();
   const inputId = useId();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
@@ -86,7 +86,7 @@ export function WorkflowProofLookup() {
             event.preventDefault();
             const id = workflowIdSchema.safeParse(input.trim());
             setInvalid(!id.success);
-            if (id.success) void navigate(`${appRoutes.runs}/${id.data}`);
+            if (id.success) void navigate(withNetworkQuery(`${appRoutes.runs}/${id.data}`, mode));
           }}
         >
           <header className="rb-panel-head">
@@ -269,9 +269,13 @@ export function WorkflowProof() {
 }
 
 function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
-  const proofUrl = new URL(`${appRoutes.runs}/${run.id}`, window.location.origin).href;
+  const runMode = networkModeForChain(run.chain);
+  const proofUrl = new URL(
+    withNetworkQuery(`${appRoutes.runs}/${run.id}`, runMode, true),
+    window.location.origin,
+  ).href;
   const provisionalExpiry = run.status === 'expired' && !run.destinationTransaction;
-  const automationChain = automationChainFor(networkModeForChain(run.chain));
+  const automationChain = automationChainFor(runMode);
   const steps = [
     { label: 'Origin event', chain: run.originChain, hash: run.originTransaction },
     {
@@ -359,7 +363,10 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
             <CopyButton label="proof link" value={proofUrl} />
             <span>Share proof link</span>
           </div>
-          <Link className="app-link" to={`${appRoutes.activity}?run=${run.id}`}>
+          <Link
+            className="app-link"
+            to={withNetworkQuery(`${appRoutes.activity}?run=${run.id}`, runMode)}
+          >
             Open run in Activity
             <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden="true" />
           </Link>

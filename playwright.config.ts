@@ -7,6 +7,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 import {
   ANVIL_BASE_RPC_URL,
+  ANVIL_LASNA_RPC_URL,
   ANVIL_RPC_URL,
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_PORT,
@@ -67,7 +68,7 @@ export default defineConfig({
       env: {
         VITE_API_BASE_URL: FIXTURE_API_URL,
         VITE_WALLETCONNECT_PROJECT_ID: '',
-        VITE_LASNA_RPC_URL: ANVIL_RPC_URL,
+        VITE_LASNA_RPC_URL: ANVIL_LASNA_RPC_URL,
         VITE_UNICHAIN_RPC_URL: ANVIL_RPC_URL,
         VITE_BASE_SEPOLIA_RPC_URL: ANVIL_BASE_RPC_URL,
         VITE_WORKFLOW_V2_DEPLOYMENT: JSON.stringify({

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { PGlite } from '@electric-sql/pglite';
 import {
   BASE_SEPOLIA_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   emptyDraft,
   getChain,
@@ -11,10 +12,12 @@ import {
   workflowV2Trigger,
   workflowV2Unit,
 } from '@rulebook/shared';
+import type { Hex } from 'viem';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { GeminiConfig } from '../src/config.js';
 import { generateRulewrightDraft, geminiTimeoutMs } from '../src/rulewright/gemini.js';
+import { RulewrightService } from '../src/rulewright/service.js';
 
 const db = new PGlite();
 const origin = 'https://rulebook.example';
@@ -255,5 +258,86 @@ describe('Gemini request handling', () => {
       },
     });
     expect(validate).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects unconfigured mainnet requests before enqueue/quota and handles flaky mainnet ERC-1271 RPC symmetrically', async () => {
+    const rpc = vi.fn();
+    const expiresAtIso = new Date(Math.floor(Date.now() / 1000) * 1000 + 60_000).toISOString();
+    const challengeRow = {
+      nonce: `0x${'1'.repeat(64)}`,
+      owner: wallet,
+      origin,
+      expires_at: expiresAtIso,
+    };
+    const selectChain = {
+      limit: vi.fn(() => ({ abortSignal: vi.fn(async () => ({ error: null })) })),
+      eq: vi.fn(),
+      is: vi.fn(),
+      gt: vi.fn(),
+      abortSignal: vi.fn(),
+      maybeSingle: vi.fn(async () => ({ data: challengeRow, error: null })),
+    };
+    selectChain.eq.mockReturnValue(selectChain);
+    selectChain.is.mockReturnValue(selectChain);
+    selectChain.gt.mockReturnValue(selectChain);
+    selectChain.abortSignal.mockReturnValue(selectChain);
+    const mockSupabase = {
+      rpc,
+      from: vi.fn(() => ({
+        select: vi.fn(() => selectChain),
+      })),
+    } as never;
+    const clients = {
+      lasna: { verifyMessage: vi.fn().mockResolvedValue(false) },
+      unichain: {},
+      reactiveMainnet: { verifyMessage: vi.fn().mockRejectedValue(new Error('mainnet rpc error')) },
+    } as never;
+
+    const service = new RulewrightService(
+      mockSupabase,
+      clients,
+      { [UNICHAIN_SEPOLIA_CHAIN_ID]: '0x1111111111111111111111111111111111111111' },
+      provider,
+    );
+
+    await expect(service.ready('testnet')).resolves.toBe(true);
+    await expect(service.ready('mainnet')).resolves.toBe(false);
+
+    const admission = await service.enqueue('t'.repeat(43), origin, {
+      prompt: 'Buy 10 USDC of WETH daily',
+      network: 'mainnet',
+      followUps: [],
+    });
+    expect(admission).toEqual({ status: 'network_unavailable', network: 'mainnet' });
+    expect(rpc).not.toHaveBeenCalled();
+
+    const draftAdmission = await service.enqueue('t'.repeat(43), origin, {
+      prompt: 'Update draft',
+      draft: emptyDraft(UNICHAIN_MAINNET_CHAIN_ID),
+      followUps: [],
+    });
+    expect(draftAdmission).toEqual({ status: 'network_unavailable', network: 'mainnet' });
+    await expect(
+      service.enqueue('t'.repeat(43), origin, {
+        prompt: 'Mismatched draft',
+        network: 'testnet',
+        draft: emptyDraft(UNICHAIN_MAINNET_CHAIN_ID),
+        followUps: [],
+      }),
+    ).rejects.toThrow(/does not match/);
+    expect(rpc).not.toHaveBeenCalled();
+
+    const dualService = new RulewrightService(
+      mockSupabase,
+      clients,
+      {
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: '0x1111111111111111111111111111111111111111',
+        [UNICHAIN_MAINNET_CHAIN_ID]: '0x2222222222222222222222222222222222222222',
+      },
+      provider,
+    );
+    await expect(
+      dualService.signIn(`0x${'1'.repeat(64)}` as Hex, origin, '0x1234' as Hex),
+    ).resolves.toBeNull();
   });
 });

@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {Test} from "forge-std/Test.sol";
+import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
@@ -34,6 +35,7 @@ contract WorkflowAgentFactoryV2Test is Test {
 
     function setUp() public {
         vm.warp(12 hours);
+        vm.chainId(ChainConfig.LASNA);
         system = new MockSystemContract();
         factory = new WorkflowAgentFactoryV2(system);
         validator = new WorkflowProgramValidatorV2();
@@ -192,6 +194,22 @@ contract WorkflowAgentFactoryV2Test is Test {
         vm.stopPrank();
         assertEq(factory.listingOf(address(otherAgent), WORKFLOW, programHash), 3);
         assertEq(factory.listingCount(), 3);
+    }
+
+    function testConstructorRejectsNonAutomationChains() public {
+        vm.chainId(31337);
+        vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
+        new WorkflowAgentFactoryV2(system);
+
+        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, address(factory), validator);
+
+        vm.chainId(ChainConfig.UNICHAIN_SEPOLIA);
+        vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
+        new WorkflowAgentFactoryV2(system);
+
+        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, address(factory), validator);
     }
 
     function _vault(address owner, address agent_) private returns (WorkflowVaultV2) {

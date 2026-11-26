@@ -1,3 +1,4 @@
+import { parseEther } from 'viem';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -758,12 +759,12 @@ describe('V2 on-chain constraint mirroring', () => {
     expect(reactive.name).toBe('Reactive Mainnet');
     expect(reactive.nativeSymbol).toBe('REACT');
     expect(reactive.systemContract).toBe('0x8888888888888888888888888888888888888888');
-    expect(feeCreditWarningThreshold(REACTIVE_MAINNET_CHAIN_ID)).toBe(
-      feeCreditWarningThreshold(LASNA_CHAIN_ID),
-    );
-    expect(feeCreditWarningThreshold(UNICHAIN_MAINNET_CHAIN_ID)).toBe(
-      feeCreditWarningThreshold(UNICHAIN_SEPOLIA_CHAIN_ID),
-    );
+    expect(feeCreditWarningThreshold(REACTIVE_MAINNET_CHAIN_ID)).toBe(parseEther('0.5'));
+    expect(feeCreditWarningThreshold(LASNA_CHAIN_ID)).toBe(parseEther('0.05'));
+    expect(feeCreditWarningThreshold(UNICHAIN_MAINNET_CHAIN_ID)).toBe(parseEther('0.001'));
+    expect(feeCreditWarningThreshold(BASE_MAINNET_CHAIN_ID)).toBe(parseEther('0.001'));
+    expect(feeCreditWarningThreshold(UNICHAIN_SEPOLIA_CHAIN_ID)).toBe(parseEther('0.0001'));
+    expect(feeCreditWarningThreshold(BASE_SEPOLIA_CHAIN_ID)).toBe(parseEther('0.0001'));
 
     const uni = getFundsChain(UNICHAIN_MAINNET_CHAIN_ID);
     expect(uni.name).toBe('Unichain');

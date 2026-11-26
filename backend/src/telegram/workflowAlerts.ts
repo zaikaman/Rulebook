@@ -199,8 +199,9 @@ export class WorkflowTelegramAlerts {
 
   private async message(chain: FundsChainId, row: Candidate, deadline: number) {
     const title = row.title.replace(/[\p{C}\s]+/gu, ' ').trim();
-    const run = `${this.origin}/runs/${row.run_id}`;
-    const workflow = `${this.origin}/workflows/${row.workflow_id}`;
+    const networkQuery = networkModeForChain(chain) === 'mainnet' ? '?network=mainnet' : '';
+    const run = `${this.origin}/runs/${row.run_id}${networkQuery}`;
+    const workflow = `${this.origin}/workflows/${row.workflow_id}${networkQuery}`;
     const tx = `${getChain(chain).explorerUrl}/tx/${row.transaction_hash}`;
     if (row.status === 6) {
       if (deadline * 1000 <= Date.now()) return null;
@@ -214,7 +215,7 @@ export class WorkflowTelegramAlerts {
     }
     if (row.status === 4) {
       const { message, recovery } = workflowV2FailureReason(row.reason);
-      const account = `${this.origin}/account`;
+      const account = `${this.origin}/account${networkQuery}`;
       const next = {
         balances: ['Check your wallet and Vault balances in Account & Vault.', account],
         allowance: ['Review the Vault’s USDC allowance in Account & Vault.', account],

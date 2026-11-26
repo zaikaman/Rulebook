@@ -2,11 +2,12 @@
 pragma solidity 0.8.29;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ChainConfig} from "../../chain/ChainConfig.sol";
 import {IReactiveSystem} from "../../shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "./WorkflowAgentV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
-/// @notice Creates a separate V2 Agent for each wallet on Lasna.
+/// @notice Creates a separate V2 Agent for each wallet on this Reactive automation network.
 contract WorkflowAgentFactoryV2 {
     event AgentCreated(address indexed owner, address indexed agent);
     event Published(
@@ -21,6 +22,7 @@ contract WorkflowAgentFactoryV2 {
     );
     event Unpublished(uint256 indexed listing);
 
+    error InactiveDeployment();
     error InvalidListing();
 
     struct Listing {
@@ -39,6 +41,7 @@ contract WorkflowAgentFactoryV2 {
     uint256 public listingCount;
 
     constructor(IReactiveSystem system) {
+        if (!ChainConfig.isAutomationChain(block.chainid)) revert InactiveDeployment();
         WorkflowProgramValidatorV2 validator_ = new WorkflowProgramValidatorV2();
         validator = validator_;
         implementation = address(new WorkflowAgentV2(system, address(this), validator_));

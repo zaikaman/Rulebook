@@ -55,7 +55,19 @@ describe('ApiClient', () => {
 
     await expect(client.health()).resolves.toMatchObject({ status: 'ok' });
     await expect(client.rulewrightAvailability()).resolves.toEqual({ available: true });
+    await expect(client.rulewrightAvailability(undefined, 'testnet')).resolves.toEqual({
+      available: true,
+    });
+    await expect(client.rulewrightAvailability(undefined, 'mainnet')).resolves.toEqual({
+      available: true,
+    });
     await expect(client.assistantAvailability()).resolves.toEqual({ available: true });
+    await expect(client.assistantAvailability(undefined, 'testnet')).resolves.toEqual({
+      available: true,
+    });
+    await expect(client.assistantAvailability(undefined, 'mainnet')).resolves.toEqual({
+      available: true,
+    });
     await expect(client.telegramAvailability(true)).resolves.toEqual({ available: true });
     await expect(client.telegramAvailability(true, 'mainnet')).resolves.toEqual({
       available: true,
@@ -69,7 +81,11 @@ describe('ApiClient', () => {
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       'http://localhost:8787/health',
       'http://localhost:8787/v2/rulewright/availability',
+      'http://localhost:8787/v2/rulewright/availability?network=testnet',
+      'http://localhost:8787/v2/rulewright/availability?network=mainnet',
       'http://localhost:8787/v2/assistant/availability',
+      'http://localhost:8787/v2/assistant/availability?network=testnet',
+      'http://localhost:8787/v2/assistant/availability?network=mainnet',
       '/v1/telegram/availability?workflow=true',
       '/v1/telegram/availability?workflow=true&network=mainnet',
       '/v1/accounts/0x1111111111111111111111111111111111111111/telegram?network=mainnet',

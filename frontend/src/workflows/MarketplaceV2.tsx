@@ -12,7 +12,7 @@ import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallou
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { CardGridSkeleton, LoadingRegion } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { WorkflowProgramSummary } from './BuilderV2';
 import { ListingStatusV2 } from './ListingStatusV2';
 import { toDraft } from './modelV2';
@@ -138,7 +138,7 @@ export function WorkflowMarketplaceV2() {
         <ul className="rb-card-grid">
           {items.map((item) => (
             <li key={item.id}>
-              <Link to={`/marketplace/${item.id}`} className="rb-card">
+              <Link to={withNetworkQuery(`/marketplace/${item.id}`, mode)} className="rb-card">
                 <div className="rb-card-body">
                   <div className="rb-card-head">
                     <span className="rb-card-icon" data-role="automation" aria-hidden="true">
@@ -253,7 +253,16 @@ export function WorkflowListingV2() {
               limits before activating it from your own vault.
             </p>
             <div className="rb-action-row">
-              <Link className="app-button" to="/marketplace">
+              <CopyButton
+                value={
+                  new URL(
+                    withNetworkQuery(`/marketplace/${item.id}`, mode, true),
+                    window.location.origin,
+                  ).href
+                }
+                label="listing link"
+              />
+              <Link className="app-button" to={withNetworkQuery('/marketplace', mode)}>
                 Back to Marketplace
               </Link>
             </div>

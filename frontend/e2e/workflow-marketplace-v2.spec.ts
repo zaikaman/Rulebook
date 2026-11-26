@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   createWorkflowV2Recipe,
   encodeWorkflowV2,
+  LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
@@ -9,6 +10,7 @@ import {
 } from '@rulebook/shared';
 import {
   createWalletClient,
+  defineChain,
   http,
   keccak256,
   parseEventLogs,
@@ -19,6 +21,7 @@ import {
 import { unichainSepolia } from 'viem/chains';
 
 import {
+  ANVIL_LASNA_RPC_URL,
   ANVIL_RPC_URL,
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_URL,
@@ -27,22 +30,35 @@ import {
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './fixtureConfig';
 
+const lasnaAnvil = defineChain({
+  id: LASNA_CHAIN_ID,
+  name: 'Reactive Lasna',
+  nativeCurrency: { name: 'Lasna REACT', symbol: 'lREACT', decimals: 18 },
+  rpcUrls: { default: { http: [ANVIL_LASNA_RPC_URL] } },
+  testnet: true,
+});
+
 test('opens a newly published listing while indexing catches up', async ({ page, context }) => {
-  const chain = createWalletClient({
+  const lasnaChain = createWalletClient({
+    account: SPONSOR_ADDRESS,
+    chain: lasnaAnvil,
+    transport: http(ANVIL_LASNA_RPC_URL),
+  }).extend(publicActions);
+  const unichain = createWalletClient({
     account: SPONSOR_ADDRESS,
     chain: unichainSepolia,
     transport: http(ANVIL_RPC_URL),
   }).extend(publicActions);
   const factory = { address: WORKFLOW_V2_AGENT_FACTORY_ADDRESS, abi: workflowAgentFactoryV2Abi };
-  const createAgent = await chain.writeContract({ ...factory, functionName: 'create' });
-  await chain.waitForTransactionReceipt({ hash: createAgent });
-  const agent = await chain.readContract({
+  const createAgent = await lasnaChain.writeContract({ ...factory, functionName: 'create' });
+  await lasnaChain.waitForTransactionReceipt({ hash: createAgent });
+  const agent = await lasnaChain.readContract({
     ...factory,
     functionName: 'agentOf',
     args: [SPONSOR_ADDRESS],
   });
   const account = { address: agent, abi: workflowAgentV2Abi };
-  const linked = await chain.readContract({
+  const linked = await lasnaChain.readContract({
     ...account,
     functionName: 'vaults',
     args: [UNICHAIN_SEPOLIA_CHAIN_ID],
@@ -52,28 +68,28 @@ test('opens a newly published listing while indexing catches up', async ({ page,
       address: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
       abi: workflowVaultFactoryV2Abi,
     };
-    const createVault = await chain.writeContract({
+    const createVault = await unichain.writeContract({
       ...vaultFactory,
       functionName: 'create',
       args: [agent],
     });
-    await chain.waitForTransactionReceipt({ hash: createVault });
-    const vault = await chain.readContract({
+    await unichain.waitForTransactionReceipt({ hash: createVault });
+    const vault = await unichain.readContract({
       ...vaultFactory,
       functionName: 'vaultOf',
       args: [SPONSOR_ADDRESS],
     });
-    const link = await chain.writeContract({
+    const link = await lasnaChain.writeContract({
       ...account,
       functionName: 'linkVault',
       args: [UNICHAIN_SEPOLIA_CHAIN_ID, vault],
     });
-    await chain.waitForTransactionReceipt({ hash: link });
+    await lasnaChain.waitForTransactionReceipt({ hash: link });
   }
 
   const title = 'Recurring test transfer';
   const description = 'Send a fixed amount of test USDC on a schedule.';
-  const workflow = keccak256(toHex(`marketplace-indexing-${await chain.getBlockNumber()}`));
+  const workflow = keccak256(toHex(`marketplace-indexing-${await lasnaChain.getBlockNumber()}`));
   const program = encodeWorkflowV2(
     createWorkflowV2Recipe('recurring-transfer', {
       intervalSeconds: '3600',
@@ -81,18 +97,18 @@ test('opens a newly published listing while indexing catches up', async ({ page,
       recipient: SPONSOR_ADDRESS,
     }),
   );
-  const enable = await chain.writeContract({
+  const enable = await lasnaChain.writeContract({
     ...account,
     functionName: 'enable',
     args: [workflow, 1n, program, title, 1n],
   });
-  await chain.waitForTransactionReceipt({ hash: enable });
-  const publish = await chain.writeContract({
+  await lasnaChain.waitForTransactionReceipt({ hash: enable });
+  const publish = await lasnaChain.writeContract({
     ...factory,
     functionName: 'publish',
     args: [workflow, description],
   });
-  const { logs } = await chain.waitForTransactionReceipt({ hash: publish });
+  const { logs } = await lasnaChain.waitForTransactionReceipt({ hash: publish });
   const [event] = parseEventLogs({ abi: factory.abi, eventName: 'Published', logs });
   expect(event).toBeDefined();
   const published = event!.args;
@@ -142,12 +158,12 @@ test('opens a newly published listing while indexing catches up', async ({ page,
   await expect(page.getByRole('link', { name: 'Copy as draft' })).toBeVisible();
 
   // The indexed row can outlive an unpublish. Lasna still controls public visibility.
-  const unpublish = await chain.writeContract({
+  const unpublish = await lasnaChain.writeContract({
     ...factory,
     functionName: 'unpublish',
     args: [published.listing],
   });
-  await chain.waitForTransactionReceipt({ hash: unpublish });
+  await lasnaChain.waitForTransactionReceipt({ hash: unpublish });
   await page.evaluate((key) => localStorage.removeItem(key), `rulebook-v2-draft:testnet:${id}`);
   await page.getByRole('link', { name: 'Copy as draft' }).click();
   await expect(page.getByRole('alert')).toContainText(

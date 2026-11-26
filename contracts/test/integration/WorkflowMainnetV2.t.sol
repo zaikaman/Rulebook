@@ -1428,6 +1428,72 @@ contract WorkflowMainnetV2Test is Test {
         assertEq(unichainRouter.swapCount(), 1);
     }
 
+    function testMainnetFactoryRejectsFundsChainAndWakeBlockUsesFasterBlockTime() public {
+        vm.chainId(ChainConfig.UNICHAIN_MAINNET);
+        vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
+        new WorkflowAgentFactoryV2(system);
+
+        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, address(agentFactory), validator);
+
+        vm.chainId(ChainConfig.LASNA);
+        WorkflowAgentFactoryV2 lasnaFactory = new WorkflowAgentFactoryV2(system);
+        vm.prank(OWNER);
+        WorkflowAgentV2 lasnaAgent = WorkflowAgentV2(payable(lasnaFactory.create()));
+        WorkflowVaultV2 sepVault = new WorkflowVaultV2(
+            PROXY,
+            OWNER,
+            address(lasnaAgent),
+            P.UNICHAIN_SEPOLIA,
+            WorkflowProtocolsV2.Networks(
+                address(unichainUsdc),
+                address(unichainWeth),
+                address(unichainRouter),
+                address(unichainPair),
+                0,
+                address(0),
+                address(0),
+                address(0),
+                0,
+                0
+            ),
+            validator
+        );
+        vm.startPrank(OWNER);
+        lasnaAgent.linkVault(P.UNICHAIN_SEPOLIA, address(sepVault));
+        bytes memory sepEncoded = abi.encode(
+            _program(
+                P.UNICHAIN_SEPOLIA,
+                P.UNICHAIN_SEPOLIA,
+                P.SCHEDULE,
+                _path(_action(P.SEND, 100e6, RECIPIENT))
+            )
+        );
+        bytes32 sepWf = keccak256("lasna wake compare");
+        sepVault.authorizeWithWeeklyBudget(sepWf, 1, sepEncoded, "Lasna", 10e6, 0);
+        lasnaAgent.enable(sepWf, 1, sepEncoded, "Lasna", uint64(block.number));
+        vm.stopPrank();
+
+        bytes32 mainnetWf = keccak256("mainnet wake compare");
+        _enable(
+            mainnetWf,
+            unichainVault,
+            _program(
+                P.UNICHAIN_MAINNET,
+                P.UNICHAIN_MAINNET,
+                P.SCHEDULE,
+                _path(_action(P.SEND, 100e6, RECIPIENT))
+            ),
+            10e6,
+            0
+        );
+
+        assertTrue(lasnaAgent.watchingPaused(sepWf));
+        assertTrue(agent.watchingPaused(mainnetWf));
+        // Mainnet uses 900ms/block vs 2000ms/block on Lasna, so the pinned wake block is further ahead.
+        assertGt(agent.wakeBlock(mainnetWf), lasnaAgent.wakeBlock(sepWf));
+    }
+
     function _sqrtPriceFor(uint256 usdcPerWeth) private pure returns (uint160) {
         uint256 root = Math.sqrt(Math.mulDiv(1e30, 1e18, usdcPerWeth));
         return uint160(((uint256(1) << 96) * root) / 1e9);

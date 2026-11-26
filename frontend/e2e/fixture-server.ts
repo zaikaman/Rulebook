@@ -26,6 +26,8 @@ import { registerWorkflowV2Routes } from '../../backend/src/workflows/routesV2.j
 import {
   ANVIL_BASE_RPC_PORT,
   ANVIL_BASE_RPC_URL,
+  ANVIL_LASNA_RPC_PORT,
+  ANVIL_LASNA_RPC_URL,
   ANVIL_RPC_PORT,
   ANVIL_RPC_URL,
   FIXTURE_API_PORT,
@@ -99,6 +101,13 @@ const baseAnvilChain = {
   rpcUrls: { default: { http: [ANVIL_BASE_RPC_URL] } },
 } as const;
 
+const lasnaAnvilChain = {
+  id: LASNA_CHAIN_ID,
+  name: 'Lasna Anvil',
+  nativeCurrency: { name: 'Lasna REACT', symbol: 'lREACT', decimals: 18 },
+  rpcUrls: { default: { http: [ANVIL_LASNA_RPC_URL] } },
+} as const;
+
 const ERC20 = parseAbi([
   'function mint(address to, uint256 amount)',
   'function balanceOf(address account) view returns (uint256)',
@@ -140,6 +149,11 @@ async function main(): Promise<void> {
     ['--chain-id', '84532', '--port', String(ANVIL_BASE_RPC_PORT), '--silent'],
     { stdio: 'inherit' },
   );
+  const lasnaAnvil: ChildProcess = spawn(
+    anvilPath,
+    ['--chain-id', String(LASNA_CHAIN_ID), '--port', String(ANVIL_LASNA_RPC_PORT), '--silent'],
+    { stdio: 'inherit' },
+  );
   const serverRef: { current?: ReturnType<typeof buildServer>['app'] } = {};
 
   const shutdown = (): void => {
@@ -147,12 +161,17 @@ async function main(): Promise<void> {
     void serverRef.current?.close();
     anvil.kill();
     baseAnvil.kill();
+    lasnaAnvil.kill();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
   try {
-    await Promise.all([waitForAnvil(ANVIL_RPC_URL), waitForAnvil(ANVIL_BASE_RPC_URL)]);
+    await Promise.all([
+      waitForAnvil(ANVIL_RPC_URL),
+      waitForAnvil(ANVIL_BASE_RPC_URL),
+      waitForAnvil(ANVIL_LASNA_RPC_URL),
+    ]);
 
     const account = privateKeyToAccount(SPONSOR_PRIVATE_KEY);
     const publicClient = createPublicClient({ chain: anvilChain, transport: http(ANVIL_RPC_URL) });
@@ -170,10 +189,19 @@ async function main(): Promise<void> {
       chain: baseAnvilChain,
       transport: http(ANVIL_BASE_RPC_URL),
     });
+    const lasnaPublicClient = createPublicClient({
+      chain: lasnaAnvilChain,
+      transport: http(ANVIL_LASNA_RPC_URL),
+    });
+    const lasnaWallet = createWalletClient({
+      account,
+      chain: lasnaAnvilChain,
+      transport: http(ANVIL_LASNA_RPC_URL),
+    });
 
     // Lasna's system contract and destination callback proxies have no code on clean anvils.
     await Promise.all([
-      publicClient.request({
+      lasnaPublicClient.request({
         method: 'anvil_setCode',
         params: [
           getChain(LASNA_CHAIN_ID).systemContract,
@@ -198,22 +226,29 @@ async function main(): Promise<void> {
 
     await Promise.all([
       (async () => {
-        for (const [factory, args, expectedAddress] of [
-          [
-            workflowAgentFactoryV2Artifact,
-            [getChain(LASNA_CHAIN_ID).systemContract],
-            WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
-          ],
-          [workflowVaultFactoryV2Artifact, [], WORKFLOW_V2_VAULT_FACTORY_ADDRESS],
-        ] as const) {
-          const hash = await wallet.deployContract({
-            abi: factory.abi,
-            bytecode: factory.bytecode.object,
-            args,
-          });
-          const receipt = await publicClient.waitForTransactionReceipt({ hash });
-          if (receipt.contractAddress?.toLowerCase() !== expectedAddress.toLowerCase())
-            throw new Error('V2 workflow factory was not deployed at its expected address');
+        const hash = await lasnaWallet.deployContract({
+          abi: workflowAgentFactoryV2Artifact.abi,
+          bytecode: workflowAgentFactoryV2Artifact.bytecode.object,
+          args: [getChain(LASNA_CHAIN_ID).systemContract],
+        });
+        const receipt = await lasnaPublicClient.waitForTransactionReceipt({ hash });
+        if (
+          receipt.contractAddress?.toLowerCase() !== WORKFLOW_V2_AGENT_FACTORY_ADDRESS.toLowerCase()
+        ) {
+          throw new Error('V2 workflow agent factory was not deployed at its expected address');
+        }
+      })(),
+      (async () => {
+        const hash = await wallet.deployContract({
+          abi: workflowVaultFactoryV2Artifact.abi,
+          bytecode: workflowVaultFactoryV2Artifact.bytecode.object,
+          args: [],
+        });
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (
+          receipt.contractAddress?.toLowerCase() !== WORKFLOW_V2_VAULT_FACTORY_ADDRESS.toLowerCase()
+        ) {
+          throw new Error('V2 workflow vault factory was not deployed at its expected address');
         }
       })(),
       (async () => {
@@ -273,7 +308,7 @@ async function main(): Promise<void> {
       NODE_ENV: 'test',
       SUPABASE_URL: 'https://example.supabase.co',
       SUPABASE_SERVICE_ROLE_KEY: 'fixture',
-      LASNA_RPC_URL: ANVIL_RPC_URL,
+      LASNA_RPC_URL: ANVIL_LASNA_RPC_URL,
       UNICHAIN_RPC_URL: ANVIL_RPC_URL,
       BASE_SEPOLIA_RPC_URL: ANVIL_BASE_RPC_URL,
       INDEXER_ENABLED: false,

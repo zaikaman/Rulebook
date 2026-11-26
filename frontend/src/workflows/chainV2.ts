@@ -27,7 +27,7 @@ import {
   type WorkflowV2Program,
 } from '@rulebook/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   encodeFunctionData,
   erc20Abi,
@@ -522,10 +522,19 @@ export function useWorkflowV2Wallet() {
     useNetworkMode();
   const autoClient = workflowClient(automationChainId);
   const locked = useRef(false);
+  const prevModeRef = useRef(mode);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [transaction, setTransaction] = useState<{ chain: WalletChain; hash: Hex }>();
+
+  useEffect(() => {
+    if (prevModeRef.current === mode) return;
+    prevModeRef.current = mode;
+    setError(undefined);
+    setStatus(undefined);
+    setTransaction(undefined);
+  }, [mode]);
 
   async function waitForState<T>(
     read: () => Promise<T>,
@@ -1040,12 +1049,19 @@ export function useWorkflowV2Wallet() {
     });
   }
 
+  const visibleTransaction =
+    transaction &&
+    (isAutomationChain(transaction.chain) || isFundsChain(transaction.chain)) &&
+    networkModeForChain(transaction.chain) === mode
+      ? transaction
+      : undefined;
+
   return {
     owner,
     busy,
     status,
     error,
-    transaction,
+    transaction: visibleTransaction,
     perform,
     send,
     activate,

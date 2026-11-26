@@ -6,11 +6,10 @@ import {
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
-  type Address,
 } from '@rulebook/shared';
 import { createConfig, http } from 'wagmi';
 import { injected, walletConnect } from 'wagmi/connectors';
-import { createPublicClient, defineChain, type Hex } from 'viem';
+import { createPublicClient, defineChain } from 'viem';
 
 const lasna = getChain(LASNA_CHAIN_ID);
 const unichain = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
@@ -132,12 +131,6 @@ export function publicClientFor(chainId: number) {
   if (chainId === UNICHAIN_MAINNET_CHAIN_ID) return unichainMainnetPublicClient;
   if (chainId === BASE_MAINNET_CHAIN_ID) return baseMainnetPublicClient;
   throw new Error(`No public RPC client configured for chain ${chainId}`);
-}
-
-/** Reactive estimates for addRule need headroom for the rule storage and subscription writes. */
-export async function estimateAddRuleGas(to: Address, data: Hex, account?: Address) {
-  const estimate = await lasnaPublicClient.estimateGas({ to, data, account });
-  return (estimate * 120n) / 100n;
 }
 
 const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;

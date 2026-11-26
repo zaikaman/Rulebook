@@ -41,6 +41,7 @@ import {
 } from 'react';
 import { useAccount, useSignMessage } from 'wagmi';
 
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { ApiError, api } from '@/lib/api';
 import { isWalletRejection } from '@/lib/errors';
 import { useNetworkMode } from '@/lib/networkMode';
@@ -164,14 +165,16 @@ export function RulewrightDialog({
   summary: (draft: V2Draft) => ReactNode;
 }) {
   const titleId = useId();
-  const { mode } = useNetworkMode();
+  const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
+  const prevModeRef = useRef(mode);
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef<AbortController>(undefined);
   const { address, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const availability = useQuery({
-    queryKey: ['rulewright-availability'],
-    queryFn: ({ signal }) => api.rulewrightAvailability(signal),
+    queryKey: ['rulewright-availability', mode],
+    queryFn: ({ signal }) => api.rulewrightAvailability(signal, mode),
+    enabled: isDeploymentConfigured,
     retry: false,
   });
   const [verified, setVerified] = useState(session.current);
@@ -191,6 +194,18 @@ export function RulewrightDialog({
   const stale = preview && preview.baseline !== draft;
   const changes = result?.type === 'draft' && draft ? diffDraft(draft, result.draft) : undefined;
   const step = result?.type === 'draft' ? 3 : question ? 2 : 1;
+
+  useEffect(() => {
+    if (prevModeRef.current === mode) return;
+    prevModeRef.current = mode;
+    operation.current?.abort();
+    operation.current = undefined;
+    setBusy(undefined);
+    setPreview(undefined);
+    setHistory([]);
+    setAnswer('');
+    setError(undefined);
+  }, [mode]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -241,7 +256,7 @@ export function RulewrightDialog({
           );
         }
     } finally {
-      operation.current = undefined;
+      if (operation.current === controller) operation.current = undefined;
       if (!signal.aborted) setBusy(undefined);
     }
   }
@@ -289,7 +304,7 @@ export function RulewrightDialog({
           : 'Rulewright did not respond. Try again.',
       );
     } finally {
-      operation.current = undefined;
+      if (operation.current === controller) operation.current = undefined;
       if (!signal.aborted) setBusy(undefined);
     }
   }
@@ -302,6 +317,9 @@ export function RulewrightDialog({
   }
 
   function renderContent() {
+    if (isMainnet && !isDeploymentConfigured) {
+      return <MainnetUnavailableCallout context="Rulewright" />;
+    }
     if (availability.isPending) {
       return (
         <p className="rb-rulewright__notice" role="status">
@@ -544,7 +562,7 @@ export function RulewrightDialog({
     );
   }
 
-  const available = availability.data?.available;
+  const available = isDeploymentConfigured && availability.data?.available;
   const showSteps = Boolean(activeSession && available);
 
   return (

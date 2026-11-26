@@ -2,6 +2,7 @@ import {
   addressSchema,
   assistantRequestSchema,
   assistantStreamEventSchema,
+  networkModeSchema,
   txHashSchema,
   type AssistantStreamEvent,
 } from '@rulebook/shared';
@@ -45,9 +46,11 @@ function bearer(request: FastifyRequest) {
 export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) {
   const service = deps.assistant;
 
-  app.get(`${base}/availability`, async (_request, reply) => {
+  app.get(`${base}/availability`, async (request, reply) => {
     reply.header('cache-control', 'no-store');
-    return { available: (await service?.ready().catch(() => false)) ?? false };
+    const query = z.object({ network: networkModeSchema.optional() }).safeParse(request.query);
+    if (!query.success) return { available: false };
+    return { available: (await service?.ready(query.data.network).catch(() => false)) ?? false };
   });
 
   function context(request: FastifyRequest, reply: FastifyReply) {
@@ -114,6 +117,16 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
       if (!body.success)
         return sendError(reply, 400, 'assistant_request', 'Check the question and try again.');
 
+      const targetNetwork = body.data.network ?? 'testnet';
+      if (!route.service.hasDeployment(targetNetwork)) {
+        return sendError(
+          reply,
+          503,
+          'assistant_network_unavailable',
+          `Bookkeeper is not configured for ${targetNetwork}.`,
+        );
+      }
+
       const admission = await route.service.admit(
         token,
         route.origin,
@@ -168,6 +181,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
             history: admission.history,
             message: body.data.message,
             page: body.data.page,
+            network: targetNetwork,
           },
           {
             signal: controller.signal,

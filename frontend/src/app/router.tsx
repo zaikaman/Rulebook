@@ -1,9 +1,10 @@
-import { Suspense, lazy, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router';
+import { Suspense, lazy, useEffect, useRef, type ReactNode } from 'react';
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router';
 
 import { AppShell } from '../components/AppShell.js';
 import { LoadingRegion, PanelSkeleton } from '../components/chrome/Skeleton.js';
 import { OfflineState } from '../components/OfflineState.js';
+import { getUrlNetworkMode, useNetworkMode } from '../lib/networkMode.js';
 import { LandingPage } from '../pages/LandingPage.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import '../styles/workflows.css';
@@ -71,9 +72,46 @@ function WorkspaceLayout() {
   );
 }
 
+function WorkflowAccountFundsRoute() {
+  const { mode } = useNetworkMode();
+  return <WorkflowAccountV2 key={mode} manage />;
+}
+
+function NetworkModeQuerySync() {
+  const { mode, setMode } = useNetworkMode();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const urlMode = getUrlNetworkMode(`?${searchParams.toString()}`);
+  const prevModeRef = useRef(mode);
+  const prevUrlModeRef = useRef(urlMode);
+
+  useEffect(() => {
+    const modeChanged = prevModeRef.current !== mode;
+    const urlChanged = prevUrlModeRef.current !== urlMode;
+    prevModeRef.current = mode;
+    prevUrlModeRef.current = urlMode;
+
+    if (urlChanged && urlMode && urlMode !== mode) {
+      setMode(urlMode);
+      return;
+    }
+    if (modeChanged && urlMode && urlMode !== mode) {
+      const next = new URLSearchParams(searchParams);
+      next.set('network', mode);
+      setSearchParams(next, { replace: true });
+      return;
+    }
+    if (urlMode && urlMode !== mode) {
+      setMode(urlMode);
+    }
+  }, [mode, searchParams, setMode, setSearchParams, urlMode]);
+
+  return null;
+}
+
 export function AppRouter() {
   return (
     <BrowserRouter>
+      <NetworkModeQuerySync />
       <ErrorBoundary>
         <Routes>
           <Route
@@ -103,7 +141,7 @@ export function AppRouter() {
             }
           />
           <Route element={<WorkspaceLayout />}>
-            <Route path="account/funds" element={<WorkflowAccountV2 manage />} />
+            <Route path="account/funds" element={<WorkflowAccountFundsRoute />} />
             <Route path="workflows" element={<WorkflowsV2 />} />
             <Route path="workflows/new" element={<WorkflowBuilderV2 />} />
             <Route path="workflows/:id" element={<WorkflowDetailV2 />} />

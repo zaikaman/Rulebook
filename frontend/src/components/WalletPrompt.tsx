@@ -1,8 +1,9 @@
 import { Shield01Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
+import { CHAIN_CONFIGS } from '@rulebook/shared';
 import { useEffect, useId, useRef, type ReactNode } from 'react';
 
-import { Button, Dialog } from '../ui/index.js';
+import { Badge, Button, Dialog } from '../ui/index.js';
 import { NetworkBadge } from './NetworkBadge.js';
 import { Spinner } from './chrome/Spinner.js';
 
@@ -32,6 +33,7 @@ export function WalletPrompt({
   const descriptionId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const waitingRef = useRef<HTMLParagraphElement>(null);
+  const isMainnet = CHAIN_CONFIGS.get(chainId)?.network === 'mainnet';
 
   useEffect(() => {
     (busy ? waitingRef : cancelRef).current?.focus();
@@ -44,6 +46,7 @@ export function WalletPrompt({
       onCancel={onCancel}
       busy={busy}
       className="rb-wallet-prompt"
+      data-network-mode={isMainnet ? 'mainnet' : 'testnet'}
     >
       <header className="rb-wallet-prompt__head">
         <span className="rb-wallet-prompt__mark" aria-hidden="true">
@@ -53,7 +56,10 @@ export function WalletPrompt({
           <span className="rb-wallet-prompt__eyebrow">{eyebrow}</span>
           <h2 id={titleId}>{title}</h2>
         </div>
-        <NetworkBadge chainId={chainId} />
+        <div className="rb-wallet-prompt__badges">
+          {isMainnet && <Badge tone="paused">Mainnet · Real funds</Badge>}
+          <NetworkBadge chainId={chainId} />
+        </div>
       </header>
       <div id={descriptionId} className="rb-wallet-prompt__body">
         {children}

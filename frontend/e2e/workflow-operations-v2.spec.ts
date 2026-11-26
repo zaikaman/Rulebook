@@ -5,7 +5,12 @@ import {
   type WorkflowV2RunProof,
 } from '@rulebook/shared';
 
-import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import {
+  ANVIL_LASNA_RPC_URL,
+  ANVIL_RPC_URL,
+  FIXTURE_FRONTEND_URL,
+  USER_ADDRESS,
+} from './fixtureConfig';
 import { approveSignature, fundFixtureWorkflowVault, installWallet } from './wallet';
 
 const owner = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
@@ -93,25 +98,30 @@ test('finds a public workflow proof from workspace costs without connecting a wa
       await route.fulfill({ json: run });
     },
   );
-  await page.route(ANVIL_RPC_URL, async (route) => {
-    if (route.request().method() !== 'POST') return route.fallback();
-    const rpc = route.request().postDataJSON();
-    if (rpc.method !== 'eth_getTransactionReceipt') return route.fallback();
-    const hash = rpc.params[0];
-    await route.fulfill({
-      headers: { 'access-control-allow-origin': '*' },
-      json: {
-        jsonrpc: '2.0',
-        id: rpc.id,
-        result: {
-          transactionHash: hash,
-          status: '0x1',
-          gasUsed: '0x5208',
-          ...(hash === run.destinationTransaction ? { effectiveGasPrice: '0x3b9aca00' } : {}),
+  await page.route(
+    (url) =>
+      url.href.replace(/\/$/, '') === ANVIL_RPC_URL ||
+      url.href.replace(/\/$/, '') === ANVIL_LASNA_RPC_URL,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      const rpc = route.request().postDataJSON();
+      if (rpc.method !== 'eth_getTransactionReceipt') return route.fallback();
+      const hash = rpc.params[0];
+      await route.fulfill({
+        headers: { 'access-control-allow-origin': '*' },
+        json: {
+          jsonrpc: '2.0',
+          id: rpc.id,
+          result: {
+            transactionHash: hash,
+            status: '0x1',
+            gasUsed: '0x5208',
+            ...(hash === run.destinationTransaction ? { effectiveGasPrice: '0x3b9aca00' } : {}),
+          },
         },
-      },
-    });
-  });
+      });
+    },
+  );
 
   await page.goto(FIXTURE_FRONTEND_URL + '/workflows');
   await page

@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { registerTelegramRoutes } from '../src/api/routes/telegram.js';
 import { clientFor, createChainClients } from '../src/chain/clients.js';
 import { ConfigError, loadConfig } from '../src/config.js';
+import { buildRpcHealthChecks } from '../src/server.js';
 import { TelegramFundingAlerts } from '../src/telegram/fundingAlerts.js';
 import {
   TelegramService,
@@ -1334,5 +1335,135 @@ describe('dual mode & mainnet backend support', () => {
     } finally {
       await db.close();
     }
+  });
+
+  it('includes ?network=mainnet in Mainnet Telegram alerts, SQL notifications, and skips unconfigured testnet /health pings', async () => {
+    const db = new PGlite();
+    try {
+      await db.exec('create role anon; create role authenticated; create role service_role;');
+      const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
+      const files = readdirSync(migrationsDir)
+        .filter((name) => name.endsWith('.sql'))
+        .sort();
+      for (const file of files) {
+        await db.exec(readFileSync(join(migrationsDir, file), 'utf8'));
+      }
+
+      const mainnetDeploymentKey = workflowDeploymentKey(
+        REACTIVE_MAINNET_CHAIN_ID,
+        REACTIVE_FACTORY,
+      );
+      const mainnetAgent = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as Address;
+      const mainnetOwner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as Address;
+      const uniVault = '0xcccccccccccccccccccccccccccccccccccccccc' as Address;
+      const wfId = `0x${'1'.repeat(64)}` as Hex;
+      const runId = `0x${'2'.repeat(64)}` as Hex;
+      const programHash = `0x${'3'.repeat(64)}` as Hex;
+      const txHash = `0x${'4'.repeat(64)}` as Hex;
+
+      await db.query(
+        `insert into telegram_accounts (automation_chain, agent, chat_id, profile, connection_id, enabled, action_alerts, funding_alerts, default_mode, enabled_since, defaults_since, action_since, funding_since)
+         values ($1, $2, '77777', 'MainnetUser', gen_random_uuid(), true, true, true, 'all', '-infinity', '-infinity', '-infinity', '-infinity')`,
+        [REACTIVE_MAINNET_CHAIN_ID, mainnetAgent],
+      );
+      await db.query(
+        `insert into workflow_v2_accounts (deployment, chain, address, owner, agent) values
+          ($1, $2, $4, $5, $4),
+          ($1, $3, $6, $5, $4)`,
+        [
+          mainnetDeploymentKey,
+          REACTIVE_MAINNET_CHAIN_ID,
+          UNICHAIN_MAINNET_CHAIN_ID,
+          mainnetAgent,
+          mainnetOwner,
+          uniVault,
+        ],
+      );
+      await db.query(
+        `insert into workflow_v2_activations values ($1, $2, $3, $4, '1', $5, 'Mainnet DCA')`,
+        [mainnetDeploymentKey, UNICHAIN_MAINNET_CHAIN_ID, mainnetAgent, wfId, programHash],
+      );
+      await db.query(
+        `insert into workflow_v2_cursors values ($1, $2, 100, now()), ($1, $3, 100, now())`,
+        [mainnetDeploymentKey, REACTIVE_MAINNET_CHAIN_ID, UNICHAIN_MAINNET_CHAIN_ID],
+      );
+      await db.query(
+        `insert into workflow_v2_runs values ($1, $2, $3, $4, $5, $6, '1', $2, $7, '0', $7, 5, extract(epoch from now())::bigint - 180)`,
+        [
+          mainnetDeploymentKey,
+          UNICHAIN_MAINNET_CHAIN_ID,
+          runId,
+          mainnetAgent,
+          wfId,
+          programHash,
+          txHash,
+        ],
+      );
+      await db.query(`select telegram_process_unfinished($1, $2, $3)`, [
+        mainnetDeploymentKey,
+        UNICHAIN_MAINNET_CHAIN_ID,
+        'https://app.example.com',
+      ]);
+      const deliveries = (
+        await db.query<{ message: string }>(
+          `select message from telegram_deliveries where alert_kind = 'unfinished'`,
+        )
+      ).rows;
+      expect(deliveries[0]?.message).toContain(
+        `https://app.example.com/runs/${runId}?network=mainnet`,
+      );
+    } finally {
+      await db.close();
+    }
+
+    const rpcs = {
+      lasna: { getBlockNumber: vi.fn(async () => 1n) } as unknown as PublicClient,
+      unichain: { getBlockNumber: vi.fn(async () => 1n) } as unknown as PublicClient,
+      reactiveMainnet: { getBlockNumber: vi.fn(async () => 1n) } as unknown as PublicClient,
+      unichainMainnet: { getBlockNumber: vi.fn(async () => 1n) } as unknown as PublicClient,
+    };
+    const health = await buildRpcHealthChecks(rpcs, undefined, MAINNET_DEPLOYMENT);
+    expect(health.map((entry) => entry.chain_id)).toEqual([
+      REACTIVE_MAINNET_CHAIN_ID,
+      UNICHAIN_MAINNET_CHAIN_ID,
+    ]);
+    expect(rpcs.lasna.getBlockNumber).not.toHaveBeenCalled();
+    expect(rpcs.unichain.getBlockNumber).not.toHaveBeenCalled();
+
+    const fundingMessages: string[] = [];
+    const fundingAlerts = new TelegramFundingAlerts(
+      {
+        rpc: vi.fn(async (_name, params: Record<string, unknown>) => {
+          if (typeof params.p_message === 'string') fundingMessages.push(params.p_message);
+          return null;
+        }) as never,
+      },
+      {
+        lasna: {} as PublicClient,
+        unichain: {} as PublicClient,
+        reactiveMainnet: {
+          getBlock: vi.fn(async () => ({ number: 10n, timestamp: 9999999999n })),
+          readContract: vi.fn(async () => 0n),
+        } as unknown as PublicClient,
+        unichainMainnet: {
+          getBlock: vi.fn(async () => ({ number: 10n, timestamp: 9999999999n })),
+          readContract: vi.fn(async () => 0n),
+        } as unknown as PublicClient,
+      },
+      REACTIVE_FACTORY,
+      { [UNICHAIN_MAINNET_CHAIN_ID]: UNICHAIN_FACTORY },
+      'https://app.example.com',
+      REACTIVE_MAINNET_CHAIN_ID,
+    );
+    const currentFundingMsg = await fundingAlerts.currentMessage({
+      kind: 'funding',
+      chain: UNICHAIN_MAINNET_CHAIN_ID,
+      beneficiary: '0xcccccccccccccccccccccccccccccccccccccccc',
+      state: 'empty',
+      block: '5',
+    });
+    expect(currentFundingMsg).toContain(
+      `https://app.example.com/account?credit=execution&chain=${UNICHAIN_MAINNET_CHAIN_ID}&network=mainnet`,
+    );
   });
 });

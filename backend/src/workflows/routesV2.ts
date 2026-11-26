@@ -318,24 +318,34 @@ export function registerWorkflowV2Routes(
   app.get('/v3/runs/:id', async (request, reply) => {
     const params = z.object({ id: workflowIdSchema }).safeParse(request.params);
     const networkQuery = z
-      .object({ network: networkModeSchema.default('testnet') })
+      .object({ network: networkModeSchema.optional() })
       .safeParse(request.query);
     if (!params.success || !networkQuery.success)
       return reply.code(400).send({ message: 'This run ID is invalid.' });
-    const { deployment, chains } = resolveDeployment(networkQuery.data.network);
-    if (!deployment) return reply.code(404).send({ message: 'This run has not been indexed.' });
-    const { data, error } = await db
-      .from('workflow_v2_activity')
-      .select(proofColumns)
-      .eq('deployment', deployment)
-      .in('chain', [...chains])
-      .eq('id', params.data.id)
-      .order('lasna_block', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw error;
-    if (!data) return reply.code(404).send({ message: 'This run has not been indexed.' });
-    const proof = runProof(proofRow.parse(data));
+    const modesToCheck: readonly NetworkMode[] = networkQuery.data.network
+      ? [networkQuery.data.network]
+      : ['testnet', 'mainnet'];
+    let found: z.infer<typeof proofRow> | null = null;
+    for (const candidateMode of modesToCheck) {
+      const { deployment, chains } = resolveDeployment(candidateMode);
+      if (!deployment) continue;
+      const { data, error } = await db
+        .from('workflow_v2_activity')
+        .select(proofColumns)
+        .eq('deployment', deployment)
+        .in('chain', [...chains])
+        .eq('id', params.data.id)
+        .order('lasna_block', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        found = proofRow.parse(data);
+        break;
+      }
+    }
+    if (!found) return reply.code(404).send({ message: 'This run has not been indexed.' });
+    const proof = runProof(found);
     reply.header('cache-control', proof.status === 'confirmed' ? 'public, max-age=60' : 'no-cache');
     return proof;
   });

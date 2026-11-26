@@ -1,5 +1,6 @@
 import {
   addressSchema,
+  networkModeSchema,
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
   txHashSchema,
@@ -45,9 +46,13 @@ export function registerRulewrightRoutes(app: FastifyInstance, deps: ServerDeps)
   app.addHook('onRequest', async (_request, reply) => {
     reply.header('cache-control', 'no-store');
   });
-  app.get(`${base}/availability`, async () => ({
-    available: (await service?.ready().catch(() => false)) ?? false,
-  }));
+  app.get(`${base}/availability`, async (request) => {
+    const query = z.object({ network: networkModeSchema.optional() }).safeParse(request.query);
+    if (!query.success) return { available: false };
+    return {
+      available: (await service?.ready(query.data.network).catch(() => false)) ?? false,
+    };
+  });
 
   function context(request: FastifyRequest, reply: FastifyReply) {
     if (!service) {
@@ -129,6 +134,13 @@ export function registerRulewrightRoutes(app: FastifyInstance, deps: ServerDeps)
           );
         case 'busy':
           return sendError(reply, 503, 'rulewright_busy', 'Rulewright is busy. Try again shortly.');
+        case 'network_unavailable':
+          return sendError(
+            reply,
+            503,
+            'rulewright_network_unavailable',
+            `Rulewright is not configured for ${admission.network}.`,
+          );
         case 'queued':
           return reply.code(202).send({ id: admission.id });
       }

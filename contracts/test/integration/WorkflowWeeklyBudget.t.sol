@@ -78,6 +78,7 @@ contract WorkflowWeeklyBudgetTest is Test {
 
     function _deployAgent() private {
         system = new MockSystemContract();
+        vm.chainId(ChainConfig.LASNA);
         WorkflowAgentFactoryV2 factory = new WorkflowAgentFactoryV2(system);
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(factory.create()));

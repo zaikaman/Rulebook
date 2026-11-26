@@ -9,7 +9,7 @@ import {
   walletActions,
 } from 'viem';
 
-import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL } from './fixtureConfig';
+import { ANVIL_LASNA_RPC_URL, ANVIL_RPC_URL, FIXTURE_FRONTEND_URL } from './fixtureConfig';
 import { installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
@@ -23,7 +23,11 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   const chain = createTestClient({ mode: 'anvil', transport: http(ANVIL_RPC_URL) })
     .extend(publicActions)
     .extend(walletActions);
+  const lasnaChain = createTestClient({ mode: 'anvil', transport: http(ANVIL_LASNA_RPC_URL) })
+    .extend(publicActions)
+    .extend(walletActions);
   const balance = await chain.getBalance({ address: OWNER });
+  const lasnaBalance = await lasnaChain.getBalance({ address: OWNER });
   const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
   const mint = await chain.writeContract({
     address: token,
@@ -41,7 +45,10 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   await expect(page.getByText('Step 1 of 5')).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0);
 
-  await chain.setBalance({ address: OWNER, value: 0n });
+  await Promise.all([
+    chain.setBalance({ address: OWNER, value: 0n }),
+    lasnaChain.setBalance({ address: OWNER, value: 0n }),
+  ]);
   try {
     await page.getByRole('button', { name: 'Connect wallet to start' }).click();
     await expect(page.getByRole('heading', { name: 'Get test tokens' })).toBeFocused();
@@ -50,7 +57,10 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
     await expect(page.getByRole('button', { name: 'Create my account' })).toHaveCount(0);
     expect(await walletRequests(page)).toEqual([]);
   } finally {
-    await chain.setBalance({ address: OWNER, value: balance });
+    await Promise.all([
+      chain.setBalance({ address: OWNER, value: balance }),
+      lasnaChain.setBalance({ address: OWNER, value: lasnaBalance }),
+    ]);
   }
   await page.getByRole('button', { name: 'Check balances' }).click();
 

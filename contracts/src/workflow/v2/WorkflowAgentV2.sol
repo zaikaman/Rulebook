@@ -38,9 +38,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     // after the boundary has certainly passed on both chains, so the Agent never suppresses a run
     // the Vault would settle against the week the spend was recorded in.
     uint64 private constant WEEK_SKEW = 10 minutes;
-    // Reactive blocks arrive near ~0.8s (Mainnet) to ~1.1s (Lasna). Predicting the reset block with
-    // a deliberately slow 2s block time wakes the agent shortly before reset instead of late.
-    uint64 private constant LASNA_BLOCK_SECONDS = 2;
+    // Reactive blocks arrive near ~0.78s (Mainnet) to ~1.09s (Lasna). Conservative per-chain
+    // block-time overestimates wake the agent shortly before reset while minimizing mainnet re-pins.
+    uint256 private constant LASNA_BLOCK_MS = 2_000;
+    uint256 private constant MAINNET_BLOCK_MS = 900;
 
     struct Entry {
         bytes32 hash;
@@ -178,12 +179,11 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(uint32 => ActivityCursor) private activityCursors;
 
     constructor(IReactiveSystem system_, address factory_, WorkflowProgramValidatorV2 validator_) {
+        if (!ChainConfig.isAutomationChain(block.chainid)) revert InvalidWorkflow();
         system = system_;
         factory = factory_;
         validator = validator_;
-        automationChain = block.chainid == ChainConfig.REACTIVE_MAINNET
-            ? uint32(ChainConfig.REACTIVE_MAINNET)
-            : uint32(ChainConfig.LASNA);
+        automationChain = uint32(block.chainid);
     }
 
     function initialize(address owner_) external {
@@ -932,12 +932,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     /// @notice First `Cron100` block expected at or after `reset`, or zero when it has passed.
-    /// @dev `LASNA_BLOCK_SECONDS` is intentionally slower than the observed block time, so the
-    /// estimate lands before the reset and is corrected by another pin instead of resuming late.
+    /// @dev Per-chain block time constants are intentionally slower than observed block times, so
+    /// the estimate lands shortly before reset and is corrected by another pin instead of resuming late.
     function _wakeBlock(uint64 reset) private view returns (uint64) {
         if (reset <= block.timestamp) return 0;
-        uint256 blocksLeft =
-            (uint256(reset - block.timestamp) + LASNA_BLOCK_SECONDS - 1) / LASNA_BLOCK_SECONDS;
+        uint256 blockMs =
+            automationChain == ChainConfig.REACTIVE_MAINNET ? MAINNET_BLOCK_MS : LASNA_BLOCK_MS;
+        uint256 blocksLeft = (uint256(reset - block.timestamp) * 1_000 + blockMs - 1) / blockMs;
         uint256 target = ((block.number + blocksLeft + 99) / 100) * 100;
         if (target > type(uint64).max) return 0;
         return uint64(target);

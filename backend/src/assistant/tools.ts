@@ -1,13 +1,15 @@
 import {
   actions,
+  automationChainFor,
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   checks,
   decodeWorkflowV2,
   executionCreditAbi,
+  fundsChainsFor,
   getChain,
+  isAutomationChain,
   isFundsChain,
-  LASNA_CHAIN_ID,
-  TESTNET_FUNDS_CHAIN_IDS,
   toDraft,
   triggers,
   UNICHAIN_SEPOLIA_CHAIN_ID,
@@ -20,30 +22,20 @@ import {
   workflowV2Unit,
   type Address,
   type AssistantReference,
+  type AutomationChainId,
   type DraftPath,
   type DraftStep,
   type FundsChainId,
+  type NetworkMode,
+  type WorkflowV2Deployment,
+  type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 import { erc20Abi, formatUnits, zeroAddress, type Hex } from 'viem';
 
 import { clientFor, type ChainClients } from '../chain/clients.js';
-import type { WorkflowV2Deployment } from '../workflows/indexerV2.js';
 import { workflowV2FailureReason } from '../workflows/failureReasons.js';
-
-const accountReference: AssistantReference = {
-  kind: 'account',
-  id: 'account',
-  label: 'Open Account & Vault',
-  href: '/account',
-};
-const activityReference: AssistantReference = {
-  kind: 'activity',
-  id: 'activity',
-  label: 'Open Activity',
-  href: '/activity',
-};
 
 export interface AssistantToolDefinition {
   readonly name: string;
@@ -117,7 +109,7 @@ export const assistantToolDefinitions: readonly AssistantToolDefinition[] = [
     name: 'get_run',
     label: 'Reading this run',
     description:
-      'Read one indexed run with its status, path, reason, and origin, Lasna, and settlement transactions. Use it when the question names a run id.',
+      'Read one indexed run with its status, path, reason, and origin, automation, and settlement transactions. Use it when the question names a run id.',
     parameters: {
       type: 'object',
       properties: {
@@ -296,6 +288,11 @@ async function readOrNull<T>(read: () => Promise<T>): Promise<T | null> {
  * which workflow or run to inspect, but it cannot widen the wallet scope.
  */
 export class AssistantToolExecutor {
+  private readonly mode: NetworkMode;
+  private readonly automationChain: AutomationChainId;
+  private readonly automationFactory: Address;
+  private readonly automationName: string;
+  private readonly fundsChainIds: readonly FundsChainId[];
   private readonly deploymentId: string;
   private readonly workflows = new Map<string, Promise<WorkflowSnapshot>>();
   private addressesCache?: Promise<{
@@ -306,20 +303,64 @@ export class AssistantToolExecutor {
   constructor(
     private readonly db: SupabaseClient,
     private readonly clients: ChainClients,
-    private readonly deployment: WorkflowV2Deployment,
+    private readonly deployment: WorkflowV2Deployment | WorkflowV2MainnetDeployment,
     private readonly owner: Address,
   ) {
-    this.deploymentId = workflowDeploymentKey(LASNA_CHAIN_ID, deployment.lasna.factory);
+    if ('reactive' in deployment) {
+      this.mode = 'mainnet';
+      this.automationChain = automationChainFor('mainnet');
+      this.automationFactory = deployment.reactive.factory;
+    } else {
+      this.mode = 'testnet';
+      this.automationChain = automationChainFor('testnet');
+      this.automationFactory = deployment.lasna.factory;
+    }
+    this.automationName = getChain(this.automationChain).name;
+    this.fundsChainIds = fundsChainsFor(this.mode);
+    this.deploymentId = workflowDeploymentKey(this.automationChain, this.automationFactory);
+  }
+
+  private withNetwork(href: string): string {
+    if (this.mode !== 'mainnet') return href;
+    return `${href}${href.includes('?') ? '&' : '?'}network=mainnet`;
+  }
+
+  private accountReference(): AssistantReference {
+    return {
+      kind: 'account',
+      id: 'account',
+      label: 'Open Account & Vault',
+      href: this.withNetwork('/account'),
+    };
+  }
+
+  private activityReference(): AssistantReference {
+    return {
+      kind: 'activity',
+      id: 'activity',
+      label: 'Open Activity',
+      href: this.withNetwork('/activity'),
+    };
+  }
+
+  private automationClient() {
+    return clientFor(this.clients, this.automationChain);
   }
 
   private configuredFundsChains(): readonly FundsChainId[] {
-    return TESTNET_FUNDS_CHAIN_IDS.filter((chain) =>
-      chain === BASE_SEPOLIA_CHAIN_ID ? Boolean(this.deployment.base && this.clients.base) : true,
-    );
+    return this.fundsChainIds.filter((chain) => {
+      if (chain === BASE_SEPOLIA_CHAIN_ID) {
+        return Boolean(this.deployment.base && this.clients.base);
+      }
+      if (chain === BASE_MAINNET_CHAIN_ID) {
+        return Boolean(this.deployment.base && this.clients.baseMainnet);
+      }
+      return true;
+    });
   }
 
   private factoryFor(chain: FundsChainId): Address | undefined {
-    return chain === BASE_SEPOLIA_CHAIN_ID
+    return chain === BASE_SEPOLIA_CHAIN_ID || chain === BASE_MAINNET_CHAIN_ID
       ? this.deployment.base?.factory
       : this.deployment.unichain.factory;
   }
@@ -378,8 +419,8 @@ export class AssistantToolExecutor {
     this.addressesCache ??= (async () => {
       const chains = this.configuredFundsChains();
       const [agent, ...vaultList] = await Promise.all([
-        this.clients.lasna.readContract({
-          address: this.deployment.lasna.factory,
+        this.automationClient().readContract({
+          address: this.automationFactory,
           abi: workflowAgentFactoryV2Abi,
           functionName: 'agentOf',
           args: [this.owner],
@@ -494,17 +535,18 @@ export class AssistantToolExecutor {
             'This wallet has not created its Agent or Vault yet. Account setup is the first step.',
         },
         'No account yet',
-        [accountReference],
+        [this.accountReference()],
       );
     }
 
-    const system = getChain(LASNA_CHAIN_ID).systemContract;
+    const system = getChain(this.automationChain).systemContract;
+    const autoClient = this.automationClient();
     const [walletReact, watching, perChain] = await Promise.all([
-      readOrNull(() => this.clients.lasna.getBalance({ address: this.owner })),
+      readOrNull(() => autoClient.getBalance({ address: this.owner })),
       readOrNull(() =>
         agent === zeroAddress
           ? Promise.resolve(null)
-          : this.clients.lasna.readContract({
+          : autoClient.readContract({
               address: system,
               abi: executionCreditAbi,
               functionName: 'reserves',
@@ -517,13 +559,14 @@ export class AssistantToolExecutor {
     const vaultsByChain = Object.fromEntries(perChain.map((entry) => [entry.chain, entry]));
 
     const data = {
+      network: this.mode,
       owner: this.owner,
       agent,
       vault: primary.vault,
       vaults: vaultsByChain,
       networks: {
         automation: {
-          name: 'Reactive Lasna',
+          name: this.automationName,
           watchingCreditReact: amount(watching, 18),
           walletReact: amount(walletReact, 18),
         },
@@ -553,7 +596,7 @@ export class AssistantToolExecutor {
       },
       note: 'A null value means the balance is unavailable because the contract does not exist yet or the read failed. Do not report it as zero.',
     };
-    return this.result(data, 'Account balances', [accountReference]);
+    return this.result(data, 'Account balances', [this.accountReference()]);
   }
 
   private async listWorkflows(): Promise<AssistantToolResult> {
@@ -565,7 +608,7 @@ export class AssistantToolExecutor {
       return this.result(
         { workflows: [], message: 'This wallet has no workflow account yet.' },
         'No workflows',
-        [accountReference],
+        [this.accountReference()],
       );
     }
     const perChainIds = await Promise.all(
@@ -646,7 +689,8 @@ export class AssistantToolExecutor {
     if (agent === zeroAddress || deployedChains.length === 0)
       throw new Error('This wallet has no workflow account yet.');
 
-    const entry = await this.clients.lasna.readContract({
+    const autoClient = this.automationClient();
+    const entry = await autoClient.readContract({
       address: agent,
       abi: workflowAgentV2Abi,
       functionName: 'entries',
@@ -687,7 +731,6 @@ export class AssistantToolExecutor {
     const staged = auth[1] > entry[1] && (auth[3] || entry[1] === 0n);
     const active = entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
     const version = staged ? auth[0] : entry[0];
-    const lesna = this.clients.lasna;
     const [title, encoded, memory, budget] = await Promise.all([
       staged
         ? sink.readContract({
@@ -696,7 +739,7 @@ export class AssistantToolExecutor {
             functionName: 'titles',
             args: [id],
           })
-        : lesna.readContract({
+        : autoClient.readContract({
             address: agent,
             abi: workflowAgentV2Abi,
             functionName: 'titles',
@@ -709,7 +752,7 @@ export class AssistantToolExecutor {
             functionName: 'programs',
             args: [version],
           })
-        : lesna.readContract({
+        : autoClient.readContract({
             address: agent,
             abi: workflowAgentV2Abi,
             functionName: 'programs',
@@ -768,7 +811,7 @@ export class AssistantToolExecutor {
         resetsAt: Number(budget[6]),
       },
       paths: readablePaths(draft.root),
-      href: `/workflows/${id}`,
+      href: this.withNetwork(`/workflows/${id}`),
     };
   }
 
@@ -780,7 +823,7 @@ export class AssistantToolExecutor {
         'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
       .match({ deployment: this.deploymentId, owner: this.owner })
-      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS]);
+      .in('chain', [...this.fundsChainIds]);
     if (input.workflowId) query = query.eq('workflow_id', input.workflowId);
     if (input.status && input.status !== 'all') query = query.eq('status', input.status);
     const { data, error } = await query
@@ -797,7 +840,7 @@ export class AssistantToolExecutor {
           { kind: 'run' as const, id: row.id, label: `Open ${row.title} run`, href: row.href },
         ])
       : [];
-    if (rows.length) references.push(activityReference);
+    if (rows.length) references.push(this.activityReference());
     return this.result(
       { count: rows.length, filter: input.status ?? 'all', runs: rows },
       `${rows.length} ${rows.length === 1 ? 'run' : 'runs'}`,
@@ -812,7 +855,7 @@ export class AssistantToolExecutor {
         'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
       .match({ deployment: this.deploymentId, owner: this.owner, id: runId })
-      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS])
+      .in('chain', [...this.fundsChainIds])
       .order('lasna_block', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -821,7 +864,7 @@ export class AssistantToolExecutor {
     const run = this.runView(activityRow.parse(data));
     return this.result({ run }, run.status, [
       { kind: 'run', id: run.id, label: `Open ${run.title} run`, href: run.href },
-      activityReference,
+      this.activityReference(),
     ]);
   }
 
@@ -840,15 +883,14 @@ export class AssistantToolExecutor {
       transactions: {
         origin: row.origin_transaction,
         originChain: row.origin_chain,
-        originChainName: isFundsChain(row.origin_chain)
-          ? getChain(row.origin_chain).name
-          : row.origin_chain === LASNA_CHAIN_ID
-            ? getChain(LASNA_CHAIN_ID).name
+        originChainName:
+          isFundsChain(row.origin_chain) || isAutomationChain(row.origin_chain)
+            ? getChain(row.origin_chain).name
             : String(row.origin_chain),
         lasna: row.lasna_transaction,
         destination: row.destination_transaction,
       },
-      href: `/runs/${row.id}`,
+      href: this.withNetwork(`/runs/${row.id}`),
     };
   }
 
@@ -860,7 +902,7 @@ export class AssistantToolExecutor {
       .from('workflow_v2_market_listings')
       .select('id,title,description,owner,workflow_id,block_number')
       .match({ deployment: this.deploymentId, visible: true })
-      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS]);
+      .in('chain', [...this.fundsChainIds]);
     const search = input.query?.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
     if (search) query = query.ilike('title', `%${search}%`);
     const { data, error } = await query.order('block_number', { ascending: false }).limit(limit);
@@ -874,7 +916,7 @@ export class AssistantToolExecutor {
         description: row.description,
         publisher: row.owner,
         workflowId: row.workflow_id,
-        href: `/marketplace/${row.id}`,
+        href: this.withNetwork(`/marketplace/${row.id}`),
       }));
     return this.result(
       { count: listings.length, query: input.query ?? '', listings },
@@ -897,20 +939,21 @@ export class AssistantToolExecutor {
           message: 'This wallet has no Agent yet, so Telegram notifications are not configured.',
         },
         'No notification account',
-        [accountReference],
+        [this.accountReference()],
       );
+    const normalizedAgent = agent.toLowerCase();
     const [account, preferences] = await Promise.all([
       this.db
         .from('telegram_accounts')
         .select('chat_id,profile,blocked,enabled,default_mode')
-        .eq('automation_chain', LASNA_CHAIN_ID)
-        .eq('agent', agent)
+        .eq('automation_chain', this.automationChain)
+        .eq('agent', normalizedAgent)
         .maybeSingle(),
       this.db
         .from('telegram_workflow_preferences')
         .select('workflow_id,preference')
-        .eq('automation_chain', LASNA_CHAIN_ID)
-        .eq('agent', agent),
+        .eq('automation_chain', this.automationChain)
+        .eq('agent', normalizedAgent),
     ]);
     if (account.error || preferences.error)
       throw new Error('Notification settings could not be read.');
@@ -922,6 +965,7 @@ export class AssistantToolExecutor {
         : settings.chat_id
           ? 'connected'
           : 'disconnected';
+    const workflowsHref = this.withNetwork('/workflows');
     return this.result(
       {
         connection,
@@ -936,7 +980,7 @@ export class AssistantToolExecutor {
             workflowId: row.workflow_id,
             preference: row.preference,
           })),
-        setupHref: '/workflows',
+        setupHref: workflowsHref,
       },
       connection === 'connected' ? 'Telegram connected' : 'Telegram not connected',
       [
@@ -944,7 +988,7 @@ export class AssistantToolExecutor {
           kind: 'workflow',
           id: 'notifications',
           label: 'Open a workflow to manage alerts',
-          href: '/workflows',
+          href: workflowsHref,
         },
       ],
     );

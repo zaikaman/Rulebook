@@ -18,6 +18,18 @@ import {
 
 export const NETWORK_MODE_STORAGE_KEY = 'rulebook.networkMode';
 
+export function getUrlNetworkMode(
+  search: string | undefined = typeof window !== 'undefined' ? window.location.search : undefined,
+): NetworkMode | null {
+  if (!search) return null;
+  try {
+    const value = new URLSearchParams(search).get('network')?.toLowerCase();
+    return value === 'mainnet' || value === 'testnet' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 export function getStoredNetworkMode(): NetworkMode {
   try {
     const stored =
@@ -26,6 +38,36 @@ export function getStoredNetworkMode(): NetworkMode {
   } catch {
     return 'testnet';
   }
+}
+
+export function setStoredNetworkMode(mode: NetworkMode): void {
+  try {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(NETWORK_MODE_STORAGE_KEY, mode);
+    }
+  } catch {
+    // Storage can be blocked in strict privacy contexts.
+  }
+}
+
+export function getInitialNetworkMode(): NetworkMode {
+  const fromUrl = getUrlNetworkMode();
+  if (fromUrl) {
+    setStoredNetworkMode(fromUrl);
+    return fromUrl;
+  }
+  return getStoredNetworkMode();
+}
+
+export function withNetworkQuery(path: string, mode: NetworkMode, alwaysInclude = false): string {
+  const [pathname = '', rawSearch = ''] = path.split('?');
+  const params = new URLSearchParams(rawSearch);
+  params.delete('network');
+  if (alwaysInclude || mode === 'mainnet') {
+    params.set('network', mode);
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 export interface NetworkModeState {
@@ -75,16 +117,12 @@ const defaultContextValue: NetworkModeContextValue = {
 const NetworkModeContext = createContext<NetworkModeContextValue>(defaultContextValue);
 
 export function NetworkModeProvider({ children }: { readonly children: ReactNode }) {
-  const [mode, setModeState] = useState<NetworkMode>(() => getStoredNetworkMode());
+  const [mode, setModeState] = useState<NetworkMode>(() => getInitialNetworkMode());
   const queryClient = useQueryClient();
 
   const setMode = useCallback(
     (next: NetworkMode) => {
-      try {
-        window.localStorage.setItem(NETWORK_MODE_STORAGE_KEY, next);
-      } catch {
-        // Storage can be blocked in strict privacy contexts.
-      }
+      setStoredNetworkMode(next);
       setModeState(next);
       void queryClient.invalidateQueries();
     },

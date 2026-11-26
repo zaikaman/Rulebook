@@ -1,6 +1,8 @@
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   LASNA_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
 } from '@rulebook/shared';
@@ -246,6 +248,57 @@ describe('defaultFundingAmounts', () => {
           walletNative: parseEther('0.0002'),
         }),
         UNICHAIN_SEPOLIA_CHAIN_ID,
+      ),
+    ).toEqual({
+      watching: '',
+      execution: '',
+      usdc: '10',
+    });
+  });
+
+  it('uses higher gas buffers and starter defaults for Reactive Mainnet and mainnet settlement chains', () => {
+    // Holding 0.605 REACT with the 0.05 REACT Reactive Mainnet buffer leaves 0.555 REACT
+    // (above the 0.5 REACT minimum warning threshold and below the 1 REACT starter default).
+    expect(
+      defaultFundingAmounts(
+        makeFunds({
+          walletWatch: parseEther('0.605'),
+          walletNative: parseEther('0.005'),
+          walletStable: 25_000_000n,
+        }),
+        UNICHAIN_MAINNET_CHAIN_ID,
+      ),
+    ).toEqual({
+      watching: '0.5',
+      execution: '0.003',
+      usdc: '10',
+    });
+
+    // When wallet balances exceed starter thresholds, mainnet defaults to 1 REACT and 0.003 ETH.
+    expect(
+      defaultFundingAmounts(
+        makeFunds({
+          walletWatch: parseEther('2'),
+          walletNative: parseEther('0.01'),
+          walletStable: 25_000_000n,
+        }),
+        BASE_MAINNET_CHAIN_ID,
+      ),
+    ).toEqual({
+      watching: '1',
+      execution: '0.003',
+      usdc: '10',
+    });
+
+    // Holding only 0.54 REACT on Reactive Mainnet leaves 0.49 REACT after the 0.05 REACT buffer,
+    // which is below the 0.5 REACT minimum, so it skips auto-filling instead of dipping into gas.
+    expect(
+      defaultFundingAmounts(
+        makeFunds({
+          walletWatch: parseEther('0.54'),
+          walletNative: parseEther('0.0005'),
+        }),
+        UNICHAIN_MAINNET_CHAIN_ID,
       ),
     ).toEqual({
       watching: '',

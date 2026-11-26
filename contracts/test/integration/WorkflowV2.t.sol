@@ -108,6 +108,7 @@ contract WorkflowV2SettlementTest is Test {
         usdc.mint(address(router), 100_000e6);
         weth.mint(address(router), 100 ether);
         system = new MockSystemContract();
+        vm.chainId(ChainConfig.LASNA);
         WorkflowAgentFactoryV2 factory = new WorkflowAgentFactoryV2(system);
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(factory.create()));

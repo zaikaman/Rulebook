@@ -65,9 +65,35 @@ export interface FundingPlanItem {
 
 export const SUGGESTED_WATCHING_CREDIT = parseEther('0.1');
 export const SUGGESTED_EXECUTION_CREDIT = parseEther('0.001');
+export const SUGGESTED_MAINNET_WATCHING_CREDIT = parseEther('1');
+export const SUGGESTED_MAINNET_EXECUTION_CREDIT = parseEther('0.003');
 export const SUGGESTED_VAULT_USDC = 10_000_000n;
 export const LASNA_GAS_BUFFER = parseEther('0.005');
+export const REACTIVE_MAINNET_GAS_BUFFER = parseEther('0.05');
 export const FUNDS_GAS_BUFFER = parseEther('0.0002');
+export const MAINNET_FUNDS_GAS_BUFFER = parseEther('0.0005');
+
+export function automationGasBufferFor(chainId: number): bigint {
+  return networkModeForChain(chainId) === 'mainnet'
+    ? REACTIVE_MAINNET_GAS_BUFFER
+    : LASNA_GAS_BUFFER;
+}
+
+export function fundsGasBufferFor(chainId: number): bigint {
+  return networkModeForChain(chainId) === 'mainnet' ? MAINNET_FUNDS_GAS_BUFFER : FUNDS_GAS_BUFFER;
+}
+
+export function suggestedWatchingCreditFor(chainId: number): bigint {
+  return networkModeForChain(chainId) === 'mainnet'
+    ? SUGGESTED_MAINNET_WATCHING_CREDIT
+    : SUGGESTED_WATCHING_CREDIT;
+}
+
+export function suggestedExecutionCreditFor(chainId: number): bigint {
+  return networkModeForChain(chainId) === 'mainnet'
+    ? SUGGESTED_MAINNET_EXECUTION_CREDIT
+    : SUGGESTED_EXECUTION_CREDIT;
+}
 
 export function exactUnits(value: bigint, decimals: number): string {
   const [whole = '0', fraction] = formatUnits(value, decimals).split('.');
@@ -98,9 +124,9 @@ export function defaultFundingAmounts(
   const watching = suggestedCreditAmount(
     funds.watch,
     funds.walletWatch,
-    SUGGESTED_WATCHING_CREDIT,
+    suggestedWatchingCreditFor(autoChain),
     feeCreditWarningThreshold(autoChain),
-    LASNA_GAS_BUFFER,
+    automationGasBufferFor(autoChain),
   );
   const execution =
     !funds.proxy || funds.proxy === zeroAddress
@@ -108,9 +134,9 @@ export function defaultFundingAmounts(
       : suggestedCreditAmount(
           funds.execution,
           funds.walletNative,
-          SUGGESTED_EXECUTION_CREDIT,
+          suggestedExecutionCreditFor(chainId),
           feeCreditWarningThreshold(chainId),
-          FUNDS_GAS_BUFFER,
+          fundsGasBufferFor(chainId),
         );
   let usdc = '';
   if (funds.usdc !== zeroAddress && funds.stable === 0n && funds.walletStable > 0n) {

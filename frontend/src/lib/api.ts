@@ -75,10 +75,15 @@ export class ApiClient {
     return this.request('/health', healthSchema);
   }
 
-  rulewrightAvailability(signal?: AbortSignal) {
-    return this.request('/v2/rulewright/availability', z.object({ available: z.boolean() }), {
-      signal,
-    });
+  rulewrightAvailability(signal?: AbortSignal, network?: NetworkMode) {
+    const query = network ? `?network=${network}` : '';
+    return this.request(
+      `/v2/rulewright/availability${query}`,
+      z.object({ available: z.boolean() }),
+      {
+        signal,
+      },
+    );
   }
 
   rulewrightChallenge(owner: string, signal: AbortSignal) {
@@ -113,10 +118,15 @@ export class ApiClient {
     );
   }
 
-  assistantAvailability(signal?: AbortSignal) {
-    return this.request('/v2/assistant/availability', z.object({ available: z.boolean() }), {
-      signal,
-    });
+  assistantAvailability(signal?: AbortSignal, network?: NetworkMode) {
+    const query = network ? `?network=${network}` : '';
+    return this.request(
+      `/v2/assistant/availability${query}`,
+      z.object({ available: z.boolean() }),
+      {
+        signal,
+      },
+    );
   }
 
   assistantChallenge(owner: string, signal: AbortSignal) {

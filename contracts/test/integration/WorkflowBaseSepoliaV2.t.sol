@@ -68,6 +68,7 @@ contract WorkflowBaseSepoliaV2Test is Test {
         uniWeth.mint(address(uniRouter), 100 ether);
 
         system = new MockSystemContract();
+        vm.chainId(ChainConfig.LASNA);
         WorkflowAgentFactoryV2 agentFactory = new WorkflowAgentFactoryV2(system);
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(agentFactory.create()));

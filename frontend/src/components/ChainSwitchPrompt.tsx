@@ -8,11 +8,12 @@ export function ChainSwitchPrompt({
   ...actions
 }: WalletPromptActions & { readonly details: SignatureDetails }) {
   const network = getChain(details.chainId);
+  const isMainnet = network.network === 'mainnet';
   const label = `Switch to ${network.name}`;
   return (
     <WalletPrompt
       {...actions}
-      eyebrow="Network switch"
+      eyebrow={isMainnet ? 'Mainnet network switch' : 'Network switch'}
       title={label}
       confirmLabel={label}
       chainId={network.chainId}

@@ -21,6 +21,7 @@ import {
 
 import {
   ANVIL_BASE_RPC_URL,
+  ANVIL_LASNA_RPC_URL,
   ANVIL_RPC_URL,
   USER_ADDRESS,
   WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
@@ -59,6 +60,7 @@ export async function installWallet(
       user,
       rpc,
       baseRpc,
+      lasnaRpc,
       initialChainId,
       lasnaId,
       unichainId,
@@ -180,7 +182,7 @@ export async function installWallet(
           if (method === 'eth_signTypedData_v4' && typeof args[1] === 'string') {
             args[1] = JSON.parse(args[1]);
           }
-          const endpoint = chainId === baseId ? baseRpc : rpc;
+          const endpoint = chainId === lasnaId ? lasnaRpc : chainId === baseId ? baseRpc : rpc;
           const response = await fetch(endpoint, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
@@ -216,6 +218,7 @@ export async function installWallet(
       user,
       rpc: ANVIL_RPC_URL,
       baseRpc: ANVIL_BASE_RPC_URL,
+      lasnaRpc: ANVIL_LASNA_RPC_URL,
       initialChainId,
       lasnaId: numberToHex(LASNA_CHAIN_ID),
       unichainId: numberToHex(UNICHAIN_SEPOLIA_CHAIN_ID),

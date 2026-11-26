@@ -1139,6 +1139,11 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "error",
+    "name": "InactiveDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InsufficientBalance",
     "inputs": [
       {

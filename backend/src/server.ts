@@ -10,6 +10,8 @@ import {
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
   type FundsChainId,
+  type WorkflowV2Deployment,
+  type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -23,6 +25,7 @@ import {
   reactiveMainnetChain,
   unichainMainnetChain,
   unichainSepoliaChain,
+  type ChainClients,
 } from './chain/clients.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
@@ -96,6 +99,36 @@ export function buildServer(
   return { app, routePaths };
 }
 
+/** Pings only the RPCs required by the configured deployment modes so unconfigured testnets never degrade `/health`. */
+export async function buildRpcHealthChecks(
+  clients: ChainClients,
+  v2?: WorkflowV2Deployment,
+  v2Mainnet?: WorkflowV2MainnetDeployment,
+): Promise<Array<{ chain_id: number; rpc_ok: boolean }>> {
+  const targets: Array<{ chain_id: number; client: ChainClients['lasna'] }> = [];
+  if (v2 || !v2Mainnet) {
+    targets.push(
+      { chain_id: lasnaChain.id, client: clients.lasna },
+      { chain_id: unichainSepoliaChain.id, client: clients.unichain },
+    );
+    if (v2?.base && clients.base) {
+      targets.push({ chain_id: baseSepoliaChain.id, client: clients.base });
+    }
+  }
+  if (v2Mainnet && clients.reactiveMainnet && clients.unichainMainnet) {
+    targets.push(
+      { chain_id: reactiveMainnetChain.id, client: clients.reactiveMainnet },
+      { chain_id: unichainMainnetChain.id, client: clients.unichainMainnet },
+    );
+    if (v2Mainnet.base && clients.baseMainnet) {
+      targets.push({ chain_id: baseMainnetChain.id, client: clients.baseMainnet });
+    }
+  }
+  return Promise.all(
+    targets.map(async ({ chain_id, client }) => ({ chain_id, rpc_ok: await ping(client) })),
+  );
+}
+
 /** Boots the service: database, RPC clients, HTTP listener, and the optional indexer loop. */
 export async function startServer(): Promise<void> {
   const config = loadConfig();
@@ -130,7 +163,9 @@ export async function startServer(): Promise<void> {
       ? new RulewrightService(supabase, clients, vaultFactories, config.gemini)
       : undefined;
   const assistant =
-    config.gemini && v2 ? new AssistantService(supabase, clients, v2, config.gemini) : undefined;
+    config.gemini && (v2 || v2Mainnet)
+      ? new AssistantService(supabase, clients, { testnet: v2, mainnet: v2Mainnet }, config.gemini)
+      : undefined;
   const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
   const workflowAlerts =
@@ -204,22 +239,7 @@ export async function startServer(): Promise<void> {
     rulewright,
     assistant,
     databaseReachable: () => probeDatabase(supabase),
-    rpcHealth: async () => [
-      { chain_id: lasnaChain.id, rpc_ok: await ping(clients.lasna) },
-      { chain_id: unichainSepoliaChain.id, rpc_ok: await ping(clients.unichain) },
-      ...(v2?.base && clients.base
-        ? [{ chain_id: baseSepoliaChain.id, rpc_ok: await ping(clients.base) }]
-        : []),
-      ...(v2Mainnet && clients.reactiveMainnet && clients.unichainMainnet
-        ? [
-            { chain_id: reactiveMainnetChain.id, rpc_ok: await ping(clients.reactiveMainnet) },
-            { chain_id: unichainMainnetChain.id, rpc_ok: await ping(clients.unichainMainnet) },
-            ...(v2Mainnet.base && clients.baseMainnet
-              ? [{ chain_id: baseMainnetChain.id, rpc_ok: await ping(clients.baseMainnet) }]
-              : []),
-          ]
-        : []),
-    ],
+    rpcHealth: () => buildRpcHealthChecks(clients, v2, v2Mainnet),
   });
 
   if (v2 || v2Mainnet) {

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { addressSchema, txHashSchema } from './schemas.js';
+import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { workflowIdSchema } from './workflows.js';
 
 export const assistantMessageLimit = 2000;
@@ -36,6 +36,7 @@ export const assistantRequestSchema = z
     message: z.string().trim().min(1).max(assistantMessageLimit),
     conversationId: assistantConversationIdSchema.optional(),
     page: assistantPageSchema.optional(),
+    network: networkModeSchema.optional(),
   })
   .strict();
 

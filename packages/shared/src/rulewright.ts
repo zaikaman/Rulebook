@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { networkModeForChain } from './chains.js';
 import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { v2DraftSchema } from './workflowV2Draft.js';
 import { workflowLimits } from './workflows.js';
@@ -51,7 +52,16 @@ export const rulewrightRequestSchema = z
       .array(z.object({ question: message, answer: prompt }).strict())
       .max(rulewrightFollowUpLimit),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.network && value.draft && networkModeForChain(value.draft.chain) !== value.network) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Draft network does not match the selected network mode.',
+        path: ['network'],
+      });
+    }
+  });
 
 export const rulewrightResultSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('draft'), draft: draftSchema }),

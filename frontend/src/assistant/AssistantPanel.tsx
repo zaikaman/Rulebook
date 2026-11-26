@@ -24,10 +24,12 @@ import { Link } from 'react-router';
 import { useAccount, useSignMessage } from 'wagmi';
 
 import { WalletControl } from '@/components/chrome/WalletControl';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { ApiError, api } from '@/lib/api';
 import { streamAssistant } from '@/lib/assistant';
 import { isWalletRejection } from '@/lib/errors';
-import { Button, Callout, Dialog, ErrorState } from '@/ui';
+import { useNetworkMode } from '@/lib/networkMode';
+import { Badge, Button, Callout, Dialog, ErrorState } from '@/ui';
 import '../styles/assistant.css';
 
 type Session = { owner: string; token: string };
@@ -91,12 +93,14 @@ export function AssistantPanel({
   const titleId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
   const operation = useRef<AbortController>(undefined);
+  const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
+  const prevModeRef = useRef(mode);
   const { address, connector } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const availability = useQuery({
-    queryKey: ['assistant-availability'],
-    queryFn: ({ signal }) => api.assistantAvailability(signal),
-    enabled: open,
+    queryKey: ['assistant-availability', mode],
+    queryFn: ({ signal }) => api.assistantAvailability(signal, mode),
+    enabled: open && isDeploymentConfigured,
     retry: false,
     staleTime: 60_000,
   });
@@ -118,6 +122,18 @@ export function AssistantPanel({
       setConversationId(undefined);
     }
   }, [address, session]);
+
+  useEffect(() => {
+    if (prevModeRef.current === mode) return;
+    prevModeRef.current = mode;
+    operation.current?.abort();
+    operation.current = undefined;
+    setMessages([]);
+    setConversationId(undefined);
+    setStreaming(false);
+    setStatus(undefined);
+    setError(undefined);
+  }, [mode]);
 
   useEffect(() => () => operation.current?.abort(), []);
 
@@ -189,7 +205,7 @@ export function AssistantPanel({
 
     try {
       await streamAssistant(
-        { message: question, conversationId, page },
+        { message: question, conversationId, page, network: mode },
         usableSession.token,
         (event) => {
           if (operation.current !== controller) return;
@@ -304,6 +320,9 @@ export function AssistantPanel({
   }
 
   function renderBody() {
+    if (isMainnet && !isDeploymentConfigured) {
+      return <MainnetUnavailableCallout context="Bookkeeper" />;
+    }
     if (availability.isPending)
       return (
         <p className="app-assistant-state" role="status">
@@ -530,6 +549,9 @@ export function AssistantPanel({
             <span className="app-assistant-wallet" title={address ?? undefined}>
               {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : 'No wallet'}
             </span>
+            <Badge tone={isMainnet ? 'paused' : undefined} plain={!isMainnet}>
+              {isMainnet ? 'Mainnet' : 'Testnet'}
+            </Badge>
           </div>
         )}
 
@@ -546,7 +568,7 @@ export function AssistantPanel({
           </p>
         </div>
 
-        {usableSession && (
+        {usableSession && (!isMainnet || isDeploymentConfigured) && (
           <form className="app-assistant-composer" aria-busy={streaming} onSubmit={handleSubmit}>
             <label className="app-assistant-field">
               <span className="sr-only">Ask Bookkeeper about your account</span>

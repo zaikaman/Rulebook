@@ -61,11 +61,12 @@ export function WalletAccountSetupGate({
     retry: false,
   });
   const { agent, vault, linked } = setup.data ?? {};
-  const [fundingDoneFor, setFundingDoneFor] = useState<Address>();
+  const fundingKey = owner ? `${mode}:${owner}` : undefined;
+  const [fundingDoneFor, setFundingDoneFor] = useState<string>();
   const showFunding =
     Boolean(fundingWallet && owner && agent && vault && linked) &&
     (setup.resuming || setup.setupSucceeded) &&
-    fundingDoneFor !== owner;
+    fundingDoneFor !== fundingKey;
 
   if (
     isReconnecting ||
@@ -118,9 +119,9 @@ export function WalletAccountSetupGate({
           fundingWallet={fundingWallet}
           startWorkflow={startWorkflow}
           onFundingComplete={
-            owner
+            fundingKey
               ? () => {
-                  setFundingDoneFor(owner);
+                  setFundingDoneFor(fundingKey);
                   void queryClient.invalidateQueries({
                     queryKey: ['wallet-setup-linked-chain', mode, owner],
                   });

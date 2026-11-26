@@ -22,6 +22,8 @@ import {
   defaultFundingAmounts,
   exactUnits,
   parseFundingAmount,
+  suggestedExecutionCreditFor,
+  suggestedWatchingCreditFor,
   useAccountFunding,
   type FundingPlanItem,
   type SetupFundingItemId,
@@ -340,7 +342,7 @@ export function AccountFundingStep({
                       className="app-input"
                       inputMode="decimal"
                       value={amounts.watching}
-                      placeholder="0.1"
+                      placeholder={exactUnits(suggestedWatchingCreditFor(autoChainId), 18)}
                       disabled={depositing || Boolean(confirmed.watching)}
                       aria-invalid={!confirmed.watching && watchingParsed.error ? true : undefined}
                       aria-describedby={
@@ -395,7 +397,7 @@ export function AccountFundingStep({
                       className="app-input"
                       inputMode="decimal"
                       value={amounts.execution}
-                      placeholder="0.001"
+                      placeholder={exactUnits(suggestedExecutionCreditFor(chainId), 18)}
                       disabled={depositing || Boolean(confirmed.execution) || !executionAvailable}
                       aria-invalid={
                         !confirmed.execution && executionParsed.error ? true : undefined
