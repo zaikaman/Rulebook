@@ -1,3 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { cpus } from 'node:os';
+import { dirname, resolve } from 'node:path';
+
 import { defineConfig, devices } from '@playwright/test';
 
 import {
@@ -11,6 +16,23 @@ import {
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
 } from './frontend/e2e/fixtureConfig';
 
+const require = createRequire(import.meta.url);
+function resolveBin(pkg: string, binName: string, searchPaths: string[]): string {
+  const pkgPath = require.resolve(`${pkg}/package.json`, { paths: searchPaths });
+  const meta = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+    bin: string | Record<string, string>;
+  };
+  const rel = typeof meta.bin === 'string' ? meta.bin : meta.bin[binName];
+  return resolve(dirname(pkgPath), rel!);
+}
+
+const viteBin = resolveBin('vite', 'vite', [resolve(import.meta.dirname, 'frontend')]);
+const tsxBin = resolveBin('tsx', 'tsx', [
+  import.meta.dirname,
+  resolve(import.meta.dirname, 'packages/shared'),
+  resolve(import.meta.dirname, 'backend'),
+]);
+
 /**
  * One smoke path per workflow story lives in frontend/e2e. The specs run against a local anvil
  * and fixture backend; they never touch a public network or a funded wallet.
@@ -18,9 +40,9 @@ import {
 export default defineConfig({
   testDir: './frontend',
   testMatch: ['e2e/*.spec.ts'],
-  fullyParallel: false,
-  // Every spec shares one anvil and one sponsor nonce sequence, so they must not overlap.
-  workers: 1,
+  fullyParallel: true,
+  // Each chain-writing test uses its own Anvil account so workers run in parallel without nonce contention.
+  workers: process.env.CI ? 4 : Math.min(8, Math.max(4, Math.floor(cpus().length / 2))),
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
@@ -31,13 +53,14 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
   webServer: [
     {
-      command: 'npx tsx frontend/e2e/fixture-server.ts',
+      command: `node "${tsxBin}" frontend/e2e/fixture-server.ts`,
       url: `${FIXTURE_API_URL}/health`,
       timeout: 180_000,
       reuseExistingServer: false,
     },
     {
-      command: `npm run dev -w frontend -- --port ${FIXTURE_FRONTEND_PORT} --strictPort`,
+      command: `node "${viteBin}" --port ${FIXTURE_FRONTEND_PORT} --strictPort`,
+      cwd: 'frontend',
       url: FIXTURE_FRONTEND_URL,
       reuseExistingServer: false,
       timeout: 120_000,

@@ -48,6 +48,8 @@ test('fits the diagram back to its saved zoom from the canvas controls', async (
   await page.goto('/workflows/new?template=blank');
   const canvas = page.locator('.workflow-canvas');
   const readout = canvas.locator('.workflow-canvas-zoom');
+  await expect(canvas.locator('.react-flow__node').first()).toBeVisible();
+  await expect(readout).not.toHaveText('100%');
   const initialZoom = await readout.textContent();
 
   await canvas.getByRole('button', { name: /zoom in/i }).click();

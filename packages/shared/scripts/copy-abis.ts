@@ -47,5 +47,11 @@ ${CONTRACTS.map(({ exportName }) => `  ${exportName},`).join('\n')}
 `;
 
 mkdirSync(dirname(TARGET), { recursive: true });
-writeFileSync(TARGET, `${header}${sections.join('\n\n')}\n${footer}`);
-console.log(`generated ${TARGET}`);
+const next = `${header}${sections.join('\n\n')}\n${footer}`;
+const existing = existsSync(TARGET) ? readFileSync(TARGET, 'utf8') : null;
+if (existing !== next) {
+  writeFileSync(TARGET, next);
+  console.log(`generated ${TARGET}`);
+} else {
+  console.log(`${TARGET} unchanged`);
+}

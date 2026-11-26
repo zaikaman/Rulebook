@@ -16,7 +16,6 @@ import { ensureFoundryOnPath } from './foundry-env.mjs';
 
 ensureFoundryOnPath();
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const fast = process.argv.includes('--fast');
 const verifyScript = fast ? 'verify:fast' : 'verify';
 
@@ -43,12 +42,9 @@ if (readStamp(stampPath) === state || (fast && readStamp(fullStampPath) === stat
 }
 
 console.log(`Running \`npm run ${verifyScript}\` for the current change set...`);
-// npm.cmd needs cmd.exe on Windows; the command and arguments are fixed literals.
-const verify = run(
-  process.platform === 'win32' ? `${npm} run ${verifyScript}` : npm,
-  process.platform === 'win32' ? [] : ['run', verifyScript],
-  { stdio: 'inherit', shell: process.platform === 'win32' },
-);
+const verify = run(process.execPath, ['scripts/check.mjs', ...(fast ? ['--fast'] : [])], {
+  stdio: 'inherit',
+});
 if (verify.status !== 0) {
   console.error(
     `\n\`npm run ${verifyScript}\` failed, so this change set is not ready: fix the gates above and run`,

@@ -2,14 +2,14 @@ import { expect, test } from '@playwright/test';
 import { getChain, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
 import {
   createTestClient,
-  erc20Abi,
   http,
+  parseAbi,
   publicActions,
   toFunctionSelector,
   walletActions,
 } from 'viem';
 
-import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { ANVIL_RPC_URL, FIXTURE_FRONTEND_URL } from './fixtureConfig';
 import { installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
@@ -25,15 +25,15 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
     .extend(walletActions);
   const balance = await chain.getBalance({ address: OWNER });
   const token = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
-  const transfer = await chain.writeContract({
+  const mint = await chain.writeContract({
     address: token,
-    abi: erc20Abi,
-    functionName: 'transfer',
+    abi: parseAbi(['function mint(address to, uint256 amount)']),
+    functionName: 'mint',
     args: [OWNER, 10_000_000n],
-    account: USER_ADDRESS,
+    account: OWNER,
     chain: null,
   });
-  await chain.waitForTransactionReceipt({ hash: transfer });
+  await chain.waitForTransactionReceipt({ hash: mint });
 
   await page.goto(FIXTURE_FRONTEND_URL);
   await page.getByRole('link', { name: 'Build a workflow' }).first().click();

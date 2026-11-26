@@ -6,8 +6,18 @@
  */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const root = resolve(import.meta.dirname, '..');
+const require = createRequire(import.meta.url);
+const tsxPkgPath = require.resolve('tsx/package.json', {
+  paths: [root, resolve(root, 'packages/shared'), resolve(root, 'backend')],
+});
+const tsxMeta = JSON.parse(readFileSync(tsxPkgPath, 'utf8'));
+const tsxRel = typeof tsxMeta.bin === 'string' ? tsxMeta.bin : tsxMeta.bin.tsx;
+const tsxBin = resolve(dirname(tsxPkgPath), tsxRel);
+
 const target = 'packages/shared/src/abi/index.ts';
 
 const read = () => {
@@ -19,12 +29,9 @@ const read = () => {
 };
 
 const before = read();
-// npm.cmd needs cmd.exe on Windows; the command and arguments are fixed literals.
-const result = spawnSync(
-  process.platform === 'win32' ? `${npm} run generate -w packages/shared` : npm,
-  process.platform === 'win32' ? [] : ['run', 'generate', '-w', 'packages/shared'],
-  { stdio: 'inherit', shell: process.platform === 'win32' },
-);
+const result = spawnSync(process.execPath, [tsxBin, 'packages/shared/scripts/copy-abis.ts'], {
+  stdio: 'inherit',
+});
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
 

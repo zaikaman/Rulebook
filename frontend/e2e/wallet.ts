@@ -22,7 +22,6 @@ import {
 import {
   ANVIL_BASE_RPC_URL,
   ANVIL_RPC_URL,
-  SPONSOR_ADDRESS,
   USER_ADDRESS,
   WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
   WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
@@ -286,9 +285,11 @@ export async function fundFixtureWorkflowVault(
     abi: parseAbi(['function mint(address to, uint256 amount)']),
     functionName: 'mint',
     args: [owner, amount],
-    account: SPONSOR_ADDRESS,
+    account: owner,
     chain: null,
   });
+  const mintReceipt = await client.waitForTransactionReceipt({ hash: mint });
+  if (mintReceipt.status !== 'success') throw new Error('Fixture workflow vault mint reverted.');
   // The V2 Vault holds its principal directly, so funding is a plain token transfer.
   const transfer = await wallet.writeContract({
     address: token,
@@ -298,8 +299,8 @@ export async function fundFixtureWorkflowVault(
     account: owner,
     chain: null,
   });
-  for (const hash of [mint, transfer]) {
-    const receipt = await client.waitForTransactionReceipt({ hash });
-    if (receipt.status !== 'success') throw new Error('Fixture workflow vault funding reverted.');
+  const transferReceipt = await client.waitForTransactionReceipt({ hash: transfer });
+  if (transferReceipt.status !== 'success') {
+    throw new Error('Fixture workflow vault funding reverted.');
   }
 }

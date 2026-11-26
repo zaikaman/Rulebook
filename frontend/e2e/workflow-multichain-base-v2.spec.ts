@@ -5,9 +5,9 @@ import {
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
 } from '@rulebook/shared';
-import { createTestClient, erc20Abi, http, publicActions, walletActions } from 'viem';
+import { createTestClient, http, parseAbi, publicActions, walletActions } from 'viem';
 
-import { ANVIL_BASE_RPC_URL, FIXTURE_FRONTEND_URL, USER_ADDRESS } from './fixtureConfig';
+import { ANVIL_BASE_RPC_URL, FIXTURE_FRONTEND_URL } from './fixtureConfig';
 import { approveSignature, installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x976EA74026E726554dB657fA54763abd0C3a0aa9' as const;
@@ -102,15 +102,15 @@ test('onboards and funds a new wallet directly on Base Sepolia and returns to Ba
     .extend(publicActions)
     .extend(walletActions);
   const token = getChain(BASE_SEPOLIA_CHAIN_ID).usdc;
-  const transfer = await baseChain.writeContract({
+  const mint = await baseChain.writeContract({
     address: token,
-    abi: erc20Abi,
-    functionName: 'transfer',
+    abi: parseAbi(['function mint(address to, uint256 amount)']),
+    functionName: 'mint',
     args: [BASE_ONBOARD_OWNER, 10_000_000n],
-    account: USER_ADDRESS,
+    account: BASE_ONBOARD_OWNER,
     chain: null,
   });
-  await baseChain.waitForTransactionReceipt({ hash: transfer });
+  await baseChain.waitForTransactionReceipt({ hash: mint });
 
   await installWallet(page, BASE_ONBOARD_OWNER, UNICHAIN_SEPOLIA_CHAIN_ID);
   await page.goto(`${FIXTURE_FRONTEND_URL}/account`);
