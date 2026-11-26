@@ -1,6 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
-import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import {
+  BASE_MAINNET_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+  LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
+} from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import Fastify from 'fastify';
 import { expect, it } from 'vitest';
@@ -127,7 +135,9 @@ it('scopes Activity by wallet and workflow and exposes only chain evidence in pu
       path: 2,
       reason: null,
     });
-    expect(requests[1]?.searchParams.get('deployment')).toBe(`eq.${factory}`);
+    expect(requests[1]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, factory)}`,
+    );
     expect(requests[1]?.searchParams.get('id')).toBe(`eq.${runId}`);
     expect(requests[1]?.searchParams.get('select')).not.toContain('title');
     expect((await app.inject({ url: '/v3/runs/invalid' })).statusCode).toBe(400);
@@ -189,6 +199,75 @@ it('queries and exposes public proofs for Base Sepolia settlement and cross-chai
       `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
     );
     expect((await app.inject({ url: `/v3/runs/${runId}?owner=${owner}` })).statusCode).toBe(200);
+  } finally {
+    await app.close();
+  }
+});
+
+it('filters /v3/marketplace and /v3/marketplace/:id by network chains and namespaced deployment even when factories match', async () => {
+  const sharedFactory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const requests: URL[] = [];
+  const db = createClient('https://database.example', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        if (url.searchParams.get('id') === 'eq.1') {
+          return Response.json({
+            id: '1',
+            owner: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            agent: '0xcccccccccccccccccccccccccccccccccccccccc',
+            workflow_id: `0x${'2'.repeat(64)}`,
+            program_hash: `0x${'3'.repeat(64)}`,
+            program: '0x01',
+            chain: url.searchParams.get('deployment')?.includes(String(REACTIVE_MAINNET_CHAIN_ID))
+              ? UNICHAIN_MAINNET_CHAIN_ID
+              : UNICHAIN_SEPOLIA_CHAIN_ID,
+            title: 'Listing',
+            description: 'Details',
+            block_number: 10,
+            log_index: 0,
+          });
+        }
+        return Response.json([]);
+      },
+    },
+  });
+  const app = Fastify();
+  registerWorkflowV2Routes(app, db, { testnet: sharedFactory, mainnet: sharedFactory });
+  try {
+    expect((await app.inject({ url: '/v3/marketplace?network=testnet' })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/v3/marketplace?network=mainnet' })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/v3/marketplace/1?network=testnet' })).statusCode).toBe(200);
+    expect((await app.inject({ url: '/v3/marketplace/1?network=mainnet' })).statusCode).toBe(200);
+
+    expect(requests[0]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory)}`,
+    );
+    expect(requests[0]?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
+    );
+
+    expect(requests[1]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory)}`,
+    );
+    expect(requests[1]?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_MAINNET_CHAIN_ID},${BASE_MAINNET_CHAIN_ID})`,
+    );
+
+    expect(requests[2]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory)}`,
+    );
+    expect(requests[2]?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
+    );
+
+    expect(requests[3]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory)}`,
+    );
+    expect(requests[3]?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_MAINNET_CHAIN_ID},${BASE_MAINNET_CHAIN_ID})`,
+    );
   } finally {
     await app.close();
   }

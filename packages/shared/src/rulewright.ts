@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { addressSchema, txHashSchema } from './schemas.js';
+import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { v2DraftSchema } from './workflowV2Draft.js';
 import { workflowLimits } from './workflows.js';
 
@@ -46,6 +46,7 @@ export const rulewrightRequestSchema = z
   .object({
     prompt,
     draft: draftSchema.optional(),
+    network: networkModeSchema.optional(),
     followUps: z
       .array(z.object({ question: message, answer: prompt }).strict())
       .max(rulewrightFollowUpLimit),

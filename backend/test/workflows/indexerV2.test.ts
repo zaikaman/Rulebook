@@ -1,8 +1,12 @@
 import {
   BASE_SEPOLIA_CHAIN_ID,
   LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
   type WorkflowV2Deployment,
+  type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
@@ -151,7 +155,74 @@ describe('WorkflowV2Indexer', () => {
     expect(lasna.calls[0]?.address).toBe(LASNA_FACTORY);
     expect(unichain.calls[0]?.address).toBe(UNICHAIN_FACTORY);
     expect(base.calls[0]?.address).toBe(BASE_FACTORY);
-    expect(upserts.filter((item) => item.table === 'workflow_v2_cursors')).toHaveLength(3);
+    const cursorUpserts = upserts
+      .filter((item) => item.table === 'workflow_v2_cursors')
+      .flatMap((item) => item.rows as Array<{ deployment: string }>);
+    expect(cursorUpserts).toHaveLength(3);
+    expect(
+      cursorUpserts.every(
+        (row) => row.deployment === workflowDeploymentKey(LASNA_CHAIN_ID, LASNA_FACTORY),
+      ),
+    ).toBe(true);
+  });
+
+  it('namespaces deployment keys by automation chain so identical factory addresses never collide', async () => {
+    const sharedFactory = addr(777);
+    const testnetConfig: WorkflowV2Deployment = {
+      lasna: { factory: sharedFactory, startBlock: 100 },
+      unichain: { factory: UNICHAIN_FACTORY, startBlock: 200 },
+    };
+    const mainnetConfig: WorkflowV2MainnetDeployment = {
+      reactive: { factory: sharedFactory, startBlock: 100 },
+      unichain: { factory: UNICHAIN_FACTORY, startBlock: 200 },
+    };
+    const { db, upserts } = createFakeDb();
+    const testnetIndexer = new WorkflowV2Indexer(
+      db,
+      {
+        lasna: makeClient(150n, () => []).client,
+        unichain: makeClient(250n, () => []).client,
+      },
+      testnetConfig,
+      silentLogger,
+    );
+    const mainnetIndexer = new WorkflowV2Indexer(
+      db,
+      {
+        lasna: makeClient(150n, () => []).client,
+        unichain: makeClient(250n, () => []).client,
+        reactiveMainnet: makeClient(150n, () => []).client,
+        unichainMainnet: makeClient(250n, () => []).client,
+      },
+      mainnetConfig,
+      silentLogger,
+    );
+
+    await Promise.all([testnetIndexer.syncOnce(), mainnetIndexer.syncOnce()]);
+
+    const cursorRows = upserts
+      .filter((item) => item.table === 'workflow_v2_cursors')
+      .flatMap((item) => item.rows as Array<{ deployment: string; chain: number }>);
+    expect(cursorRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deployment: workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory),
+          chain: LASNA_CHAIN_ID,
+        }),
+        expect.objectContaining({
+          deployment: workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory),
+          chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        }),
+        expect.objectContaining({
+          deployment: workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory),
+          chain: REACTIVE_MAINNET_CHAIN_ID,
+        }),
+        expect.objectContaining({
+          deployment: workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory),
+          chain: UNICHAIN_MAINNET_CHAIN_ID,
+        }),
+      ]),
+    );
   });
 
   it('includes newly created accounts in the same-range event scan and batches over 50 addresses', async () => {

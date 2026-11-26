@@ -29,6 +29,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "automationChain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "budgets",
     "inputs": [
       {
@@ -1195,6 +1208,36 @@ export const workflowVaultV2Abi = [
             "name": "pair",
             "type": "address",
             "internalType": "address"
+          },
+          {
+            "name": "poolFee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "ethUsdFeed",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "usdcUsdFeed",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "sequencerFeed",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "ethFeedMaxAge",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "usdcFeedMaxAge",
+            "type": "uint32",
+            "internalType": "uint32"
           }
         ]
       },
@@ -1264,7 +1307,33 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "MAX_PRICE_DEVIATION_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "PAYOUT_GRACE",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SEQUENCER_GRACE_PERIOD",
     "inputs": [],
     "outputs": [
       {
@@ -1403,6 +1472,19 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "callbackProxy",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "chain",
     "inputs": [],
     "outputs": [
@@ -1433,6 +1515,32 @@ export const workflowVaultV2Abi = [
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "ethFeedMaxAge",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "ethUsdFeed",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1536,6 +1644,50 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "factory",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "initialize",
+    "inputs": [
+      {
+        "name": "owner_",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "agent_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "oraclePrice",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "outcomes",
     "inputs": [
       {
@@ -1607,6 +1759,19 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "poolFee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint24",
+        "internalType": "uint24"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "programs",
     "inputs": [
       {
@@ -1645,6 +1810,19 @@ export const workflowVaultV2Abi = [
   {
     "type": "function",
     "name": "router",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "sequencerFeed",
     "inputs": [],
     "outputs": [
       {
@@ -1821,6 +1999,32 @@ export const workflowVaultV2Abi = [
   {
     "type": "function",
     "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdcFeedMaxAge",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint32",
+        "internalType": "uint32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "usdcUsdFeed",
     "inputs": [],
     "outputs": [
       {
@@ -2327,6 +2531,27 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "OraclePriceDeviation",
+    "inputs": [
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "oracle",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OracleUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -2343,8 +2568,29 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "SequencerUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SettlementInterrupted",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlippageExceeded",
+    "inputs": [
+      {
+        "name": "minOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2421,6 +2667,19 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "implementation",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "validator",
     "inputs": [],
     "outputs": [
@@ -2483,8 +2742,29 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "error",
+    "name": "FailedDeployment",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InactiveDeployment",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientBalance",
+    "inputs": [
+      {
+        "name": "balance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "needed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",

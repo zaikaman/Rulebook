@@ -16,6 +16,8 @@ import {
   executionCreditAbi,
   getChain,
   LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
@@ -43,8 +45,18 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-function env(name: string) {
-  const value = process.env[name];
+const IS_MAINNET = process.argv.includes('--mainnet');
+const AUTOMATION_CHAIN_ID = IS_MAINNET ? REACTIVE_MAINNET_CHAIN_ID : LASNA_CHAIN_ID;
+const FUNDS_CHAIN_ID = IS_MAINNET ? UNICHAIN_MAINNET_CHAIN_ID : UNICHAIN_SEPOLIA_CHAIN_ID;
+const RECORD_FILE = IS_MAINNET
+  ? '../deployments/workflows-v2-mainnet.json'
+  : '../deployments/workflows-v2.json';
+const SMOKE_FILE = IS_MAINNET
+  ? '../deployments/workflows-v2-mainnet-smoke.json'
+  : '../deployments/workflows-v2-smoke.json';
+
+function env(name: string, fallback?: string) {
+  const value = process.env[name]?.trim() || fallback;
   if (!value) throw new Error('Set ' + name + ' before running the live smoke.');
   return value;
 }
@@ -54,7 +66,7 @@ function connection<T extends SupportedChainId>(id: T, rpc: string, symbol: stri
   const chain = defineChain({
     id,
     name: config.name,
-    testnet: true,
+    testnet: !IS_MAINNET,
     nativeCurrency: { name: symbol, symbol, decimals: 18 },
     rpcUrls: { default: { http: [rpc] } },
   });
@@ -62,20 +74,34 @@ function connection<T extends SupportedChainId>(id: T, rpc: string, symbol: stri
   return { chain, transport, public: createPublicClient({ chain, transport }), config };
 }
 
-const lasna = connection(LASNA_CHAIN_ID, env('LASNA_RPC_URL'), 'lREACT');
-const uni = connection(UNICHAIN_SEPOLIA_CHAIN_ID, env('UNICHAIN_RPC_URL'), 'ETH');
+const lasna = connection(
+  AUTOMATION_CHAIN_ID,
+  env(
+    IS_MAINNET ? 'REACTIVE_MAINNET_RPC_URL' : 'LASNA_RPC_URL',
+    getChain(AUTOMATION_CHAIN_ID).rpcUrl,
+  ),
+  IS_MAINNET ? 'REACT' : 'lREACT',
+);
+const uni = connection(
+  FUNDS_CHAIN_ID,
+  env(
+    IS_MAINNET ? 'UNICHAIN_MAINNET_RPC_URL' : 'UNICHAIN_RPC_URL',
+    getChain(FUNDS_CHAIN_ID).rpcUrl,
+  ),
+  'ETH',
+);
 const key = env('DEPLOYER_PRIVATE_KEY');
 const owner = privateKeyToAccount((key.startsWith('0x') ? key : '0x' + key) as Hex);
 
 const records: { contract: string; chainId: number; address: Address; commit: string }[] =
-  JSON.parse(await readFile(new URL('../deployments/workflows-v2.json', import.meta.url), 'utf8'));
+  JSON.parse(await readFile(new URL(RECORD_FILE, import.meta.url), 'utf8'));
 function factory(contract: string, chainId: number) {
   const entry = records.find((item) => item.contract === contract && item.chainId === chainId);
   if (!entry || !isAddress(entry.address)) throw new Error('Missing deployment record ' + contract);
   return entry.address;
 }
-const agentFactory = factory('WorkflowAgentFactoryV2', LASNA_CHAIN_ID);
-const vaultFactory = factory('WorkflowVaultFactoryV2', UNICHAIN_SEPOLIA_CHAIN_ID);
+const agentFactory = factory('WorkflowAgentFactoryV2', AUTOMATION_CHAIN_ID);
+const vaultFactory = factory('WorkflowVaultFactoryV2', FUNDS_CHAIN_ID);
 
 async function send(
   network: typeof lasna | typeof uni,
@@ -88,9 +114,9 @@ async function send(
     transport: network.transport,
     account: owner,
   });
-  // Lasna only accepts legacy-priced transactions; the node rejects EIP-1559 fees.
+  // Reactive chains accept legacy-priced transactions; the node rejects EIP-1559 fees.
   const fees =
-    network.chain.id === LASNA_CHAIN_ID
+    network.chain.id === AUTOMATION_CHAIN_ID
       ? { gasPrice: (await network.public.getGasPrice()) * 2n + 1n }
       : {};
   const hash = await wallet.sendTransaction({ to, data, value, ...fees });
@@ -99,7 +125,7 @@ async function send(
     confirmations: 2,
     timeout: 120_000,
   });
-  if (receipt.status !== 'success') throw new Error('Testnet transaction reverted ' + hash);
+  if (receipt.status !== 'success') throw new Error('Transaction reverted ' + hash);
   return { transactionHash: hash, blockNumber: receipt.blockNumber };
 }
 
@@ -150,7 +176,7 @@ async function setup() {
     address: agent,
     abi: workflowAgentV2Abi,
     functionName: 'vaults',
-    args: [UNICHAIN_SEPOLIA_CHAIN_ID],
+    args: [FUNDS_CHAIN_ID],
   });
   if (linked === zeroAddress) {
     await send(
@@ -159,7 +185,7 @@ async function setup() {
       encodeFunctionData({
         abi: workflowAgentV2Abi,
         functionName: 'linkVault',
-        args: [UNICHAIN_SEPOLIA_CHAIN_ID, vault],
+        args: [FUNDS_CHAIN_ID, vault],
       }),
     );
   } else if (linked.toLowerCase() !== vault.toLowerCase()) {
@@ -359,13 +385,17 @@ if (activePayment !== zeroHash) {
   );
 }
 
-const sweepProgram = createWorkflowV2Recipe('income-sweep', {
-  minimumPaymentUsdc: '1',
-  sendUsdc: '0.20',
-  smallPaymentUsdc: '0.25',
-  smallSweepUsdc: '0.05',
-  recipient,
-});
+const sweepProgram = createWorkflowV2Recipe(
+  'income-sweep',
+  {
+    minimumPaymentUsdc: '1',
+    sendUsdc: '0.20',
+    smallPaymentUsdc: '0.25',
+    smallSweepUsdc: '0.05',
+    recipient,
+  },
+  { chain: FUNDS_CHAIN_ID, originChain: FUNDS_CHAIN_ID },
+);
 const weeklyUsdc = parseUnits('1', 6);
 const sweep = await activate(sweepProgram, 'Income sweep smoke', weeklyUsdc);
 
@@ -395,15 +425,20 @@ for (const [amount, path, status] of [
 }
 
 // A scheduled buy proves the Cron100 limb on the same pair; the Vault swaps and pays the fee.
-const scheduleProgram = createWorkflowV2Recipe('scheduled-buy', {
-  buyUsdc: '0.2',
-  slippagePercent: '0.5',
-  intervalSeconds: '3600',
-});
+const scheduleProgram = createWorkflowV2Recipe(
+  'scheduled-buy',
+  {
+    buyUsdc: '0.2',
+    slippagePercent: '0.5',
+    intervalSeconds: '3600',
+  },
+  { chain: FUNDS_CHAIN_ID, originChain: FUNDS_CHAIN_ID },
+);
 const schedule = await activate(scheduleProgram, 'Scheduled buy smoke', parseUnits('1', 6));
 const scheduledRun = await proof('Scheduled buy', schedule, 0, 1);
 
 const evidence = {
+  network: IS_MAINNET ? 'mainnet' : 'testnet',
   agentFactory,
   vaultFactory,
   deploymentCommit: records[0]?.commit.slice(0, 7),
@@ -414,8 +449,8 @@ const evidence = {
     title: sweep.title,
     workflow: sweep.id,
     programHash: sweep.hash,
-    weeklyUsdcLimitBaseUnits: weeklyUsdc.toString(),
     authorizationTransaction: sweep.authorized.transactionHash,
+    weeklyUsdcLimitBaseUnits: weeklyUsdc.toString(),
     runs,
   },
   schedule: {
@@ -426,8 +461,5 @@ const evidence = {
     run: scheduledRun,
   },
 };
-await writeFile(
-  new URL('../deployments/workflows-v2-smoke.json', import.meta.url),
-  JSON.stringify(evidence, null, 2) + '\n',
-);
-process.stdout.write('Wrote deployments/workflows-v2-smoke.json\n');
+await writeFile(new URL(SMOKE_FILE, import.meta.url), JSON.stringify(evidence, null, 2) + '\n');
+process.stdout.write(`Wrote ${SMOKE_FILE.replace('../', '')}\n`);

@@ -15,6 +15,17 @@ library PriceMath {
     /// @notice Basis-point denominator.
     uint256 internal constant BPS = 10_000;
 
+    /// @notice Fee-tier denominator in parts per million (Uniswap V3 convention).
+    uint256 internal constant FEE_PPM_DENOMINATOR = 1_000_000;
+    uint24 internal constant V2_FEE_PPM = 3_000;
+
+    /// @notice Uniswap V3 sqrtRatio bounds from TickMath.
+    uint160 internal constant MIN_SQRT_RATIO = 4_295_128_739;
+    uint160 internal constant MAX_SQRT_RATIO =
+        1_461_446_703_485_210_103_287_273_052_203_988_822_378_723_970_342;
+    uint256 private constant Q96 = 1 << 96;
+    uint256 private constant Q192 = 1 << 192;
+
     /// @notice Uniswap V2 fee, expressed on the 1000-scaled input amount.
     uint256 internal constant FEE_NUMERATOR = 997;
     uint256 internal constant FEE_DENOMINATOR = 1000;
@@ -38,6 +49,31 @@ library PriceMath {
         return (uint256(usdcReserve) * USDC_PER_WETH_SCALE) / wethReserve;
     }
 
+    /// @notice USDC per WETH at 1e18 precision from a Uniswap V3 `sqrtPriceX96`.
+    /// @dev Uses exact Q192 arithmetic when `sqrtPriceX96 <= type(uint128).max` and chained Q96
+    /// scaling otherwise so `uint256(sqrtPriceX96) * sqrtPriceX96` never overflows.
+    function usdcPerWethFromSqrtPriceX96(uint160 sqrtPriceX96, bool usdcIsToken0)
+        internal
+        pure
+        returns (uint256 price)
+    {
+        if (sqrtPriceX96 < MIN_SQRT_RATIO || sqrtPriceX96 >= MAX_SQRT_RATIO) {
+            revert InvalidAmount();
+        }
+        if (sqrtPriceX96 <= type(uint128).max) {
+            uint256 ratioX192 = uint256(sqrtPriceX96) * uint256(sqrtPriceX96);
+            price = usdcIsToken0
+                ? Math.mulDiv(Q192, USDC_PER_WETH_SCALE, ratioX192)
+                : Math.mulDiv(ratioX192, USDC_PER_WETH_SCALE, Q192);
+        } else if (usdcIsToken0) {
+            uint256 step = Math.mulDiv(Q96, USDC_PER_WETH_SCALE, sqrtPriceX96);
+            price = Math.mulDiv(step, Q96, sqrtPriceX96);
+        } else {
+            uint256 step = Math.mulDiv(sqrtPriceX96, USDC_PER_WETH_SCALE, Q96);
+            price = Math.mulDiv(step, sqrtPriceX96, Q96);
+        }
+    }
+
     function movedBy(uint256 price, uint256 referencePrice, uint256 bps)
         internal
         pure
@@ -57,6 +93,31 @@ library PriceMath {
         if (amountIn == 0 || reserveIn == 0 || reserveOut == 0) revert InvalidAmount();
         uint256 amountInWithFee = amountIn * FEE_NUMERATOR;
         amountOut = (amountInWithFee * reserveOut) / (reserveIn * FEE_DENOMINATOR + amountInWithFee);
+    }
+
+    /// @notice Expected swap output valued at `usdcPerWethPrice` (1e18), net of `feePpm` pool fee.
+    /// @dev Rounds down at each step so an unmanipulated pool satisfies the resulting floor.
+    function quotedOut(bool sell, uint256 amountIn, uint256 usdcPerWethPrice, uint24 feePpm)
+        internal
+        pure
+        returns (uint256 amountOut)
+    {
+        if (amountIn == 0 || usdcPerWethPrice == 0) revert InvalidAmount();
+        if (feePpm >= FEE_PPM_DENOMINATOR) revert InvalidSecondary();
+        uint256 grossOut = sell
+            ? Math.mulDiv(amountIn, usdcPerWethPrice, USDC_PER_WETH_SCALE)
+            : Math.mulDiv(amountIn, USDC_PER_WETH_SCALE, usdcPerWethPrice);
+        amountOut = Math.mulDiv(grossOut, FEE_PPM_DENOMINATOR - feePpm, FEE_PPM_DENOMINATOR);
+    }
+
+    /// @notice Expected swap output valued at an external `usdcPerWethPrice` (1e18), net of the 0.30% V2 fee.
+    /// @dev Rounds down at each step so an unmanipulated pool satisfies the resulting floor.
+    function oracleExpectedOut(bool sell, uint256 amountIn, uint256 usdcPerWethPrice)
+        internal
+        pure
+        returns (uint256 amountOut)
+    {
+        return quotedOut(sell, amountIn, usdcPerWethPrice, V2_FEE_PPM);
     }
 
     /// @notice Applies a slippage tolerance, rounding down.

@@ -1,5 +1,4 @@
 import {
-  LASNA_CHAIN_ID,
   telegramSignIn,
   type Address,
   type TelegramPreference,
@@ -21,6 +20,7 @@ import { useSignTypedData } from 'wagmi';
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { Spinner } from './chrome/Spinner.js';
 import { api, ApiError } from '../lib/api.js';
+import { useNetworkMode } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 
 type Pairing = Awaited<ReturnType<typeof api.telegramPair>>;
@@ -36,10 +36,11 @@ type NotificationProps = { agent: Address; owner: Address } & (
 
 export function TelegramNotifications(props: NotificationProps) {
   const workflow = props.workflow === true;
+  const networkMode = useNetworkMode();
   const heading = useId();
   const availability = useQuery({
-    queryKey: ['telegram-availability', workflow],
-    queryFn: () => api.telegramAvailability(workflow),
+    queryKey: ['telegram-availability', workflow, networkMode.mode],
+    queryFn: () => api.telegramAvailability(workflow, networkMode.mode),
     staleTime: 60_000,
   });
   if (!availability.data?.available) {
@@ -87,19 +88,23 @@ export function TelegramNotifications(props: NotificationProps) {
       </section>
     );
   }
-  return <TelegramSettingsPanel key={`${props.agent}:${props.owner}`} {...props} />;
+  return (
+    <TelegramSettingsPanel key={`${networkMode.mode}:${props.agent}:${props.owner}`} {...props} />
+  );
 }
 
 function TelegramSettingsPanel(props: NotificationProps) {
   const { agent, owner } = props;
   const workflow = props.workflow === true;
+  const networkMode = useNetworkMode();
   const itemId = props.workflow ? props.workflowId : props.ruleId;
   const name = workflow ? 'workflow' : 'rule';
   const heading = useId();
   const queryClient = useQueryClient();
   const settingsKey = useMemo(
-    () => ['telegram-settings', agent.toLowerCase(), owner.toLowerCase()] as const,
-    [agent, owner],
+    () =>
+      ['telegram-settings', networkMode.mode, agent.toLowerCase(), owner.toLowerCase()] as const,
+    [agent, networkMode.mode, owner],
   );
   const { signTypedDataAsync } = useSignTypedData();
   const guard = useChainGuard();
@@ -111,7 +116,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
     queryKey: settingsKey,
     queryFn: async ({ signal }) => {
       try {
-        return await api.telegramSettings(agent, signal);
+        return await api.telegramSettings(agent, signal, networkMode.mode);
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) return null;
         throw error;
@@ -169,13 +174,14 @@ function TelegramSettingsPanel(props: NotificationProps) {
   }
 
   async function verifyWallet() {
-    const challenge = await api.telegramChallenge(agent, owner);
+    const challenge = await api.telegramChallenge(agent, owner, networkMode.mode);
     if (challenge.origin !== window.location.origin)
       throw new Error('Unexpected Telegram sign-in origin');
     if (!challenge.browser) throw new Error('Browser verification is temporarily unavailable.');
+    const { automationChainId } = networkMode;
     const signature = await guard(
       {
-        chainId: LASNA_CHAIN_ID,
+        chainId: automationChainId,
         target: agent,
         targetLabel: 'Automation account',
         effect: 'Trust this browser to manage Telegram notifications for this account.',
@@ -183,13 +189,17 @@ function TelegramSettingsPanel(props: NotificationProps) {
       },
       owner,
       (connector) =>
-        signTypedDataAsync({ connector, account: owner, ...telegramSignIn(agent, challenge) }),
+        signTypedDataAsync({
+          connector,
+          account: owner,
+          ...telegramSignIn(agent, challenge, automationChainId),
+        }),
     );
-    await api.telegramSession(agent, owner, challenge, signature);
+    await api.telegramSession(agent, owner, challenge, signature, networkMode.mode);
     setPairing(undefined);
     setExpired(false);
     try {
-      return await api.telegramSettings(agent);
+      return await api.telegramSettings(agent, undefined, networkMode.mode);
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         throw new Error('Allow cookies for Rulebook, then try verifying this browser again.');
@@ -199,7 +209,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
   }
 
   async function forgetBrowser() {
-    await api.telegramForgetBrowser(agent);
+    await api.telegramForgetBrowser(agent, networkMode.mode);
     setPairing(undefined);
     setExpired(false);
     return null;
@@ -211,6 +221,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
         api.telegramPreferences(
           agent,
           workflow ? { workflowId: item.id, preference } : { ruleId: item.id, preference },
+          networkMode.mode,
         ),
       );
   }
@@ -405,7 +416,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Disconnecting…', async () => {
-                      const updated = await api.telegramDisconnect(agent);
+                      const updated = await api.telegramDisconnect(agent, networkMode.mode);
                       setPairing(undefined);
                       return updated;
                     })
@@ -431,7 +442,11 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Connecting Telegram…', async () => {
-                      const updated = await api.telegramConfirm(agent, candidate.id);
+                      const updated = await api.telegramConfirm(
+                        agent,
+                        candidate.id,
+                        networkMode.mode,
+                      );
                       setPairing(undefined);
                       return updated;
                     })
@@ -471,7 +486,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   disabled={Boolean(busy)}
                   onClick={() =>
                     void run('Creating pairing link…', async () => {
-                      setPairing(await api.telegramPair(agent));
+                      setPairing(await api.telegramPair(agent, networkMode.mode));
                       setExpired(false);
                     })
                   }
@@ -497,7 +512,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                       onChange={(event) => {
                         const enabled = event.currentTarget.value === 'true';
                         void run('Saving delivery status…', () =>
-                          api.telegramPreferences(agent, { enabled }),
+                          api.telegramPreferences(agent, { enabled }, networkMode.mode),
                         );
                       }}
                     >
@@ -517,7 +532,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
                         const defaultMode =
                           event.currentTarget.value === 'all' ? 'all' : 'selected';
                         void run('Saving account default…', () =>
-                          api.telegramPreferences(agent, { defaultMode }),
+                          api.telegramPreferences(agent, { defaultMode }, networkMode.mode),
                         );
                       }}
                     >
@@ -551,9 +566,13 @@ function TelegramSettingsPanel(props: NotificationProps) {
                             onChange={(event) => {
                               const enabled = event.currentTarget.value === 'true';
                               void run('Saving alert preference…', () =>
-                                api.telegramPreferences(agent, {
-                                  [key]: enabled,
-                                }),
+                                api.telegramPreferences(
+                                  agent,
+                                  {
+                                    [key]: enabled,
+                                  },
+                                  networkMode.mode,
+                                ),
                               );
                             }}
                           >
@@ -603,7 +622,11 @@ function TelegramSettingsPanel(props: NotificationProps) {
                   className="app-button"
                   type="button"
                   disabled={Boolean(busy) || current.testDelivery === 'pending'}
-                  onClick={() => void run('Queueing test message…', () => api.telegramTest(agent))}
+                  onClick={() =>
+                    void run('Queueing test message…', () =>
+                      api.telegramTest(agent, networkMode.mode),
+                    )
+                  }
                 >
                   Send test message
                 </button>

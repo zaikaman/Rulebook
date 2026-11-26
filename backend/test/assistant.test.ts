@@ -1,7 +1,12 @@
 import { readFileSync } from 'node:fs';
 
 import { PGlite } from '@electric-sql/pglite';
-import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import {
+  BASE_SEPOLIA_CHAIN_ID,
+  LASNA_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
+} from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import type { Address } from 'viem';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -308,7 +313,9 @@ describe('assistant data tools', () => {
     const result = await executor.execute('list_runs', { limit: 3, workflowId });
 
     expect(requests[0]?.searchParams.get('owner')).toBe(`eq.${owner}`);
-    expect(requests[0]?.searchParams.get('deployment')).toBe(`eq.${deployment.lasna.factory}`);
+    expect(requests[0]?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, deployment.lasna.factory)}`,
+    );
     expect(requests[0]?.searchParams.get('workflow_id')).toBe(`eq.${workflowId}`);
     expect(result.detail).toBe('1 run');
     expect(result.content).toContain('"title":"Recurring transfer"');

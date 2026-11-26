@@ -12,6 +12,7 @@ import {
   telegramPairingSchema,
   telegramSettingsSchema,
   type Health,
+  type NetworkMode,
   type RulewrightRequest,
   type TelegramChallenge,
   type TelegramDefault,
@@ -136,9 +137,13 @@ export class ApiClient {
 
   // Telegram endpoints remain mounted under `/v1/` on the backend and are proxied same-origin so
   // the browser session cookie stays HttpOnly on the app origin.
-  telegramAvailability(workflow = false) {
+  telegramAvailability(workflow = false, network?: NetworkMode) {
+    const params = new URLSearchParams();
+    if (workflow) params.set('workflow', 'true');
+    if (network === 'mainnet') params.set('network', 'mainnet');
+    const query = params.toString();
     return this.request(
-      workflow ? '/v1/telegram/availability?workflow=true' : '/v1/telegram/availability',
+      query ? `/v1/telegram/availability?${query}` : '/v1/telegram/availability',
       telegramAvailabilitySchema,
       undefined,
       '',
@@ -152,20 +157,41 @@ export class ApiClient {
     method = 'GET',
     body?: object,
     signal?: AbortSignal,
+    network?: NetworkMode,
   ) {
     const init = jsonRequest(method, undefined, body);
     if (signal) init.signal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-    return this.request(`/v1/accounts/${agent.toLowerCase()}/telegram${suffix}`, schema, init, '');
+    const query = network === 'mainnet' ? '?network=mainnet' : '';
+    return this.request(
+      `/v1/accounts/${agent.toLowerCase()}/telegram${suffix}${query}`,
+      schema,
+      init,
+      '',
+    );
   }
 
-  telegramChallenge(agent: string, owner: string) {
-    return this.telegramRequest(agent, '/challenge', telegramChallengeSchema, 'POST', {
-      owner,
-      browser: true,
-    });
+  telegramChallenge(agent: string, owner: string, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '/challenge',
+      telegramChallengeSchema,
+      'POST',
+      {
+        owner,
+        browser: true,
+      },
+      undefined,
+      network,
+    );
   }
 
-  telegramSession(agent: string, owner: string, challenge: TelegramChallenge, signature: string) {
+  telegramSession(
+    agent: string,
+    owner: string,
+    challenge: TelegramChallenge,
+    signature: string,
+    network?: NetworkMode,
+  ) {
     return this.telegramRequest(
       agent,
       '/session',
@@ -176,30 +202,59 @@ export class ApiClient {
         challenge,
         signature,
       },
+      undefined,
+      network,
     );
   }
 
-  telegramForgetBrowser(agent: string) {
+  telegramForgetBrowser(agent: string, network?: NetworkMode) {
     return this.telegramRequest(
       agent,
       '/session',
       z.object({ forgotten: z.literal(true) }),
       'DELETE',
+      undefined,
+      undefined,
+      network,
     );
   }
 
-  telegramSettings(agent: string, signal?: AbortSignal) {
-    return this.telegramRequest(agent, '', telegramSettingsSchema, 'GET', undefined, signal);
+  telegramSettings(agent: string, signal?: AbortSignal, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '',
+      telegramSettingsSchema,
+      'GET',
+      undefined,
+      signal,
+      network,
+    );
   }
 
-  telegramPair(agent: string) {
-    return this.telegramRequest(agent, '/pairing', telegramPairingSchema, 'POST');
+  telegramPair(agent: string, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '/pairing',
+      telegramPairingSchema,
+      'POST',
+      undefined,
+      undefined,
+      network,
+    );
   }
 
-  telegramConfirm(agent: string, pairingId: string) {
-    return this.telegramRequest(agent, '/pairing/confirm', telegramSettingsSchema, 'POST', {
-      pairingId,
-    });
+  telegramConfirm(agent: string, pairingId: string, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '/pairing/confirm',
+      telegramSettingsSchema,
+      'POST',
+      {
+        pairingId,
+      },
+      undefined,
+      network,
+    );
   }
 
   telegramPreferences(
@@ -209,16 +264,41 @@ export class ApiClient {
       | { fundingAlerts?: boolean; actionAlerts?: boolean }
       | { ruleId: string; preference: TelegramPreference }
       | { workflowId: string; preference: TelegramPreference },
+    network?: NetworkMode,
   ) {
-    return this.telegramRequest(agent, '/preferences', telegramSettingsSchema, 'PATCH', preference);
+    return this.telegramRequest(
+      agent,
+      '/preferences',
+      telegramSettingsSchema,
+      'PATCH',
+      preference,
+      undefined,
+      network,
+    );
   }
 
-  telegramDisconnect(agent: string) {
-    return this.telegramRequest(agent, '/connection', telegramSettingsSchema, 'DELETE');
+  telegramDisconnect(agent: string, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '/connection',
+      telegramSettingsSchema,
+      'DELETE',
+      undefined,
+      undefined,
+      network,
+    );
   }
 
-  telegramTest(agent: string) {
-    return this.telegramRequest(agent, '/test', telegramSettingsSchema, 'POST');
+  telegramTest(agent: string, network?: NetworkMode) {
+    return this.telegramRequest(
+      agent,
+      '/test',
+      telegramSettingsSchema,
+      'POST',
+      undefined,
+      undefined,
+      network,
+    );
   }
 }
 

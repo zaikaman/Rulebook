@@ -1,10 +1,13 @@
 import {
+  automationChainFor,
   CHAIN_CONFIGS,
-  LASNA_CHAIN_ID,
+  isAutomationChain,
   isFundsChain,
+  networkModeForChain,
+  REACTIVE_MAINNET_CHAIN_ID,
   workflowIdSchema,
   workflowV2RunProofSchema,
-  type FundsChainId,
+  type SupportedChainId,
   type WorkflowV2RunProof,
 } from '@rulebook/shared';
 import {
@@ -32,39 +35,48 @@ import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { workflowClient } from './chainV2';
 import { v2ApiBase } from './listingV2';
 
-const proofGuide = [
-  {
-    icon: Pulse01Icon,
-    title: 'Origin event',
-    copy: 'The trigger that started the run, or an internal schedule when no external transaction exists.',
-  },
-  {
-    icon: FlashIcon,
-    title: 'Lasna decision',
-    copy: 'The agent evaluation that selected the path and recorded the outcome.',
-  },
-  {
-    icon: Wallet01Icon,
-    title: 'Settlement',
-    copy: 'The vault transaction that carried out the approved action, once it settles.',
-  },
-] as const;
+function proofGuideFor(automationName: string) {
+  const decisionTitle =
+    automationName === 'Reactive Mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
+  return [
+    {
+      icon: Pulse01Icon,
+      title: 'Origin event',
+      copy: 'The trigger that started the run, or an internal schedule when no external transaction exists.',
+    },
+    {
+      icon: FlashIcon,
+      title: decisionTitle,
+      copy: 'The agent evaluation that selected the path and recorded the outcome.',
+    },
+    {
+      icon: Wallet01Icon,
+      title: 'Settlement',
+      copy: 'The vault transaction that carried out the approved action, once it settles.',
+    },
+  ] as const;
+}
 
 export function WorkflowProofLookup() {
+  const { automationName } = useNetworkMode();
   const inputId = useId();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [invalid, setInvalid] = useState(false);
+  const decisionLabel =
+    automationName === 'Reactive Mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
+  const proofGuide = proofGuideFor(automationName);
 
   return (
     <section className="app-page">
       <PageHeading
         title="Workflow proof"
-        description="Look up a run to verify its origin, the Lasna decision, and settlement."
+        description={`Look up a run to verify its origin, the ${decisionLabel}, and settlement.`}
       />
 
       <div className="rb-proof-lookup">
@@ -169,13 +181,14 @@ export function WorkflowProofLookup() {
 }
 
 export function WorkflowProof() {
+  const { mode } = useNetworkMode();
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const proof = useQuery({
-    queryKey: ['workflow-v2', 'run-proof', id.data],
+    queryKey: ['workflow-v2', 'run-proof', mode, id.data],
     enabled: id.success,
     queryFn: async ({ signal }) => {
-      const response = await fetch(`${v2ApiBase}/v3/runs/${id.data}`, { signal });
+      const response = await fetch(`${v2ApiBase}/v3/runs/${id.data}?network=${mode}`, { signal });
       if (response.status === 404) return null;
       if (!response.ok) throw new Error('Could not load this workflow proof.');
       return workflowV2RunProofSchema.parse(await response.json());
@@ -258,9 +271,17 @@ export function WorkflowProof() {
 function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
   const proofUrl = new URL(`${appRoutes.runs}/${run.id}`, window.location.origin).href;
   const provisionalExpiry = run.status === 'expired' && !run.destinationTransaction;
+  const automationChain = automationChainFor(networkModeForChain(run.chain));
   const steps = [
     { label: 'Origin event', chain: run.originChain, hash: run.originTransaction },
-    { label: 'Lasna decision', chain: LASNA_CHAIN_ID, hash: run.lasnaTransaction },
+    {
+      label:
+        automationChain === REACTIVE_MAINNET_CHAIN_ID
+          ? 'Reactive Mainnet decision'
+          : 'Lasna decision',
+      chain: automationChain,
+      hash: run.lasnaTransaction,
+    },
     { label: 'Settlement', chain: run.chain, hash: run.destinationTransaction },
   ];
   const statusLabel = provisionalExpiry ? 'Settlement window elapsed' : run.status;
@@ -361,7 +382,7 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
         <ol className="rb-proof-stages" aria-label="Run transactions">
           {steps.map(({ label, chain, hash }, index) => {
             const present = Boolean(hash && hash !== zeroHash);
-            const role = chain === LASNA_CHAIN_ID ? 'automation' : 'funds';
+            const role = isAutomationChain(chain) ? 'automation' : 'funds';
             const missing =
               label === 'Origin event'
                 ? 'No external transaction recorded.'
@@ -433,13 +454,13 @@ function statusIcon(status: WorkflowV2RunProof['status']) {
 
 function ProofTransaction({ chain, hash }: { chain: number; hash: Hex }) {
   const network = CHAIN_CONFIGS.get(chain);
-  const supported = chain === LASNA_CHAIN_ID || isFundsChain(chain);
+  const supported = isAutomationChain(chain) || isFundsChain(chain);
   const executionGas = useQuery({
     queryKey: ['workflow-v2', 'proof-execution-gas', chain, hash],
     enabled: supported,
     queryFn: async () => {
       const { gasUsed, effectiveGasPrice } = await workflowClient(
-        chain as typeof LASNA_CHAIN_ID | FundsChainId,
+        chain as SupportedChainId,
       ).getTransactionReceipt({ hash });
       // Some Lasna receipts omit the effective price even when gas usage is recorded.
       return typeof gasUsed === 'bigint' && typeof effectiveGasPrice === 'bigint'
@@ -468,8 +489,7 @@ function ProofTransaction({ chain, hash }: { chain: number; hash: Hex }) {
       )}
       {typeof cost === 'bigint' ? (
         <p className="rb-proof-gas">
-          Transaction execution gas {formatEther(cost)}{' '}
-          {chain === LASNA_CHAIN_ID ? 'lREACT' : 'ETH'}
+          Transaction execution gas {formatEther(cost)} {network?.nativeSymbol ?? 'ETH'}
         </p>
       ) : cost === null || executionGas.isError ? (
         <p className="rb-proof-gas">Transaction execution gas unavailable.</p>

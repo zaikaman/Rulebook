@@ -13,11 +13,11 @@ import {
   encodeWorkflowV2,
   fieldIssue,
   isFundsChain,
+  networkModeForChain,
   readWeeklyLimit,
   slippageIssue,
   stepAmountRules,
   toCopyDraft,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
   weeklyBudgetFromDraft,
   workflowFieldSpecs,
   workflowGuardrailFields,
@@ -73,6 +73,7 @@ import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
+import { useNetworkMode } from '@/lib/networkMode';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
 import { useWorkflowFunding, WorkflowFundingNotice } from './WorkflowFunding';
@@ -288,8 +289,12 @@ function RecipePicker({
   open: (draft: V2Draft) => void;
   close: () => void;
 }) {
-  const chains = configuredFundsChains();
-  const [recipeChain, setRecipeChain] = useState<SettlementChain>(UNICHAIN_SEPOLIA_CHAIN_ID);
+  const { mode, defaultFundsChainId } = useNetworkMode();
+  const chains = configuredFundsChains(mode);
+  const [recipeChain, setRecipeChain] = useState<SettlementChain>(defaultFundsChainId);
+  useEffect(() => {
+    if (!chains.includes(recipeChain)) setRecipeChain(defaultFundsChainId);
+  }, [chains, defaultFundsChainId, recipeChain]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<(typeof recipeCategories)[number]>('All categories');
   const [selected, select] = useState<WorkflowV2RecipeId | undefined>(
@@ -740,6 +745,7 @@ export function WorkflowProgramSummary({
 }
 
 export function WorkflowBuilderV2() {
+  const { mode } = useNetworkMode();
   const { address } = useAccount();
   const [params] = useSearchParams();
   const { id: raw } = useParams();
@@ -747,12 +753,12 @@ export function WorkflowBuilderV2() {
   const copy = params.get('copy');
   const copyId = v2ListingId.safeParse(copy);
   const query = useQuery({
-    queryKey: ['workflow-v2', 'edit', address, raw],
+    queryKey: ['workflow-v2', 'edit', mode, address, raw],
     enabled: Boolean(id.success && address),
-    queryFn: () => readWorkflowV2(address!, id.data!),
+    queryFn: () => readWorkflowV2(address!, id.data!, mode),
   });
   const budgetQuery = useQuery({
-    queryKey: ['workflow-v2', 'weekly-budget', address, raw],
+    queryKey: ['workflow-v2', 'weekly-budget', mode, address, raw],
     enabled: Boolean(id.success && address && query.data),
     queryFn: () => readWorkflowWeeklyBudget(query.data!.chain, query.data!.vault, id.data!),
   });
@@ -796,13 +802,15 @@ export function WorkflowBuilderV2() {
   if (copy && !copyId.success) return <p role="alert">This listing link is invalid.</p>;
   const recipe = workflowV2Recipes.find((item) => item.id === params.get('recipe'))?.id;
   if (!raw && copyId.success)
-    return <WorkflowCopyV2 key={copyId.data} listingId={copyId.data} recipe={recipe} />;
+    return (
+      <WorkflowCopyV2 key={`${mode}:${copyId.data}`} listingId={copyId.data} recipe={recipe} />
+    );
 
   return (
     <Editor
-      key={`${raw ? address : 'new'}:${raw ?? 'new'}:${copy ?? recipe ?? ''}`}
+      key={`${mode}:${raw ? address : 'new'}:${raw ?? 'new'}:${copy ?? recipe ?? ''}`}
       id={id.data}
-      storageKey={`rulebook-v2-draft:${raw ?? copy ?? recipe ?? 'new'}`}
+      storageKey={`rulebook-v2-draft:${mode}:${raw ?? copy ?? recipe ?? 'new'}`}
       original={
         query.data && budgetQuery.data
           ? {
@@ -822,9 +830,10 @@ export function WorkflowBuilderV2() {
 }
 
 function WorkflowCopyV2({ listingId, recipe }: { listingId: string; recipe?: WorkflowV2RecipeId }) {
-  const storageKey = `rulebook-v2-draft:${listingId}`;
+  const { mode } = useNetworkMode();
+  const storageKey = `rulebook-v2-draft:${mode}:${listingId}`;
   const [original, setOriginal] = useState(() => loadDraft(storageKey)?.draft);
-  const listing = useQuery(v2ListingQuery(original ? undefined : listingId));
+  const listing = useQuery(v2ListingQuery(original ? undefined : listingId, mode));
   if (original) return <Editor storageKey={storageKey} original={original} recipe={recipe} />;
   // Once seeded, the private draft can be edited independently of the source listing.
   if (listing.isFetchedAfterMount && listing.isSuccess && !listing.failureReason)
@@ -863,10 +872,24 @@ function Editor({
   active?: boolean;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const { mode, automationName, defaultFundsChainId, isDeploymentConfigured, isMainnet } =
+    useNetworkMode();
+  const chains = configuredFundsChains(mode);
   const { address } = useAccount();
   const navigate = useNavigate();
   const [saved] = useState(() => loadDraft(storageKey));
-  const [draft, setDraft] = useState<V2Draft>(() => saved?.draft ?? original ?? emptyDraft());
+  const [draft, setDraft] = useState<V2Draft>(
+    () => saved?.draft ?? original ?? emptyDraft(defaultFundsChainId),
+  );
+  useEffect(() => {
+    if (!id && networkModeForChain(draft.chain) !== mode) {
+      setDraft((current) => ({
+        ...current,
+        chain: defaultFundsChainId,
+        originChain: defaultFundsChainId,
+      }));
+    }
+  }, [defaultFundsChainId, draft.chain, id, mode]);
   const diagram = useMemo(() => diagramV2(draft), [draft]);
   const spending = useMemo(() => draftSpending(draft), [draft]);
   const hasSwap = useMemo(() => draftHasSwap(draft), [draft]);
@@ -892,9 +915,11 @@ function Editor({
   const [budget, setBudget] = useState<WeeklyBudgetAmounts>();
   const funding = useWorkflowFunding(wallet.owner, program, budget);
   const slots = useQuery({
-    queryKey: ['workflow-v2', 'active-count', wallet.owner],
-    enabled: Boolean(wallet.owner && program && workflowActivationEnabled),
-    queryFn: () => readActiveWorkflowCount(wallet.owner!),
+    queryKey: ['workflow-v2', 'active-count', mode, wallet.owner],
+    enabled: Boolean(
+      wallet.owner && program && workflowActivationEnabled && isDeploymentConfigured,
+    ),
+    queryFn: () => readActiveWorkflowCount(wallet.owner!, mode),
   });
   const capReached =
     !active && slots.data !== undefined && slots.data >= workflowV2Limits.activePerAgent;
@@ -1201,13 +1226,13 @@ function Editor({
                 onChange={(event) => update({ title: event.target.value })}
               />
             </V2Field>
-            {configuredFundsChains().length > 1 && (
+            {chains.length > 1 && (
               <V2Field
                 name="Settlement network"
                 hint={
                   id
                     ? 'The Vault network is fixed once a workflow is created.'
-                    : 'Choose which testnet Vault holds funds and settles this workflow.'
+                    : `Choose which ${mode} Vault holds funds and settles this workflow.`
                 }
               >
                 {id ? (
@@ -1218,7 +1243,7 @@ function Editor({
                     groups={[
                       {
                         label: 'Funds & settlement networks',
-                        options: configuredFundsChains().map((chainId) => ({
+                        options: chains.map((chainId) => ({
                           value: String(chainId),
                           label: v2Network(chainId).name,
                         })),
@@ -1361,32 +1386,31 @@ function Editor({
                 })}
               </select>
             </V2Field>
-            {configuredFundsChains().length > 1 &&
-              (draft.trigger === T.price || draft.trigger === T.transfer) && (
-                <V2Field
-                  name="Trigger network"
-                  hint={`Watch pool prices or token transfers on this network and settle on ${v2Network(draft.chain).name}.`}
-                >
-                  <Select
-                    value={String(draft.originChain)}
-                    groups={[
-                      {
-                        label: 'Origin networks',
-                        options: configuredFundsChains().map((chainId) => ({
-                          value: String(chainId),
-                          label: v2Network(chainId).name,
-                        })),
-                      },
-                    ]}
-                    onChange={(nextValue) => {
-                      const nextOrigin = Number(nextValue);
-                      if (isFundsChain(nextOrigin)) {
-                        update({ originChain: nextOrigin as FundsChainId });
-                      }
-                    }}
-                  />
-                </V2Field>
-              )}
+            {chains.length > 1 && (draft.trigger === T.price || draft.trigger === T.transfer) && (
+              <V2Field
+                name="Trigger network"
+                hint={`Watch pool prices or token transfers on this network and settle on ${v2Network(draft.chain).name}.`}
+              >
+                <Select
+                  value={String(draft.originChain)}
+                  groups={[
+                    {
+                      label: 'Origin networks',
+                      options: chains.map((chainId) => ({
+                        value: String(chainId),
+                        label: v2Network(chainId).name,
+                      })),
+                    },
+                  ]}
+                  onChange={(nextValue) => {
+                    const nextOrigin = Number(nextValue);
+                    if (isFundsChain(nextOrigin)) {
+                      update({ originChain: nextOrigin as FundsChainId });
+                    }
+                  }}
+                />
+              </V2Field>
+            )}
             {paymentConflictCallout}
             <div className="rb-inspector-fields">
               {draft.trigger === T.schedule && (
@@ -1965,7 +1989,7 @@ function Editor({
               <div>
                 <h2 className="rb-panel-title">Activate</h2>
                 <p className="rb-panel-copy">
-                  Confirm the authorization and enable the workflow on Reactive Lasna.
+                  Confirm the authorization and enable the workflow on {automationName}.
                 </p>
               </div>
             </div>
@@ -2020,7 +2044,11 @@ function Editor({
               )}
               {(!settlementFactory(draft.chain as SettlementChain) ||
                 !workflowActivationEnabled) && (
-                <p className="rb-alert">Testnet activation is disabled.</p>
+                <p className="rb-alert">
+                  {isMainnet && !isDeploymentConfigured
+                    ? 'Mainnet activation is unavailable until Mainnet contracts are deployed.'
+                    : `${isMainnet ? 'Mainnet' : 'Testnet'} activation is disabled.`}
+                </p>
               )}
               {workflowActivationEnabled && (
                 <WorkflowCreditNotice
@@ -2069,7 +2097,7 @@ function Editor({
               )}
               <p className="rb-activation-note">
                 Your wallet approves vault authorization on {v2Network(draft.chain).name} and
-                activation on Reactive Lasna. First-time setup can require additional approvals.
+                activation on {automationName}. First-time setup can require additional approvals.
               </p>
               <V2Feedback wallet={wallet} />
             </div>
@@ -2158,8 +2186,8 @@ function Editor({
       )}
       {rulewrightOpen && (
         <RulewrightDialog
-          key={address ?? 'disconnected'}
-          draft={id || hasRulewrightBaseline(draft) ? draft : undefined}
+          key={`${mode}:${address ?? 'disconnected'}`}
+          draft={id || hasRulewrightBaseline(draft, mode) ? draft : undefined}
           session={rulewrightSession}
           close={() => setRulewrightOpen(false)}
           summary={(next) => <WorkflowProgramSummary draft={next} />}

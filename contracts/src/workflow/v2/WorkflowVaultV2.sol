@@ -6,6 +6,8 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {AbstractCallback} from "@reactive/abstract-base/AbstractCallback.sol";
+import {IPayable} from "@reactive/interfaces/IPayable.sol";
+import {ChainConfig} from "../../chain/ChainConfig.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "./WorkflowProtocolsV2.sol";
@@ -106,10 +108,12 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     );
     event Observation(bytes32 indexed runId, uint256 value, address actor);
 
-    address public immutable owner;
-    address public immutable agent;
+    address public immutable factory;
+    address public immutable callbackProxy;
     uint32 public immutable chain;
     WorkflowProgramValidatorV2 public immutable validator;
+    address public owner;
+    address public agent;
     bytes32 public paymentWorkflow;
     mapping(bytes32 => Authorization) public authorizations;
     mapping(bytes32 => WeeklyBudget) private weeklyBudgets;
@@ -130,13 +134,35 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         WorkflowProgramValidatorV2 validator_
     ) AbstractCallback(proxy) WorkflowProtocolsV2(cfg) {
         if (
-            proxy == address(0) || owner_ == address(0) || agent_ == address(0)
+            proxy == address(0) || (owner_ == address(0)) != (agent_ == address(0))
                 || !P.isFundsChain(chain_)
+        ) revert InvalidAuthorization();
+        if (
+            ChainConfig.isMainnetFundsChain(chain_)
+                && (cfg.router == address(0)
+                    || cfg.pair == address(0)
+                    || cfg.ethUsdFeed == address(0)
+                    || cfg.sequencerFeed == address(0))
+        ) revert InvalidMarket();
+        factory = msg.sender;
+        callbackProxy = proxy;
+        chain = chain_;
+        validator = validator_;
+        if (owner_ != address(0)) {
+            owner = owner_;
+            agent = agent_;
+        }
+    }
+
+    function initialize(address owner_, address agent_) external {
+        if (
+            msg.sender != factory || owner != address(0) || owner_ == address(0)
+                || agent_ == address(0)
         ) revert InvalidAuthorization();
         owner = owner_;
         agent = agent_;
-        chain = chain_;
-        validator = validator_;
+        vendor = IPayable(payable(callbackProxy));
+        addAuthorizedSender(callbackProxy);
     }
 
     modifier onlyOwner() {
@@ -411,11 +437,12 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             ) {
                 revert StaleObservation();
             }
+            _guardOraclePrice(run.observed);
             memory_.positionBlock = run.originBlock;
             memory_.positionIndex = run.originLogIndex;
             if (run.observed > memory_.peak) memory_.peak = uint128(run.observed);
             if (
-                run.high > memory_.peak
+                run.high > memory_.peak && _isOracleConsistent(run.high)
                     && (run.originChain != chain
                         || run.highBlock > authorizations[workflow].originAfter)
             ) {
@@ -496,7 +523,14 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
-        if (ctx.price == 0) ctx.price = program.originChain == chain ? _price() : run.observed;
+        if (ctx.price == 0) {
+            if (program.originChain == chain) {
+                ctx.price = _price();
+            } else {
+                ctx.price = run.observed;
+                if (ctx.price != 0) _guardOraclePrice(ctx.price);
+            }
+        }
         if (ctx.price == 0) return false;
         uint256 price = ctx.price;
         if (check == P.PRICE_AT_LEAST) return price >= threshold;
@@ -602,7 +636,13 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             IERC20(usdc).safeTransfer(account, amount);
         } else if (action.kind == P.BUY || action.kind == P.SELL) {
             _requireBalance(action.kind == P.SELL ? weth : usdc, amount);
-            received = _swap(action.kind == P.SELL, amount, program.slippage, run.expiresAt);
+            uint256 referencePrice = program.originChain != chain
+                && (program.trigger == P.PRICE || program.trigger == P.SCHEDULE)
+                ? ctx.price
+                : 0;
+            received = _swap(
+                action.kind == P.SELL, amount, program.slippage, run.expiresAt, referencePrice
+            );
             account = address(this);
             if (program.trigger == P.PRICE) ctx.swapped = true;
         } else if (action.kind == P.REFILL) {

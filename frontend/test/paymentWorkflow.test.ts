@@ -7,10 +7,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const readContract = vi.fn();
 const baseReadContract = vi.fn();
 
+const lasnaPublicClient = { readContract: vi.fn() };
+const unichainPublicClient = { readContract };
+const basePublicClient = { readContract: baseReadContract };
+
 vi.mock('@/lib/wagmi', () => ({
-  lasnaPublicClient: { readContract: vi.fn() },
-  unichainPublicClient: { readContract },
-  basePublicClient: { readContract: baseReadContract },
+  lasnaPublicClient,
+  unichainPublicClient,
+  basePublicClient,
+  publicClientFor: (chainId: number) =>
+    chainId === BASE_SEPOLIA_CHAIN_ID ? basePublicClient : unichainPublicClient,
 }));
 
 vi.stubEnv(

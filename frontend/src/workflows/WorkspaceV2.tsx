@@ -1,17 +1,19 @@
 import {
+  automationChainFor,
   decodeWorkflowV2,
   executionCreditAbi,
   fundsChainIdSchema,
+  getChain,
   isFundsChain,
-  LASNA_CHAIN_ID,
+  networkModeForChain,
   readAmount,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowIdSchema,
   workflowV2RunStatusSchema,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowVaultV2Abi,
   workflowV2Action,
+  type NetworkMode,
 } from '@rulebook/shared';
 import {
   Add01Icon,
@@ -52,6 +54,7 @@ import { AppShell } from '@/components/AppShell';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { HowItWorks } from '@/components/chrome/HowItWorks';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import {
   CardGridSkeleton,
   FeedSkeleton,
@@ -63,6 +66,7 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
+import { useNetworkMode } from '@/lib/networkMode';
 import { Badge, Button, Callout, Select } from '@/ui';
 import { appRoutes } from '@/lib/routes';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
@@ -77,7 +81,6 @@ import {
   useWorkflowV2Wallet,
   v2Explorer,
   v2Network,
-  workflowV2Deployment,
   workflowActivationEnabled,
   workflowClient,
   type SettlementChain,
@@ -92,11 +95,12 @@ import { WorkflowHealthPanel } from './WorkflowHealth';
 import { WorkflowWeeklyBudget } from './WeeklyBudget';
 
 export function WorkflowsV2() {
+  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const { owner } = useWorkflowV2Wallet();
   const rows = useQuery({
-    queryKey: ['workflow-v2', 'workflows', owner],
-    enabled: Boolean(owner && workflowV2Deployment),
-    queryFn: () => readWorkflowsV2(owner!),
+    queryKey: ['workflow-v2', 'workflows', mode, owner],
+    enabled: Boolean(owner && isDeploymentConfigured),
+    queryFn: () => readWorkflowsV2(owner!, mode),
     refetchInterval: 12_000,
   });
   const workflows = rows.data ?? [];
@@ -111,7 +115,11 @@ export function WorkflowsV2() {
       <PageHeading
         eyebrow="Automation"
         title="Workflows"
-        description="Build, activate, and monitor the testnet automations that run from your wallet."
+        description={
+          isMainnet
+            ? 'Build, activate, and monitor the mainnet automations that run from your wallet.'
+            : 'Build, activate, and monitor the testnet automations that run from your wallet.'
+        }
         aside={
           <Link className="app-button app-button--primary" to="/workflows/new">
             <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden="true" />
@@ -120,7 +128,17 @@ export function WorkflowsV2() {
         }
       />
 
-      {!owner && (
+      {!isDeploymentConfigured &&
+        (isMainnet ? (
+          <MainnetUnavailableCallout context="Workflow execution" />
+        ) : (
+          <p className="rb-note">
+            <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+            Testnet activation is being configured. You can still browse recipes and build a draft.
+          </p>
+        ))}
+
+      {!owner && isDeploymentConfigured && (
         <Callout title="Connect a wallet to load your workflows" action={<WalletControl setup />}>
           <p>Your agent, vault, and run history all belong to the connected wallet.</p>
         </Callout>
@@ -143,17 +161,14 @@ export function WorkflowsV2() {
             {
               icon: TradeUpIcon,
               title: 'Actions',
-              copy: 'Your vault executes the swap, transfer, or alert on Unichain Sepolia or Base Sepolia.',
+              copy: `Your vault executes the swap, transfer, or alert on ${configuredFundsChains(
+                mode,
+              )
+                .map((id) => getChain(id).name)
+                .join(' or ')}.`,
             },
           ]}
         />
-      )}
-
-      {!workflowV2Deployment && (
-        <p className="rb-note">
-          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
-          Testnet activation is being configured. You can still browse recipes and build a draft.
-        </p>
       )}
 
       {rows.error && (
@@ -179,7 +194,7 @@ export function WorkflowsV2() {
             <p className="rb-metric-label">Workflows</p>
             <p className="rb-metric-value">{workflows.length}</p>
             <p className="rb-metric-note">
-              {configuredFundsChains().length > 1
+              {configuredFundsChains(mode).length > 1
                 ? 'Saved across your vaults'
                 : 'Saved in this vault'}
             </p>
@@ -187,7 +202,7 @@ export function WorkflowsV2() {
           <div className="rb-metric" data-tone="active">
             <p className="rb-metric-label">Active</p>
             <p className="rb-metric-value">{activeCount}</p>
-            <p className="rb-metric-note">Enabled on Lasna</p>
+            <p className="rb-metric-note">Enabled on {automationName}</p>
           </div>
           <div className="rb-metric">
             <p className="rb-metric-label">Needs attention</p>
@@ -197,7 +212,7 @@ export function WorkflowsV2() {
         </div>
       )}
 
-      {!!owner && Boolean(workflowV2Deployment) && rows.isPending && (
+      {!!owner && isDeploymentConfigured && rows.isPending && (
         <LoadingRegion label="Reading your workflows…" className="rb-page-skeleton">
           <MetricsSkeleton />
           <CardGridSkeleton count={2} />
@@ -246,7 +261,7 @@ export function WorkflowsV2() {
                 : row.active
                   ? 'Watching'
                   : row.partiallyPaused
-                    ? 'Still watching on Lasna'
+                    ? `Still watching on ${automationName}`
                     : ready
                       ? 'Ready to activate'
                       : 'Paused');
@@ -257,7 +272,7 @@ export function WorkflowsV2() {
                 : row.active
                   ? 'This workflow is active and waiting for its next trigger.'
                   : row.partiallyPaused
-                    ? 'Vault spending is revoked, but Reactive Lasna is still watching for triggers. Finish pausing so it stops using watching credit.'
+                    ? `Vault spending is revoked, but ${automationName} is still watching for triggers. Finish pausing so it stops using watching credit.`
                     : ready
                       ? 'The Vault authorization is staged. Finish activation to start watching.'
                       : 'This workflow is not watching for events.');
@@ -329,13 +344,14 @@ export function WorkflowsV2() {
 }
 
 export function WorkflowDetailV2() {
+  const { mode, automationName } = useNetworkMode();
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const wallet = useWorkflowV2Wallet();
   const data = useQuery({
-    queryKey: ['workflow-v2', 'detail', wallet.owner, raw],
+    queryKey: ['workflow-v2', 'detail', mode, wallet.owner, raw],
     enabled: Boolean(wallet.owner && id.success),
-    queryFn: () => readWorkflowV2(wallet.owner!, id.data!),
+    queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode),
     refetchInterval: 12_000,
   });
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
@@ -381,7 +397,7 @@ export function WorkflowDetailV2() {
     : active
       ? 'Active'
       : item.partiallyPaused
-        ? 'Still watching on Lasna'
+        ? `Still watching on ${automationName}`
         : item.auth[3]
           ? 'Finish activation'
           : 'Paused';
@@ -484,11 +500,12 @@ function Publication({
   item: Awaited<ReturnType<typeof readWorkflowV2>>;
   wallet: ReturnType<typeof useWorkflowV2Wallet>;
 }) {
+  const { mode, automationChainId, deployment } = useNetworkMode();
   const [description, setDescription] = useState('');
-  const factory = workflowV2Deployment?.lasna.factory;
-  const reader = workflowClient(LASNA_CHAIN_ID);
+  const factory = deployment?.automationFactory;
+  const reader = workflowClient(automationChainId);
   const listing = useQuery({
-    queryKey: ['workflow-v2', 'publication', item.id, item.entry[0]],
+    queryKey: ['workflow-v2', 'publication', mode, item.id, item.entry[0]],
     enabled: Boolean(factory),
     queryFn: async () => {
       const id = await reader.readContract({
@@ -591,7 +608,7 @@ function Publication({
               onClick={() =>
                 void wallet.perform(async () => {
                   await wallet.send(
-                    LASNA_CHAIN_ID,
+                    automationChainId,
                     factory,
                     encodeFunctionData({
                       abi: workflowAgentFactoryV2Abi,
@@ -650,14 +667,14 @@ function Publication({
               if (!text || new TextEncoder().encode(text).length > 280)
                 throw new Error('Enter a description of up to 280 bytes.');
               await wallet.send(
-                LASNA_CHAIN_ID,
+                automationChainId,
                 factory,
                 encodeFunctionData({
                   abi: workflowAgentFactoryV2Abi,
                   functionName: 'publish',
                   args: [item.id, text],
                 }),
-                'Publish this workflow version in the testnet Marketplace.',
+                `Publish this workflow version in the ${mode} Marketplace.`,
               );
               setDescription('');
             });
@@ -777,6 +794,8 @@ const activityFilterStatuses = {
 
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
+  const { mode, isMainnet, automationChainId, automationName, isDeploymentConfigured } =
+    useNetworkMode();
   const [params] = useSearchParams();
   const run = params.get('run');
   const workflow = params.get('workflow');
@@ -788,11 +807,12 @@ export function WorkflowActivityV2() {
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
   const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'activity', wallet.owner, workflowId, requestedId],
-    enabled: Boolean(wallet.owner && workflowV2Deployment && scopes.success),
+    queryKey: ['workflow-v2', 'activity', mode, wallet.owner, workflowId, requestedId],
+    enabled: Boolean(wallet.owner && isDeploymentConfigured && scopes.success),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({
+        network: mode,
         owner: wallet.owner!,
         ...(requestedId ? { id: requestedId } : {}),
         ...(workflowId ? { workflow: workflowId } : {}),
@@ -821,19 +841,21 @@ export function WorkflowActivityV2() {
     requestedId || filter === 'all'
       ? rows
       : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
+  const decisionLabel =
+    automationName === 'Reactive Mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
   return (
     <section className="app-page">
       <PageHeading
         eyebrow="Automation"
         title={requestedId ? 'Run details' : workflowId ? 'Workflow activity' : 'Activity'}
-        description="Follow each run from the origin event through the Lasna decision to settlement."
+        description={`Follow each run from the origin event through the ${automationName} decision to settlement.`}
         aside={
           <>
             {wallet.owner && <span className="rb-chip rb-chip--plain">{rows.length} loaded</span>}
             <button
               type="button"
               className="app-button"
-              disabled={refreshing || !wallet.owner || !workflowV2Deployment}
+              disabled={refreshing || !wallet.owner || !isDeploymentConfigured}
               onClick={() => {
                 setRefreshing(true);
                 void query.refetch().finally(() => setRefreshing(false));
@@ -880,7 +902,7 @@ export function WorkflowActivityV2() {
             },
             {
               icon: Shield01Icon,
-              title: 'Lasna decision',
+              title: decisionLabel,
               copy: 'The agent evaluates the checks and records which path it chose.',
             },
             {
@@ -892,12 +914,15 @@ export function WorkflowActivityV2() {
         />
       )}
 
-      {!workflowV2Deployment && (
-        <p className="rb-note">
-          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
-          Activity opens when the V2 testnet deployment is configured.
-        </p>
-      )}
+      {!isDeploymentConfigured &&
+        (isMainnet ? (
+          <MainnetUnavailableCallout context="Activity" />
+        ) : (
+          <p className="rb-note">
+            <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+            Activity opens when the V2 testnet deployment is configured.
+          </p>
+        ))}
 
       {query.error && (
         <div className="rb-alert" role="alert">
@@ -908,7 +933,7 @@ export function WorkflowActivityV2() {
         </div>
       )}
 
-      {query.isPending && Boolean(wallet.owner) && Boolean(workflowV2Deployment) && (
+      {query.isPending && Boolean(wallet.owner) && isDeploymentConfigured && (
         <LoadingRegion label="Loading workflow activity…" className="rb-page-skeleton">
           <div className="rb-page-skeleton-toolbar">
             {[0, 1, 2, 3].map((index) => (
@@ -970,7 +995,7 @@ export function WorkflowActivityV2() {
             requestedId
               ? undefined
               : [
-                  'Trigger fires on Lasna',
+                  `Trigger evaluates on ${automationName}`,
                   'Checks are evaluated',
                   'Vault settles on destination chain',
                 ]
@@ -1026,9 +1051,9 @@ export function WorkflowActivityV2() {
                       label="Origin event"
                     />
                     <TransactionLink
-                      chain={LASNA_CHAIN_ID}
+                      chain={automationChainId}
                       hash={run.lasnaTransaction}
-                      label="Lasna decision"
+                      label={decisionLabel}
                     />
                     <TransactionLink
                       chain={run.chain}
@@ -1072,10 +1097,11 @@ export function WorkflowActivityV2() {
 }
 
 function RunPath({ run }: { run: z.infer<typeof runSchema> }) {
+  const automationChain = automationChainFor(networkModeForChain(run.chain));
   const query = useQuery({
-    queryKey: ['workflow-v2', 'proof-program', run.agent, run.programHash],
+    queryKey: ['workflow-v2', 'proof-program', automationChain, run.agent, run.programHash],
     queryFn: async () => {
-      const encoded = await workflowClient(LASNA_CHAIN_ID).readContract({
+      const encoded = await workflowClient(automationChain).readContract({
         address: run.agent,
         abi: workflowAgentV2Abi,
         functionName: 'programs',
@@ -1118,7 +1144,7 @@ type FundingKind =
   | 'revoke-allowance'
   | 'agent-withdraw';
 
-type FundingUnit = 'USDC' | 'WETH' | 'ETH' | 'lREACT';
+type FundingUnit = 'USDC' | 'WETH' | 'ETH' | 'lREACT' | 'REACT';
 
 type FundingBalanceKey =
   | 'stable'
@@ -1152,134 +1178,139 @@ const fundingGroupOrder: readonly FundingGroup[] = [
   'Recovery',
 ];
 
-const fundingActions: Record<FundsOperation, FundingAction> = {
-  'add-usdc': {
-    label: 'Deposit USDC',
-    group: 'Vault funds',
-    kind: 'deposit',
-    unit: 'USDC',
-    decimals: 6,
-    amountLabel: 'Amount (USDC)',
-    requiresAmount: true,
-    hint: 'Sends test USDC to the vault. USDC pays for buys, transfers, and balance refills.',
-    balanceKey: 'walletStable',
-    balanceLabel: 'Wallet balance',
-    validateBalance: true,
-  },
-  'add-weth': {
-    label: 'Deposit WETH',
-    group: 'Vault funds',
-    kind: 'deposit',
-    unit: 'WETH',
-    decimals: 18,
-    amountLabel: 'Amount (WETH)',
-    requiresAmount: true,
-    hint: 'Sends test WETH to the vault. Only needed for workflows that sell WETH.',
-    balanceKey: 'walletWrapped',
-    balanceLabel: 'Wallet balance',
-    validateBalance: true,
-  },
-  'withdraw-usdc': {
-    label: 'Withdraw USDC',
-    group: 'Vault funds',
-    kind: 'withdraw',
-    unit: 'USDC',
-    decimals: 6,
-    amountLabel: 'Amount (USDC)',
-    requiresAmount: true,
-    hint: 'Returns USDC from the vault to your wallet.',
-    balanceKey: 'stable',
-    balanceLabel: 'Vault balance',
-    validateBalance: true,
-  },
-  'withdraw-weth': {
-    label: 'Withdraw WETH',
-    group: 'Vault funds',
-    kind: 'withdraw',
-    unit: 'WETH',
-    decimals: 18,
-    amountLabel: 'Amount (WETH)',
-    requiresAmount: true,
-    hint: 'Returns WETH from the vault to your wallet.',
-    balanceKey: 'wrapped',
-    balanceLabel: 'Vault balance',
-    validateBalance: true,
-  },
-  'run-credit': {
-    label: 'Deposit ETH for execution credit',
-    group: 'Execution credit',
-    kind: 'execution-credit',
-    unit: 'ETH',
-    decimals: 18,
-    amountLabel: 'Amount (ETH)',
-    requiresAmount: true,
-    hint: 'Sends test ETH to the settlement callback proxy for this vault. This credit pays workflow callbacks; it is not held in the vault.',
-    balanceKey: 'walletNative',
-    balanceLabel: 'Wallet balance',
-    validateBalance: true,
-  },
-  'watch-credit': {
-    label: 'Deposit lREACT for watching credit',
-    group: 'Watching credit',
-    kind: 'watching-credit',
-    unit: 'lREACT',
-    decimals: 18,
-    amountLabel: 'Amount (lREACT)',
-    requiresAmount: true,
-    hint: 'Sends test lREACT to Reactive Lasna for this agent. Watching credit pays for trigger evaluations.',
-    balanceKey: 'walletWatch',
-    balanceLabel: 'Wallet balance',
-    validateBalance: true,
-  },
-  'approve-refill-usdc': {
-    label: 'Set USDC refill allowance',
-    group: 'Allowances',
-    kind: 'allowance',
-    unit: 'USDC',
-    decimals: 6,
-    amountLabel: 'Allowance (USDC)',
-    requiresAmount: true,
-    hint: 'Lets the vault pull USDC from your wallet for balance refills, up to this total allowance.',
-    balanceKey: 'walletStable',
-    balanceLabel: 'Wallet balance',
-  },
-  'revoke-refill-usdc': {
-    label: 'Revoke USDC refill allowance',
-    group: 'Allowances',
-    kind: 'revoke-allowance',
-    unit: 'USDC',
-    decimals: 6,
-    amountLabel: 'Amount',
-    requiresAmount: false,
-    hint: 'Stops the vault from pulling any more USDC from your wallet.',
-  },
-  'withdraw-eth': {
-    label: 'Recover unused vault ETH',
-    group: 'Recovery',
-    kind: 'withdraw',
-    unit: 'ETH',
-    decimals: 18,
-    amountLabel: 'Amount (ETH)',
-    requiresAmount: true,
-    hint: 'Returns ETH that was sent directly to the vault contract. This balance is separate from execution credit.',
-    balanceKey: 'native',
-    balanceLabel: 'Vault balance',
-    validateBalance: true,
-  },
-  'withdraw-agent-eth': {
-    label: 'Recover unused agent lREACT',
-    group: 'Recovery',
-    kind: 'agent-withdraw',
-    unit: 'lREACT',
-    decimals: 18,
-    amountLabel: 'Amount (lREACT)',
-    requiresAmount: true,
-    hint: 'Returns lREACT that was sent directly to the Agent on Reactive Lasna. This balance is separate from watching credit.',
-    balanceKey: 'agentNative',
-    balanceLabel: 'Agent balance',
-    validateBalance: true,
-  },
-};
+function fundingActionsFor(mode: NetworkMode): Record<FundsOperation, FundingAction> {
+  const autoChain = getChain(automationChainFor(mode));
+  const watchSymbol: 'lREACT' | 'REACT' = autoChain.nativeSymbol === 'REACT' ? 'REACT' : 'lREACT';
+  const assetPrefix = mode === 'mainnet' ? '' : 'test ';
+  return {
+    'add-usdc': {
+      label: 'Deposit USDC',
+      group: 'Vault funds',
+      kind: 'deposit',
+      unit: 'USDC',
+      decimals: 6,
+      amountLabel: 'Amount (USDC)',
+      requiresAmount: true,
+      hint: `Sends ${assetPrefix}USDC to the vault. USDC pays for buys, transfers, and balance refills.`,
+      balanceKey: 'walletStable',
+      balanceLabel: 'Wallet balance',
+      validateBalance: true,
+    },
+    'add-weth': {
+      label: 'Deposit WETH',
+      group: 'Vault funds',
+      kind: 'deposit',
+      unit: 'WETH',
+      decimals: 18,
+      amountLabel: 'Amount (WETH)',
+      requiresAmount: true,
+      hint: `Sends ${assetPrefix}WETH to the vault. Only needed for workflows that sell WETH.`,
+      balanceKey: 'walletWrapped',
+      balanceLabel: 'Wallet balance',
+      validateBalance: true,
+    },
+    'withdraw-usdc': {
+      label: 'Withdraw USDC',
+      group: 'Vault funds',
+      kind: 'withdraw',
+      unit: 'USDC',
+      decimals: 6,
+      amountLabel: 'Amount (USDC)',
+      requiresAmount: true,
+      hint: 'Returns USDC from the vault to your wallet.',
+      balanceKey: 'stable',
+      balanceLabel: 'Vault balance',
+      validateBalance: true,
+    },
+    'withdraw-weth': {
+      label: 'Withdraw WETH',
+      group: 'Vault funds',
+      kind: 'withdraw',
+      unit: 'WETH',
+      decimals: 18,
+      amountLabel: 'Amount (WETH)',
+      requiresAmount: true,
+      hint: 'Returns WETH from the vault to your wallet.',
+      balanceKey: 'wrapped',
+      balanceLabel: 'Vault balance',
+      validateBalance: true,
+    },
+    'run-credit': {
+      label: 'Deposit ETH for execution credit',
+      group: 'Execution credit',
+      kind: 'execution-credit',
+      unit: 'ETH',
+      decimals: 18,
+      amountLabel: 'Amount (ETH)',
+      requiresAmount: true,
+      hint: `Sends ${assetPrefix}ETH to the settlement callback proxy for this vault. This credit pays workflow callbacks; it is not held in the vault.`,
+      balanceKey: 'walletNative',
+      balanceLabel: 'Wallet balance',
+      validateBalance: true,
+    },
+    'watch-credit': {
+      label: `Deposit ${watchSymbol} for watching credit`,
+      group: 'Watching credit',
+      kind: 'watching-credit',
+      unit: watchSymbol,
+      decimals: 18,
+      amountLabel: `Amount (${watchSymbol})`,
+      requiresAmount: true,
+      hint: `Sends ${assetPrefix}${watchSymbol} to ${autoChain.name} for this agent. Watching credit pays for trigger evaluations.`,
+      balanceKey: 'walletWatch',
+      balanceLabel: 'Wallet balance',
+      validateBalance: true,
+    },
+    'approve-refill-usdc': {
+      label: 'Set USDC refill allowance',
+      group: 'Allowances',
+      kind: 'allowance',
+      unit: 'USDC',
+      decimals: 6,
+      amountLabel: 'Allowance (USDC)',
+      requiresAmount: true,
+      hint: 'Lets the vault pull USDC from your wallet for balance refills, up to this total allowance.',
+      balanceKey: 'walletStable',
+      balanceLabel: 'Wallet balance',
+    },
+    'revoke-refill-usdc': {
+      label: 'Revoke USDC refill allowance',
+      group: 'Allowances',
+      kind: 'revoke-allowance',
+      unit: 'USDC',
+      decimals: 6,
+      amountLabel: 'Amount',
+      requiresAmount: false,
+      hint: 'Stops the vault from pulling any more USDC from your wallet.',
+    },
+    'withdraw-eth': {
+      label: 'Recover unused vault ETH',
+      group: 'Recovery',
+      kind: 'withdraw',
+      unit: 'ETH',
+      decimals: 18,
+      amountLabel: 'Amount (ETH)',
+      requiresAmount: true,
+      hint: 'Returns ETH that was sent directly to the vault contract. This balance is separate from execution credit.',
+      balanceKey: 'native',
+      balanceLabel: 'Vault balance',
+      validateBalance: true,
+    },
+    'withdraw-agent-eth': {
+      label: `Recover unused agent ${watchSymbol}`,
+      group: 'Recovery',
+      kind: 'agent-withdraw',
+      unit: watchSymbol,
+      decimals: 18,
+      amountLabel: `Amount (${watchSymbol})`,
+      requiresAmount: true,
+      hint: `Returns ${watchSymbol} that was sent directly to the Agent on ${autoChain.name}. This balance is separate from watching credit.`,
+      balanceKey: 'agentNative',
+      balanceLabel: 'Agent balance',
+      validateBalance: true,
+    },
+  };
+}
 
 function displayUnits(value: bigint, decimals: number) {
   const [whole, fraction] = formatUnits(value, decimals).split('.');
@@ -1294,18 +1325,19 @@ function exactUnits(value: bigint, decimals: number) {
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
-async function findLinkedWorkflowChain(owner: Address) {
-  const agent = await readAgent(owner);
+async function findLinkedWorkflowChain(owner: Address, mode: NetworkMode = 'testnet') {
+  const agent = await readAgent(owner, undefined, mode);
   if (agent === zeroAddress) return null;
+  const autoChain = automationChainFor(mode);
   let lastError: unknown;
   let checkedAny = false;
-  for (const chain of configuredFundsChains()) {
+  for (const chain of configuredFundsChains(mode)) {
     try {
       const vault = await readVault(owner, chain);
       checkedAny = true;
       if (vault === zeroAddress) continue;
       const [linkedVault, linkedAgent] = await Promise.all([
-        workflowClient(LASNA_CHAIN_ID).readContract({
+        workflowClient(autoChain).readContract({
           address: agent,
           abi: workflowAgentV2Abi,
           functionName: 'vaults',
@@ -1330,32 +1362,48 @@ async function findLinkedWorkflowChain(owner: Address) {
 
 export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflow?: boolean }) {
   const { setupWalletForChain, fundingWalletForChain } = useWorkflowV2Wallet();
+  const { mode, isMainnet, defaultFundsChainId, deployment } = useNetworkMode();
   const [params] = useSearchParams();
   const credit = params.get('credit');
   const funding = credit === 'watching' || credit === 'execution' ? credit : undefined;
   const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
-  const initialChain = parsedChain.success ? parsedChain.data : undefined;
-  const chains = configuredFundsChains();
+  const initialChain =
+    parsedChain.success && configuredFundsChains(mode).includes(parsedChain.data)
+      ? parsedChain.data
+      : undefined;
+  const chains = configuredFundsChains(mode);
   const [setupChain, setSetupChain] = useState<SettlementChain>(() =>
-    initialChain && chains.includes(initialChain) ? initialChain : UNICHAIN_SEPOLIA_CHAIN_ID,
+    initialChain && chains.includes(initialChain) ? initialChain : defaultFundsChainId,
   );
   useEffect(() => {
-    if (initialChain && configuredFundsChains().includes(initialChain)) {
+    if (initialChain && configuredFundsChains(mode).includes(initialChain)) {
       setSetupChain(initialChain);
+    } else if (!configuredFundsChains(mode).includes(setupChain)) {
+      setSetupChain(defaultFundsChainId);
     }
-  }, [initialChain]);
-  const deployment = workflowV2Deployment;
+  }, [defaultFundsChainId, initialChain, mode, setupChain]);
   const builder = <Navigate to={appRoutes.newWorkflow} replace />;
   const accountFor = (chain: SettlementChain) => (
     <AppShell>
       <WorkflowAccountV2
-        key={`${funding ?? 'default'}:${initialChain ?? chain}`}
+        key={`${mode}:${funding ?? 'default'}:${initialChain ?? chain}`}
         funding={funding}
         initialChain={initialChain ?? chain}
       />
     </AppShell>
   );
-  if (!deployment) return startWorkflow ? builder : accountFor(setupChain);
+  if (!deployment) {
+    if (startWorkflow) {
+      return isMainnet ? (
+        <AppShell>
+          <MainnetUnavailableCallout context="Account & Vault" />
+        </AppShell>
+      ) : (
+        builder
+      );
+    }
+    return accountFor(setupChain);
+  }
   if (startWorkflow && !workflowActivationEnabled) return builder;
 
   return (
@@ -1364,11 +1412,11 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
       chainId={setupChain}
       availableChains={chains}
       onChainChange={setSetupChain}
-      findLinkedChain={findLinkedWorkflowChain}
+      findLinkedChain={(owner) => findLinkedWorkflowChain(owner, mode)}
       wallet={setupWalletForChain(setupChain)}
       fundingWallet={fundingWalletForChain(setupChain)}
       startWorkflow={startWorkflow}
-      workflowScope={`workflow-v2:${deployment.lasna.factory}:${deployment.unichain.factory}${deployment.base ? `:${deployment.base.factory}` : ''}`}
+      workflowScope={`workflow-v2:${mode}:${deployment.automationFactory}:${deployment.unichain.factory}${deployment.base ? `:${deployment.base.factory}` : ''}`}
     >
       {({ chain }) => (startWorkflow ? builder : accountFor(chain))}
     </WalletAccountSetupGate>
@@ -1385,23 +1433,41 @@ export function WorkflowAccountV2({
   initialChain?: SettlementChain;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const {
+    mode,
+    isMainnet,
+    automationChainId,
+    automationName,
+    nativeSymbol,
+    defaultFundsChainId,
+    isDeploymentConfigured,
+  } = useNetworkMode();
   const [params] = useSearchParams();
   const parsedParamChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
   const requestedChain =
     initialChain ?? (parsedParamChain.success ? parsedParamChain.data : undefined);
-  const chains = configuredFundsChains();
+  const chains = configuredFundsChains(mode);
   const [chain, setChain] = useState<SettlementChain>(() =>
-    requestedChain && chains.includes(requestedChain) ? requestedChain : UNICHAIN_SEPOLIA_CHAIN_ID,
+    requestedChain && chains.includes(requestedChain) ? requestedChain : defaultFundsChainId,
   );
+  useEffect(() => {
+    const availableChains = configuredFundsChains(mode);
+    if (requestedChain && availableChains.includes(requestedChain)) {
+      setChain(requestedChain);
+      return;
+    }
+    setChain((current) => (availableChains.includes(current) ? current : defaultFundsChainId));
+  }, [defaultFundsChainId, mode, requestedChain]);
   const [operation, setOperation] = useState<FundsOperation>(
     funding === 'watching' ? 'watch-credit' : funding === 'execution' ? 'run-credit' : 'add-usdc',
   );
   const [amount, setAmount] = useState('');
   const amountRef = useRef<HTMLInputElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
+  const factoryAvailable = isDeploymentConfigured && Boolean(settlementFactory(chain));
   const data = useQuery({
-    queryKey: ['workflow-v2', 'funding', wallet.owner, chain],
-    enabled: Boolean(wallet.owner && settlementFactory(chain)),
+    queryKey: ['workflow-v2', 'funding', mode, wallet.owner, chain],
+    enabled: Boolean(wallet.owner && factoryAvailable),
     queryFn: () => readFundsV2(wallet.owner!, chain),
     refetchInterval: 12_000,
   });
@@ -1410,6 +1476,7 @@ export function WorkflowAccountV2({
   useEffect(() => {
     if (funding && vaultReady) amountRef.current?.focus();
   }, [funding, vaultReady]);
+  const fundingActions = fundingActionsFor(mode);
   const showVaultRecovery = Boolean(funds && funds.native > 0n);
   const showAgentRecovery = Boolean(funds && funds.agentNative > 0n);
   const available = (key: FundsOperation) =>
@@ -1477,9 +1544,9 @@ export function WorkflowAccountV2({
         const watching = action.kind === 'watching-credit';
         const provider = watching ? funds.lasnaSystem : funds.proxy;
         if (!provider || provider === zeroAddress)
-          throw new Error('Network credit is unavailable for this testnet.');
+          throw new Error('Network credit is unavailable for this network.');
         await wallet.send(
-          watching ? LASNA_CHAIN_ID : chain,
+          watching ? automationChainId : chain,
           provider,
           encodeFunctionData({
             abi: executionCreditAbi,
@@ -1492,7 +1559,10 @@ export function WorkflowAccountV2({
         );
       } else if (action.kind === 'deposit') {
         const token: Address = action.unit === 'USDC' ? funds.usdc : funds.weth;
-        if (token === zeroAddress) throw new Error('This testnet token is unavailable.');
+        if (token === zeroAddress)
+          throw new Error(
+            isMainnet ? 'This token is unavailable.' : 'This testnet token is unavailable.',
+          );
         await wallet.send(
           chain,
           token,
@@ -1507,7 +1577,7 @@ export function WorkflowAccountV2({
       } else if (action.kind === 'agent-withdraw') {
         if (funds.agent === zeroAddress) throw new Error('Create your Agent first.');
         await wallet.send(
-          LASNA_CHAIN_ID,
+          automationChainId,
           funds.agent,
           encodeFunctionData({
             abi: workflowAgentV2Abi,
@@ -1521,7 +1591,9 @@ export function WorkflowAccountV2({
         const token: Address =
           action.unit === 'USDC' ? funds.usdc : action.unit === 'WETH' ? funds.weth : zeroAddress;
         if (action.unit !== 'ETH' && token === zeroAddress)
-          throw new Error('This testnet token is unavailable.');
+          throw new Error(
+            isMainnet ? 'This token is unavailable.' : 'This testnet token is unavailable.',
+          );
         await wallet.send(
           chain,
           funds.vault,
@@ -1543,7 +1615,11 @@ export function WorkflowAccountV2({
       <PageHeading
         eyebrow="Manage"
         title="Account & Vault"
-        description="Track testnet balances, watching credit, and execution credit from one place."
+        description={
+          isMainnet
+            ? 'Track balances, watching credit, and execution credit from one place.'
+            : 'Track testnet balances, watching credit, and execution credit from one place.'
+        }
         aside={
           <div className="rb-inline">
             {chains.length > 1 ? (
@@ -1573,7 +1649,7 @@ export function WorkflowAccountV2({
             {manage && (
               <Link
                 to={
-                  chain === UNICHAIN_SEPOLIA_CHAIN_ID
+                  chain === defaultFundsChainId
                     ? appRoutes.account
                     : `${appRoutes.account}?chain=${chain}`
                 }
@@ -1604,7 +1680,7 @@ export function WorkflowAccountV2({
             {
               icon: Pulse01Icon,
               title: 'Watching credit',
-              copy: 'lREACT that pays the agent to monitor triggers on Reactive Lasna.',
+              copy: `${nativeSymbol} that pays the agent to monitor triggers on ${automationName}.`,
             },
             {
               icon: Shield01Icon,
@@ -1615,11 +1691,15 @@ export function WorkflowAccountV2({
         />
       )}
 
-      {!settlementFactory(chain) && (
-        <p className="rb-note">
-          <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
-          The V2 Vault factory is unavailable on {v2Network(chain).name}.
-        </p>
+      {!isDeploymentConfigured && isMainnet ? (
+        <MainnetUnavailableCallout context="Account & Vault" />
+      ) : (
+        !settlementFactory(chain) && (
+          <p className="rb-note">
+            <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
+            The V2 Vault factory is unavailable on {v2Network(chain).name}.
+          </p>
+        )
       )}
 
       {data.error && (
@@ -1628,8 +1708,11 @@ export function WorkflowAccountV2({
         </div>
       )}
 
-      {!!wallet.owner && Boolean(settlementFactory(chain)) && data.isPending && (
-        <LoadingRegion label="Reading your testnet account…" className="rb-page-skeleton">
+      {!!wallet.owner && factoryAvailable && data.isPending && (
+        <LoadingRegion
+          label={isMainnet ? 'Reading your account…' : 'Reading your testnet account…'}
+          className="rb-page-skeleton"
+        >
           <div className="rb-balance-grid" aria-hidden="true">
             {[0, 1, 2].map((index) => (
               <div className="rb-balance" key={index}>
@@ -1664,8 +1747,8 @@ export function WorkflowAccountV2({
             }
           >
             <p>
-              Deploy a settlement Vault on {v2Network(chain).name} and link it to your Reactive
-              Lasna Agent so workflows can settle on {v2Network(chain).name}.
+              Deploy a settlement Vault on {v2Network(chain).name} and link it to your{' '}
+              {automationName} Agent so workflows can settle on {v2Network(chain).name}.
             </p>
           </Callout>
         ))}
@@ -1735,7 +1818,7 @@ export function WorkflowAccountV2({
           {funds.agentNative > 0n && (
             <Callout
               tone="recovery"
-              title="Unused agent lREACT"
+              title={`Unused agent ${nativeSymbol}`}
               action={
                 <Button
                   onClick={() => {
@@ -1745,13 +1828,14 @@ export function WorkflowAccountV2({
                     amountRef.current?.focus({ preventScroll: true });
                   }}
                 >
-                  Recover lREACT
+                  Recover {nativeSymbol}
                 </Button>
               }
             >
               <p>
-                {exactUnits(funds.agentNative, 18)} lREACT sits in the Agent contract on Reactive
-                Lasna. It is separate from watching credit and does not pay for trigger evaluations.
+                {exactUnits(funds.agentNative, 18)} {nativeSymbol} sits in the Agent contract on{' '}
+                {automationName}. It is separate from watching credit and does not pay for trigger
+                evaluations.
               </p>
             </Callout>
           )}
@@ -1760,7 +1844,7 @@ export function WorkflowAccountV2({
             <div className="app-panel">
               <div className="rb-panel-head">
                 <div>
-                  <h2 className="rb-panel-title">Move test funds</h2>
+                  <h2 className="rb-panel-title">{isMainnet ? 'Move funds' : 'Move test funds'}</h2>
                   <p className="rb-panel-copy">
                     Every action sends one transaction from your wallet.
                   </p>
@@ -1847,7 +1931,8 @@ export function WorkflowAccountV2({
                 <div>
                   <h2 className="rb-panel-title">Credits and allowances</h2>
                   <p className="rb-panel-copy">
-                    Watching credit funds Lasna evaluations. The allowance caps USDC refills.
+                    Watching credit funds {automationName} evaluations. The allowance caps USDC
+                    refills.
                   </p>
                 </div>
               </div>
@@ -1857,7 +1942,7 @@ export function WorkflowAccountV2({
                     <span className="rb-credit-name">Watching credit</span>
                     <span className="rb-credit-value">
                       {displayUnits(funds.watch, 18)}
-                      <span>lREACT</span>
+                      <span>{nativeSymbol}</span>
                     </span>
                   </div>
                   <div className="rb-credit-row">
@@ -1869,7 +1954,7 @@ export function WorkflowAccountV2({
                   </div>
                 </div>
                 <p className="rb-credit-note">
-                  Watching credit is held on Reactive Lasna and execution credit on the{' '}
+                  Watching credit is held on {automationName} and execution credit on the{' '}
                   {v2Network(chain).name} callback proxy. Both are prepaid to the network and
                   consumed as fees; the network exposes no withdrawal for unspent credit. The refill
                   allowance is approved on {v2Network(chain).name}.
@@ -1893,7 +1978,7 @@ export function WorkflowAccountV2({
               <div className="rb-address-list">
                 <div className="rb-address-row">
                   <div className="rb-address-copy">
-                    <span className="rb-address-name">Reactive Lasna Agent</span>
+                    <span className="rb-address-name">{automationName} Agent</span>
                     <span className="rb-address-value">{funds.agent}</span>
                   </div>
                   <CopyButton value={funds.agent} label="agent address" />

@@ -59,4 +59,13 @@
   --rb-radius-field: 0.5625rem;
   --rb-radius-panel: 0.875rem;
   --rb-radius-pill: 999px;
+
+  /* Landing page palette values (isolated from workspace --rb-* tokens). */
+  --landing-canvas: #020202;
+  --landing-ink: #ffffff;
+  --landing-copy: #d4d4d4;
+  --landing-action-hover: #e5e5e5;
+  --landing-action-ink: #000000;
+  --landing-blue: #3b82f6;
+  --landing-violet: #7c5cff;
 }

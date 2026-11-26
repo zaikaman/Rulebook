@@ -1,6 +1,7 @@
 import {
   actions,
   checks,
+  defaultFundsChainFor,
   emptyDraft,
   getChain,
   rulewrightFollowUpLimit,
@@ -9,6 +10,7 @@ import {
   triggers,
   workflowV2Unit,
   type DraftPath,
+  type NetworkMode,
   type RulewrightRequest,
   type RulewrightResult,
   type V2Draft,
@@ -41,6 +43,7 @@ import { useAccount, useSignMessage } from 'wagmi';
 
 import { ApiError, api } from '@/lib/api';
 import { isWalletRejection } from '@/lib/errors';
+import { useNetworkMode } from '@/lib/networkMode';
 
 export type RulewrightSession = { owner: string; token: string; expiresAt: number };
 
@@ -161,6 +164,7 @@ export function RulewrightDialog({
   summary: (draft: V2Draft) => ReactNode;
 }) {
   const titleId = useId();
+  const { mode } = useNetworkMode();
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef<AbortController>(undefined);
   const { address, connector } = useAccount();
@@ -260,7 +264,7 @@ export function RulewrightDialog({
     setError(undefined);
     try {
       const { id } = await api.rulewrightEnqueue(
-        { prompt, followUps, draft },
+        { prompt, followUps, draft, network: mode },
         activeSession.token,
         signal,
       );
@@ -630,6 +634,6 @@ export function RulewrightDialog({
   );
 }
 
-export function hasRulewrightBaseline(draft: V2Draft) {
-  return JSON.stringify(draft) !== JSON.stringify(emptyDraft());
+export function hasRulewrightBaseline(draft: V2Draft, mode: NetworkMode = 'testnet') {
+  return JSON.stringify(draft) !== JSON.stringify(emptyDraft(defaultFundsChainFor(mode)));
 }

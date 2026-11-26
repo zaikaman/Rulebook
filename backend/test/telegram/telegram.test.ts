@@ -9,7 +9,9 @@ import {
   getChain,
   LASNA_CHAIN_ID,
   telegramSignIn,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
   workflowV2Action,
   workflowVaultV2Abi,
   type Address,
@@ -39,7 +41,10 @@ const agent = '0x1111111111111111111111111111111111111111' as const;
 const otherAgent = '0x2222222222222222222222222222222222222222' as const;
 const vault = '0x3333333333333333333333333333333333333333' as const;
 const unavailableVault = '0x4444444444444444444444444444444444444444' as const;
-const deployment = '0x5555555555555555555555555555555555555555' as const;
+const deployment = workflowDeploymentKey(
+  LASNA_CHAIN_ID,
+  '0x5555555555555555555555555555555555555555',
+);
 const owner = privateKeyToAccount(generatePrivateKey());
 const wrongWallet = privateKeyToAccount(generatePrivateKey());
 const telegramConfig = {
@@ -48,6 +53,7 @@ const telegramConfig = {
   webhookSecret: 'a'.repeat(32),
   appOrigin: 'https://rulebook.example',
   factories: [agent],
+  factoryTargets: [{ chainId: LASNA_CHAIN_ID, address: agent }],
 };
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 const claimedSchema = z.object({ id: z.string(), lease: z.string() });
@@ -80,29 +86,30 @@ function database(): Pick<TelegramDatabase, 'rpc' | 'createSession' | 'session' 
       );
       return schema.parse(rows[0]?.result === '' ? null : rows[0]?.result);
     },
-    async createSession(nonce, target, token, expiresAt) {
+    async createSession(nonce, target, token, expiresAt, automationChain = LASNA_CHAIN_ID) {
       const { affectedRows } = await db.query(
-        `insert into telegram_sessions values ($1, $2, $3, to_timestamp($4)) on conflict do nothing`,
-        [nonce, digest(token), target, expiresAt],
+        `insert into telegram_sessions (nonce, token_hash, agent, expires_at, automation_chain)
+        values ($1, $2, $3, to_timestamp($4), $5) on conflict do nothing`,
+        [nonce, digest(token), target, expiresAt, automationChain],
       );
       return affectedRows === 1;
     },
-    async session(target, token, browser = false) {
+    async session(target, token, browser = false, automationChain = LASNA_CHAIN_ID) {
       const hash = digest(token);
       const { rows } = await db.query<{ expires: number | null }>(
         `select extract(epoch from expires_at)::int as expires from telegram_sessions
-        where agent = $1 and token_hash = $2
-          and case when $3 then expires_at is null else expires_at > now() end`,
-        [target, hash, browser],
+        where automation_chain = $1 and agent = $2 and token_hash = $3
+          and case when $4 then expires_at is null else expires_at > now() end`,
+        [automationChain, target, hash, browser],
       );
       return rows[0] ? { hash, expiresAt: rows[0].expires } : null;
     },
-    async forgetBrowser(target, token) {
+    async forgetBrowser(target, token, automationChain = LASNA_CHAIN_ID) {
       await db.query(
         `update telegram_sessions set token_hash = gen_random_uuid()::text,
           expires_at = now() + interval '5 minutes'
-        where agent = $1 and token_hash = $2 and expires_at is null`,
-        [target, digest(token)],
+        where automation_chain = $1 and agent = $2 and token_hash = $3 and expires_at is null`,
+        [automationChain, target, digest(token)],
       );
     },
   };
@@ -719,6 +726,60 @@ describe('Telegram account and delivery', () => {
     expect(queriedChains.every((id) => id === BASE_SEPOLIA_CHAIN_ID)).toBe(true);
   });
 
+  it('requires chain in payoutPreflight, rejects unhandled chains, and hydrates legacy rows in telegram_prepare', async () => {
+    const missingChain = payoutPreflight.safeParse({
+      kind: 'payout',
+      vault,
+      workflow: workflowId,
+      epoch: '2',
+      deadline: Math.floor(Date.now() / 1000) + 3600,
+      block: '10',
+    });
+    expect(missingChain.success).toBe(false);
+
+    await expect(
+      workflowAlerts.stillInGrace({
+        kind: 'payout',
+        chain: UNICHAIN_MAINNET_CHAIN_ID,
+        vault,
+        workflow: workflowId,
+        epoch: '2',
+        deadline: Math.floor(Date.now() / 1000) + 3600,
+        block: '10',
+      }),
+    ).rejects.toThrow(`WorkflowTelegramAlerts does not handle chain ${UNICHAIN_MAINNET_CHAIN_ID}`);
+
+    const headers = await signIn();
+    await pair(headers);
+    const [{ connection_id }] = (
+      await db.query<{ connection_id: string }>('select connection_id from telegram_accounts')
+    ).rows;
+    const deadline = Math.floor(Date.now() / 1000) + 3600;
+    await db.query(
+      `insert into telegram_deliveries
+        (agent, connection_id, chain_id, workflow_id, block_time, message, alert_kind, alert_data, alert_key)
+      values ($1, $2, $3, $4, now(), 'Payout warning', 'payout', $5::jsonb, 'legacy-payout-key')`,
+      [
+        agent,
+        connection_id,
+        BASE_SEPOLIA_CHAIN_ID,
+        workflowId,
+        JSON.stringify({
+          kind: 'payout',
+          vault,
+          workflow: workflowId,
+          epoch: '2',
+          deadline,
+          block: '10',
+          deployment,
+        }),
+      ],
+    );
+    const { result } = await prepareNext();
+    const parsed = payoutPreflight.parse(result[0]?.preflight);
+    expect(parsed.chain).toBe(BASE_SEPOLIA_CHAIN_ID);
+  });
+
   it('checks both chain cursors before flagging an unfinished run and cancels it after a receipt', async () => {
     const headers = await signIn();
     await pair(headers);
@@ -937,7 +998,7 @@ describe('Telegram account and delivery', () => {
       (await app.inject({ url: `/v1/accounts/${otherAgent}/telegram`, headers })).statusCode,
     ).toBe(401);
     const grants = await db.query<{ can_call: boolean }>(
-      `select has_function_privilege('anon', 'telegram_status(text,text)', 'execute') as can_call`,
+      `select has_function_privilege('anon', 'telegram_status(text,text,integer)', 'execute') as can_call`,
     );
     expect(grants.rows[0]?.can_call).toBe(false);
   });

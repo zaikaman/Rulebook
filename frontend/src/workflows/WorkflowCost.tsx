@@ -16,9 +16,10 @@ import { formatEther, formatGwei } from 'viem';
 
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { workflowClient } from './chainV2';
-import { workflowCredits } from './WorkflowCredit';
+import { workflowCreditsFor } from './WorkflowCredit';
 
 const factorRows = [
   {
@@ -39,9 +40,11 @@ const factorRows = [
 ] as const;
 
 export function WorkflowCost() {
+  const { mode } = useNetworkMode();
+  const workflowCredits = workflowCreditsFor(mode);
   const prices = useQueries({
     queries: workflowCredits.map(({ chain }) => ({
-      queryKey: ['workflow-v2', 'gas-price', chain],
+      queryKey: ['workflow-v2', 'gas-price', mode, chain],
       queryFn: () => workflowClient(chain).getGasPrice(),
       staleTime: 30_000,
       refetchInterval: 60_000,

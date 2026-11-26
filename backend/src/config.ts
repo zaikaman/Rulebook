@@ -1,8 +1,14 @@
 import {
   addressSchema,
+  automationChainIdSchema,
+  LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
   workflowV2DeploymentSchema,
+  workflowV2MainnetDeploymentSchema,
   type Address,
+  type AutomationChainId,
   type WorkflowV2Deployment,
+  type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
 import { zeroAddress } from 'viem';
 import { z } from 'zod';
@@ -19,6 +25,18 @@ const workflowV2DeploymentJson = z
   })
   .pipe(workflowV2DeploymentSchema);
 
+const workflowV2MainnetDeploymentJson = z
+  .string()
+  .transform((value, ctx) => {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      ctx.addIssue({ code: 'custom', message: 'Enter a JSON mainnet deployment configuration' });
+      return z.NEVER;
+    }
+  })
+  .pipe(workflowV2MainnetDeploymentSchema);
+
 /**
  * Every environment variable the backend reads. Validation happens once, at boot, so a missing
  * variable fails loudly instead of turning into a silent `undefined` deep in the indexer.
@@ -31,6 +49,9 @@ const envSchema = z.object({
   LASNA_RPC_URL: z.string().url().default('https://lasna-rpc.rnk.dev/'),
   UNICHAIN_RPC_URL: z.string().url().default('https://sepolia.unichain.org'),
   BASE_SEPOLIA_RPC_URL: z.string().url().default('https://sepolia.base.org'),
+  REACTIVE_MAINNET_RPC_URL: z.string().url().default('https://mainnet-rpc.rnk.dev/'),
+  UNICHAIN_MAINNET_RPC_URL: z.string().url().default('https://mainnet.unichain.org'),
+  BASE_MAINNET_RPC_URL: z.string().url().default('https://mainnet.base.org'),
   INDEXER_ENABLED: z
     .enum(['true', 'false'])
     .default('false')
@@ -52,6 +73,7 @@ const envSchema = z.object({
   TELEGRAM_AGENT_FACTORIES: z.string().optional(),
   TELEGRAM_UPDATES: z.enum(['webhook', 'polling']).default('webhook'),
   WORKFLOW_V2_DEPLOYMENT: workflowV2DeploymentJson.optional(),
+  WORKFLOW_V2_MAINNET_DEPLOYMENT: workflowV2MainnetDeploymentJson.optional(),
   GEMINI_MODEL: z.string().optional(),
   GEMINI_BASE_URL: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
@@ -63,12 +85,18 @@ export interface GeminiConfig {
   readonly apiKey: string;
 }
 
+export interface TelegramFactoryTarget {
+  readonly chainId: AutomationChainId;
+  readonly address: Address;
+}
+
 export interface TelegramConfig {
   readonly botToken: string;
   readonly botUsername: string;
   readonly webhookSecret: string;
   readonly appOrigin: string;
   readonly factories: readonly Address[];
+  readonly factoryTargets: readonly TelegramFactoryTarget[];
   readonly updates?: 'webhook' | 'polling';
 }
 
@@ -80,10 +108,14 @@ export interface AppConfig {
   readonly LASNA_RPC_URL: string;
   readonly UNICHAIN_RPC_URL: string;
   readonly BASE_SEPOLIA_RPC_URL: string;
+  readonly REACTIVE_MAINNET_RPC_URL: string;
+  readonly UNICHAIN_MAINNET_RPC_URL: string;
+  readonly BASE_MAINNET_RPC_URL: string;
   readonly INDEXER_ENABLED: boolean;
   readonly corsOrigins: readonly string[];
   readonly telegram?: TelegramConfig;
   readonly workflowsV2?: WorkflowV2Deployment;
+  readonly workflowsV2Mainnet?: WorkflowV2MainnetDeployment;
   readonly gemini?: GeminiConfig;
 }
 
@@ -112,6 +144,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     TELEGRAM_AGENT_FACTORIES: factoryList,
     TELEGRAM_UPDATES: telegramUpdates,
     WORKFLOW_V2_DEPLOYMENT: workflowsV2,
+    WORKFLOW_V2_MAINNET_DEPLOYMENT: workflowsV2Mainnet,
     GEMINI_MODEL: geminiModel,
     GEMINI_BASE_URL: geminiBase,
     GEMINI_API_KEY: geminiKey,
@@ -147,18 +180,52 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     if (!botToken || !botUsername || !webhookSecret || !appOrigin) {
       throw new ConfigError(['Set all TELEGRAM_* configuration values together']);
     }
-    const configuredFactories = factoryList?.trim()
-      ? factoryList.split(',').map((address) => address.trim())
-      : [];
-    if (workflowsV2) configuredFactories.push(workflowsV2.lasna.factory);
-    const factories = z
-      .array(addressSchema.refine((address) => address !== zeroAddress))
+    const rawTargets: Array<{ chainId: AutomationChainId; address: string }> = [];
+    if (factoryList?.trim()) {
+      for (const entry of factoryList
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)) {
+        const colon = entry.indexOf(':');
+        if (colon === -1) {
+          rawTargets.push({ chainId: LASNA_CHAIN_ID, address: entry });
+        } else {
+          const parsedChain = automationChainIdSchema.safeParse(Number(entry.slice(0, colon)));
+          if (!parsedChain.success) {
+            throw new ConfigError([
+              `Invalid chain id in TELEGRAM_AGENT_FACTORIES entry "${entry}" (use ${LASNA_CHAIN_ID} or ${REACTIVE_MAINNET_CHAIN_ID})`,
+            ]);
+          }
+          rawTargets.push({ chainId: parsedChain.data, address: entry.slice(colon + 1).trim() });
+        }
+      }
+    }
+    if (workflowsV2)
+      rawTargets.push({ chainId: LASNA_CHAIN_ID, address: workflowsV2.lasna.factory });
+    if (workflowsV2Mainnet) {
+      rawTargets.push({
+        chainId: REACTIVE_MAINNET_CHAIN_ID,
+        address: workflowsV2Mainnet.reactive.factory,
+      });
+    }
+    const parsedTargets = z
+      .array(
+        z.object({
+          chainId: automationChainIdSchema,
+          address: addressSchema.refine((address) => address !== zeroAddress),
+        }),
+      )
       .nonempty()
-      .safeParse(configuredFactories);
-    if (!factories.success)
+      .safeParse(rawTargets);
+    if (!parsedTargets.success)
       throw new ConfigError([
-        'Configure WORKFLOW_V2_DEPLOYMENT or list trusted Lasna factories in TELEGRAM_AGENT_FACTORIES',
+        'Configure WORKFLOW_V2_DEPLOYMENT, WORKFLOW_V2_MAINNET_DEPLOYMENT, or list trusted factories in TELEGRAM_AGENT_FACTORIES (optional <chainId>:0x...)',
       ]);
+    const uniqueTargets = new Map<string, TelegramFactoryTarget>();
+    for (const target of parsedTargets.data) {
+      uniqueTargets.set(`${target.chainId}:${target.address}`, target);
+    }
+    const factoryTargets = [...uniqueTargets.values()];
     const url = new URL(appOrigin);
     if (
       telegramUpdates === 'polling' &&
@@ -183,7 +250,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       botUsername,
       webhookSecret,
       appOrigin,
-      factories: [...new Set(factories.data)],
+      factories: [...new Set(factoryTargets.map((target) => target.address))],
+      factoryTargets,
       updates: telegramUpdates,
     };
   }
@@ -192,6 +260,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     corsOrigins,
     telegram,
     workflowsV2,
+    workflowsV2Mainnet,
     gemini,
   };
 }

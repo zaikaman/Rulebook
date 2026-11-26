@@ -109,11 +109,20 @@ export class RulewrightService {
     };
     const eoa = await verifyMessage(verification).catch(() => false);
     if (!eoa) {
+      let contractVerified = false;
       try {
-        if (!(await this.clients.lasna.verifyMessage(verification))) return null;
+        contractVerified = await this.clients.lasna.verifyMessage(verification);
       } catch {
-        throw new Error('Rulewright could not verify the wallet signature.');
+        contractVerified = false;
       }
+      if (!contractVerified && this.clients.reactiveMainnet) {
+        try {
+          contractVerified = await this.clients.reactiveMainnet.verifyMessage(verification);
+        } catch {
+          throw new Error('Rulewright could not verify the wallet signature.');
+        }
+      }
+      if (!contractVerified) return null;
     }
 
     const token = randomBytes(32).toString('base64url');
@@ -261,13 +270,12 @@ export class RulewrightService {
 
   private async validateOnChain(encoded: Hex) {
     const decodedChain = decodeWorkflowV2(encoded).chain;
-    const chain =
-      isFundsChain(decodedChain) && this.factories[decodedChain]
-        ? decodedChain
-        : UNICHAIN_SEPOLIA_CHAIN_ID;
-    const factory = this.factories[chain];
-    if (!factory) throw new Error(`No Vault factory configured for chain ${chain}`);
-    const client = clientFor(this.clients, chain);
+    if (!isFundsChain(decodedChain)) {
+      throw new Error(`Unsupported workflow chain ${decodedChain}`);
+    }
+    const factory = this.factories[decodedChain];
+    if (!factory) throw new Error(`No Vault factory configured for chain ${decodedChain}`);
+    const client = clientFor(this.clients, decodedChain);
     const validator = await client.readContract({
       address: factory,
       abi: workflowVaultFactoryV2Abi,

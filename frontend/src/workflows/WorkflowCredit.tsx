@@ -1,12 +1,13 @@
 import {
-  BASE_SEPOLIA_CHAIN_ID,
+  automationChainFor,
   executionCreditAbi,
   feeCreditWarningThreshold,
   getChain,
-  LASNA_CHAIN_ID,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
+  isAutomationChain,
   workflowVaultFactoryV2Abi,
+  type AutomationChainId,
   type FundsChainId,
+  type NetworkMode,
 } from '@rulebook/shared';
 import {
   Alert02Icon,
@@ -21,6 +22,7 @@ import { useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { formatEther, zeroAddress, type Address } from 'viem';
 
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import {
   configuredFundsChains,
@@ -28,23 +30,30 @@ import {
   readVault,
   settlementFactory,
   workflowClient,
-  workflowV2Deployment,
 } from './chainV2';
 
-export const workflowCredits = [
-  { kind: 'watching', title: 'Watching credit', unit: 'lREACT', chain: LASNA_CHAIN_ID },
-  { kind: 'execution', title: 'Execution credit', unit: 'ETH', chain: UNICHAIN_SEPOLIA_CHAIN_ID },
-  ...(workflowV2Deployment?.base
-    ? [
-        {
-          kind: 'execution',
-          title: 'Execution credit',
-          unit: 'ETH',
-          chain: BASE_SEPOLIA_CHAIN_ID,
-        } as const,
-      ]
-    : []),
-] as const;
+export interface CreditLaneSpec {
+  readonly kind: 'watching' | 'execution';
+  readonly title: string;
+  readonly unit: 'lREACT' | 'REACT' | 'ETH';
+  readonly chain: AutomationChainId | FundsChainId;
+}
+
+export function workflowCreditsFor(mode: NetworkMode): readonly CreditLaneSpec[] {
+  const autoChain = automationChainFor(mode);
+  const auto = getChain(autoChain);
+  return [
+    { kind: 'watching', title: 'Watching credit', unit: auto.nativeSymbol, chain: autoChain },
+    ...configuredFundsChains(mode).map((chain) => ({
+      kind: 'execution' as const,
+      title: 'Execution credit',
+      unit: 'ETH' as const,
+      chain,
+    })),
+  ];
+}
+
+export const workflowCredits = workflowCreditsFor('testnet');
 
 export type CreditBalance = { reserve: bigint; debt: bigint; blockNumber: bigint };
 
@@ -61,22 +70,23 @@ const creditIcons = {
 
 async function readCredit(
   owner: Address,
-  chain: (typeof workflowCredits)[number]['chain'],
+  chain: AutomationChainId | FundsChainId,
+  mode: NetworkMode,
   previous: CreditBalance | null | undefined,
 ): Promise<CreditBalance | null> {
   const client = workflowClient(chain);
   const blockNumber = await client.getBlockNumber({ cacheTime: 0 });
   // A slower RPC node must not overwrite a balance already read at a newer block.
   if (previous && previous.blockNumber > blockNumber) return previous;
-  const lasna = chain === LASNA_CHAIN_ID;
-  const beneficiary = await (lasna
-    ? readAgent(owner, blockNumber)
+  const automation = isAutomationChain(chain);
+  const beneficiary = await (automation
+    ? readAgent(owner, blockNumber, mode)
     : readVault(owner, chain, blockNumber));
   if (beneficiary === zeroAddress) return null;
-  const factory = lasna ? undefined : settlementFactory(chain);
-  if (!lasna && !factory) return null;
-  const target = lasna
-    ? getChain(LASNA_CHAIN_ID).systemContract
+  const factory = automation ? undefined : settlementFactory(chain);
+  if (!automation && !factory) return null;
+  const target = automation
+    ? getChain(chain).systemContract
     : await client.readContract({
         address: factory!,
         abi: workflowVaultFactoryV2Abi,
@@ -99,7 +109,7 @@ function reserveCoverage(reserve: bigint, minimum: bigint) {
 
 function reading(
   balance: CreditBalance | null | undefined,
-  chain: (typeof workflowCredits)[number]['chain'],
+  chain: AutomationChainId | FundsChainId,
 ): WorkflowCreditReading | null {
   return balance
     ? { reserve: balance.reserve, debt: balance.debt, threshold: feeCreditWarningThreshold(chain) }
@@ -108,40 +118,41 @@ function reading(
 
 /** Shared credit reads for the health surface and the fee notice; React Query dedupes the keys. */
 export function useWorkflowCredits(owner?: Address, chain?: FundsChainId) {
-  const enabled = Boolean(owner && workflowV2Deployment);
+  const { mode, automationChainId, defaultFundsChainId, isDeploymentConfigured } = useNetworkMode();
+  const lanes = workflowCreditsFor(mode);
+  const enabled = Boolean(owner && isDeploymentConfigured);
   const queries = useQueries({
-    queries: workflowCredits.map(({ chain: targetChain }) => ({
-      queryKey: ['workflow-v2', 'fee-credit', owner?.toLowerCase(), targetChain],
+    queries: lanes.map(({ chain: targetChain }) => ({
+      queryKey: ['workflow-v2', 'fee-credit', mode, owner?.toLowerCase(), targetChain],
       enabled,
       queryFn: ({ client, queryKey }) =>
-        readCredit(owner!, targetChain, client.getQueryData<CreditBalance | null>(queryKey)),
+        readCredit(owner!, targetChain, mode, client.getQueryData<CreditBalance | null>(queryKey)),
       refetchInterval: 12_000,
       retry: 1,
     })),
   });
   const watching = queries[0]!;
   const execution = queries[1]!;
-  const relevantIndices = workflowCredits
+  const relevantIndices = lanes
     .map((credit, index) =>
       credit.kind === 'watching' || chain === undefined || credit.chain === chain ? index : -1,
     )
     .filter((index) => index >= 0);
   const byChain: Partial<Record<FundsChainId, WorkflowCreditReading | null>> = {};
-  workflowCredits.forEach((credit, index) => {
+  lanes.forEach((credit, index) => {
     if (credit.kind === 'execution') {
-      byChain[credit.chain] = reading(queries[index]?.data, credit.chain);
+      byChain[credit.chain as FundsChainId] = reading(queries[index]?.data, credit.chain);
     }
   });
   const relevantQueries = relevantIndices.map((index) => queries[index]!);
   const vaultMissing =
     chain !== undefined
       ? relevantIndices.some(
-          (index) => workflowCredits[index]?.kind === 'execution' && queries[index]?.data === null,
+          (index) => lanes[index]?.kind === 'execution' && queries[index]?.data === null,
         )
-      : workflowCredits.every(
-          (credit, index) => credit.kind === 'watching' || queries[index]?.data === null,
-        );
+      : lanes.every((credit, index) => credit.kind === 'watching' || queries[index]?.data === null);
   return {
+    lanes,
     enabled,
     queries,
     relevantIndices,
@@ -149,8 +160,8 @@ export function useWorkflowCredits(owner?: Address, chain?: FundsChainId) {
     execution,
     byChain,
     readings: {
-      watching: reading(watching.data, LASNA_CHAIN_ID),
-      execution: reading(execution.data, UNICHAIN_SEPOLIA_CHAIN_ID),
+      watching: reading(watching.data, automationChainId),
+      execution: reading(execution.data, defaultFundsChainId),
     },
     checking: relevantQueries.some((result) => result.isPending),
     unavailable: relevantQueries.some((result) => result.isError),
@@ -167,11 +178,12 @@ export function WorkflowCreditNotice({
   review?: boolean;
   chain?: FundsChainId;
 }) {
+  const { mode, automationName } = useNetworkMode();
   const credits = useWorkflowCredits(owner, chain);
-  const { enabled, checking, unavailable, needsSetup, relevantIndices } = credits;
+  const { lanes, enabled, checking, unavailable, needsSetup, relevantIndices } = credits;
   if (!enabled) return null;
   const attention = relevantIndices.flatMap((index) => {
-    const credit = workflowCredits[index]!;
+    const credit = lanes[index]!;
     const result = credits.queries[index];
     const balance = result?.data;
     const minimum = feeCreditWarningThreshold(credit.chain);
@@ -211,7 +223,9 @@ export function WorkflowCreditNotice({
           <p className="rb-panel-copy">
             {attention.length
               ? 'Low reserves or outstanding fees can delay a run even while the workflow is active.'
-              : `Credit pays for trigger monitoring on Reactive Lasna and settlement on ${configuredFundsChains()
+              : `Credit pays for trigger monitoring on ${automationName} and settlement on ${configuredFundsChains(
+                  mode,
+                )
                   .map((id) => getChain(id).name)
                   .join(' and ')}.`}
           </p>

@@ -1,23 +1,37 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   FUNDS_CHAIN_IDS,
   LASNA_CHAIN_ID,
+  MAINNET_FUNDS_CHAIN_IDS,
+  REACTIVE_MAINNET_CHAIN_ID,
+  TESTNET_FUNDS_CHAIN_IDS,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   UnsupportedChainError,
+  automationChainFor,
   capIssue,
   createWorkflowV2Recipe,
   decodeWorkflowV2,
+  defaultFundsChainFor,
   deriveWorkflowHealth,
   draftSpending,
   emptyDraft,
   encodeWorkflowV2,
+  feeCreditWarningThreshold,
   fieldIssue,
+  fundsChainsFor,
   getChain,
   getFundsChain,
+  isAutomationChain,
   isFundsChain,
   isFundsChainConfig,
+  isFundsChainFor,
+  isSameNetworkMode,
+  networkModeForChain,
+  networkModeSchema,
   slippageIssue,
   toCopyDraft,
   toDraft,
@@ -27,6 +41,7 @@ import {
   workflowV2Action,
   workflowV2Check,
   workflowV2DeploymentSchema,
+  workflowV2MainnetDeploymentSchema,
   workflowV2Recipes,
   workflowV2Trigger,
   workflowV2Unit,
@@ -597,7 +612,12 @@ describe('V2 on-chain constraint mirroring', () => {
   });
 
   it('supports Base Sepolia chain config, deployment parsing, cross-chain triggers, and multi-chain health', () => {
-    expect(FUNDS_CHAIN_IDS).toEqual([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]);
+    expect(FUNDS_CHAIN_IDS).toEqual([
+      UNICHAIN_SEPOLIA_CHAIN_ID,
+      BASE_SEPOLIA_CHAIN_ID,
+      UNICHAIN_MAINNET_CHAIN_ID,
+      BASE_MAINNET_CHAIN_ID,
+    ]);
     expect(isFundsChain(BASE_SEPOLIA_CHAIN_ID)).toBe(true);
     expect(isFundsChain(UNICHAIN_SEPOLIA_CHAIN_ID)).toBe(true);
     expect(isFundsChain(LASNA_CHAIN_ID)).toBe(false);
@@ -704,5 +724,133 @@ describe('V2 on-chain constraint mirroring', () => {
       expect('systemContract' in funds).toBe(false);
       expect(getFundsChain(fundsId)).toEqual(funds);
     }
+  });
+
+  it('supports Reactive Mainnet, Unichain Mainnet, and Base Mainnet while isolating environments', () => {
+    expect(TESTNET_FUNDS_CHAIN_IDS).toEqual([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]);
+    expect(MAINNET_FUNDS_CHAIN_IDS).toEqual([UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID]);
+    expect(networkModeSchema.parse('testnet')).toBe('testnet');
+    expect(networkModeSchema.parse('mainnet')).toBe('mainnet');
+    expect(automationChainFor('testnet')).toBe(LASNA_CHAIN_ID);
+    expect(automationChainFor('mainnet')).toBe(REACTIVE_MAINNET_CHAIN_ID);
+    expect(fundsChainsFor('testnet')).toEqual([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]);
+    expect(fundsChainsFor('mainnet')).toEqual([UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID]);
+    expect(defaultFundsChainFor('testnet')).toBe(UNICHAIN_SEPOLIA_CHAIN_ID);
+    expect(defaultFundsChainFor('mainnet')).toBe(UNICHAIN_MAINNET_CHAIN_ID);
+
+    expect(isAutomationChain(LASNA_CHAIN_ID)).toBe(true);
+    expect(isAutomationChain(REACTIVE_MAINNET_CHAIN_ID)).toBe(true);
+    expect(isAutomationChain(UNICHAIN_MAINNET_CHAIN_ID)).toBe(false);
+
+    expect(isFundsChainFor(REACTIVE_MAINNET_CHAIN_ID, UNICHAIN_MAINNET_CHAIN_ID)).toBe(true);
+    expect(isFundsChainFor(REACTIVE_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID)).toBe(true);
+    expect(isFundsChainFor(REACTIVE_MAINNET_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID)).toBe(false);
+    expect(isFundsChainFor(LASNA_CHAIN_ID, UNICHAIN_MAINNET_CHAIN_ID)).toBe(false);
+
+    expect(networkModeForChain(REACTIVE_MAINNET_CHAIN_ID)).toBe('mainnet');
+    expect(networkModeForChain(UNICHAIN_MAINNET_CHAIN_ID)).toBe('mainnet');
+    expect(networkModeForChain(BASE_MAINNET_CHAIN_ID)).toBe('mainnet');
+    expect(networkModeForChain(LASNA_CHAIN_ID)).toBe('testnet');
+    expect(isSameNetworkMode(UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID)).toBe(true);
+    expect(isSameNetworkMode(UNICHAIN_MAINNET_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID)).toBe(false);
+
+    const reactive = getChain(REACTIVE_MAINNET_CHAIN_ID);
+    expect(reactive.name).toBe('Reactive Mainnet');
+    expect(reactive.nativeSymbol).toBe('REACT');
+    expect(reactive.systemContract).toBe('0x8888888888888888888888888888888888888888');
+    expect(feeCreditWarningThreshold(REACTIVE_MAINNET_CHAIN_ID)).toBe(
+      feeCreditWarningThreshold(LASNA_CHAIN_ID),
+    );
+    expect(feeCreditWarningThreshold(UNICHAIN_MAINNET_CHAIN_ID)).toBe(
+      feeCreditWarningThreshold(UNICHAIN_SEPOLIA_CHAIN_ID),
+    );
+
+    const uni = getFundsChain(UNICHAIN_MAINNET_CHAIN_ID);
+    expect(uni.name).toBe('Unichain');
+    expect(uni.callbackProxy).toBe('0x754120EC7a6eF81E4c5c835AA603C63Da64693E6');
+    expect(uni.usdc).toBe('0x078D782b760474a361dDA0AF3839290b0EF57AD6');
+    expect(uni.router).toBe('0x73855d06DE49d0fe4A9c42636Ba96c62da12FF9C');
+    expect(uni.pair).toBe('0x8927058918e3CFf6F55EfE45A58db1be1F069E49');
+    expect(uni.poolFee).toBe(3000);
+
+    const base = getFundsChain(BASE_MAINNET_CHAIN_ID);
+    expect(base.name).toBe('Base');
+    expect(base.callbackProxy).toBe('0xCc780DdE33f56f55dE778D42c930959374a4a068');
+    expect(base.usdc).toBe('0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913');
+
+    const factory = '0x1111111111111111111111111111111111111111';
+    const parsed = workflowV2MainnetDeploymentSchema.parse({
+      reactive: { factory, startBlock: 1 },
+      unichain: { factory, startBlock: 2 },
+      base: { factory, startBlock: 3 },
+    });
+    expect(parsed.reactive.factory).toBe(factory);
+    expect(parsed.base?.startBlock).toBe(3);
+
+    const mainnetBuy = createWorkflowV2Recipe(
+      'limit-buy',
+      {
+        intervalSeconds: '3600',
+        expiresAt: String(Math.floor(Date.now() / 1000) + 86_400),
+        limitPrice: '2000',
+        targetPrice: '2000',
+        buyUsdc: '10',
+        sellWeth: '0.01',
+        sendUsdc: '5',
+        recipient,
+        thresholdUsdc: '25',
+        triggerPercent: '20',
+        actionPercent: '50',
+        watchedWallet: recipient,
+        slippagePercent: '0.5',
+        usdcCap: '20',
+        wethCap: '0.1',
+      },
+      { chain: UNICHAIN_MAINNET_CHAIN_ID, originChain: BASE_MAINNET_CHAIN_ID },
+    );
+    const decoded = decodeWorkflowV2(encodeWorkflowV2(mainnetBuy));
+    expect(decoded.chain).toBe(UNICHAIN_MAINNET_CHAIN_ID);
+    expect(decoded.originChain).toBe(BASE_MAINNET_CHAIN_ID);
+
+    expect(() =>
+      encodeWorkflowV2({
+        ...mainnetBuy,
+        originChain: BASE_SEPOLIA_CHAIN_ID,
+      }),
+    ).toThrow(/testnet or both be mainnet/i);
+
+    expect(() =>
+      validateWorkflowV2Program({
+        ...mainnetBuy,
+        originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      }),
+    ).toThrow(/testnet or both be mainnet/i);
+
+    const partialMainnet = deriveWorkflowHealth({
+      active: false,
+      readyToActivate: false,
+      partiallyPaused: true,
+      closed: false,
+      program: mainnetBuy,
+      executionCredit: null,
+      watchingCredit: null,
+      budget: null,
+      funding: null,
+      lastRun: null,
+    });
+    expect(partialMainnet.label).toBe('Still watching on Reactive Mainnet');
+
+    const mainnetWatchCredit = deriveWorkflowHealth({
+      active: true,
+      readyToActivate: false,
+      closed: false,
+      program: mainnetBuy,
+      executionCredit: { reserve: 10n ** 18n, debt: 0n, threshold: 100n },
+      watchingCredit: { reserve: 0n, debt: 0n, threshold: 100n },
+      budget: null,
+      funding: null,
+      lastRun: null,
+    });
+    expect(mainnetWatchCredit.summary).toContain('Reactive Mainnet');
   });
 });

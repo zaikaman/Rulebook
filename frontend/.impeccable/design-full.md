@@ -4,8 +4,8 @@ description: Clear, precise dark interfaces with atmospheric photography on the 
 colors:
   primary: 'oklch(0.789 0.108 248)'
   primary-ink: 'oklch(0.204 0.044 254)'
-  primary-hover: 'oklch(0.841 0.086 248)'
-  primary-tint: 'oklch(0.286 0.054 249)'
+  primary-hover: 'oklch(0.845 0.085 248)'
+  primary-tint: 'oklch(0.279 0.05 249)'
   automation: 'oklch(0.835 0.083 290)'
   automation-tint: 'oklch(0.259 0.047 290)'
   automation-line: 'oklch(0.436 0.069 290)'
@@ -13,22 +13,42 @@ colors:
   funds-tint: 'oklch(0.255 0.038 175)'
   funds-line: 'oklch(0.437 0.061 175)'
   status-active: 'oklch(0.812 0.113 151)'
+  status-active-line: 'oklch(0.415 0.057 151)'
+  status-active-tint: 'oklch(0.231 0.034 151)'
   status-paused: 'oklch(0.831 0.113 79)'
+  status-paused-line: 'oklch(0.45 0.069 78)'
+  status-paused-tint: 'oklch(0.237 0.036 78)'
   status-cancelled: 'oklch(0.713 0.025 252)'
   status-latched: 'oklch(0.794 0.099 230)'
   danger: 'oklch(0.784 0.115 20)'
-  surface: 'oklch(0.135 0.006 252)'
-  surface-raised: 'oklch(0.189 0.01 252)'
-  surface-inset: 'oklch(0.218 0.016 252)'
-  control: 'oklch(0.242 0.015 252)'
-  border: 'oklch(0.31 0.017 252)'
-  control-border: 'oklch(0.42 0.028 252)'
-  ink: 'oklch(0.957 0.009 252)'
-  ink-muted: 'oklch(0.739 0.021 252)'
-  slot-open: 'oklch(0.255 0.028 249)'
-  slot-open-line: 'oklch(0.494 0.065 249)'
-  landing-canvas: '#020202'
+  danger-line: 'oklch(0.437 0.072 20)'
+  danger-tint: 'oklch(0.221 0.029 20)'
+  danger-ink: 'oklch(0.196 0.032 20)'
+  canvas: 'oklch(0.152 0.008 252)'
   workspace-frame: '#070707'
+  surface: 'oklch(0.174 0.009 252)'
+  surface-raised: 'oklch(0.212 0.011 252)'
+  surface-inset: 'oklch(0.192 0.01 252)'
+  surface-sunken: 'oklch(0.163 0.01 252)'
+  control: 'oklch(0.246 0.013 252)'
+  border: 'oklch(0.292 0.014 252)'
+  border-strong: 'oklch(0.368 0.018 252)'
+  control-border: 'oklch(0.368 0.02 252)'
+  ink: 'oklch(0.968 0.006 252)'
+  ink-muted: 'oklch(0.748 0.016 252)'
+  ink-faint: 'oklch(0.608 0.016 252)'
+  accent-hover: 'oklch(0.845 0.085 248)'
+  accent-line: 'oklch(0.44 0.072 249)'
+  accent-soft: 'oklch(0.27 0.05 249 / 34%)'
+  accent-active: 'oklch(0.732 0.112 248)'
+  highlight: 'oklch(1 0 0 / 24%)'
+  highlight-soft: 'oklch(1 0 0 / 5%)'
+  rim: 'oklch(0.97 0.009 252 / 18%)'
+  scrim: 'oklch(0.075 0.01 252 / 72%)'
+  shadow-deep: 'oklch(0.04 0.01 252 / 58%)'
+  shadow-inset: 'oklch(0.05 0.01 252 / 40%)'
+  shadow-workspace: 'oklch(0.115 0.013 252 / 68%)'
+  landing-canvas: '#020202'
   landing-ink: '#ffffff'
   landing-copy: '#d4d4d4'
   landing-action-hover: '#e5e5e5'
@@ -85,10 +105,10 @@ typography:
 rounded:
   tag: '0.375rem'
   preset: '0.4375rem'
-  field: '0.5rem'
-  button: '0.625rem'
-  nav-item: '0.75rem'
-  panel: '1rem'
+  field: '0.5625rem'
+  button: '0.5625rem'
+  nav-item: '0.5625rem'
+  panel: '0.875rem'
   landing-card: '1.5rem'
   shell-compact: '28px'
   shell-wide: '40px'
@@ -158,7 +178,7 @@ components:
     rounded: '{rounded.tag}'
     padding: '0.15rem 0.5rem'
   sentence-slot-empty:
-    backgroundColor: '{colors.slot-open}'
+    backgroundColor: '{colors.primary-tint}'
     textColor: '{colors.primary}'
     rounded: '{rounded.field}'
     padding: '0.4375rem 1.875rem 0.4375rem 0.6875rem'
@@ -170,78 +190,155 @@ components:
 
 # Design System: Rulebook
 
-## Overview
+<!-- impeccable:design-map -->
 
-**Creative North Star: "Clear and precise"**
+Name: Rulebook
+Colors: primary: primary oklch(0.789 0.108 248); secondary: automation oklch(0.835 0.083 290); tertiary: funds oklch(0.817 0.106 175); neutral: surface oklch(0.174 0.009 252) (+48 more in the sidecar)
+Fonts: Manrope Variable (display, workspace-headline, panel-title, sentence); Geist Variable (body, landing-lede, label); Geist Mono Variable (transaction-metadata)
+Spacing: control-gap 0.5rem, panel-inset 1.125rem, section-gap 1.25rem, panel-inset-wide 1.5rem, workspace-gutter 2rem, landing-section-y 5rem
+Radius: tag 0.375rem, preset 0.4375rem, field 0.5625rem, button 0.5625rem, nav-item 0.5625rem, panel 0.875rem, landing-card 1.5rem, shell-compact 28px, shell-wide 40px, network-pill 999px, landing-pill 9999px
+North Star: "Clear and precise"
+Don't:
 
-The workspace uses layered panels, compact controls, and lift for overlays. Clear labels, subdued dividers, and distinct network colors help users scan a rule, confirm the network, and follow a transaction.
-
-The landing page uses the same type families and dark ground, with atmospheric photography, a fine grid, and blue-violet light behind the content. Product imagery shows the rule sentence and execution details in context.
-
-**Key Characteristics:**
-
-- Near-black framing, cool charcoal panels, and crisp light text.
-- Compact, bordered controls with clear focus and selection states.
-- Automation lavender and funds mint, always paired with network names.
-- Low-light device photography and light action pills on the landing page.
-
-## Colors
-
-- **Primary blue** marks workspace actions, links, keyboard focus, and progress. Raised controls use the primary tint on hover or selection. The solid primary pairs with dark ink.
-- **Automation lavender** identifies Reactive Lasna in network badges, wallet indicators, and proof rows. **Funds mint** identifies Unichain Sepolia in the same patterns. Each badge pairs its foreground with a matching tint and border.
-- **Rule states** use green for active, amber for paused, grey for cancelled, light blue for fired and awaiting reset, and coral for silence caused by missing execution credit. Coral also marks invalid inputs and destructive action text.
-- **Neutrals** progress from the near-black outer canvas and workspace frame to raised panels, inset regions, and controls. Standard dividers use the panel border. Form boundaries use the stronger control border.
-- **Landing colors** use white for headlines and primary action pills, neutral grey for supporting copy, and blue and violet for the wordmark and background effects. The landing CTA uses black text on white.
-
-The workspace colors, landing theme, and background effects are defined in the frontend. [Workspace tokens](../src/styles/tokens.css), [landing theme](../src/styles/theme.css), [background effects](../src/components/landing/background-effects.tsx)
-
-## Typography
-
-- **Manrope Variable** carries headings and the editable sentence. The landing hero is medium weight (500) and steps from 36px to 48px and 56px. Workspace page titles use weight 730 at 34px and 42px. Panel headings are 17px at weight 700.
-- **Geist Variable** carries body copy, labels, buttons, and navigation. Workspace explanatory copy generally uses 14px at 1.55 line height. The landing lede reaches 18px at weight 300 on desktop. Small 12px tracked uppercase labels mark sections such as the editable sentence.
-- **Geist Mono Variable** marks addresses, receipt hashes, timestamps, blocks, calldata, and balance amounts. Use tabular numerals in numeric table columns. Let long identifiers wrap on narrow screens.
-
-## Layout
-
-- The landing page uses a centered content rail (72rem) with 24px horizontal gutters and 80px vertical spacing in its recurring sections. Headings and supporting copy sit side by side at large widths and stack on smaller screens. Step cards form two columns from 48rem. The fixed header keeps the wordmark and workspace action visible at narrow widths and shows section links from 48rem.
-- The workspace frame caps at 1500px. From 1024px, it uses a 288px sidebar and an independently scrolling main column with 32px side gutters. Below that, a sticky mobile header places the wallet next to the wordmark, with a horizontally scrollable route strip beneath. Main content caps at 70rem and uses 20px side gutters on mobile.
-- Panels commonly use 18px padding and a 20px page gap. Wide workspace panels reach 24px padding at 70rem. The composer stacks the editor above the review at narrow widths and gives the editor the wider column from 70rem. Proof rows stay in a single vertical sequence and wrap their transaction hashes.
-
-## Elevation & Depth
-
-Tonal fills and one-pixel rules provide most of the workspace hierarchy. The sentence editor uses an inset strip within its panel, tables use a tinted header, and proof steps share one panel with a thin vertical connector. Wallet overlays carry structural lift. The workspace frame and the translucent landing navigation use broader, softer depth.
-
-The wallet popover uses a shadow of `0 0.875rem 2.5rem oklch(0.115 0.013 252 / 68%)`. The review dialog adds a dark backdrop. On the landing page, masked photographs and blue-violet radial effects fade into the near-black background.
-
-## Shapes
-
-Workspace panels use a 16px radius. Buttons use 10px, fields 8px, and small status tags 6px. Network badges use a full pill so they remain distinguishable from status tags at a glance. The workspace frame rounds to 28px on smaller screens and 40px from the desktop sidebar breakpoint. Landing navigation and primary actions use full pills, while photo cards use 24px corners.
-
-## Components
-
-### Actions and fields
-
-Use the blue primary for the principal workspace action and the bordered charcoal secondary for adjacent utility actions. Destructive actions retain the secondary shape and use coral text. Workspace buttons have a 40px secondary or 44px primary minimum height. Inputs are 42px tall with clear borders, visible labels, and a coral border when invalid.
-
-Workspace actions and the wallet trigger transition fill and border over 160ms with ease-out, and keyboard focus uses a 2px blue outline with a 2px offset. Primary, secondary, and disabled states stay distinct. Landing action pills use white fill with a neutral-grey hover and a small arrow movement. The landing entrance and workspace control transitions respect reduced motion.
-
-### Navigation and wallet
-
-Desktop links combine a 16px line icon with a 14px label. The current section gets a raised fill, a thin border, and a blue icon. The active mobile route uses the blue selection tint and scrolls into view. The wallet trigger keeps its connection state visible and opens a compact menu with network labels. The review dialog puts the network badge and action above the target and amount.
-
-### Sentence composer
-
-The sentence remains readable while a user fills its slots. An empty slot has a dashed blue-grey border and blue text. A filled slot uses a solid border, a blue tint, and light text. A drop target gains a blue outline, and invalid slots have coral borders and nearby error copy. Draggable preset buttons wrap below the sentence. Each slot offers the same values in a native select. The review panel uses a segmented progress bar and a collapsible monospace calldata block.
-
-### Execution proof and status
-
-Each proof step combines a line icon, role label, named network badge, small monospace metadata, and a wrapping explorer link. A summary panel shows the proof source and, when available, the elapsed time. Status tags use a leading dot and a plain text label such as “Paused” or “Silent — no execution credit.”
-
-## Do's and Don'ts
-
+- Don't reuse the active green for fired, paused, cancelled, or unfunded rules.
+- Don't carry landing-page photo treatments into transaction and account panels.
+- Don't write raw palette values in TSX or shared CSS.
+- Don't add a one-off `rb-*` recipe in a feature file.
+  Do:
 - Do keep network names and status labels beside their colors.
 - Do show the empty, filled, focus, and invalid states of sentence slots.
 - Do use bordered, tonal workspace panels and reserve pronounced content shadows for wallet overlays.
+- Do group rail navigation by Automation, Discover, and Manage; keep the active item on a raised surface with an accent edge.
+- Do give every page a single clear primary action in its heading.
 - Do keep transaction identifiers readable at narrow widths.
-- Don't reuse the active green for fired, paused, cancelled, or unfunded rules.
-- Don't carry landing-page photo treatments into transaction and account panels.
+- Do compose new surfaces from `src/ui`.
+  Map: src/styles/tokens.css
+  Map: src/styles/app.css
+  Map: src/styles/workspace.css
+  Map: src/styles/onboarding.css
+  Map: src/ui/index.ts
+  Map: src/ui/Select.tsx
+  Map: src/ui/ErrorState.tsx
+  Map: src/assistant/AssistantPanel.tsx
+  Map: src/assistant/AssistantContext.tsx
+  Map: src/styles/assistant.css
+  Map: src/ui/SyncState.tsx
+  Map: src/ui/Dialog.tsx
+  Map: src/ui/EmptyState.tsx
+  Map: src/ui/FactList.tsx
+  Map: src/ui/Callout.tsx
+  Full: .impeccable/design-full.md (read a section when you need its detail)
+
+## Overview
+
+Rulebook is an Operate surface: users build, fund, publish, and inspect on-chain automations. The visual system is a dark, precise workspace with a cool neutral ladder, one blue action color, and separate network colors for Reactive Lasna, Unichain Sepolia, and Base Sepolia. Brand expression lives in craft details, not decoration. The landing page is the only Persuade surface and keeps its own photographic world; workspace rules stop at its boundary.
+
+The system is enforced, not advisory. `src/styles/tokens.css` owns values, `src/ui` owns markup recipes, and `npm run check:design` fails CI when either is bypassed. `AGENTS.md` points every agent at this file before UI work.
+
+## Colors
+
+The surface ladder is canvas, surface, raised, inset, control. Use the lowest surface that carries the content, then raise only the active or overlay layer. Borders are one step above their surface; never use pure black or pure white in workspace UI.
+
+- Primary blue is the single action color. It marks the primary button, focus ring, active rail edge, and current step. Do not use it for status.
+- Automation violet belongs to Reactive Lasna. Funds teal belongs to Unichain Sepolia and Base Sepolia. Every network badge reads these tokens and keeps the network name visible.
+- Status colors are semantic and cannot be reassigned. Active, paused, cancelled, latched, and silent are distinct. A silent or waiting rule never borrows active green.
+- Danger red is reserved for failures, destructive actions, and invalid fields. Use `btn-danger` for a destructive button and `rb-error` for a failed read.
+- Depth colors (`highlight`, `rim`, `scrim`, `shadow-*`) are tokens because overlays repeat them. A new shadow is a token change, not a local literal.
+- The landing page keeps its own hex palette (`landing-*`). Do not import landing colors into workspace components.
+
+## Typography
+
+Manrope Variable carries display, workspace headlines, panel titles, and sentence text. Geist Variable carries body copy, labels, inputs, and buttons. Geist Mono Variable carries addresses, transaction hashes, amounts, and technical identifiers.
+
+- One page has one `h1` in the heading area. Panels use `h2`; nested sections use `h3`.
+- Labels are short, sentence case, and never all-caps except the existing metric and eyebrow labels.
+- Numeric values use tabular mono only when they are identifiers or balances. Do not set prose in mono.
+- Body copy stays at 0.8125rem to 0.875rem in the workspace. Do not scale body text up to fill space.
+
+## Layout
+
+- The shell is a 17rem rail plus a fluid main column. The workspace gutter is 2rem at desktop and 1rem at narrow widths.
+- Page headings put one primary action in the aside. Secondary actions are quiet buttons or links in the content.
+- Panels use an 0.875rem radius, a 1px border, and the raised surface. Panel headers and bodies use the shared padding rhythm; do not invent a second panel anatomy.
+- Split views become one column below 64rem. Any horizontal scroller must have a visible edge or trailing padding so the last item is not clipped.
+- Onboarding uses a five-step rail and a two-column stage above 64rem. The setup summary is hidden for funding-only screens.
+- Touch targets are at least 2.375rem tall. The mobile tab bar centers the active tab and leaves trailing room for the last tab.
+
+## Elevation & Depth
+
+Workspace depth is tonal first, bordered second, shadowed last. Panels do not float. Reserve pronounced shadows for modal dialogs and wallet overlays.
+
+- Wallet dialogs use the scrim, deep shadow, and a 0.875rem panel radius.
+- Inset surfaces use the inset shadow token, never a hand-written black alpha.
+- Focus is a 2px accent outline with 2px offset. Hover raises a border one step; it does not move or scale the element.
+- Do not add glass blur, gradients, or glow to workspace cards. Those belong to the landing page.
+
+## Shapes
+
+The workspace uses restrained rounded rectangles: 0.375rem tags, 0.5625rem fields and buttons, 0.875rem panels, and pills only for network or filter chips. Icons are line icons from Hugeicons at 15 to 22px with 1.7 to 1.8 stroke.
+
+- Buttons and inputs share the field radius. Do not mix pill buttons into forms.
+- Status and network chips are pills. Tags for categories are rounded rectangles.
+- Progress rails use 2px lines and small filled dots. Do not use large illustration-style steppers.
+
+## Components
+
+New feature code imports from `src/ui`. A feature file may keep layout-only classes and its own domain classes, but it must not recreate a primitive recipe.
+
+| Primitive                                           | Use                                        | Replaces                          |
+| --------------------------------------------------- | ------------------------------------------ | --------------------------------- |
+| `Button`                                            | All actions and dialog footers             | `button.app-button` markup        |
+| `Panel`, `PanelHeader`, `PanelBody`, `PanelHeading` | Every bordered content panel               | `div.app-panel` plus `rb-panel-*` |
+| `Badge`                                             | Status, visibility, and index chips        | `rb-chip` with a raw `data-tone`  |
+| `FactList`                                          | Addresses, IDs, networks, and spec facts   | `dl.rb-spec-facts`                |
+| `ErrorState`                                        | Failed reads, chain errors, copy failures  | `rb-error`                        |
+| `SyncState`                                         | Indexing and not-yet-visible records       | `rb-sync`                         |
+| `EmptyState`                                        | Empty collections and first-run guidance   | `rb-empty`                        |
+| `Callout`                                           | One explanation plus one action            | `rb-callout`                      |
+| `Dialog`                                            | Modal surfaces with focus trap and restore | `dialog.app-dialog`               |
+| `Field`                                             | Labelled inputs with hint or error         | `label.app-field`                 |
+| `Select`                                            | Grouped single-choice pickers              | native `select` option popups     |
+| `PageHeading`                                       | Page title, description, breadcrumb, aside | `header.app-heading`              |
+| `Toolbar`                                           | Search and filter rows                     | `div.rb-toolbar`                  |
+
+Rules that apply across components:
+
+- Errors preserve the underlying chain detail in a `code` element and keep `role="alert"`.
+- A syncing title must sit inside `role="status"`; the visual pulse is not the only signal.
+- Destructive actions use `Button variant="danger"` or `danger-solid`; they never use accent blue.
+- Wallet dialogs own the focus trap and restore focus to the trigger. While busy, Tab is contained and the waiting status is announced.
+- A fact list keeps a visible label for every value. Never render a bare address with no term.
+- `Field` renders its hint and error outside the label so a control's accessible name stays the field name; controls receive the hint and error ids to set `aria-describedby`.
+- `Select` keeps a grouped choice inside the workspace: a `role="combobox"` trigger, an absolutely positioned `listbox`, arrow/Home/End/Enter/Escape/Tab handling, and `aria-activedescendant` on the trigger. Use it instead of a native `select` wherever the operating system's option window would escape the design system or clip at the viewport.
+- If a new pattern is genuinely missing, add it to `src/ui`, document it here, then use it.
+
+### Adding a UI surface
+
+1. Read this file and inspect the closest existing surface.
+2. Compose the page from `src/ui`; keep feature-specific classes only for layout or domain visuals.
+3. Use `var(--rb-*)` for every color, radius, and shadow. Add a token if the value is genuinely new.
+4. Run `npm run check:design`. A failure means the surface bypassed the system, not that the gate is wrong.
+5. Check the rendered page at 390px and 1440px before finishing.
+
+### Bookkeeper assistant
+
+Bookkeeper is the wallet-verified account assistant. It opens from the workspace topbar, the mobile bar, and a launcher in focused layouts. Above 64rem it is a bottom-right dialog; below 64rem it becomes a full-height sheet. The focused-layout launcher sits in the flow at the end of the page content (`.app-assistant-dock`) rather than floating over it, so it never covers a link or button.
+
+- Compose the header, actions, verification card, and failure states from `Button`, `Callout`, `Dialog`, and `ErrorState`. The thread, tool trace, suggestion list, reference chips, and composer are assistant layout classes in `src/styles/assistant.css`.
+- Every account fact comes from a read-only tool call. Show the call as a trace row above the answer; never render a balance or run from the model's memory.
+- Keep the verification card explicit: off-chain signature, no gas, no session timeout, read-only access. The session token is held in memory, not localStorage, so a reload asks for a new signature.
+- Answer links are chips below the bubble. Do not put bare addresses or fabricated URLs in chat copy.
+- The composer stays available while a response streams; Enter sends, Shift+Enter breaks the line, and Escape closes through `Dialog`.
+
+## Do's and Don'ts
+
+- Do use the raised surface for the active rail item and the card surface, with an accent edge.
+- Do keep the network name beside its color and the status label beside its dot.
+- Do use one primary action per heading and quiet buttons for everything else.
+- Do preserve `data-testid`, roles, and focus behavior when replacing markup with a primitive.
+- Do update this file and the primitive together when the system changes.
+- Don't add raw hex, `oklch()`, `rgb()`, or `hsl()` outside `tokens.css`, except the documented landing files.
+- Don't add a new `rb-*` class in a page or feature component. Move the recipe into `src/ui`.
+- Don't use active green for fired, paused, cancelled, or unfunded states.
+- Don't use landing photo treatments, glass, or atmospheric gradients in workspace panels.
+- Don't add a new legacy entry to the design-system baseline file without a reason recorded in review.

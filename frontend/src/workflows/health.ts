@@ -2,9 +2,9 @@ import {
   decodeWorkflowV2,
   deriveWorkflowHealth,
   isFundsChain,
-  UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowHealthResponseSchema,
   type FundsChainId,
+  type NetworkMode,
   type WorkflowHealth,
   type WorkflowHealthEntry,
   type WorkflowHealthRunSchema,
@@ -13,13 +13,9 @@ import {
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { zeroAddress, type Address } from 'viem';
 
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
-import {
-  configuredFundsChains,
-  readFundsV2,
-  readWorkflowV2,
-  workflowV2Deployment,
-} from './chainV2';
+import { configuredFundsChains, readFundsV2, readWorkflowV2 } from './chainV2';
 import { workflowFundingNeeds } from './fundingV2';
 import { v2ApiBase } from './listingV2';
 import { useWorkflowCredits } from './WorkflowCredit';
@@ -36,8 +32,8 @@ export interface WorkflowHealthRow {
   readonly lastSuccess: WorkflowHealthSuccess | null;
 }
 
-async function readOwnerHealth(owner: Address, signal: AbortSignal) {
-  const response = await fetch(`${v2ApiBase}/v3/health?owner=${owner}`, {
+async function readOwnerHealth(owner: Address, mode: NetworkMode, signal: AbortSignal) {
+  const response = await fetch(`${v2ApiBase}/v3/health?owner=${owner}&network=${mode}`, {
     signal,
     cache: 'no-store',
     headers: { accept: 'application/json' },
@@ -54,19 +50,20 @@ export function useWorkflowHealth(
   owner: Address | undefined,
   workflows: readonly WorkflowHealthItem[] | undefined,
 ) {
+  const { mode, defaultFundsChainId, isDeploymentConfigured } = useNetworkMode();
   const credits = useWorkflowCredits(owner);
   const query = useQuery({
-    queryKey: ['workflow-v2', 'health', owner?.toLowerCase()],
-    enabled: Boolean(owner && workflowV2Deployment),
-    queryFn: ({ signal }) => readOwnerHealth(owner!, signal),
+    queryKey: ['workflow-v2', 'health', mode, owner?.toLowerCase()],
+    enabled: Boolean(owner && isDeploymentConfigured),
+    queryFn: ({ signal }) => readOwnerHealth(owner!, mode, signal),
     refetchInterval: 12_000,
     retry: 1,
   });
-  const chains = configuredFundsChains();
+  const chains = configuredFundsChains(mode);
   const fundQueries = useQueries({
     queries: chains.map((chain) => ({
-      queryKey: ['workflow-v2', 'vault-funds', owner?.toLowerCase(), chain],
-      enabled: Boolean(owner && workflowV2Deployment),
+      queryKey: ['workflow-v2', 'vault-funds', mode, owner?.toLowerCase(), chain],
+      enabled: Boolean(owner && isDeploymentConfigured),
       queryFn: () => readFundsV2(owner!, chain),
       refetchInterval: 12_000,
       retry: 1,
@@ -90,7 +87,7 @@ export function useWorkflowHealth(
     }
     const settlementChain: FundsChainId = isFundsChain(program.chain)
       ? program.chain
-      : UNICHAIN_SEPOLIA_CHAIN_ID;
+      : defaultFundsChainId;
     const entry = indexed.get(item.id);
     const needs = workflowFundingNeeds(program);
     const balances = fundsByChain.get(settlementChain);

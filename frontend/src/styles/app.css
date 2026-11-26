@@ -270,6 +270,22 @@
   margin-inline-start: auto;
 }
 
+.app-network-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.1875rem;
+  border: 1px solid var(--rb-border);
+  border-radius: 0.625rem;
+  background: var(--rb-panel);
+}
+
+.app-network-switch .app-button {
+  min-block-size: 1.75rem;
+  padding: 0.25rem 0.625rem;
+  font-size: 0.75rem;
+}
+
 .app-topbar .wallet-control {
   inline-size: auto;
 }

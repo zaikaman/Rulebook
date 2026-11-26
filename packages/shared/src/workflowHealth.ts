@@ -1,7 +1,13 @@
 import { formatUnits, toFunctionSelector } from 'viem';
 import { z } from 'zod';
 
-import { CHAIN_CONFIGS, LASNA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
+import {
+  automationChainFor,
+  CHAIN_CONFIGS,
+  networkModeForChain,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+} from './chains.js';
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
 import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './workflowsV2.js';
 
@@ -219,10 +225,9 @@ function creditBlock(
   if (!credit) return null;
   const execution = kind === 'execution';
   const name = execution ? 'Execution credit' : 'Watching credit';
-  const asset = execution ? 'ETH' : 'lREACT';
-  const network =
-    CHAIN_CONFIGS.get(execution ? chainId : LASNA_CHAIN_ID)?.name ??
-    (execution ? 'Unichain Sepolia' : 'Reactive Lasna');
+  const cfg = CHAIN_CONFIGS.get(chainId);
+  const asset = execution ? 'ETH' : (cfg?.nativeSymbol ?? 'lREACT');
+  const network = cfg?.name ?? (execution ? 'Unichain Sepolia' : 'Reactive Lasna');
   const fix = execution ? 'execution-credit' : 'watching-credit';
   const label = `Blocked by low ${execution ? 'execution' : 'watching'} credit`;
   const reserve = displayAmount(credit.reserve, 18, asset);
@@ -283,14 +288,19 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     };
   }
 
+  const settlementChainId = input.program.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
+  const settlementName = CHAIN_CONFIGS.get(settlementChainId)?.name ?? 'Unichain Sepolia';
+  const automationChainId = automationChainFor(networkModeForChain(settlementChainId));
+  const automationName = CHAIN_CONFIGS.get(automationChainId)?.name ?? 'Reactive Lasna';
+  const isMainnet = automationChainId === REACTIVE_MAINNET_CHAIN_ID;
+
   if (!input.active) {
     if (input.partiallyPaused) {
       return {
         code: 'pause-incomplete',
-        label: 'Still watching on Lasna',
+        label: isMainnet ? 'Still watching on Reactive Mainnet' : 'Still watching on Lasna',
         tone: 'danger',
-        summary:
-          'Vault spending is revoked, but Reactive Lasna is still watching for triggers. Finish pausing so it stops using watching credit.',
+        summary: `Vault spending is revoked, but ${automationName} is still watching for triggers. Finish pausing so it stops using watching credit.`,
         fix: 'pause',
         fixLabel: 'Finish pausing',
         attention: true,
@@ -301,8 +311,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
         code: 'ready',
         label: 'Ready to activate',
         tone: 'info',
-        summary:
-          'The Vault authorization is staged. Finish activation so Reactive Lasna starts watching for events.',
+        summary: `The Vault authorization is staged. Finish activation so ${automationName} starts watching for events.`,
         fix: 'edit',
         fixLabel: 'Finish activation',
         attention: true,
@@ -320,9 +329,6 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     };
   }
 
-  const settlementChainId = input.program.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
-  const settlementName = CHAIN_CONFIGS.get(settlementChainId)?.name ?? 'Unichain Sepolia';
-
   const execution = creditBlock(input.executionCredit, 'execution', settlementChainId);
   if (execution) {
     return {
@@ -336,7 +342,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     };
   }
 
-  const watching = creditBlock(input.watchingCredit, 'watching', LASNA_CHAIN_ID);
+  const watching = creditBlock(input.watchingCredit, 'watching', automationChainId);
   if (watching) {
     return {
       code: 'watching-credit',

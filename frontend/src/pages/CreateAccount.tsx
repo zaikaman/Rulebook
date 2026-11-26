@@ -10,13 +10,17 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
+  automationChainFor,
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   fundsChainIdSchema,
   getChain,
   getFundsChain,
-  LASNA_CHAIN_ID,
+  networkModeForChain,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   type Address,
+  type ChainConfig,
   type FundsChainId,
 } from '@rulebook/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -40,6 +44,7 @@ import { Spinner } from '../components/chrome/Spinner.js';
 import { AccountFundingStep } from '../components/AccountFundingStep.js';
 import { AccountSetupFrame } from '../components/AccountSetupFrame.js';
 import { ErrorState } from '../components/ErrorState.js';
+import { MainnetUnavailableCallout } from '../components/MainnetUnavailableCallout.js';
 import { TxLink } from '../components/TxLink.js';
 import type { SetupFundingWallet } from '../hooks/useAccountFunding.js';
 import {
@@ -53,6 +58,7 @@ import {
   WalletAuthorizationError,
 } from '../lib/errors.js';
 import { shortAddress } from '../lib/listings.js';
+import { useNetworkMode } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 import { roundUpFee } from '../lib/setupFees.js';
 import {
@@ -62,41 +68,58 @@ import {
   permittedSetupChains,
 } from '../lib/setupNetworks.js';
 import { testnetTokens } from '../lib/testnetTokens.js';
-import { baseSepoliaChain, lasnaChain, unichainSepoliaChain } from '../lib/wagmi.js';
+import {
+  baseMainnetChain,
+  baseSepoliaChain,
+  lasnaChain,
+  reactiveMainnetChain,
+  unichainMainnetChain,
+  unichainSepoliaChain,
+} from '../lib/wagmi.js';
 import { Field, Select } from '../ui/index.js';
 
 type Balance = { value?: bigint; decimals: number; failed: boolean };
-type Token = (typeof testnetTokens)[keyof typeof testnetTokens];
-
-const setupStages = {
-  wallet: {
-    number: 1,
-    title: 'Connect your wallet',
-    description: 'Use your wallet to create a Rulebook automation account and vault.',
-  },
-  networks: {
-    number: 2,
-    title: 'Set up test networks',
-    description:
-      'Rulebook uses Reactive Lasna for automation and your vault network for settlement.',
-  },
-  tokens: {
-    number: 3,
-    title: 'Get test tokens',
-    description: 'Your wallet uses test tokens to pay the network fees for setup.',
-  },
-  create: {
-    number: 4,
-    title: 'Create your account',
-    description: 'Review what Rulebook will set up, then approve the requests in your wallet.',
-  },
-  funding: {
-    number: 5,
-    title: 'Fund your account',
-    description:
-      'Add fee credit for workflow runs and optional test USDC for your vault. You can adjust any amount or skip this step.',
-  },
+type Token = {
+  readonly symbol: string;
+  readonly network: ChainConfig;
+  readonly faucet?: string;
+  readonly linkLabel?: string;
+  readonly instructions?: string;
 };
+
+function setupStagesFor(isMainnet: boolean, automationName: string) {
+  return {
+    wallet: {
+      number: 1,
+      title: 'Connect your wallet',
+      description: 'Use your wallet to create a Rulebook automation account and vault.',
+    },
+    networks: {
+      number: 2,
+      title: isMainnet ? 'Set up networks' : 'Set up test networks',
+      description: `Rulebook uses ${automationName} for automation and your vault network for settlement.`,
+    },
+    tokens: {
+      number: 3,
+      title: isMainnet ? 'Check gas and funds' : 'Get test tokens',
+      description: isMainnet
+        ? 'Your wallet uses native gas tokens for account creation and optional USDC for vault funding.'
+        : 'Your wallet uses test tokens to pay the network fees for setup.',
+    },
+    create: {
+      number: 4,
+      title: 'Create your account',
+      description: 'Review what Rulebook will set up, then approve the requests in your wallet.',
+    },
+    funding: {
+      number: 5,
+      title: 'Fund your account',
+      description: isMainnet
+        ? 'Add fee credit for workflow runs and optional USDC for your vault. You can adjust any amount or skip this step.'
+        : 'Add fee credit for workflow runs and optional test USDC for your vault. You can adjust any amount or skip this step.',
+    },
+  };
+}
 
 function needsTopUp(value: bigint | undefined, minimum?: bigint) {
   return value !== undefined && (value === 0n || (minimum !== undefined && value < minimum));
@@ -142,7 +165,7 @@ function TokenRow({
       <div className="account-setup__token-name">
         <span className="account-setup__network-dot" aria-hidden="true" />
         <div>
-          <h3>Test {token.symbol}</h3>
+          <h3>{token.network.network === 'mainnet' ? token.symbol : `Test ${token.symbol}`}</h3>
           <p>{token.network.name}</p>
         </div>
       </div>
@@ -187,12 +210,16 @@ function TokenRow({
             Required for setup <strong>0 {token.symbol}</strong>
           </p>
         )}
-        <a className="app-link" href={token.faucet} target="_blank" rel="noreferrer">
-          {token.linkLabel}
-          <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
-          <span className="sr-only"> (opens in a new tab)</span>
-        </a>
-        {(!balance.value || short || balance.failed) && <p>{token.instructions}</p>}
+        {token.faucet && (
+          <a className="app-link" href={token.faucet} target="_blank" rel="noreferrer">
+            {token.linkLabel}
+            <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>
+        )}
+        {token.instructions && (!balance.value || short || balance.failed) && (
+          <p>{token.instructions}</p>
+        )}
       </div>
     </li>
   );
@@ -236,21 +263,23 @@ function FaucetAddress({ address }: { address: Address }) {
 function SetupReview({
   steps,
   running,
+  automationNetwork,
   vaultNetwork,
 }: {
   steps: readonly SetupStep[];
   running: boolean;
+  automationNetwork: string;
   vaultNetwork: string;
 }) {
   const actions = {
-    agent: { label: 'Create your automation account', network: testnetTokens.react.network.name },
+    agent: { label: 'Create your automation account', network: automationNetwork },
     vault: {
       label: 'Create your vault',
       network: vaultNetwork,
     },
     link: {
       label: 'Link your automation account and vault',
-      network: testnetTokens.react.network.name,
+      network: automationNetwork,
     },
   };
   return (
@@ -290,13 +319,36 @@ export function CreateAccount({
   startWorkflow?: boolean;
   onFundingComplete?: () => void;
 }) {
-  const fundsChain = chainId === BASE_SEPOLIA_CHAIN_ID ? baseSepoliaChain : unichainSepoliaChain;
+  const { isDeploymentConfigured } = useNetworkMode();
+  const mode = networkModeForChain(chainId);
+  const isMainnet = mode === 'mainnet';
+  const automationChainId = automationChainFor(mode);
+  const autoNetwork = getChain(automationChainId);
+  const autoWagmiChain = isMainnet ? reactiveMainnetChain : lasnaChain;
+  const fundsChain =
+    chainId === BASE_MAINNET_CHAIN_ID
+      ? baseMainnetChain
+      : chainId === UNICHAIN_MAINNET_CHAIN_ID
+        ? unichainMainnetChain
+        : chainId === BASE_SEPOLIA_CHAIN_ID
+          ? baseSepoliaChain
+          : unichainSepoliaChain;
   const fundsConfig = getFundsChain(fundsChain.id);
-  const ethToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseEth : testnetTokens.eth;
-  const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
-  const requiredChainIds: readonly (
-    typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID | typeof LASNA_CHAIN_ID
-  )[] = [fundsChain.id as FundsChainId, LASNA_CHAIN_ID];
+  const reactToken: Token = isMainnet
+    ? { symbol: autoNetwork.nativeSymbol, network: autoNetwork }
+    : testnetTokens.react;
+  const ethToken: Token = isMainnet
+    ? { symbol: 'ETH', network: fundsConfig }
+    : chainId === BASE_SEPOLIA_CHAIN_ID
+      ? testnetTokens.baseEth
+      : testnetTokens.eth;
+  const usdcToken: Token = isMainnet
+    ? { symbol: 'USDC', network: fundsConfig }
+    : chainId === BASE_SEPOLIA_CHAIN_ID
+      ? testnetTokens.baseUsdc
+      : testnetTokens.usdc;
+  const setupStages = setupStagesFor(isMainnet, autoNetwork.name);
+  const requiredChainIds: readonly number[] = [fundsChain.id, automationChainId];
   const { address, connector, isReconnecting } = useAccount();
   const config = useConfig();
   const [tokenReview, setTokenReview] = useState<{
@@ -321,7 +373,7 @@ export function CreateAccount({
   const hasVault = !!setup.data?.vault;
   const walletSteps = setup.data ? remainingSetupSteps(setup.data) : [];
   const query = { enabled: connected, refetchOnWindowFocus: 'always' } as const;
-  const react = useBalance({ address, chainId: LASNA_CHAIN_ID, query });
+  const react = useBalance({ address, chainId: automationChainId, query });
   const eth = useBalance({ address, chainId: fundsChain.id, query });
   const usdc = useReadContract({
     address: fundsConfig.usdc,
@@ -334,8 +386,10 @@ export function CreateAccount({
 
   const checkingAccount = setup.isLoading || isReconnecting;
   const missing = [
-    !react.isError && react.data?.value === 0n ? 'test REACT' : null,
-    !hasVault && !eth.isError && eth.data?.value === 0n ? 'test ETH' : null,
+    !react.isError && react.data?.value === 0n
+      ? `${isMainnet ? '' : 'test '}${autoNetwork.nativeSymbol}`
+      : null,
+    !hasVault && !eth.isError && eth.data?.value === 0n ? `${isMainnet ? '' : 'test '}ETH` : null,
   ].filter(Boolean);
 
   const balanceError = react.isError || (!hasVault && eth.isError);
@@ -361,7 +415,8 @@ export function CreateAccount({
   }, [walletKey]);
   const networkCheck = useQuery({
     queryKey: ['setup-wallet-networks', walletKey],
-    queryFn: () => (connector && address ? checkSetupNetworks(connector, address) : []),
+    queryFn: () =>
+      connector && address ? checkSetupNetworks(connector, address, requiredChainIds) : [],
     enabled: connected && !!connector,
     networkMode: 'always',
     retry: false,
@@ -374,7 +429,7 @@ export function CreateAccount({
     (networkCheck.isSuccess &&
       !networkCheck.isFetching &&
       requiredChainIds.every((id) => knownChains.includes(id)));
-  const missingNetworks = [ethToken.network, testnetTokens.react.network].filter(
+  const missingNetworks = [ethToken.network, reactToken.network].filter(
     (chain) => !knownChains.includes(chain.chainId),
   );
   const checkingNetworks = !networksReady && networkCheck.isFetching;
@@ -401,8 +456,8 @@ export function CreateAccount({
       if (!provider) throw new Error('The browser wallet is unavailable.');
       const chains = [...knownChains];
       if (action === 'add-networks') {
-        // The last approval can leave MetaMask on Lasna for fresh account creation.
-        for (const chain of [fundsChain, lasnaChain].filter(
+        // The last approval can leave MetaMask on the automation chain for fresh account creation.
+        for (const chain of [fundsChain, autoWagmiChain].filter(
           (chain) => !knownChains.includes(chain.id),
         )) {
           checkWallet();
@@ -421,7 +476,7 @@ export function CreateAccount({
           } catch (cause) {
             // Older installs can already have Lasna registered as REACT instead of lREACT.
             const alreadyInstalled =
-              chain.id === LASNA_CHAIN_ID &&
+              chain.id === automationChainId &&
               typeof cause === 'object' &&
               cause !== null &&
               'code' in cause &&
@@ -463,10 +518,10 @@ export function CreateAccount({
           );
         }
       }
-      const permittedChains = permittedSetupChains(permissions);
+      const permittedChains = permittedSetupChains(permissions, requiredChainIds);
       if (permittedChains && !requiredChainIds.every((id) => permittedChains.includes(id))) {
         throw new Error(
-          `Allow both Reactive Lasna and ${fundsChain.name} in your wallet and try again.`,
+          `Allow both ${autoNetwork.name} and ${fundsChain.name} in your wallet and try again.`,
         );
       }
       const [selected] = await connector.getAccounts();
@@ -531,8 +586,8 @@ export function CreateAccount({
     error instanceof BaseError &&
     error.walk((cause) => cause instanceof InsufficientFundsError) instanceof InsufficientFundsError
   ) {
-    const feeToken = hasAgent && !hasVault ? ethToken : testnetTokens.react;
-    setupErrorMessage = `Add more test ${feeToken.symbol} on ${feeToken.network.name} to cover the transaction fee.`;
+    const feeToken = hasAgent && !hasVault ? ethToken : reactToken;
+    setupErrorMessage = `Add more ${isMainnet ? '' : 'test '}${feeToken.symbol} on ${feeToken.network.name} to cover the transaction fee.`;
     setupErrorChain = feeToken.network.chainId;
   }
 
@@ -547,7 +602,7 @@ export function CreateAccount({
   const current = setupStages[stage];
   const currentDescription =
     stage === 'networks'
-      ? `Rulebook uses Reactive Lasna for automation and ${fundsChain.name} for your vault.`
+      ? `Rulebook uses ${autoNetwork.name} for automation and ${fundsChain.name} for your vault.`
       : current.description;
   const showChainPicker = Boolean(
     availableChains && availableChains.length > 1 && onChainChange && stage !== 'funding',
@@ -560,13 +615,34 @@ export function CreateAccount({
     />
   );
 
+  if (isMainnet && !isDeploymentConfigured) {
+    return (
+      <AccountSetupFrame
+        title="Account setup"
+        workflow
+        manageAccount={false}
+        manageAccountHref={appRoutes.accountFunds}
+        automationNetwork={autoNetwork.name}
+        vaultNetwork={fundsChain.name}
+        isMainnet={isMainnet}
+        description={`Rulebook uses ${autoNetwork.name} for automation and ${fundsChain.name} for your vault.`}
+        step={1}
+        connected={connected}
+      >
+        <MainnetUnavailableCallout context="Account setup" />
+      </AccountSetupFrame>
+    );
+  }
+
   return (
     <AccountSetupFrame
       title={current.title}
       workflow
       manageAccount={hasVault}
       manageAccountHref={`${appRoutes.accountFunds}?chain=${chainId}`}
+      automationNetwork={autoNetwork.name}
       vaultNetwork={fundsChain.name}
+      isMainnet={isMainnet}
       description={currentDescription}
       step={current.number}
       connected={connected}
@@ -634,7 +710,7 @@ export function CreateAccount({
                         strokeWidth={2}
                         aria-hidden="true"
                       />
-                      Same wallet for Reactive Lasna and {fundsChain.name}
+                      Same wallet for {autoNetwork.name} and {fundsChain.name}
                     </li>
                     <li>
                       <HugeiconsIcon
@@ -652,7 +728,7 @@ export function CreateAccount({
                         strokeWidth={1.9}
                         aria-hidden="true"
                       />
-                      Testnet only
+                      {isMainnet ? 'Mainnet · real funds' : 'Testnet only'}
                     </li>
                   </ul>
                   <div className="account-setup__connect">
@@ -674,10 +750,10 @@ export function CreateAccount({
               <>
                 <p id="setup-network-instructions">
                   {connector?.type === 'walletConnect'
-                    ? `Add Reactive Lasna and ${fundsChain.name} in your wallet, then disconnect and reconnect here. Allow both when prompted.`
+                    ? `Add ${autoNetwork.name} and ${fundsChain.name} in your wallet, then disconnect and reconnect here. Allow both when prompted.`
                     : missingNetworks.length > 0
                       ? `Allow ${missingNetworks.map((network) => network.name).join(' and ')} in your wallet. Your wallet will ask to add any missing networks.`
-                      : `Allow Rulebook to use Reactive Lasna and ${fundsChain.name} in your wallet.`}
+                      : `Allow Rulebook to use ${autoNetwork.name} and ${fundsChain.name} in your wallet.`}
                 </p>
                 <div className="account-setup__action">
                   <button
@@ -700,7 +776,9 @@ export function CreateAccount({
                         ? 'Check wallet connection'
                         : missingNetworks.length === 0
                           ? 'Finish wallet access'
-                          : 'Add test networks'}
+                          : isMainnet
+                            ? 'Add networks'
+                            : 'Add test networks'}
                   </button>
                 </div>
               </>
@@ -708,8 +786,10 @@ export function CreateAccount({
             {networkAccess && walletAccess.isPending && (
               <p className="rb-loading" role="status">
                 <Spinner />
-                Approve each request in your wallet. If asked, allow Rulebook on Reactive Lasna and{' '}
-                {fundsChain.name}.
+                Approve each request in your wallet. If asked, allow Rulebook on {
+                  autoNetwork.name
+                }{' '}
+                and {fundsChain.name}.
               </p>
             )}
             {networkCheck.isError && (
@@ -764,13 +844,13 @@ export function CreateAccount({
                 {refreshing ? 'Checking wallet balances and fee estimates.' : ''}
               </span>
               {accountReadError}
-              {address && <FaucetAddress key={address} address={address} />}
+              {!isMainnet && address && <FaucetAddress key={address} address={address} />}
               <ul className="account-setup__tokens" aria-label="Wallet token balances">
                 <TokenRow
-                  token={testnetTokens.react}
+                  token={reactToken}
                   purpose={
                     hasAgent
-                      ? 'Pays to link your vault on Lasna.'
+                      ? `Pays to link your vault on ${autoNetwork.name}.`
                       : 'Pays to create your automation account and link your vault.'
                   }
                   required
@@ -829,7 +909,8 @@ export function CreateAccount({
             {accountReadError}
             {!error && !setup.resuming && (balanceError || missing.length > 0) && (
               <p role="status" data-tone="warning">
-                {nextAction} Select “Review test tokens” for details.
+                {nextAction} Select “{isMainnet ? 'Review balances' : 'Review test tokens'}” for
+                details.
               </p>
             )}
             {permissionError &&
@@ -845,8 +926,8 @@ export function CreateAccount({
                 >
                   <p className="mt-2">
                     {connector?.type === 'injected'
-                      ? `Refresh wallet access and allow this account on Reactive Lasna and ${fundsChain.name}.`
-                      : `Reconnect with the same wallet and allow Reactive Lasna and ${fundsChain.name}.`}{' '}
+                      ? `Refresh wallet access and allow this account on ${autoNetwork.name} and ${fundsChain.name}.`
+                      : `Reconnect with the same wallet and allow ${autoNetwork.name} and ${fundsChain.name}.`}{' '}
                     Then select “{actionLabel}”. Any confirmed steps are saved.
                   </p>
                   {connector?.type === 'injected' && (
@@ -866,7 +947,7 @@ export function CreateAccount({
                         <summary className="app-link w-fit cursor-pointer">Still blocked?</summary>
                         <p className="mt-2">
                           Disconnect this site in your wallet’s permissions, then reconnect with the
-                          same account and allow Reactive Lasna and {fundsChain.name}.
+                          same account and allow {autoNetwork.name} and {fundsChain.name}.
                         </p>
                       </details>
                     </>
@@ -899,6 +980,7 @@ export function CreateAccount({
               <SetupReview
                 steps={walletSteps}
                 running={setup.resuming}
+                automationNetwork={autoNetwork.name}
                 vaultNetwork={fundsChain.name}
               />
             )}
@@ -910,7 +992,7 @@ export function CreateAccount({
                   disabled={walletAccess.isPending}
                   onClick={() => setTokenReview({ walletKey, choice: 'review' })}
                 >
-                  Review test tokens
+                  {isMainnet ? 'Review balances' : 'Review test tokens'}
                 </button>
               )}
               <button

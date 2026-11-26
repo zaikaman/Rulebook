@@ -68,7 +68,7 @@ test('uses the shared callout and toolbar recipes on primary routes', async ({ p
 
   await page.goto(`${FIXTURE_FRONTEND_URL}/marketplace`);
   await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible();
-  await expect(page.locator('.rb-toolbar')).toBeVisible();
+  await expect(page.locator('main .rb-toolbar')).toBeVisible();
   await expect(page.getByRole('searchbox')).toBeVisible();
 });
 

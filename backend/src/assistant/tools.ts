@@ -4,15 +4,16 @@ import {
   checks,
   decodeWorkflowV2,
   executionCreditAbi,
-  FUNDS_CHAIN_IDS,
   getChain,
   isFundsChain,
   LASNA_CHAIN_ID,
+  TESTNET_FUNDS_CHAIN_IDS,
   toDraft,
   triggers,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
+  workflowDeploymentKey,
   workflowIdSchema,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
@@ -308,11 +309,11 @@ export class AssistantToolExecutor {
     private readonly deployment: WorkflowV2Deployment,
     private readonly owner: Address,
   ) {
-    this.deploymentId = deployment.lasna.factory.toLowerCase();
+    this.deploymentId = workflowDeploymentKey(LASNA_CHAIN_ID, deployment.lasna.factory);
   }
 
   private configuredFundsChains(): readonly FundsChainId[] {
-    return FUNDS_CHAIN_IDS.filter((chain) =>
+    return TESTNET_FUNDS_CHAIN_IDS.filter((chain) =>
       chain === BASE_SEPOLIA_CHAIN_ID ? Boolean(this.deployment.base && this.clients.base) : true,
     );
   }
@@ -778,7 +779,8 @@ export class AssistantToolExecutor {
       .select(
         'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
-      .match({ deployment: this.deploymentId, owner: this.owner });
+      .match({ deployment: this.deploymentId, owner: this.owner })
+      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS]);
     if (input.workflowId) query = query.eq('workflow_id', input.workflowId);
     if (input.status && input.status !== 'all') query = query.eq('status', input.status);
     const { data, error } = await query
@@ -810,6 +812,7 @@ export class AssistantToolExecutor {
         'id,workflow_id,chain,title,status,reason,path,origin_chain,origin_transaction,lasna_transaction,destination_transaction,lasna_block,expires_at',
       )
       .match({ deployment: this.deploymentId, owner: this.owner, id: runId })
+      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS])
       .order('lasna_block', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -856,7 +859,8 @@ export class AssistantToolExecutor {
     let query = this.db
       .from('workflow_v2_market_listings')
       .select('id,title,description,owner,workflow_id,block_number')
-      .match({ deployment: this.deploymentId, visible: true });
+      .match({ deployment: this.deploymentId, visible: true })
+      .in('chain', [...TESTNET_FUNDS_CHAIN_IDS]);
     const search = input.query?.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
     if (search) query = query.ilike('title', `%${search}%`);
     const { data, error } = await query.order('block_number', { ascending: false }).limit(limit);
@@ -899,11 +903,13 @@ export class AssistantToolExecutor {
       this.db
         .from('telegram_accounts')
         .select('chat_id,profile,blocked,enabled,default_mode')
+        .eq('automation_chain', LASNA_CHAIN_ID)
         .eq('agent', agent)
         .maybeSingle(),
       this.db
         .from('telegram_workflow_preferences')
         .select('workflow_id,preference')
+        .eq('automation_chain', LASNA_CHAIN_ID)
         .eq('agent', agent),
     ]);
     if (account.error || preferences.error)

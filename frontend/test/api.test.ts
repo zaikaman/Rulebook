@@ -57,12 +57,22 @@ describe('ApiClient', () => {
     await expect(client.rulewrightAvailability()).resolves.toEqual({ available: true });
     await expect(client.assistantAvailability()).resolves.toEqual({ available: true });
     await expect(client.telegramAvailability(true)).resolves.toEqual({ available: true });
+    await expect(client.telegramAvailability(true, 'mainnet')).resolves.toEqual({
+      available: true,
+    });
+    await expect(
+      client
+        .telegramSettings('0x1111111111111111111111111111111111111111', undefined, 'mainnet')
+        .catch(() => 'parsed'),
+    ).resolves.toBe('parsed');
 
     expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
       'http://localhost:8787/health',
       'http://localhost:8787/v2/rulewright/availability',
       'http://localhost:8787/v2/assistant/availability',
       '/v1/telegram/availability?workflow=true',
+      '/v1/telegram/availability?workflow=true&network=mainnet',
+      '/v1/accounts/0x1111111111111111111111111111111111111111/telegram?network=mainnet',
     ]);
   });
 });

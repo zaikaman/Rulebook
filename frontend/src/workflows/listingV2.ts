@@ -1,16 +1,18 @@
 import {
   addressSchema,
+  automationChainFor,
   fundsChainIdSchema,
-  LASNA_CHAIN_ID,
+  getChain,
   workflowAgentFactoryV2Abi,
   workflowHexSchema,
   workflowIdSchema,
+  type NetworkMode,
 } from '@rulebook/shared';
 import { queryOptions, skipToken } from '@tanstack/react-query';
 import { decodeFunctionResult, encodeFunctionData, keccak256, maxUint256 } from 'viem';
 import { z } from 'zod';
 import { ApiError } from '@/lib/api';
-import { workflowClient, workflowV2Deployment } from './chainV2';
+import { workflowClient, workflowV2DeploymentFor } from './chainV2';
 
 export const v2ApiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8787').replace(
   /\/$/,
@@ -39,8 +41,8 @@ export const v2MarketPage = z.object({
 const listingReadMessages = {
   syncing: 'The Marketplace is still syncing this listing.',
   unavailable: 'This listing is no longer public or does not exist.',
-  unverified: 'The listing details could not be verified on Lasna.',
-  unconfigured: 'The testnet Marketplace is unavailable.',
+  unverified: 'The listing details could not be verified on-chain.',
+  unconfigured: 'This Marketplace network is unavailable.',
 };
 
 export class ListingReadError extends Error {
@@ -49,11 +51,13 @@ export class ListingReadError extends Error {
   }
 }
 
-async function getV2Listing(id: string, signal: AbortSignal) {
-  const factory = workflowV2Deployment?.lasna.factory;
+async function getV2Listing(id: string, mode: NetworkMode, signal: AbortSignal) {
+  const deployment = workflowV2DeploymentFor(mode);
+  const factory = deployment?.automationFactory;
   if (!factory) throw new ListingReadError('unconfigured');
+  const autoChainId = automationChainFor(mode);
   const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
-  const response = await fetch(`${v2ApiBase}/v3/marketplace/${id}`, {
+  const response = await fetch(`${v2ApiBase}/v3/marketplace/${id}?network=${mode}`, {
     cache: 'no-store',
     signal: requestSignal,
   });
@@ -66,7 +70,7 @@ async function getV2Listing(id: string, signal: AbortSignal) {
     );
 
   const call = { abi: workflowAgentFactoryV2Abi, functionName: 'listings' } as const;
-  const { data } = await workflowClient(LASNA_CHAIN_ID).call({
+  const { data } = await workflowClient(autoChainId).call({
     to: factory,
     data: encodeFunctionData({ ...call, args: [BigInt(id)] }),
     requestOptions: { signal: requestSignal, retryCount: 0 },
@@ -88,16 +92,17 @@ async function getV2Listing(id: string, signal: AbortSignal) {
     agent.toLowerCase() !== item.agent.toLowerCase() ||
     workflow !== item.workflow_id ||
     hash !== item.program_hash ||
-    keccak256(item.program) !== hash
+    keccak256(item.program) !== hash ||
+    getChain(item.chain).network !== mode
   )
     throw new ListingReadError('unverified');
   return item;
 }
 
-export function v2ListingQuery(id: string | undefined) {
+export function v2ListingQuery(id: string | undefined, mode: NetworkMode = 'testnet') {
   return queryOptions({
-    queryKey: ['workflow-v2', 'listing', id],
-    queryFn: id ? ({ signal }) => getV2Listing(id, signal) : skipToken,
+    queryKey: ['workflow-v2', 'listing', mode, id],
+    queryFn: id ? ({ signal }) => getV2Listing(id, mode, signal) : skipToken,
     staleTime: 0,
     retry: (failures, error) => {
       if (error instanceof ListingReadError && error.kind !== 'syncing') return false;

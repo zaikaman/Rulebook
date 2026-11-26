@@ -51,6 +51,7 @@ function emptyWorkflowV2Database() {
       select: () => builder,
       match: () => builder,
       eq: () => builder,
+      in: () => builder,
       or: () => builder,
       ilike: () => builder,
       order: () => builder,

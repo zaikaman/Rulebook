@@ -21,6 +21,25 @@ describe('workflow V2 failure reasons', () => {
     });
   });
 
+  it('maps oracle and slippage protection errors to clear explanations', () => {
+    expect(workflowV2FailureReason(toFunctionSelector('OracleUnavailable()'))).toEqual({
+      message: 'The Chainlink price oracle is unavailable or stale.',
+    });
+    expect(workflowV2FailureReason(toFunctionSelector('SequencerUnavailable()'))).toEqual({
+      message: 'The L2 sequencer is down or still in its recovery grace period.',
+    });
+    expect(
+      workflowV2FailureReason(toFunctionSelector('OraclePriceDeviation(uint256,uint256)')),
+    ).toEqual({
+      message: 'The origin pool price diverged too far from the settlement oracle price.',
+    });
+    expect(
+      workflowV2FailureReason(toFunctionSelector('SlippageExceeded(uint256,uint256)')),
+    ).toEqual({
+      message: 'The swap quote was worse than the oracle-protected slippage floor.',
+    });
+  });
+
   it('falls back to the contract error message', () => {
     expect(workflowV2FailureReason('0x12345678')).toEqual({
       message: 'Settlement returned a contract error.',

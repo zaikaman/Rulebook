@@ -5,7 +5,15 @@
  */
 import { zeroAddress } from 'viem';
 import { z } from 'zod';
-import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from './chains.js';
+import {
+  BASE_MAINNET_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+  LASNA_CHAIN_ID,
+  NETWORK_MODES,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+} from './chains.js';
 
 const MAX_UINT256 = (1n << 256n) - 1n;
 
@@ -32,10 +40,17 @@ export const uint256Schema = z
 export type Uint256 = z.infer<typeof uint256Schema>;
 
 export const templateIdSchema = z.number().int().min(1).max(13);
+export const networkModeSchema = z.enum(NETWORK_MODES);
+export const automationChainIdSchema = z.union([
+  z.literal(LASNA_CHAIN_ID),
+  z.literal(REACTIVE_MAINNET_CHAIN_ID),
+]);
 export const chainIdSchema = z.number().int().positive();
 export const fundsChainIdSchema = z.union([
   z.literal(UNICHAIN_SEPOLIA_CHAIN_ID),
   z.literal(BASE_SEPOLIA_CHAIN_ID),
+  z.literal(UNICHAIN_MAINNET_CHAIN_ID),
+  z.literal(BASE_MAINNET_CHAIN_ID),
 ]);
 
 export const workflowV2ChainDeploymentSchema = z
@@ -56,8 +71,17 @@ export const workflowV2DeploymentSchema = z
   })
   .strict();
 
+export const workflowV2MainnetDeploymentSchema = z
+  .object({
+    reactive: workflowV2ChainDeploymentSchema,
+    unichain: workflowV2ChainDeploymentSchema,
+    base: workflowV2ChainDeploymentSchema.optional(),
+  })
+  .strict();
+
 export type WorkflowV2ChainDeployment = z.infer<typeof workflowV2ChainDeploymentSchema>;
 export type WorkflowV2Deployment = z.infer<typeof workflowV2DeploymentSchema>;
+export type WorkflowV2MainnetDeployment = z.infer<typeof workflowV2MainnetDeploymentSchema>;
 export const blockTimeSchema = z.string().datetime({ offset: true });
 
 export const ruleStatusSchema = z.enum(['active', 'paused', 'cancelled']);

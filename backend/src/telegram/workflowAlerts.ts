@@ -1,15 +1,19 @@
 import {
   addressSchema,
+  automationChainFor,
   decodeWorkflowV2,
   fundsChainIdSchema,
   getChain,
   isFundsChain,
+  networkModeForChain,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
   workflowIdSchema,
   workflowV2Action,
   workflowV2Trigger,
   workflowVaultV2Abi,
   type Address,
+  type AutomationChainId,
   type FundsChainId,
 } from '@rulebook/shared';
 import { erc20Abi, formatUnits, parseEventLogs, type PublicClient } from 'viem';
@@ -47,7 +51,7 @@ type Candidate = z.infer<typeof candidates>[number];
 
 export const payoutPreflight = z.object({
   kind: z.literal('payout'),
-  chain: fundsChainIdSchema.default(UNICHAIN_SEPOLIA_CHAIN_ID),
+  chain: fundsChainIdSchema,
   vault: addressSchema,
   workflow: workflowIdSchema,
   epoch: epochSchema,
@@ -75,18 +79,42 @@ const weth = (amount: bigint) => `${formatUnits(amount, 18)} WETH`;
 
 export class WorkflowTelegramAlerts {
   private readonly clients: ChainClients;
+  readonly automationChain: AutomationChainId;
+  readonly deployment: string;
 
   constructor(
     private readonly db: Pick<TelegramDatabase, 'rpc'>,
     clientsOrClient: ChainClients | PublicClient,
-    readonly deployment: Address,
+    deployment: string,
     private readonly origin: string,
     private readonly chains: readonly FundsChainId[] = [UNICHAIN_SEPOLIA_CHAIN_ID],
   ) {
+    if (chains.length === 0) {
+      throw new Error('WorkflowTelegramAlerts requires at least one funds chain');
+    }
+    const mode = networkModeForChain(chains[0]!);
+    if (chains.some((chain) => networkModeForChain(chain) !== mode)) {
+      throw new Error('WorkflowTelegramAlerts chains must belong to the same network mode');
+    }
+    this.automationChain = automationChainFor(mode);
+    this.deployment = deployment.includes(':')
+      ? deployment.toLowerCase()
+      : workflowDeploymentKey(this.automationChain, deployment as Address);
     this.clients =
       'lasna' in clientsOrClient
         ? clientsOrClient
-        : { lasna: clientsOrClient, unichain: clientsOrClient, base: clientsOrClient };
+        : {
+            lasna: clientsOrClient,
+            unichain: clientsOrClient,
+            base: clientsOrClient,
+            reactiveMainnet: clientsOrClient,
+            unichainMainnet: clientsOrClient,
+            baseMainnet: clientsOrClient,
+          };
+  }
+
+  handlesChain(chain: FundsChainId): boolean {
+    return this.chains.includes(chain);
   }
 
   async process() {
@@ -124,6 +152,9 @@ export class WorkflowTelegramAlerts {
   }
 
   async stillInGrace(input: z.infer<typeof payoutPreflight>) {
+    if (!this.handlesChain(input.chain)) {
+      throw new Error(`WorkflowTelegramAlerts does not handle chain ${input.chain}`);
+    }
     const client = clientFor(this.clients, input.chain);
     const block = await client.getBlock({ blockTag: 'latest' });
     if (block.number < BigInt(input.block) || Date.now() / 1000 - Number(block.timestamp) > 300)

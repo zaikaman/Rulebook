@@ -86,10 +86,13 @@ test('finds a public workflow proof from workspace costs without connecting a wa
     path: 2,
     reason: null,
   };
-  await page.route(`**/v3/runs/${run.id}`, async (route) => {
-    expect(route.request().headers().authorization).toBeUndefined();
-    await route.fulfill({ json: run });
-  });
+  await page.route(
+    (url) => url.pathname === `/v3/runs/${run.id}`,
+    async (route) => {
+      expect(route.request().headers().authorization).toBeUndefined();
+      await route.fulfill({ json: run });
+    },
+  );
   await page.route(ANVIL_RPC_URL, async (route) => {
     if (route.request().method() !== 'POST') return route.fallback();
     const rpc = route.request().postDataJSON();

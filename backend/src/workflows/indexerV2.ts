@@ -1,9 +1,15 @@
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
+  isAutomationChain,
   LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
   type WorkflowV2ChainDeployment,
   type WorkflowV2Deployment,
+  type WorkflowV2MainnetDeployment,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowVaultFactoryV2Abi,
@@ -17,8 +23,13 @@ const ADDRESS_BATCH_SIZE = 50;
 const ACCOUNT_PAGE_SIZE = 1000;
 
 type OriginChain =
-  typeof LASNA_CHAIN_ID | typeof UNICHAIN_SEPOLIA_CHAIN_ID | typeof BASE_SEPOLIA_CHAIN_ID;
-export type { WorkflowV2ChainDeployment, WorkflowV2Deployment };
+  | typeof LASNA_CHAIN_ID
+  | typeof UNICHAIN_SEPOLIA_CHAIN_ID
+  | typeof BASE_SEPOLIA_CHAIN_ID
+  | typeof REACTIVE_MAINNET_CHAIN_ID
+  | typeof UNICHAIN_MAINNET_CHAIN_ID
+  | typeof BASE_MAINNET_CHAIN_ID;
+export type { WorkflowV2ChainDeployment, WorkflowV2Deployment, WorkflowV2MainnetDeployment };
 
 interface ChainSource extends WorkflowV2ChainDeployment {
   chain: OriginChain;
@@ -43,12 +54,48 @@ export class WorkflowV2Indexer {
 
   constructor(
     private readonly db: SupabaseClient,
-    clients: { lasna: PublicClient; unichain: PublicClient; base?: PublicClient },
-    config: WorkflowV2Deployment,
+    clients: {
+      lasna: PublicClient;
+      unichain: PublicClient;
+      base?: PublicClient;
+      reactiveMainnet?: PublicClient;
+      unichainMainnet?: PublicClient;
+      baseMainnet?: PublicClient;
+    },
+    config: WorkflowV2Deployment | WorkflowV2MainnetDeployment,
     private readonly logger: FastifyBaseLogger,
     private readonly stageTelegram = false,
   ) {
-    this.deployment = config.lasna.factory.toLowerCase();
+    if ('reactive' in config) {
+      if (!clients.reactiveMainnet || !clients.unichainMainnet) {
+        throw new Error('Mainnet RPC clients must be configured to index the mainnet deployment.');
+      }
+      this.deployment = workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, config.reactive.factory);
+      this.sources = [
+        {
+          ...config.reactive,
+          chain: REACTIVE_MAINNET_CHAIN_ID,
+          client: clients.reactiveMainnet,
+          confirmations: 20n,
+        },
+        {
+          ...config.unichain,
+          chain: UNICHAIN_MAINNET_CHAIN_ID,
+          client: clients.unichainMainnet,
+          confirmations: 12n,
+        },
+      ];
+      if (config.base && clients.baseMainnet) {
+        this.sources.push({
+          ...config.base,
+          chain: BASE_MAINNET_CHAIN_ID,
+          client: clients.baseMainnet,
+          confirmations: 12n,
+        });
+      }
+      return;
+    }
+    this.deployment = workflowDeploymentKey(LASNA_CHAIN_ID, config.lasna.factory);
     this.sources = [
       { ...config.lasna, chain: LASNA_CHAIN_ID, client: clients.lasna, confirmations: 20n },
       {
@@ -107,7 +154,7 @@ export class WorkflowV2Indexer {
     const head = (await client.getBlockNumber({ cacheTime: 0 })) - confirmations;
     if (fromBlock > head) return;
     const toBlock = fromBlock + 199n < head ? fromBlock + 199n : head;
-    const lasna = chain === LASNA_CHAIN_ID;
+    const lasna = isAutomationChain(chain);
     const created = await client.getLogs({
       address: factory,
       events: lasna ? AGENT_FACTORY : VAULT_CREATED,

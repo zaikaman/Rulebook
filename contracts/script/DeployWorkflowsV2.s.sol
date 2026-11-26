@@ -12,15 +12,15 @@ contract DeployWorkflowsV2 is Script {
 
     function run() external {
         vm.startBroadcast(vm.envUint("DEPLOYER_PRIVATE_KEY"));
-        if (block.chainid == ChainConfig.LASNA) {
-            address system = ChainConfig.lasna().systemContract;
+        if (ChainConfig.isAutomationChain(block.chainid)) {
+            address system = ChainConfig.get(block.chainid).systemContract;
             if (system.code.length == 0) revert InactiveSystem();
             console2.log(
                 "WorkflowAgentFactoryV2",
                 address(new WorkflowAgentFactoryV2(IReactiveSystem(system)))
             );
         } else {
-            // Deploys identically on Unichain Sepolia and Base Sepolia via ChainConfig.get(block.chainid).
+            // Deploys identically on all configured funds chains via ChainConfig.get(block.chainid).
             console2.log("WorkflowVaultFactoryV2", address(new WorkflowVaultFactoryV2()));
         }
         vm.stopBroadcast();

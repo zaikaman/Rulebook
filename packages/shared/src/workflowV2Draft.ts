@@ -11,6 +11,7 @@ import { formatUnits, zeroAddress, type Address } from 'viem';
 import { z } from 'zod';
 import {
   isFundsChain,
+  isSameNetworkMode,
   UNICHAIN_SEPOLIA_CHAIN_ID as UNICHAIN,
   type FundsChainId,
 } from './chains.js';
@@ -651,7 +652,11 @@ export function validateWorkflowV2Program(
   options?: { skipCaps?: boolean },
 ): void {
   if (!isFundsChain(program.chain) || !isFundsChain(program.originChain))
-    throw new Error('Select a supported workflow testnet.');
+    throw new Error('Select a supported workflow network.');
+  if (!isSameNetworkMode(program.chain, program.originChain))
+    throw new Error(
+      'Settlement and watched trigger networks must both be testnet or both be mainnet.',
+    );
   if (!validTriggers.has(program.trigger)) throw new Error('Select a supported trigger.');
   if (program.slippage < 0 || program.slippage > 1_000) {
     throw new Error('The maximum slippage must be between 0.01% and 10%.');

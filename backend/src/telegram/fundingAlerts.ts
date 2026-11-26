@@ -1,16 +1,24 @@
 import {
   addressSchema,
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   executionCreditAbi,
   feeCreditWarningThreshold,
-  FUNDS_CHAIN_IDS,
   fundsChainIdSchema,
+  fundsChainsFor,
+  isAutomationChain,
+  isFundsChain,
   LASNA_CHAIN_ID,
+  networkModeForChain,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowAgentV2Abi,
+  workflowDeploymentKey,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
   type Address,
+  type AutomationChainId,
   type FundsChainId,
 } from '@rulebook/shared';
 import { formatEther, type Hex } from 'viem';
@@ -19,7 +27,11 @@ import { z } from 'zod';
 import { clientFor, type ChainClients } from '../chain/clients.js';
 import type { TelegramDatabase } from './service.js';
 
-const chainSchema = z.union([z.literal(LASNA_CHAIN_ID), fundsChainIdSchema]);
+const chainSchema = z.union([
+  z.literal(LASNA_CHAIN_ID),
+  z.literal(REACTIVE_MAINNET_CHAIN_ID),
+  fundsChainIdSchema,
+]);
 type FundingChain = z.infer<typeof chainSchema>;
 const balances = z.enum(['healthy', 'low', 'empty', 'debt']);
 const jobs = z.array(
@@ -56,6 +68,27 @@ const funding = {
     route: 'execution',
     effect: 'The Vault may be unable to finish workflow runs.',
   },
+  [REACTIVE_MAINNET_CHAIN_ID]: {
+    label: 'watching credit',
+    token: 'REACT',
+    network: 'Reactive Mainnet',
+    route: 'watching',
+    effect: 'Workflows may stop checking for events.',
+  },
+  [UNICHAIN_MAINNET_CHAIN_ID]: {
+    label: 'execution credit',
+    token: 'ETH',
+    network: 'Unichain',
+    route: 'execution',
+    effect: 'The Vault may be unable to finish workflow runs.',
+  },
+  [BASE_MAINNET_CHAIN_ID]: {
+    label: 'execution credit',
+    token: 'ETH',
+    network: 'Base',
+    route: 'execution',
+    effect: 'The Vault may be unable to finish workflow runs.',
+  },
 } as const;
 
 type CreditReading = { reserve: bigint; debt: bigint; state: z.infer<typeof balances> };
@@ -68,26 +101,40 @@ function fundingState(chain: FundingChain, reserve: bigint, debt: bigint): Credi
 
 export class TelegramFundingAlerts {
   private readonly vaultFactories: Partial<Record<FundsChainId, Address>>;
+  private readonly deployment: string;
 
   constructor(
     private readonly db: Pick<TelegramDatabase, 'rpc'>,
     private readonly clients: ChainClients,
-    private readonly deployment: Address,
+    deployment: string,
     vaultFactories: Partial<Record<FundsChainId, Address>> | Address,
     private readonly origin: string,
+    private readonly automationChain: AutomationChainId = LASNA_CHAIN_ID,
   ) {
+    this.deployment = deployment.includes(':')
+      ? deployment.toLowerCase()
+      : workflowDeploymentKey(automationChain, deployment as Address);
     this.vaultFactories =
       typeof vaultFactories === 'string'
         ? { [UNICHAIN_SEPOLIA_CHAIN_ID]: vaultFactories }
         : vaultFactories;
   }
 
+  handlesChain(chain: number): boolean {
+    if (chain === this.automationChain) return true;
+    return isFundsChain(chain)
+      ? networkModeForChain(chain) === networkModeForChain(this.automationChain) &&
+          Boolean(this.vaultFactories[chain])
+      : false;
+  }
+
   async process() {
-    const activeFundsChains = FUNDS_CHAIN_IDS.filter((chain) =>
+    const modeFundsChains = fundsChainsFor(networkModeForChain(this.automationChain));
+    const activeFundsChains = modeFundsChains.filter((chain) =>
       Boolean(this.vaultFactories[chain]),
     );
     const checks = await Promise.allSettled([
-      this.checkChain(LASNA_CHAIN_ID),
+      this.checkChain(this.automationChain),
       ...activeFundsChains.map((chain) => this.checkChain(chain)),
     ]);
     if (checks.some(({ status }) => status === 'rejected')) {
@@ -120,7 +167,7 @@ export class TelegramFundingAlerts {
     const client = clientFor(this.clients, chain);
     const block = await client.getBlock({ blockTag: 'latest' });
     if (Date.now() / 1000 - Number(block.timestamp) > 300) throw new Error('Funding RPC is stale');
-    const beneficiary = chain === LASNA_CHAIN_ID ? job.agent : job.vault;
+    const beneficiary = isAutomationChain(chain) ? job.agent : job.vault;
     const active =
       beneficiary && (await this.hasActiveWorkflow(chain, job, block.number, block.timestamp));
     const reading = active ? await this.credit(chain, beneficiary, block.number) : null;
@@ -170,16 +217,16 @@ export class TelegramFundingAlerts {
     blockNumber: bigint,
     timestamp: bigint,
   ) {
-    const source = this.clients.lasna;
+    const source = clientFor(this.clients, this.automationChain);
     const sourceBlock =
-      chain === LASNA_CHAIN_ID ? blockNumber : await source.getBlockNumber({ cacheTime: 0 });
+      chain === this.automationChain ? blockNumber : await source.getBlockNumber({ cacheTime: 0 });
     const sourceCall = {
       address: agent,
       abi: workflowAgentV2Abi,
       blockNumber: sourceBlock,
     } as const;
     const ids = await source.readContract({ ...sourceCall, functionName: 'workflowIds' });
-    if (chain === LASNA_CHAIN_ID) {
+    if (chain === this.automationChain) {
       return this.anyWorkflow(ids, async (id) => {
         const entry = await source.readContract({
           ...sourceCall,
@@ -223,7 +270,7 @@ export class TelegramFundingAlerts {
   private async credit(chain: FundingChain, beneficiary: Address, blockNumber: bigint) {
     const client = clientFor(this.clients, chain);
     let address: Address;
-    if (chain === LASNA_CHAIN_ID) {
+    if (isAutomationChain(chain)) {
       address = await client.readContract({
         address: beneficiary,
         abi: workflowAgentV2Abi,

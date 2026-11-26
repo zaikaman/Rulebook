@@ -1,24 +1,28 @@
 import {
+  automationChainFor,
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   decodeWorkflowV2,
+  defaultFundsChainFor,
   encodeWorkflowV2,
   executionCreditAbi,
-  FUNDS_CHAIN_IDS,
   getChain,
+  isAutomationChain,
   isFundsChain,
-  LASNA_CHAIN_ID,
+  networkModeForChain,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   validateWorkflowV2Program,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowProgramValidatorV2Abi,
   workflowV2Action,
-  workflowV2DeploymentSchema,
   workflowV2Trigger,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
   workflowV2Limits,
   type FundsChainId,
+  type NetworkMode,
+  type SupportedChainId,
   type WeeklyBudgetAmounts,
   type WorkflowV2Program,
 } from '@rulebook/shared';
@@ -41,43 +45,40 @@ import { useAccount, useSendTransaction } from 'wagmi';
 import type { SetupWallet } from '@/hooks/useAccountSetup';
 import type { SetupFundingWallet } from '@/hooks/useAccountFunding';
 import { useChainGuard } from '@/hooks/useChainGuard';
+import {
+  configuredFundsChainsFor,
+  parseWorkflowV2TestnetDeployment,
+  resolveWorkflowV2Deployment,
+} from '@/lib/contracts';
 import { describeError, formatContractError, SetupTransactionError } from '@/lib/errors';
+import { useNetworkMode } from '@/lib/networkMode';
 import { type SignatureDetails } from '@/lib/signatures';
-import { basePublicClient, lasnaPublicClient as lasna, unichainPublicClient } from '@/lib/wagmi';
+import { publicClientFor } from '@/lib/wagmi';
 import { workflowFundingIssues } from './fundingV2';
 
 export type SettlementChain = FundsChainId;
-type WalletChain = SignatureDetails['chainId'];
+type WalletChain = SupportedChainId | SignatureDetails['chainId'];
 
-function deployment() {
-  try {
-    return workflowV2DeploymentSchema.parse(
-      JSON.parse(import.meta.env.VITE_WORKFLOW_V2_DEPLOYMENT ?? 'null'),
-    );
-  } catch {
-    return undefined;
-  }
-}
-
-export const workflowV2Deployment = deployment();
+export const workflowV2Deployment = parseWorkflowV2TestnetDeployment();
 export const workflowActivationEnabled = import.meta.env.VITE_WORKFLOW_V2_ACTIVATION === 'true';
 
-export function configuredFundsChains(): readonly SettlementChain[] {
-  return FUNDS_CHAIN_IDS.filter(
-    (chain) => chain === UNICHAIN_SEPOLIA_CHAIN_ID || Boolean(workflowV2Deployment?.base),
-  );
+export function workflowV2DeploymentFor(mode: NetworkMode = 'testnet') {
+  return resolveWorkflowV2Deployment(mode);
+}
+
+export function configuredFundsChains(mode: NetworkMode = 'testnet'): readonly SettlementChain[] {
+  return configuredFundsChainsFor(mode, workflowV2DeploymentFor(mode));
 }
 
 export function settlementFactory(chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID) {
-  return chain === BASE_SEPOLIA_CHAIN_ID
-    ? workflowV2Deployment?.base?.factory
-    : workflowV2Deployment?.unichain.factory;
+  const dep = workflowV2DeploymentFor(networkModeForChain(chain));
+  return chain === BASE_SEPOLIA_CHAIN_ID || chain === BASE_MAINNET_CHAIN_ID
+    ? dep?.base?.factory
+    : dep?.unichain.factory;
 }
 
 export function workflowClient(chain: WalletChain) {
-  if (chain === LASNA_CHAIN_ID) return lasna;
-  if (chain === BASE_SEPOLIA_CHAIN_ID) return basePublicClient;
-  return unichainPublicClient;
+  return publicClientFor(chain);
 }
 
 export function v2Network(chain: WalletChain) {
@@ -85,7 +86,7 @@ export function v2Network(chain: WalletChain) {
 }
 
 export function v2Explorer(chain: number, hash: Hex) {
-  if (chain !== LASNA_CHAIN_ID && !isFundsChain(chain)) return undefined;
+  if (!isAutomationChain(chain) && !isFundsChain(chain)) return undefined;
   return `${v2Network(chain).explorerUrl}/tx/${hash}`;
 }
 
@@ -109,12 +110,14 @@ const invalidProgramSelector = toFunctionSelector('InvalidProgram()');
 
 export async function validateV2Program(encoded: Hex, program?: WorkflowV2Program) {
   const resolvedProgram = program ?? decodeWorkflowV2(encoded);
+  const mode = networkModeForChain(
+    isFundsChain(resolvedProgram.chain) ? resolvedProgram.chain : UNICHAIN_SEPOLIA_CHAIN_ID,
+  );
+  const fallbackChain = defaultFundsChainFor(mode);
   const chain: SettlementChain = isFundsChain(resolvedProgram.chain)
     ? resolvedProgram.chain
-    : UNICHAIN_SEPOLIA_CHAIN_ID;
-  const factoryChain: SettlementChain = settlementFactory(chain)
-    ? chain
-    : UNICHAIN_SEPOLIA_CHAIN_ID;
+    : fallbackChain;
+  const factoryChain: SettlementChain = settlementFactory(chain) ? chain : fallbackChain;
   const factory = settlementFactory(factoryChain);
   if (!factory) return;
   const client = workflowClient(factoryChain);
@@ -140,10 +143,16 @@ export async function validateV2Program(encoded: Hex, program?: WorkflowV2Progra
   }
 }
 
-export async function readAgent(owner: Address, blockNumber?: bigint) {
-  const factory = workflowV2Deployment?.lasna.factory;
+export async function readAgent(
+  owner: Address,
+  blockNumber?: bigint,
+  mode: NetworkMode = 'testnet',
+) {
+  const dep = workflowV2DeploymentFor(mode);
+  const factory = dep?.automationFactory;
+  const client = workflowClient(automationChainFor(mode));
   return factory
-    ? lasna.readContract({
+    ? client.readContract({
         address: factory,
         abi: workflowAgentFactoryV2Abi,
         functionName: 'agentOf',
@@ -166,8 +175,8 @@ export async function readVault(owner: Address, chain: SettlementChain, blockNum
     : zeroAddress;
 }
 
-export function v2Entry(agent: Address, id: Hex) {
-  return lasna.readContract({
+export function v2Entry(agent: Address, id: Hex, mode: NetworkMode = 'testnet') {
+  return workflowClient(automationChainFor(mode)).readContract({
     address: agent,
     abi: workflowAgentV2Abi,
     functionName: 'entries',
@@ -226,9 +235,11 @@ async function workflowVersion(
   chain: SettlementChain,
   preloadedEntry?: Awaited<ReturnType<typeof v2Entry>>,
 ) {
+  const mode = networkModeForChain(chain);
+  const autoClient = workflowClient(automationChainFor(mode));
   const client = workflowClient(chain);
   const [entry, auth] = await Promise.all([
-    preloadedEntry ?? v2Entry(agent, id),
+    preloadedEntry ?? v2Entry(agent, id, mode),
     v2Authorization(chain, vault, id),
   ]);
   if (entry[1] === 0n && auth[1] === 0n)
@@ -241,7 +252,7 @@ async function workflowVersion(
         functionName: 'titles',
         args: [id],
       })
-    : await lasna.readContract({
+    : await autoClient.readContract({
         address: agent,
         abi: workflowAgentV2Abi,
         functionName: 'titles',
@@ -253,6 +264,8 @@ async function workflowVersion(
 }
 
 async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workflowVersion>>) {
+  const mode = networkModeForChain(item.chain);
+  const autoClient = workflowClient(automationChainFor(mode));
   const client = workflowClient(item.chain);
   const [program, memory, budget] = await Promise.all([
     item.staged
@@ -262,7 +275,7 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
           functionName: 'programs',
           args: [item.auth[0]],
         })
-      : lasna.readContract({
+      : autoClient.readContract({
           address: item.agent,
           abi: workflowAgentV2Abi,
           functionName: 'programs',
@@ -279,10 +292,10 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
   return { ...item, program, budget, closed: memory[7] };
 }
 
-export async function readWorkflowsV2(owner: Address) {
-  const chains = configuredFundsChains();
+export async function readWorkflowsV2(owner: Address, mode: NetworkMode = 'testnet') {
+  const chains = configuredFundsChains(mode);
   const [agent, ...vaultList] = await Promise.all([
-    readAgent(owner),
+    readAgent(owner, undefined, mode),
     ...chains.map((chain) => readVault(owner, chain)),
   ]);
   if (agent === zeroAddress) return [];
@@ -322,15 +335,16 @@ export async function readWorkflowsV2(owner: Address) {
 }
 
 /** Number of workflows currently enabled on the wallet's Agent, the array `MAX_ACTIVE` bounds. */
-export async function readActiveWorkflowCount(owner: Address) {
-  const agent = await readAgent(owner);
+export async function readActiveWorkflowCount(owner: Address, mode: NetworkMode = 'testnet') {
+  const agent = await readAgent(owner, undefined, mode);
   if (agent === zeroAddress) return 0;
-  const ids = await lasna.readContract({
+  const autoClient = workflowClient(automationChainFor(mode));
+  const ids = await autoClient.readContract({
     address: agent,
     abi: workflowAgentV2Abi,
     functionName: 'workflowIds',
   });
-  const entries = await Promise.all(ids.map((id) => v2Entry(agent, id)));
+  const entries = await Promise.all(ids.map((id) => v2Entry(agent, id, mode)));
   return entries.filter((entry) => entry[4] !== 0).length;
 }
 
@@ -378,10 +392,10 @@ export async function readPaymentWorkflow(
   return readPaymentWorkflowFromVault(chain, vault);
 }
 
-export async function readWorkflowV2(owner: Address, id: Hex) {
-  const chains = configuredFundsChains();
+export async function readWorkflowV2(owner: Address, id: Hex, mode: NetworkMode = 'testnet') {
+  const chains = configuredFundsChains(mode);
   const [agent, ...vaultList] = await Promise.all([
-    readAgent(owner),
+    readAgent(owner, undefined, mode),
     ...chains.map((chain) => readVault(owner, chain)),
   ]);
   const deployed = chains
@@ -389,7 +403,7 @@ export async function readWorkflowV2(owner: Address, id: Hex) {
     .filter((item) => item.vault !== zeroAddress);
   if (agent === zeroAddress || !deployed.length)
     throw new Error('This wallet has no workflow account.');
-  const entry = await v2Entry(agent, id);
+  const entry = await v2Entry(agent, id, mode);
   const entryChain = isFundsChain(entry[5]) ? entry[5] : undefined;
   const preferred = entryChain ? deployed.find((item) => item.chain === entryChain) : undefined;
   if (preferred) {
@@ -409,9 +423,15 @@ export async function readWorkflowV2(owner: Address, id: Hex) {
 }
 
 export async function readFundsV2(owner: Address, chain: SettlementChain) {
-  const [agent, vault] = await Promise.all([readAgent(owner), readVault(owner, chain)]);
+  const mode = networkModeForChain(chain);
+  const autoChain = automationChainFor(mode);
+  const autoClient = workflowClient(autoChain);
+  const [agent, vault] = await Promise.all([
+    readAgent(owner, undefined, mode),
+    readVault(owner, chain),
+  ]);
   const client = workflowClient(chain);
-  const lasnaSystem = getChain(LASNA_CHAIN_ID).systemContract;
+  const lasnaSystem = getChain(autoChain).systemContract;
   const factory = settlementFactory(chain);
   const proxy = factory
     ? await client.readContract({
@@ -430,7 +450,7 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
         : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'weth' }),
       agent === zeroAddress
         ? 0n
-        : lasna.readContract({
+        : autoClient.readContract({
             address: lasnaSystem,
             abi: executionCreditAbi,
             functionName: 'reserves',
@@ -445,9 +465,9 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
             args: [vault],
           }),
       vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
-      agent === zeroAddress ? 0n : lasna.getBalance({ address: agent }),
+      agent === zeroAddress ? 0n : autoClient.getBalance({ address: agent }),
       client.getBalance({ address: owner }),
-      lasna.getBalance({ address: owner }),
+      autoClient.getBalance({ address: owner }),
     ]);
   const tokenBalance = (token: Address, account: Address) =>
     token === zeroAddress
@@ -498,6 +518,9 @@ export function useWorkflowV2Wallet() {
   const guard = useChainGuard();
   const { sendTransactionAsync } = useSendTransaction();
   const queries = useQueryClient();
+  const { mode, automationChainId, automationName, nativeSymbol, defaultFundsChainId, deployment } =
+    useNetworkMode();
+  const autoClient = workflowClient(automationChainId);
   const locked = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
@@ -509,7 +532,7 @@ export function useWorkflowV2Wallet() {
     ready: (state: T) => boolean,
     confirmedSetup?: { chain: WalletChain; hash: Hex },
   ) {
-    setStatus('Waiting for the confirmed change to appear on the testnet.');
+    setStatus(`Waiting for the confirmed change on ${mode}.`);
     let lastError: unknown;
     for (let attempt = 0; attempt < 12; attempt++) {
       try {
@@ -557,7 +580,7 @@ export function useWorkflowV2Wallet() {
           to: target,
           data,
           value,
-          ...(chain === LASNA_CHAIN_ID
+          ...(isAutomationChain(chain)
             ? { maxPriorityFeePerGas: 1n, maxFeePerGas: (await client.getGasPrice()) * 2n + 1n }
             : {}),
         }),
@@ -603,21 +626,21 @@ export function useWorkflowV2Wallet() {
   }
 
   async function createAgent(signer: Address, reviewedConnector?: string) {
-    const agentFactory = workflowV2Deployment?.lasna.factory;
-    if (!agentFactory) throw new Error('This testnet deployment is unavailable.');
+    const agentFactory = deployment?.automationFactory;
+    if (!agentFactory) throw new Error(`This ${mode} deployment is unavailable.`);
     const receipt = await send(
-      LASNA_CHAIN_ID,
+      automationChainId,
       agentFactory,
       encodeFunctionData({ abi: workflowAgentFactoryV2Abi, functionName: 'create' }),
-      'Create your workflow Agent on Reactive Lasna.',
+      `Create your workflow Agent on ${automationName}.`,
       undefined,
       undefined,
       reviewedConnector,
     );
     return waitForState(
-      () => readAgent(signer, receipt.blockNumber),
+      () => readAgent(signer, receipt.blockNumber, mode),
       (address) => address !== zeroAddress,
-      { chain: LASNA_CHAIN_ID, hash: receipt.transactionHash },
+      { chain: automationChainId, hash: receipt.transactionHash },
     );
   }
 
@@ -626,10 +649,10 @@ export function useWorkflowV2Wallet() {
     agent: Address,
     reviewedConnector?: string,
     _mode?: 'mirror',
-    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+    chain: SettlementChain = defaultFundsChainId,
   ) {
     const vaultFactory = settlementFactory(chain);
-    if (!vaultFactory) throw new Error('This testnet deployment is unavailable.');
+    if (!vaultFactory) throw new Error(`This ${mode} deployment is unavailable.`);
     const receipt = await send(
       chain,
       vaultFactory,
@@ -646,7 +669,7 @@ export function useWorkflowV2Wallet() {
     );
   }
 
-  const getVaultAgent = (vault: Address, chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID) =>
+  const getVaultAgent = (vault: Address, chain: SettlementChain = defaultFundsChainId) =>
     workflowClient(chain).readContract({
       address: vault,
       abi: workflowVaultV2Abi,
@@ -654,10 +677,10 @@ export function useWorkflowV2Wallet() {
     });
   const getLink = (
     agent: Address,
-    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+    chain: SettlementChain = defaultFundsChainId,
     blockNumber?: bigint,
   ) =>
-    lasna.readContract({
+    autoClient.readContract({
       address: agent,
       abi: workflowAgentV2Abi,
       functionName: 'vaults',
@@ -668,25 +691,25 @@ export function useWorkflowV2Wallet() {
   async function linkVault(
     agent: Address,
     vault: Address,
-    chain: SettlementChain = UNICHAIN_SEPOLIA_CHAIN_ID,
+    chain: SettlementChain = defaultFundsChainId,
     reviewedConnector?: string,
   ) {
     const linked = await getLink(agent, chain);
     if (linked !== zeroAddress) {
       if (isAddressEqual(linked, vault)) return;
       throw new Error(
-        `This testnet Agent is already linked to another ${v2Network(chain).name} Vault.`,
+        `This ${mode} Agent is already linked to another ${v2Network(chain).name} Vault.`,
       );
     }
     const receipt = await send(
-      LASNA_CHAIN_ID,
+      automationChainId,
       agent,
       encodeFunctionData({
         abi: workflowAgentV2Abi,
         functionName: 'linkVault',
         args: [chain, vault],
       }),
-      `Link your ${v2Network(chain).name} Vault to Lasna.`,
+      `Link your ${v2Network(chain).name} Vault to ${automationName}.`,
       undefined,
       undefined,
       reviewedConnector,
@@ -694,13 +717,13 @@ export function useWorkflowV2Wallet() {
     await waitForState(
       () => getLink(agent, chain, receipt.blockNumber),
       (address) => isAddressEqual(address, vault),
-      { chain: LASNA_CHAIN_ID, hash: receipt.transactionHash },
+      { chain: automationChainId, hash: receipt.transactionHash },
     );
   }
 
   async function ensure(signer: Address, chain: SettlementChain) {
     const [existingAgent, existingVault] = await Promise.all([
-      readAgent(signer),
+      readAgent(signer, undefined, mode),
       readVault(signer, chain),
     ]);
     const agent = existingAgent === zeroAddress ? await createAgent(signer) : existingAgent;
@@ -709,7 +732,7 @@ export function useWorkflowV2Wallet() {
         ? await createVault(signer, agent, undefined, undefined, chain)
         : existingVault;
     if (existingVault !== zeroAddress && !isAddressEqual(await getVaultAgent(vault, chain), agent))
-      throw new Error('This testnet Vault is linked to another Agent.');
+      throw new Error(`This ${mode} Vault is linked to another Agent.`);
     await linkVault(agent, vault, chain);
     return { agent, vault };
   }
@@ -717,7 +740,7 @@ export function useWorkflowV2Wallet() {
   function setupWalletForChain(chain: SettlementChain): SetupWallet {
     return {
       getAgent: async (signer) => {
-        const agent = await readAgent(signer);
+        const agent = await readAgent(signer, undefined, mode);
         return agent === zeroAddress ? null : agent;
       },
       getVault: async (signer) => {
@@ -730,28 +753,28 @@ export function useWorkflowV2Wallet() {
       },
       getVaultAgent: (vault) => getVaultAgent(vault, chain),
       createAgent,
-      createVault: (signer, agent, reviewedConnector, mode) =>
-        createVault(signer, agent, reviewedConnector, mode, chain),
+      createVault: (signer, agent, reviewedConnector, mirrorMode) =>
+        createVault(signer, agent, reviewedConnector, mirrorMode, chain),
       linkVault: (_signer, agent, vault, targetChain, reviewedConnector) =>
         linkVault(agent, vault, isFundsChain(targetChain) ? targetChain : chain, reviewedConnector),
     };
   }
-  const setupWallet: SetupWallet = setupWalletForChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+  const setupWallet: SetupWallet = setupWalletForChain(defaultFundsChainId);
 
   function fundingWalletForChain(_chain: SettlementChain): SetupFundingWallet {
     return {
       readFunds: (_signer, targetChain) => readFundsV2(_signer, targetChain),
       depositWatchingCredit: async (_signer, agent, systemContract, amount, reviewedConnector) => {
         const receipt = await send(
-          LASNA_CHAIN_ID,
+          automationChainId,
           systemContract,
           encodeFunctionData({
             abi: executionCreditAbi,
             functionName: 'depositTo',
             args: [agent],
           }),
-          'Deposit lREACT as watching credit on Reactive Lasna.',
-          `${formatUnits(amount, 18)} lREACT`,
+          `Deposit ${nativeSymbol} as watching credit on ${automationName}.`,
+          `${formatUnits(amount, 18)} ${nativeSymbol}`,
           amount,
           reviewedConnector,
         );
@@ -798,7 +821,7 @@ export function useWorkflowV2Wallet() {
       },
     };
   }
-  const fundingWallet: SetupFundingWallet = fundingWalletForChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+  const fundingWallet: SetupFundingWallet = fundingWalletForChain(defaultFundsChainId);
 
   function activate(
     id: Hex,
@@ -808,10 +831,15 @@ export function useWorkflowV2Wallet() {
   ) {
     return perform(async (signer) => {
       if (!workflowActivationEnabled) throw new Error('New activations are disabled.');
+      if (networkModeForChain(program.chain) !== mode) {
+        throw new Error(
+          `Switch to ${networkModeForChain(program.chain)} mode to activate this workflow.`,
+        );
+      }
       const chain = program.chain as SettlementChain;
       const client = workflowClient(chain);
       const factory = settlementFactory(chain);
-      if (!factory) throw new Error('This testnet deployment is unavailable.');
+      if (!factory) throw new Error(`This ${mode} deployment is unavailable.`);
       const encoded = encodeWorkflowV2(program);
       await validateV2Program(encoded, program);
       const existingVault = await readVault(signer, chain);
@@ -832,7 +860,7 @@ export function useWorkflowV2Wallet() {
         if (fundingIssue) throw new Error(fundingIssue.message);
       }
       const [entry, auth] = await Promise.all([
-        v2Entry(agent, id),
+        v2Entry(agent, id, mode),
         v2Authorization(chain, vault, id),
       ]);
       if (entry[1] > 0n && entry[5] !== chain)
@@ -841,7 +869,7 @@ export function useWorkflowV2Wallet() {
       // the cap. Check before any wallet prompt so the fifth workflow never costs a signature.
       if (
         entry[4] === 0 &&
-        (await readActiveWorkflowCount(signer)) >= workflowV2Limits.activePerAgent
+        (await readActiveWorkflowCount(signer, mode)) >= workflowV2Limits.activePerAgent
       ) {
         throw new Error(
           `This wallet already has ${workflowV2Limits.activePerAgent} active workflows, the most one Agent can watch at once. Pause or complete one before activating another.`,
@@ -933,14 +961,14 @@ export function useWorkflowV2Wallet() {
           weekly.wethLimit === budget.weth,
       );
       await send(
-        LASNA_CHAIN_ID,
+        automationChainId,
         agent,
         encodeFunctionData({
           abi: workflowAgentV2Abi,
           functionName: 'enable',
           args: [id, epoch, encoded, title, confirmed.state[2]],
         }),
-        `Enable ${title} on Reactive Lasna.`,
+        `Enable ${title} on ${automationName}.`,
         formatWorkflowCaps(program, budget),
       );
     });
@@ -975,8 +1003,10 @@ export function useWorkflowV2Wallet() {
   function pause(item: Awaited<ReturnType<typeof readWorkflowV2>>) {
     return perform(async () => {
       const { chain, agent, vault, id } = item;
+      const itemMode = networkModeForChain(chain);
+      const itemAutoChain = automationChainFor(itemMode);
       const [entry, auth] = await Promise.all([
-        v2Entry(agent, id),
+        v2Entry(agent, id, itemMode),
         v2Authorization(chain, vault, id),
       ]);
       if (auth[3])
@@ -992,14 +1022,14 @@ export function useWorkflowV2Wallet() {
         );
       if (entry[4] !== 0)
         await send(
-          LASNA_CHAIN_ID,
+          itemAutoChain,
           agent,
           encodeFunctionData({
             abi: workflowAgentV2Abi,
             functionName: 'disable',
             args: [id, entry[1]],
           }),
-          'Stop new Lasna callbacks for this workflow.',
+          `Stop new ${getChain(itemAutoChain).name} callbacks for this workflow.`,
         );
     });
   }

@@ -25,17 +25,28 @@ import { resolveFoundryBinary } from './foundry-env.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const CONTRACTS = join(ROOT, 'contracts');
-const RECORD_PATH = join(ROOT, 'deployments', 'workflows-v2.json');
+const IS_MAINNET = process.argv.includes('--mainnet');
+const RECORD_PATH = join(
+  ROOT,
+  'deployments',
+  IS_MAINNET ? 'workflows-v2-mainnet.json' : 'workflows-v2.json',
+);
+const BACKEND_ENV_KEY = IS_MAINNET ? 'WORKFLOW_V2_MAINNET_DEPLOYMENT' : 'WORKFLOW_V2_DEPLOYMENT';
+const FRONTEND_ENV_KEY = IS_MAINNET
+  ? 'VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT'
+  : 'VITE_WORKFLOW_V2_DEPLOYMENT';
 const SCRIPT = 'script/DeployWorkflowsV2.s.sol';
 const FORGE = resolveFoundryBinary('forge', process.env.FORGE_PATH);
 const LASNA_FEE_CAP = 950_000_000_000_000_000n;
 const GWEI = 1_000_000_000n;
+const AUTOMATION_KEY = IS_MAINNET ? 'reactive' : 'lasna';
 
-const CHAINS = {
+const TESTNET_CHAINS = {
   lasna: {
     id: 5318007,
     contract: 'WorkflowAgentFactoryV2',
     name: 'Reactive Lasna',
+    nativeSymbol: 'lREACT',
     explorer: 'https://lasna.reactscan.net',
     rpcEnv: 'LASNA_RPC_URL',
     defaultRpc: 'https://lasna-rpc.rnk.dev/',
@@ -44,6 +55,7 @@ const CHAINS = {
     id: 1301,
     contract: 'WorkflowVaultFactoryV2',
     name: 'Unichain Sepolia',
+    nativeSymbol: 'ETH',
     explorer: 'https://sepolia.uniscan.xyz',
     rpcEnv: 'UNICHAIN_RPC_URL',
     defaultRpc: 'https://sepolia.unichain.org',
@@ -52,11 +64,44 @@ const CHAINS = {
     id: 84532,
     contract: 'WorkflowVaultFactoryV2',
     name: 'Base Sepolia',
+    nativeSymbol: 'ETH',
     explorer: 'https://sepolia.basescan.org',
     rpcEnv: 'BASE_SEPOLIA_RPC_URL',
     defaultRpc: 'https://sepolia.base.org',
   },
 };
+
+const MAINNET_CHAINS = {
+  reactive: {
+    id: 1597,
+    contract: 'WorkflowAgentFactoryV2',
+    name: 'Reactive Mainnet',
+    nativeSymbol: 'REACT',
+    explorer: 'https://reactscan.net',
+    rpcEnv: 'REACTIVE_MAINNET_RPC_URL',
+    defaultRpc: 'https://mainnet-rpc.rnk.dev/',
+  },
+  unichain: {
+    id: 130,
+    contract: 'WorkflowVaultFactoryV2',
+    name: 'Unichain',
+    nativeSymbol: 'ETH',
+    explorer: 'https://uniscan.xyz',
+    rpcEnv: 'UNICHAIN_MAINNET_RPC_URL',
+    defaultRpc: 'https://mainnet.unichain.org',
+  },
+  base: {
+    id: 8453,
+    contract: 'WorkflowVaultFactoryV2',
+    name: 'Base',
+    nativeSymbol: 'ETH',
+    explorer: 'https://basescan.org',
+    rpcEnv: 'BASE_MAINNET_RPC_URL',
+    defaultRpc: 'https://mainnet.base.org',
+  },
+};
+
+const CHAINS = IS_MAINNET ? MAINNET_CHAINS : TESTNET_CHAINS;
 
 function fail(message) {
   throw new Error(message);
@@ -80,17 +125,19 @@ function client(rpc) {
   return createPublicClient({ transport: http(rpc, { timeout: 30_000 }) });
 }
 
-function forge(args) {
+function forge(args, extraEnv = undefined) {
   return execFileSync(FORGE, args, {
     cwd: CONTRACTS,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
+    ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
   });
 }
 
 function deploymentValue(record) {
-  const lasna = record.find(
-    (entry) => entry.contract === CHAINS.lasna.contract && entry.chainId === CHAINS.lasna.id,
+  const automationChain = CHAINS[AUTOMATION_KEY];
+  const automation = record.find(
+    (entry) => entry.contract === automationChain.contract && entry.chainId === automationChain.id,
   );
   const unichain = record.find(
     (entry) => entry.contract === CHAINS.unichain.contract && entry.chainId === CHAINS.unichain.id,
@@ -98,9 +145,9 @@ function deploymentValue(record) {
   const base = record.find(
     (entry) => entry.contract === CHAINS.base.contract && entry.chainId === CHAINS.base.id,
   );
-  if (!lasna || !unichain) fail('deployments/workflows-v2.json is missing the factory pair.');
+  if (!automation || !unichain) fail(`${RECORD_PATH} is missing the factory pair.`);
   return JSON.stringify({
-    lasna: { factory: lasna.address, startBlock: lasna.blockNumber },
+    [AUTOMATION_KEY]: { factory: automation.address, startBlock: automation.blockNumber },
     unichain: { factory: unichain.address, startBlock: unichain.blockNumber },
     ...(base ? { base: { factory: base.address, startBlock: base.blockNumber } } : {}),
   });
@@ -157,14 +204,15 @@ function cliApp() {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
-async function deploy(chain, account) {
+async function deploy(chain, account, deployerKey) {
   const rpc = rpcUrl(chain);
   const publicClient = client(rpc);
   const args = ['script', SCRIPT, '--rpc-url', rpc];
-  if (chain === CHAINS.lasna) {
-    const simulation = forge(args);
+  const forgeEnv = deployerKey ? { DEPLOYER_PRIVATE_KEY: deployerKey } : undefined;
+  if (chain === CHAINS[AUTOMATION_KEY]) {
+    const simulation = forge(args, forgeEnv);
     const gas = simulation.match(/Estimated total gas used for script:\s*(\d+)/)?.[1];
-    if (!gas) fail('Could not read the Lasna gas estimate from the dry run.');
+    if (!gas) fail(`Could not read the ${chain.name} gas estimate from the dry run.`);
     const suggested = await publicClient.getGasPrice();
     const balance = await publicClient.getBalance({ address: account });
     const budget = balance < LASNA_FEE_CAP ? balance : LASNA_FEE_CAP;
@@ -172,15 +220,17 @@ async function deploy(chain, account) {
     const price = ((suggested * 2n < ceiling ? suggested * 2n : ceiling) / GWEI) * GWEI;
     if (price <= suggested) {
       fail(
-        `Lasna fees leave no headroom for ${gas} gas: suggested ${suggested} wei, ceiling ${ceiling} wei.`,
+        `${chain.name} fees leave no headroom for ${gas} gas: suggested ${suggested} wei, ceiling ${ceiling} wei.`,
       );
     }
     if (balance < price * BigInt(gas)) {
-      fail(`The deployer needs more lREACT on Lasna: balance ${balance} wei.`);
+      fail(
+        `The deployer needs more ${chain.nativeSymbol} on ${chain.name}: balance ${balance} wei.`,
+      );
     }
     args.push('--legacy', '--with-gas-price', `${price / GWEI}gwei`);
   }
-  forge([...args, '--broadcast', '--start-fresh']);
+  forge([...args, '--broadcast', '--start-fresh'], forgeEnv);
   return readBroadcast(chain.id);
 }
 
@@ -236,7 +286,7 @@ const LASNA_SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
 function expectedCreationInputHash(chain, artifact) {
   const bytecode = artifact?.bytecode?.object;
   if (!bytecode) return undefined;
-  if (chain.contract === CHAINS.lasna.contract) {
+  if (chain.contract === CHAINS[AUTOMATION_KEY].contract) {
     const args = encodeAbiParameters([{ type: 'address' }], [LASNA_SYSTEM_CONTRACT]);
     return keccak256(concat([bytecode, args]));
   }
@@ -248,7 +298,7 @@ async function verify() {
   const expected = deploymentValue(record);
   const problems = [];
   const requireBase = process.argv.includes('--base');
-  for (const chain of [CHAINS.lasna, CHAINS.unichain, CHAINS.base]) {
+  for (const chain of [CHAINS[AUTOMATION_KEY], CHAINS.unichain, CHAINS.base]) {
     const item = record.find((row) => row.contract === chain.contract && row.chainId === chain.id);
     if (!item) {
       if (chain !== CHAINS.base || requireBase) {
@@ -291,8 +341,8 @@ async function verify() {
     }
   }
   for (const [file, key] of [
-    [join(ROOT, 'backend', '.env'), 'WORKFLOW_V2_DEPLOYMENT'],
-    [join(ROOT, 'frontend', '.env.local'), 'VITE_WORKFLOW_V2_DEPLOYMENT'],
+    [join(ROOT, 'backend', '.env'), BACKEND_ENV_KEY],
+    [join(ROOT, 'frontend', '.env.local'), FRONTEND_ENV_KEY],
   ]) {
     if (!existsSync(file)) continue;
     const value = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1];
@@ -300,12 +350,31 @@ async function verify() {
       problems.push(`${key} in ${file} does not match the record`);
     }
   }
+  if (IS_MAINNET) {
+    const testnetRecordPath = join(ROOT, 'deployments', 'workflows-v2.json');
+    if (existsSync(testnetRecordPath)) {
+      const testnetRecord = JSON.parse(readFileSync(testnetRecordPath, 'utf8'));
+      const testnetFactory = testnetRecord.find(
+        (row) => row.contract === 'WorkflowAgentFactoryV2' && row.chainId === 5318007,
+      )?.address;
+      const mainnetFactory = record.find(
+        (row) => row.contract === 'WorkflowAgentFactoryV2' && row.chainId === 1597,
+      )?.address;
+      if (
+        testnetFactory &&
+        mainnetFactory &&
+        testnetFactory.toLowerCase() === mainnetFactory.toLowerCase()
+      ) {
+        problems.push(
+          `Reactive Mainnet WorkflowAgentFactoryV2 (${mainnetFactory}) must not match Reactive Lasna (${testnetFactory})`,
+        );
+      }
+    }
+  }
   const herokuState = await heroku();
   if (herokuState.app) {
-    if (herokuState.config.WORKFLOW_V2_DEPLOYMENT?.toLowerCase() !== expected.toLowerCase()) {
-      problems.push(
-        `Heroku WORKFLOW_V2_DEPLOYMENT on ${herokuState.app} does not match the record`,
-      );
+    if (herokuState.config[BACKEND_ENV_KEY]?.toLowerCase() !== expected.toLowerCase()) {
+      problems.push(`Heroku ${BACKEND_ENV_KEY} on ${herokuState.app} does not match the record`);
     }
   }
   if (problems.length) fail(problems.join('\n'));
@@ -329,8 +398,8 @@ async function publish(record, source) {
   const value = deploymentValue(record);
   const files = [];
   for (const [file, name] of [
-    [join(ROOT, 'backend', '.env'), 'WORKFLOW_V2_DEPLOYMENT'],
-    [join(ROOT, 'frontend', '.env.local'), 'VITE_WORKFLOW_V2_DEPLOYMENT'],
+    [join(ROOT, 'backend', '.env'), BACKEND_ENV_KEY],
+    [join(ROOT, 'frontend', '.env.local'), FRONTEND_ENV_KEY],
   ]) {
     if (setEnvLine(file, name, value)) files.push(file);
   }
@@ -338,8 +407,8 @@ async function publish(record, source) {
   if (serialized !== current || files.length) writeFileSync(RECORD_PATH, serialized);
   const herokuState = await heroku();
   const app = herokuState.app;
-  if (app && herokuState.config.WORKFLOW_V2_DEPLOYMENT?.toLowerCase() !== value.toLowerCase()) {
-    await heroku({ method: 'PATCH', body: JSON.stringify({ WORKFLOW_V2_DEPLOYMENT: value }) });
+  if (app && herokuState.config[BACKEND_ENV_KEY]?.toLowerCase() !== value.toLowerCase()) {
+    await heroku({ method: 'PATCH', body: JSON.stringify({ [BACKEND_ENV_KEY]: value }) });
   }
   for (const item of record) {
     console.log(
@@ -353,7 +422,7 @@ async function publish(record, source) {
   if (source.dirty) {
     console.log('Working tree is dirty: commit this exact tree so the record is reproducible.');
   }
-  console.log(`WORKFLOW_V2_DEPLOYMENT=${value}`);
+  console.log(`${BACKEND_ENV_KEY}=${value}`);
 }
 
 function mergeRecord(existing, updated) {
@@ -368,27 +437,61 @@ async function release() {
   if (!process.argv.includes('--allow-dirty') && git(['status', '--porcelain'])) {
     fail('Commit working-tree changes before deploying (or pass --allow-dirty for local testing).');
   }
-  const key = process.env.DEPLOYER_PRIVATE_KEY?.trim() ?? process.env.SPONSOR_PRIVATE_KEY?.trim();
-  if (!key) fail('Set DEPLOYER_PRIVATE_KEY (or SPONSOR_PRIVATE_KEY) before deploying.');
-  const wallet = (await import('viem/accounts')).privateKeyToAccount(
-    key.startsWith('0x') ? key : `0x${key}`,
-  );
+  const key = IS_MAINNET
+    ? process.env.MAINNET_DEPLOYER_PRIVATE_KEY?.trim()
+    : (process.env.DEPLOYER_PRIVATE_KEY?.trim() ?? process.env.SPONSOR_PRIVATE_KEY?.trim());
+  if (!key) {
+    fail(
+      IS_MAINNET
+        ? 'Set a dedicated MAINNET_DEPLOYER_PRIVATE_KEY before deploying to mainnet (never reuse the testnet deployer key).'
+        : 'Set DEPLOYER_PRIVATE_KEY (or SPONSOR_PRIVATE_KEY) before deploying.',
+    );
+  }
+  const { privateKeyToAccount } = await import('viem/accounts');
+  const wallet = privateKeyToAccount(key.startsWith('0x') ? key : `0x${key}`);
+  if (IS_MAINNET) {
+    for (const testnetKeyName of ['DEPLOYER_PRIVATE_KEY', 'SPONSOR_PRIVATE_KEY']) {
+      const raw = process.env[testnetKeyName]?.trim();
+      if (!raw) continue;
+      const testnetWallet = privateKeyToAccount(raw.startsWith('0x') ? raw : `0x${raw}`);
+      if (testnetWallet.address.toLowerCase() === wallet.address.toLowerCase()) {
+        fail(
+          `MAINNET_DEPLOYER_PRIVATE_KEY must not share an address with ${testnetKeyName} (${wallet.address}).`,
+        );
+      }
+    }
+  }
   const source = revision();
-  const lasnaOnly = process.argv.includes('--lasna-only');
+  const automationOnly =
+    process.argv.includes('--lasna-only') || process.argv.includes('--reactive-only');
   const baseOnly = process.argv.includes('--base-only');
-  if (lasnaOnly && baseOnly) fail('Pass at most one of --lasna-only or --base-only.');
-  const mergeOnly = lasnaOnly || baseOnly;
+  if (automationOnly && baseOnly) {
+    fail('Pass at most one of --lasna-only, --reactive-only, or --base-only.');
+  }
+  const mergeOnly = automationOnly || baseOnly;
   const includeBase =
-    baseOnly || process.argv.includes('--base') || Boolean(process.env[CHAINS.base.rpcEnv]?.trim());
-  const chains = lasnaOnly
-    ? [CHAINS.lasna]
+    !process.argv.includes('--no-base') &&
+    (baseOnly ||
+      process.argv.includes('--base') ||
+      IS_MAINNET ||
+      Boolean(process.env[CHAINS.base.rpcEnv]?.trim()));
+  const chains = automationOnly
+    ? [CHAINS[AUTOMATION_KEY]]
     : baseOnly
       ? [CHAINS.base]
-      : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+      : [CHAINS[AUTOMATION_KEY], CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+  for (const chain of chains) {
+    const balance = await client(rpcUrl(chain)).getBalance({ address: wallet.address });
+    if (balance === 0n) {
+      fail(
+        `Deployer ${wallet.address} has 0 ${chain.nativeSymbol} on ${chain.name} (chain ${chain.id}). Fund it before deploying.`,
+      );
+    }
+  }
   const updated = [];
   for (const chain of chains) {
     console.log(`Deploying ${chain.contract} on ${chain.name}...`);
-    updated.push(await entry(chain, await deploy(chain, wallet.address), source));
+    updated.push(await entry(chain, await deploy(chain, wallet.address, key), source));
   }
   const existing =
     mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
@@ -397,17 +500,21 @@ async function release() {
 
 async function recordOnly() {
   const source = revision();
-  const lasnaOnly = process.argv.includes('--lasna-only');
+  const automationOnly =
+    process.argv.includes('--lasna-only') || process.argv.includes('--reactive-only');
   const baseOnly = process.argv.includes('--base-only');
-  if (lasnaOnly && baseOnly) fail('Pass at most one of --lasna-only or --base-only.');
-  const mergeOnly = lasnaOnly || baseOnly;
+  if (automationOnly && baseOnly) {
+    fail('Pass at most one of --lasna-only, --reactive-only, or --base-only.');
+  }
+  const mergeOnly = automationOnly || baseOnly;
   const includeBase =
-    baseOnly || process.argv.includes('--base') || existsSync(broadcastPath(CHAINS.base.id));
-  const chains = lasnaOnly
-    ? [CHAINS.lasna]
+    !process.argv.includes('--no-base') &&
+    (baseOnly || process.argv.includes('--base') || existsSync(broadcastPath(CHAINS.base.id)));
+  const chains = automationOnly
+    ? [CHAINS[AUTOMATION_KEY]]
     : baseOnly
       ? [CHAINS.base]
-      : [CHAINS.lasna, CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
+      : [CHAINS[AUTOMATION_KEY], CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
   const updated = [];
   for (const chain of chains) {
     updated.push(await entry(chain, readBroadcast(chain.id), source));

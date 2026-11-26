@@ -1,7 +1,8 @@
 import {
+  automationChainFor,
   feeCreditWarningThreshold,
   getChain,
-  LASNA_CHAIN_ID,
+  networkModeForChain,
   readAmount,
   type Address,
   type FundsChainId,
@@ -93,11 +94,12 @@ export function defaultFundingAmounts(
   funds: SetupFundingBalances,
   chainId: FundsChainId,
 ): Record<SetupFundingItemId, string> {
+  const autoChain = automationChainFor(networkModeForChain(chainId));
   const watching = suggestedCreditAmount(
     funds.watch,
     funds.walletWatch,
     SUGGESTED_WATCHING_CREDIT,
-    feeCreditWarningThreshold(LASNA_CHAIN_ID),
+    feeCreditWarningThreshold(autoChain),
     LASNA_GAS_BUFFER,
   );
   const execution =
@@ -181,7 +183,7 @@ export function useAccountFunding({
       if (!owner) throw new Error('Connect your wallet to fund your account.');
       const runId = runGenerationRef.current;
       setFailedItem(undefined);
-      const lasnaName = getChain(LASNA_CHAIN_ID).name;
+      const autoChainName = getChain(automationChainFor(networkModeForChain(chainId))).name;
       for (const item of plan) {
         if (runGenerationRef.current !== runId) return confirmedRef.current;
         if (confirmedRef.current[item.id]) continue;
@@ -190,7 +192,7 @@ export function useAccountFunding({
           let txHash: Hex;
           if (item.id === 'watching') {
             if (funds.agent === zeroAddress) {
-              throw new Error(`Create your automation account on ${lasnaName} first.`);
+              throw new Error(`Create your automation account on ${autoChainName} first.`);
             }
             txHash = await fundingWallet.depositWatchingCredit(
               owner,
@@ -213,7 +215,11 @@ export function useAccountFunding({
             );
           } else {
             if (funds.vault === zeroAddress || funds.usdc === zeroAddress) {
-              throw new Error('Test USDC is unavailable for this vault.');
+              throw new Error(
+                networkModeForChain(chainId) === 'mainnet'
+                  ? 'USDC is unavailable for this vault.'
+                  : 'Test USDC is unavailable for this vault.',
+              );
             }
             txHash = await fundingWallet.depositUsdc(
               owner,

@@ -1,19 +1,22 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
+  LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
   telegramSettingsSchema,
   telegramSignIn,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   type Address,
+  type AutomationChainId,
   type TelegramChallenge,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Hex } from 'viem';
 import { z } from 'zod';
 
-import type { ChainClients } from '../chain/clients.js';
-import type { TelegramConfig } from '../config.js';
+import { clientFor, type ChainClients } from '../chain/clients.js';
+import type { TelegramConfig, TelegramFactoryTarget } from '../config.js';
 import type { WorkflowTelegramAlerts } from './workflowAlerts.js';
 
 const CHALLENGE_SECONDS = 5 * 60;
@@ -38,44 +41,48 @@ export interface TelegramOwnership {
     owner: Address,
     challenge: TelegramChallenge,
     signature: Hex,
+    automationChain?: AutomationChainId,
   ): Promise<boolean>;
 }
 
 export function telegramOwnership(
   clients: ChainClients,
-  factories: readonly Address[],
+  targets: readonly TelegramFactoryTarget[],
 ): TelegramOwnership {
   return {
-    async verify(agent, owner, challenge, signature) {
+    async verify(agent, owner, challenge, signature, automationChain = LASNA_CHAIN_ID) {
+      const checks = targets.filter((target) => target.chainId === automationChain);
+      if (checks.length === 0) return false;
+      const client = clientFor(clients, automationChain);
       const registrations = await Promise.allSettled(
-        factories.map((factory) =>
-          clients.lasna.readContract({
-            address: factory,
+        checks.map(({ address }) =>
+          client.readContract({
+            address,
             abi: workflowAgentFactoryV2Abi,
             functionName: 'agentOf',
             args: [owner],
           }),
         ),
       );
-      if (
-        !registrations.some(
-          (entry) => entry.status === 'fulfilled' && entry.value.toLowerCase() === agent,
-        )
-      ) {
+      const matched = checks.filter((_, index) => {
+        const entry = registrations[index];
+        return entry?.status === 'fulfilled' && entry.value.toLowerCase() === agent;
+      });
+      if (matched.length === 0) {
         if (registrations.some((entry) => entry.status === 'rejected'))
           throw new Error('Could not read the automation account factory.');
         return false;
       }
-      const currentOwner = await clients.lasna.readContract({
+      const currentOwner = await client.readContract({
         address: agent,
         abi: workflowAgentV2Abi,
         functionName: 'owner',
       });
       if (currentOwner.toLowerCase() !== owner) return false;
-      return clients.lasna.verifyTypedData({
+      return client.verifyTypedData({
         address: owner,
         signature,
-        ...telegramSignIn(agent, challenge),
+        ...telegramSignIn(agent, challenge, automationChain),
       });
     },
   };
@@ -96,11 +103,18 @@ export class TelegramDatabase {
     return schema.parse(data);
   }
 
-  async createSession(nonce: string, agent: Address, value: string, expiresAt: number | null) {
+  async createSession(
+    nonce: string,
+    agent: Address,
+    value: string,
+    expiresAt: number | null,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     const { error } = await this.client
       .from('telegram_sessions')
       .insert({
         nonce,
+        automation_chain: automationChain,
         agent,
         token_hash: hash(value),
         expires_at: expiresAt === null ? null : timestamp(expiresAt),
@@ -111,11 +125,17 @@ export class TelegramDatabase {
     return true;
   }
 
-  async session(agent: Address, value: string, browser = false) {
+  async session(
+    agent: Address,
+    value: string,
+    browser = false,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     const sessionHash = hash(value);
     const query = this.client
       .from('telegram_sessions')
       .select('expires_at')
+      .eq('automation_chain', automationChain)
       .eq('agent', agent)
       .eq('token_hash', sessionHash);
     const { data, error } = await (
@@ -129,11 +149,15 @@ export class TelegramDatabase {
     return { hash: sessionHash, expiresAt: expiry === null ? null : Date.parse(expiry) / 1000 };
   }
 
-  async forgetBrowser(agent: Address, value: string) {
+  async forgetBrowser(
+    agent: Address,
+    value: string,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     const { error } = await this.client
       .from('telegram_sessions')
-      // Invalidate the credential but keep the consumed nonce until its challenge cannot be replayed.
       .update({ token_hash: hash(token()), expires_at: timestamp(clock() + CHALLENGE_SECONDS) })
+      .eq('automation_chain', automationChain)
       .eq('agent', agent)
       .eq('token_hash', hash(value))
       .is('expires_at', null)
@@ -143,6 +167,8 @@ export class TelegramDatabase {
 }
 
 export class TelegramService {
+  private readonly workflowAlertList: readonly WorkflowTelegramAlerts[];
+
   constructor(
     readonly config: TelegramConfig,
     private readonly db: Pick<
@@ -150,14 +176,25 @@ export class TelegramService {
       'rpc' | 'createSession' | 'session' | 'forgetBrowser'
     >,
     private readonly ownership: TelegramOwnership,
-    private readonly workflowAlerts?: WorkflowTelegramAlerts,
-  ) {}
+    workflowAlerts?: WorkflowTelegramAlerts | readonly WorkflowTelegramAlerts[],
+  ) {
+    this.workflowAlertList = !workflowAlerts
+      ? []
+      : Array.isArray(workflowAlerts)
+        ? workflowAlerts
+        : [workflowAlerts];
+  }
+
+  private runnerFor(automationChain: AutomationChainId) {
+    return this.workflowAlertList.find((runner) => runner.automationChain === automationChain);
+  }
 
   private challengeProof(
     agent: Address,
     owner: Address,
     nonce: Hex,
     expiresAt: number,
+    automationChain: AutomationChainId,
     browser?: true,
   ) {
     return createHmac('sha256', this.config.webhookSecret)
@@ -165,6 +202,7 @@ export class TelegramService {
         JSON.stringify([
           'rulebook-telegram-challenge',
           this.config.appOrigin,
+          automationChain,
           agent,
           owner,
           nonce,
@@ -175,64 +213,119 @@ export class TelegramService {
       .digest('hex');
   }
 
-  challenge(agent: Address, owner: Address, browser?: true): TelegramChallenge {
+  challenge(
+    agent: Address,
+    owner: Address,
+    browser?: true,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ): TelegramChallenge {
     const nonce = `0x${randomBytes(32).toString('hex')}` as const;
     const expiresAt = clock() + CHALLENGE_SECONDS;
     return {
       nonce,
       expiresAt,
       origin: this.config.appOrigin,
-      proof: this.challengeProof(agent, owner, nonce, expiresAt, browser),
+      proof: this.challengeProof(agent, owner, nonce, expiresAt, automationChain, browser),
       ...(browser ? { browser } : {}),
     };
   }
 
-  async signIn(agent: Address, owner: Address, challenge: TelegramChallenge, signature: Hex) {
+  async signIn(
+    agent: Address,
+    owner: Address,
+    challenge: TelegramChallenge,
+    signature: Hex,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     const { nonce, expiresAt, origin, proof, browser } = challenge;
     if (
       expiresAt <= clock() ||
       origin !== this.config.appOrigin ||
-      !sameSecret(proof, this.challengeProof(agent, owner, nonce, expiresAt, browser))
+      !sameSecret(
+        proof,
+        this.challengeProof(agent, owner, nonce, expiresAt, automationChain, browser),
+      )
     )
       return null;
-    if (!(await this.ownership.verify(agent, owner, challenge, signature)) || expiresAt <= clock())
+    if (
+      !(await this.ownership.verify(agent, owner, challenge, signature, automationChain)) ||
+      expiresAt <= clock()
+    )
       return null;
     const value = token();
     const sessionExpiry = browser ? null : clock() + SESSION_SECONDS;
-    if (!(await this.db.createSession(nonce, agent, value, sessionExpiry))) return null;
+    if (!(await this.db.createSession(nonce, agent, value, sessionExpiry, automationChain))) {
+      return null;
+    }
     return { token: value, expiresAt: sessionExpiry };
   }
 
-  session(agent: Address, value: string, browser: boolean) {
-    return this.db.session(agent, value, browser);
+  session(
+    agent: Address,
+    value: string,
+    browser: boolean,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
+    return this.db.session(agent, value, browser, automationChain);
   }
 
-  forgetBrowser(agent: Address, value: string) {
-    return this.db.forgetBrowser(agent, value);
+  forgetBrowser(
+    agent: Address,
+    value: string,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
+    return this.db.forgetBrowser(agent, value, automationChain);
   }
 
-  status(agent: Address, session: string) {
-    if (this.workflowAlerts) {
+  async status(
+    agent: Address,
+    session: string,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
+    const runner = this.runnerFor(automationChain);
+    if (runner) {
       return this.db.rpc(
         'telegram_alert_status',
-        { p_deployment: this.workflowAlerts.deployment, p_agent: agent, p_session: session },
+        {
+          p_deployment: runner.deployment,
+          p_agent: agent,
+          p_session: session,
+          p_automation_chain: automationChain,
+        },
         telegramSettingsSchema,
       );
     }
     return this.db.rpc(
       'telegram_notification_status',
-      { p_agent: agent, p_session: session },
+      { p_agent: agent, p_session: session, p_automation_chain: automationChain },
       telegramSettingsSchema,
     );
   }
 
-  ready(workflow = false) {
-    if (workflow && !this.workflowAlerts) return Promise.resolve(false);
+  ready(workflow = false, automationChain?: AutomationChainId) {
+    if (automationChain !== undefined) {
+      if (!workflow && automationChain === REACTIVE_MAINNET_CHAIN_ID) {
+        return Promise.resolve(false);
+      }
+      if (!this.config.factoryTargets.some((target) => target.chainId === automationChain)) {
+        return Promise.resolve(false);
+      }
+    }
+    if (workflow) {
+      const hasRunner = automationChain
+        ? Boolean(this.runnerFor(automationChain))
+        : this.workflowAlertList.length > 0;
+      if (!hasRunner) return Promise.resolve(false);
+    }
     const rpc = workflow ? 'telegram_operational_ready' : 'telegram_notifications_ready';
     return this.db.rpc(rpc, {}, z.boolean());
   }
 
-  async pair(agent: Address, session: { hash: string; expiresAt: number | null }) {
+  async pair(
+    agent: Address,
+    session: { hash: string; expiresAt: number | null },
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     const code = token();
     const pairingExpiry = clock() + PAIRING_SECONDS;
     const expiresAt = Math.floor(Math.min(pairingExpiry, session.expiresAt ?? pairingExpiry));
@@ -243,6 +336,7 @@ export class TelegramService {
         p_session: session.hash,
         p_token: hash(code),
         p_expiry: timestamp(expiresAt),
+        p_automation_chain: automationChain,
       },
       z.boolean(),
     );
@@ -251,19 +345,33 @@ export class TelegramService {
       : null;
   }
 
-  confirm(agent: Address, session: string, pairingId: string) {
+  confirm(
+    agent: Address,
+    session: string,
+    pairingId: string,
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
+  ) {
     return this.db.rpc(
       'telegram_pair_confirm',
-      { p_agent: agent, p_session: session, p_pairing: pairingId },
+      {
+        p_agent: agent,
+        p_session: session,
+        p_pairing: pairingId,
+        p_automation_chain: automationChain,
+      },
       z.boolean(),
     );
   }
 
-  disconnect(agent: Address) {
-    return this.db.rpc('telegram_disconnect', { p_agent: agent }, z.null());
+  disconnect(agent: Address, automationChain: AutomationChainId = LASNA_CHAIN_ID) {
+    return this.db.rpc(
+      'telegram_disconnect',
+      { p_agent: agent, p_automation_chain: automationChain },
+      z.null(),
+    );
   }
 
-  preferences(
+  async preferences(
     agent: Address,
     body: {
       enabled?: boolean;
@@ -274,28 +382,32 @@ export class TelegramService {
       workflowId?: string;
       preference?: string;
     },
+    automationChain: AutomationChainId = LASNA_CHAIN_ID,
   ) {
     if (body.fundingAlerts !== undefined || body.actionAlerts !== undefined) {
-      if (!this.workflowAlerts) return Promise.resolve(false);
+      if (!this.runnerFor(automationChain)) return false;
       return this.db.rpc(
         'telegram_set_alert_preferences',
         {
           p_agent: agent,
           p_funding: body.fundingAlerts ?? null,
           p_action: body.actionAlerts ?? null,
+          p_automation_chain: automationChain,
         },
         z.boolean(),
       );
     }
     if (body.workflowId) {
-      if (!this.workflowAlerts) return Promise.resolve(false);
+      const runner = this.runnerFor(automationChain);
+      if (!runner) return false;
       return this.db.rpc(
         'telegram_set_workflow_preference',
         {
-          p_deployment: this.workflowAlerts.deployment,
+          p_deployment: runner.deployment,
           p_agent: agent,
           p_workflow: body.workflowId,
           p_preference: body.preference,
+          p_automation_chain: automationChain,
         },
         z.boolean(),
       );
@@ -308,6 +420,7 @@ export class TelegramService {
         p_mode: body.defaultMode ?? null,
         p_rule: null,
         p_preference: body.preference ?? null,
+        p_automation_chain: automationChain,
       },
       z.boolean(),
     );
@@ -327,7 +440,7 @@ export class TelegramService {
     );
   }
 
-  test(agent: Address) {
+  test(agent: Address, automationChain: AutomationChainId = LASNA_CHAIN_ID) {
     return this.db.rpc(
       'telegram_enqueue',
       {
@@ -338,29 +451,50 @@ export class TelegramService {
         p_rule: null,
         p_time: null,
         p_message: 'Test message from Rulebook. Your Telegram connection is working.',
+        p_automation_chain: automationChain,
       },
       z.boolean(),
     );
   }
 
   async processNotifications() {
-    await this.workflowAlerts?.process();
+    if (this.workflowAlertList.length === 0) return;
+    const results = await Promise.allSettled(
+      this.workflowAlertList.map((runner) => runner.process()),
+    );
+    if (results.some(({ status }) => status === 'rejected')) {
+      throw new Error('Some workflow Telegram alerts were deferred');
+    }
   }
 
-  processUnfinished() {
-    return this.workflowAlerts?.processUnfinished();
+  async processUnfinished() {
+    if (this.workflowAlertList.length === 0) return;
+    await Promise.all(this.workflowAlertList.map((runner) => runner.processUnfinished()));
   }
 
-  operationalMetrics() {
-    if (!this.workflowAlerts) return undefined;
-    return this.db.rpc(
-      'telegram_operational_metrics',
-      { p_deployment: this.workflowAlerts.deployment },
-      z.object({
-        overdueFundingChecks: z.number(),
-        pendingWorkflowAlerts: z.number(),
-        oldestWorkflowSeconds: z.number(),
+  async operationalMetrics() {
+    if (this.workflowAlertList.length === 0) return undefined;
+    const metricSchema = z.object({
+      overdueFundingChecks: z.number(),
+      pendingWorkflowAlerts: z.number(),
+      oldestWorkflowSeconds: z.number(),
+    });
+    const list = await Promise.all(
+      this.workflowAlertList.map((runner) =>
+        this.db.rpc(
+          'telegram_operational_metrics',
+          { p_deployment: runner.deployment },
+          metricSchema,
+        ),
+      ),
+    );
+    return list.reduce(
+      (acc, next) => ({
+        overdueFundingChecks: acc.overdueFundingChecks + next.overdueFundingChecks,
+        pendingWorkflowAlerts: acc.pendingWorkflowAlerts + next.pendingWorkflowAlerts,
+        oldestWorkflowSeconds: Math.max(acc.oldestWorkflowSeconds, next.oldestWorkflowSeconds),
       }),
+      { overdueFundingChecks: 0, pendingWorkflowAlerts: 0, oldestWorkflowSeconds: 0 },
     );
   }
 }

@@ -5,6 +5,7 @@ import { WagmiProvider } from 'wagmi';
 
 import { AppRouter } from './app/router.js';
 import { WalletReviewProvider } from './components/WalletReviewProvider.js';
+import { NetworkModeProvider } from './lib/networkMode.js';
 import { queryClient } from './lib/queryClient.js';
 import { wagmiConfig } from './lib/wagmi.js';
 import './styles/index.css';
@@ -18,9 +19,11 @@ createRoot(container).render(
   <StrictMode>
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <WalletReviewProvider>
-          <AppRouter />
-        </WalletReviewProvider>
+        <NetworkModeProvider>
+          <WalletReviewProvider>
+            <AppRouter />
+          </WalletReviewProvider>
+        </NetworkModeProvider>
       </QueryClientProvider>
     </WagmiProvider>
   </StrictMode>,

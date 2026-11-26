@@ -27,9 +27,22 @@ const reasons = new Map<string, FailureReason>([
     toFunctionSelector('WeeklyBudgetExceeded()'),
     { message: 'Run would exceed the weekly spending budget', recovery: 'limits' },
   ],
+  [toFunctionSelector('InvalidMarket()'), { message: 'The configured market is unavailable.' }],
   [
-    toFunctionSelector('InvalidMarket()'),
-    { message: 'The configured testnet market is unavailable.' },
+    toFunctionSelector('OracleUnavailable()'),
+    { message: 'The Chainlink price oracle is unavailable or stale.' },
+  ],
+  [
+    toFunctionSelector('SequencerUnavailable()'),
+    { message: 'The L2 sequencer is down or still in its recovery grace period.' },
+  ],
+  [
+    toFunctionSelector('OraclePriceDeviation(uint256,uint256)'),
+    { message: 'The origin pool price diverged too far from the settlement oracle price.' },
+  ],
+  [
+    toFunctionSelector('SlippageExceeded(uint256,uint256)'),
+    { message: 'The swap quote was worse than the oracle-protected slippage floor.' },
   ],
   [
     toFunctionSelector('Error(string)'),

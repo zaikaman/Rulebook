@@ -116,7 +116,7 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   },
   {
     signature: 'SlippageExceeded(uint256,uint256)',
-    message: 'The price moved too far between the decision and the swap, so it was refused.',
+    message: 'The swap quote was worse than the oracle-protected slippage floor.',
   },
   {
     signature: 'Expired(uint256,uint64)',
@@ -218,6 +218,18 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
   {
     signature: 'InvalidMarket()',
     message: 'The pool market configuration is invalid.',
+  },
+  {
+    signature: 'OracleUnavailable()',
+    message: 'The Chainlink price oracle is unavailable or stale.',
+  },
+  {
+    signature: 'SequencerUnavailable()',
+    message: 'The L2 sequencer is down or still in its recovery grace period.',
+  },
+  {
+    signature: 'OraclePriceDeviation(uint256,uint256)',
+    message: 'The origin pool price diverged too far from the settlement oracle price.',
   },
   {
     signature: 'NoLongerEligible()',

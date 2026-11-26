@@ -97,28 +97,31 @@ test('opens a newly published listing while indexing catches up', async ({ page,
   expect(event).toBeDefined();
   const published = event!.args;
   const id = published.listing.toString();
-  const api = `${FIXTURE_API_URL}/v3/marketplace/${id}`;
 
   // The fixture index starts empty. Release the row derived from the real publish event
   // after both routes have observed the production API's 404.
   let indexed = false;
-  await context.route(api, async (route) => {
-    if (!indexed) return route.continue();
-    await route.fulfill({
-      headers: { 'access-control-allow-origin': FIXTURE_FRONTEND_URL },
-      json: {
-        id,
-        title: published.title,
-        description: published.description,
-        owner: published.owner,
-        agent: published.agent,
-        workflow_id: published.workflow,
-        program_hash: published.programHash,
-        chain: published.chain,
-        program,
-      },
-    });
-  });
+  await context.route(
+    (url) =>
+      url.origin === new URL(FIXTURE_API_URL).origin && url.pathname === `/v3/marketplace/${id}`,
+    async (route) => {
+      if (!indexed) return route.continue();
+      await route.fulfill({
+        headers: { 'access-control-allow-origin': FIXTURE_FRONTEND_URL },
+        json: {
+          id,
+          title: published.title,
+          description: published.description,
+          owner: published.owner,
+          agent: published.agent,
+          workflow_id: published.workflow,
+          program_hash: published.programHash,
+          chain: published.chain,
+          program,
+        },
+      });
+    },
+  );
 
   const detail = `${FIXTURE_FRONTEND_URL}/marketplace/${id}`;
   await page.goto(detail);
@@ -145,7 +148,7 @@ test('opens a newly published listing while indexing catches up', async ({ page,
     args: [published.listing],
   });
   await chain.waitForTransactionReceipt({ hash: unpublish });
-  await page.evaluate((key) => localStorage.removeItem(key), `rulebook-v2-draft:${id}`);
+  await page.evaluate((key) => localStorage.removeItem(key), `rulebook-v2-draft:testnet:${id}`);
   await page.getByRole('link', { name: 'Copy as draft' }).click();
   await expect(page.getByRole('alert')).toContainText(
     'This listing is no longer public or does not exist.',

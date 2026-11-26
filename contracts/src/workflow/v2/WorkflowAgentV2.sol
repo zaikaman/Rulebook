@@ -15,13 +15,14 @@ interface IWorkflowSettlementV2 {
     function execute(address sender, bytes32 workflow, P.Run calldata run) external;
 }
 
-/// @notice Routes authenticated Lasna events to the wallet's chain-specific V2 Vault.
+/// @notice Routes authenticated Reactive events to the wallet's chain-specific V2 Vault.
 contract WorkflowAgentV2 is AbstractPayer {
-    uint32 private constant LASNA = 5_318_007;
     uint256 private constant ANY =
         0xa65f96fc951c35ead38878e0f0b7a3c744a6f5ccc1476b313353ce31712313ad;
     uint256 private constant CRON = uint256(keccak256("Cron100(uint256)"));
     uint256 private constant SYNC = uint256(keccak256("Sync(uint112,uint112)"));
+    uint256 private constant SWAP_V3 =
+        uint256(keccak256("Swap(address,address,int256,int256,uint160,uint128,int24)"));
     uint256 private constant TRANSFER = uint256(keccak256("Transfer(address,address,uint256)"));
     uint256 private constant CLOSED = uint256(keccak256("Closed(bytes32,uint64)"));
     uint256 private constant BUDGET_SYNCED =
@@ -33,14 +34,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     // retry or a later budget sync unbounded. Oldest runs are kept; the newest is reported dropped.
     uint256 private constant MAX_PENDING = 8;
     uint64 private constant WEEK = 7 days;
-    // Reactive Lasna and Unichain Sepolia timestamps can differ by seconds. The mirror only rolls a
-    // week forward after the boundary has certainly passed on both chains, so the Agent never
-    // suppresses a run the Vault would settle against the week the spend was recorded in.
+    // Reactive and destination chains can differ by seconds. The mirror only rolls a week forward
+    // after the boundary has certainly passed on both chains, so the Agent never suppresses a run
+    // the Vault would settle against the week the spend was recorded in.
     uint64 private constant WEEK_SKEW = 10 minutes;
-    // Lasna has produced blocks close to one second apart. Predicting the reset block with a
-    // deliberately slow block time wakes the agent early; each early wake only re-pins the
-    // targeted cron subscription, and a late wake would only delay the resume.
-    uint64 private constant LASNA_BLOCK_SECONDS = 3;
+    // Reactive blocks arrive near ~0.8s (Mainnet) to ~1.1s (Lasna). Predicting the reset block with
+    // a deliberately slow 2s block time wakes the agent shortly before reset instead of late.
+    uint64 private constant LASNA_BLOCK_SECONDS = 2;
 
     struct Entry {
         bytes32 hash;
@@ -154,6 +154,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     IReactiveSystem public immutable system;
     address public immutable factory;
     WorkflowProgramValidatorV2 public immutable validator;
+    uint32 public immutable automationChain;
     address public owner;
     mapping(uint32 => address) public vaults;
     mapping(bytes32 => Entry) public entries;
@@ -180,6 +181,9 @@ contract WorkflowAgentV2 is AbstractPayer {
         system = system_;
         factory = factory_;
         validator = validator_;
+        automationChain = block.chainid == ChainConfig.REACTIVE_MAINNET
+            ? uint32(ChainConfig.REACTIVE_MAINNET)
+            : uint32(ChainConfig.LASNA);
     }
 
     function initialize(address owner_) external {
@@ -197,7 +201,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     function linkVault(uint32 chain, address vault) external onlyOwner {
-        if (!P.isFundsChain(chain) || vault == address(0) || vaults[chain] != address(0)) {
+        if (
+            !ChainConfig.isFundsChainFor(automationChain, chain) || vault == address(0)
+                || vaults[chain] != address(0)
+        ) {
             revert InvalidWorkflow();
         }
         vaults[chain] = vault;
@@ -362,18 +369,25 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
     function _triggerFilters(Entry storage entry, bool enabled) private {
-        ChainConfig.Config memory lasnaCfg = ChainConfig.lasna();
+        ChainConfig.Config memory autoCfg = ChainConfig.get(automationChain);
         ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
+        uint256 priceTopic = originCfg.poolFee == 0 ? SYNC : SWAP_V3;
         if (entry.trigger == P.SCHEDULE) {
-            _filter(Filter(LASNA, lasnaCfg.cronSource, CRON, ANY, ANY), enabled);
+            _filter(Filter(automationChain, autoCfg.cronSource, CRON, ANY, ANY), enabled);
             if (entry.dip) {
-                _filter(Filter(entry.originChain, originCfg.pair, SYNC, ANY, ANY), enabled);
+                _filter(Filter(entry.originChain, originCfg.pair, priceTopic, ANY, ANY), enabled);
             }
             if (entry.inactivity) {
+                uint32 primaryChain = automationChain == ChainConfig.REACTIVE_MAINNET
+                    ? P.UNICHAIN_MAINNET
+                    : P.UNICHAIN_SEPOLIA;
+                uint32 secondaryChain = automationChain == ChainConfig.REACTIVE_MAINNET
+                    ? P.BASE_MAINNET
+                    : P.BASE_SEPOLIA;
                 _filter(
                     Filter(
-                        P.UNICHAIN_SEPOLIA,
-                        ChainConfig.unichainSepolia().usdc,
+                        primaryChain,
+                        ChainConfig.get(primaryChain).usdc,
                         TRANSFER,
                         uint160(owner),
                         ANY
@@ -382,8 +396,8 @@ contract WorkflowAgentV2 is AbstractPayer {
                 );
                 _filter(
                     Filter(
-                        P.BASE_SEPOLIA,
-                        ChainConfig.baseSepolia().usdc,
+                        secondaryChain,
+                        ChainConfig.get(secondaryChain).usdc,
                         TRANSFER,
                         uint160(owner),
                         ANY
@@ -392,7 +406,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                 );
             }
         } else if (entry.trigger == P.PRICE) {
-            _filter(Filter(entry.originChain, originCfg.pair, SYNC, ANY, ANY), enabled);
+            _filter(Filter(entry.originChain, originCfg.pair, priceTopic, ANY, ANY), enabled);
         } else if (entry.trigger == P.PAYMENT) {
             _filter(
                 Filter(
@@ -447,18 +461,25 @@ contract WorkflowAgentV2 is AbstractPayer {
             }
             return;
         }
-        ChainConfig.Config memory lasnaCfg = ChainConfig.lasna();
-        // A Lasna cron tick also drives the waiting list, which is how a run parked by an
+        ChainConfig.Config memory autoCfg = ChainConfig.get(automationChain);
+        // A Reactive cron tick also drives the waiting list, which is how a run parked by an
         // exhausted week resumes as soon as the week rolls over.
-        if (log.chain_id == LASNA && log._contract == lasnaCfg.cronSource && log.topic_0 == CRON) {
+        if (
+            log.chain_id == automationChain && log._contract == autoCfg.cronSource
+                && log.topic_0 == CRON
+        ) {
             _retryFromCron();
         }
         bool market;
-        if (log.chain_id <= type(uint32).max && P.isFundsChain(uint32(log.chain_id))) {
+        if (
+            log.chain_id <= type(uint32).max
+                && ChainConfig.isFundsChainFor(automationChain, uint32(log.chain_id))
+        ) {
             uint32 logChain = uint32(log.chain_id);
             ChainConfig.Config memory logCfg = ChainConfig.get(logChain);
-            market =
-                log._contract == logCfg.pair && log.topic_0 == SYNC && _recordPrice(logCfg, log);
+            uint256 priceTopic = logCfg.poolFee == 0 ? SYNC : SWAP_V3;
+            market = log._contract == logCfg.pair && log.topic_0 == priceTopic
+                && _recordPrice(logCfg, log);
             ActivityCursor storage cursor = activityCursors[logChain];
             if (
                 log._contract == logCfg.usdc && log.topic_0 == TRANSFER
@@ -484,7 +505,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                 _retire(workflow, entry);
                 continue;
             }
-            _route(workflow, log, lasnaCfg, market);
+            _route(workflow, log, autoCfg, market);
             ++index;
         }
     }
@@ -495,16 +516,32 @@ contract WorkflowAgentV2 is AbstractPayer {
     {
         PriceState storage state = prices[uint32(log.chain_id)][log._contract];
         if (
-            log.data.length != 64 || log.block_number < state.blockNumber
+            log.block_number < state.blockNumber
                 || (log.block_number == state.blockNumber && log.log_index <= state.logIndex)
         ) return false;
-        (uint256 first, uint256 second) = abi.decode(log.data, (uint256, uint256));
-        if (first == 0 || second == 0 || first > type(uint112).max || second > type(uint112).max) {
-            return false;
+        uint256 observed;
+        if (cfg.poolFee == 0) {
+            if (log.data.length != 64) return false;
+            (uint256 first, uint256 second) = abi.decode(log.data, (uint256, uint256));
+            if (
+                first == 0 || second == 0 || first > type(uint112).max || second > type(uint112).max
+            ) {
+                return false;
+            }
+            observed = cfg.usdc < cfg.weth
+                ? PriceMath.usdcPerWeth(uint112(first), uint112(second))
+                : PriceMath.usdcPerWeth(uint112(second), uint112(first));
+        } else {
+            if (log.data.length != 160) return false;
+            (,, uint256 sqrtPriceRaw, uint256 liquidityRaw,) =
+                abi.decode(log.data, (int256, int256, uint256, uint256, int256));
+            if (
+                sqrtPriceRaw < PriceMath.MIN_SQRT_RATIO || sqrtPriceRaw >= PriceMath.MAX_SQRT_RATIO
+                    || liquidityRaw == 0 || liquidityRaw > type(uint128).max
+            ) return false;
+            observed =
+                PriceMath.usdcPerWethFromSqrtPriceX96(uint160(sqrtPriceRaw), cfg.usdc < cfg.weth);
         }
-        uint256 observed = cfg.usdc < cfg.weth
-            ? PriceMath.usdcPerWeth(uint112(first), uint112(second))
-            : PriceMath.usdcPerWeth(uint112(second), uint112(first));
         if (observed == 0 || observed > type(uint128).max) return false;
         state.blockNumber = log.block_number;
         state.logIndex = log.log_index;
@@ -518,20 +555,20 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _route(
         bytes32 workflow,
         IReactive.LogRecord calldata log,
-        ChainConfig.Config memory lasnaCfg,
+        ChainConfig.Config memory autoCfg,
         bool market
     ) private {
         Entry storage entry = entries[workflow];
         if (paused[workflow]) {
-            _wakeIfDue(workflow, entry, log, lasnaCfg);
+            _wakeIfDue(workflow, entry, log, autoCfg);
             return;
         }
         P.Run memory run;
         if (entry.trigger == P.SCHEDULE) {
             if (
-                log.chain_id != LASNA || log._contract != lasnaCfg.cronSource || log.topic_0 != CRON
-                    || log.topic_1 != log.block_number || log.block_number <= entry.lasnaAfter
-                    || block.timestamp < entry.nextDue
+                log.chain_id != automationChain || log._contract != autoCfg.cronSource
+                    || log.topic_0 != CRON || log.topic_1 != log.block_number
+                    || log.block_number <= entry.lasnaAfter || block.timestamp < entry.nextDue
             ) return;
             if (entry.dip) {
                 PriceState storage state =
@@ -814,10 +851,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         }
     }
 
-    /// @notice Holds the Lasna cron subscription that drives retries while runnable items wait.
+    /// @notice Holds the Reactive cron subscription that drives retries while runnable items wait.
     function _cronFilter(bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.lasna();
-        _filter(Filter(LASNA, cfg.cronSource, CRON, ANY, ANY), enabled);
+        ChainConfig.Config memory cfg = ChainConfig.get(automationChain);
+        _filter(Filter(automationChain, cfg.cronSource, CRON, ANY, ANY), enabled);
     }
 
     /// @notice Removes the trigger filters of a workflow whose weekly budget cannot fund any path.
@@ -859,7 +896,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     ) private {
         uint64 target = wakeAt[workflow];
         if (
-            target == 0 || log.chain_id != LASNA || log._contract != cfg.cronSource
+            target == 0 || log.chain_id != automationChain || log._contract != cfg.cronSource
                 || log.topic_0 != CRON || log.topic_1 != target
         ) return;
         uint64 reset = _resetAt(workflow);
@@ -890,8 +927,8 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice One exact cron block, used only by a paused workflow.
     function _wakeFilter(uint64 target, bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.lasna();
-        _filter(Filter(LASNA, cfg.cronSource, CRON, target, ANY), enabled);
+        ChainConfig.Config memory cfg = ChainConfig.get(automationChain);
+        _filter(Filter(automationChain, cfg.cronSource, CRON, target, ANY), enabled);
     }
 
     /// @notice First `Cron100` block expected at or after `reset`, or zero when it has passed.

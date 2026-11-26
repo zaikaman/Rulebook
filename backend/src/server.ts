@@ -1,15 +1,27 @@
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-import { BASE_SEPOLIA_CHAIN_ID, UNICHAIN_SEPOLIA_CHAIN_ID } from '@rulebook/shared';
+import {
+  BASE_MAINNET_CHAIN_ID,
+  BASE_SEPOLIA_CHAIN_ID,
+  LASNA_CHAIN_ID,
+  REACTIVE_MAINNET_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  type Address,
+  type FundsChainId,
+} from '@rulebook/shared';
 import cors from '@fastify/cors';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import {
+  baseMainnetChain,
   baseSepoliaChain,
   createChainClients,
   lasnaChain,
   ping,
+  reactiveMainnetChain,
+  unichainMainnetChain,
   unichainSepoliaChain,
 } from './chain/clients.js';
 import { loadConfig } from './config.js';
@@ -90,17 +102,31 @@ export async function startServer(): Promise<void> {
   const supabase = createServiceClient(config);
   const clients = createChainClients(config);
   const v2 = config.workflowsV2;
-  const vaultFactories = v2
+  const v2Mainnet = config.workflowsV2Mainnet;
+  const testnetVaultFactories: Partial<Record<FundsChainId, Address>> | undefined = v2
     ? {
         [UNICHAIN_SEPOLIA_CHAIN_ID]: v2.unichain.factory,
         ...(v2.base ? { [BASE_SEPOLIA_CHAIN_ID]: v2.base.factory } : {}),
       }
     : undefined;
-  const fundsChains = v2?.base
-    ? ([UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID] as const)
-    : ([UNICHAIN_SEPOLIA_CHAIN_ID] as const);
+  const mainnetVaultFactories: Partial<Record<FundsChainId, Address>> | undefined = v2Mainnet
+    ? {
+        [UNICHAIN_MAINNET_CHAIN_ID]: v2Mainnet.unichain.factory,
+        ...(v2Mainnet.base ? { [BASE_MAINNET_CHAIN_ID]: v2Mainnet.base.factory } : {}),
+      }
+    : undefined;
+  const vaultFactories: Partial<Record<FundsChainId, Address>> | undefined =
+    testnetVaultFactories || mainnetVaultFactories
+      ? { ...testnetVaultFactories, ...mainnetVaultFactories }
+      : undefined;
+  const testnetFundsChains: readonly FundsChainId[] = v2?.base
+    ? [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID]
+    : [UNICHAIN_SEPOLIA_CHAIN_ID];
+  const mainnetFundsChains: readonly FundsChainId[] = v2Mainnet?.base
+    ? [UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID]
+    : [UNICHAIN_MAINNET_CHAIN_ID];
   const rulewright =
-    config.gemini && v2 && vaultFactories
+    config.gemini && vaultFactories
       ? new RulewrightService(supabase, clients, vaultFactories, config.gemini)
       : undefined;
   const assistant =
@@ -108,32 +134,68 @@ export async function startServer(): Promise<void> {
   const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
   const workflowAlerts =
-    config.telegram && telegramDb && v2
-      ? new WorkflowTelegramAlerts(
-          telegramDb,
-          clients,
-          v2.lasna.factory,
-          config.telegram.appOrigin,
-          fundsChains,
-        )
-      : undefined;
+    config.telegram && telegramDb
+      ? [
+          ...(v2
+            ? [
+                new WorkflowTelegramAlerts(
+                  telegramDb,
+                  clients,
+                  v2.lasna.factory,
+                  config.telegram.appOrigin,
+                  testnetFundsChains,
+                ),
+              ]
+            : []),
+          ...(v2Mainnet
+            ? [
+                new WorkflowTelegramAlerts(
+                  telegramDb,
+                  clients,
+                  v2Mainnet.reactive.factory,
+                  config.telegram.appOrigin,
+                  mainnetFundsChains,
+                ),
+              ]
+            : []),
+        ]
+      : [];
   const fundingAlerts =
-    config.telegram && telegramDb && v2 && vaultFactories
-      ? new TelegramFundingAlerts(
-          telegramDb,
-          clients,
-          v2.lasna.factory,
-          vaultFactories,
-          config.telegram.appOrigin,
-        )
-      : undefined;
+    config.telegram && telegramDb
+      ? [
+          ...(v2 && testnetVaultFactories
+            ? [
+                new TelegramFundingAlerts(
+                  telegramDb,
+                  clients,
+                  v2.lasna.factory,
+                  testnetVaultFactories,
+                  config.telegram.appOrigin,
+                  LASNA_CHAIN_ID,
+                ),
+              ]
+            : []),
+          ...(v2Mainnet && mainnetVaultFactories
+            ? [
+                new TelegramFundingAlerts(
+                  telegramDb,
+                  clients,
+                  v2Mainnet.reactive.factory,
+                  mainnetVaultFactories,
+                  config.telegram.appOrigin,
+                  REACTIVE_MAINNET_CHAIN_ID,
+                ),
+              ]
+            : []),
+        ]
+      : [];
   const telegram =
     config.telegram && telegramDb
       ? new TelegramService(
           config.telegram,
           telegramDb,
-          telegramOwnership(clients, config.telegram.factories),
-          workflowAlerts,
+          telegramOwnership(clients, config.telegram.factoryTargets),
+          workflowAlerts.length > 0 ? workflowAlerts : undefined,
         )
       : undefined;
   const { app } = buildServer({
@@ -148,18 +210,37 @@ export async function startServer(): Promise<void> {
       ...(v2?.base && clients.base
         ? [{ chain_id: baseSepoliaChain.id, rpc_ok: await ping(clients.base) }]
         : []),
+      ...(v2Mainnet && clients.reactiveMainnet && clients.unichainMainnet
+        ? [
+            { chain_id: reactiveMainnetChain.id, rpc_ok: await ping(clients.reactiveMainnet) },
+            { chain_id: unichainMainnetChain.id, rpc_ok: await ping(clients.unichainMainnet) },
+            ...(v2Mainnet.base && clients.baseMainnet
+              ? [{ chain_id: baseMainnetChain.id, rpc_ok: await ping(clients.baseMainnet) }]
+              : []),
+          ]
+        : []),
     ],
   });
 
-  if (v2) registerWorkflowV2Routes(app, supabase, v2.lasna.factory);
+  if (v2 || v2Mainnet) {
+    registerWorkflowV2Routes(app, supabase, {
+      testnet: v2?.lasna.factory,
+      mainnet: v2Mainnet?.reactive.factory,
+    });
+  }
   const workflowV2Indexer =
     v2 && config.INDEXER_ENABLED
       ? new WorkflowV2Indexer(supabase, clients, v2, app.log, telegram !== undefined)
+      : undefined;
+  const workflowV2MainnetIndexer =
+    v2Mainnet && config.INDEXER_ENABLED
+      ? new WorkflowV2Indexer(supabase, clients, v2Mainnet, app.log, telegram !== undefined)
       : undefined;
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   const rulewrightRun = rulewright?.run(app.log, rulewrightShutdown.signal);
   const assistantRun = assistant?.run(app.log, rulewrightShutdown.signal);
   void workflowV2Indexer?.run();
+  void workflowV2MainnetIndexer?.run();
 
   const worker =
     telegram && telegramDb
@@ -174,6 +255,7 @@ export async function startServer(): Promise<void> {
     process.once(signal, () => {
       rulewrightShutdown.abort();
       workflowV2Indexer?.stop();
+      workflowV2MainnetIndexer?.stop();
       worker?.stop();
       telegramPoller?.stop();
       void Promise.all([app.close(), workerRun, telegramPolling, rulewrightRun, assistantRun]).then(

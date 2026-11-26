@@ -28,7 +28,9 @@ export function AccountSetupFrame({
   workflow = false,
   manageAccount = false,
   manageAccountHref = appRoutes.accountFunds,
+  automationNetwork = 'Reactive Lasna',
   vaultNetwork = 'Unichain Sepolia',
+  isMainnet = false,
   children,
 }: {
   title: string;
@@ -40,7 +42,9 @@ export function AccountSetupFrame({
   workflow?: boolean;
   manageAccount?: boolean;
   manageAccountHref?: string;
+  automationNetwork?: string;
   vaultNetwork?: string;
+  isMainnet?: boolean;
   children: ReactNode;
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
@@ -88,7 +92,7 @@ export function AccountSetupFrame({
             )}
             <span className="account-setup__environment">
               <span aria-hidden="true" />
-              Testnet
+              {isMainnet ? 'Mainnet' : 'Testnet'}
             </span>
           </div>
         </header>
@@ -141,8 +145,8 @@ export function AccountSetupFrame({
                     <strong>Automation account</strong>
                     <p>
                       {step === ACCOUNT_SETUP_STEPS
-                        ? 'Created on Reactive Lasna.'
-                        : 'Watches for triggers and evaluates runs on Reactive Lasna.'}
+                        ? `Created on ${automationNetwork}.`
+                        : `Watches for triggers and evaluates runs on ${automationNetwork}.`}
                     </p>
                   </div>
                 </li>
@@ -155,7 +159,7 @@ export function AccountSetupFrame({
                     <p>
                       {step === ACCOUNT_SETUP_STEPS
                         ? `Created on ${vaultNetwork}.`
-                        : `Holds test funds and settles approved actions on ${vaultNetwork}.`}
+                        : `Holds ${isMainnet ? '' : 'test '}funds and settles approved actions on ${vaultNetwork}.`}
                     </p>
                   </div>
                 </li>
@@ -176,7 +180,8 @@ export function AccountSetupFrame({
                 </li>
               </ul>
               <p className="account-setup__aside-foot">
-                Testnet only. Your keys stay in your wallet throughout setup.
+                {isMainnet ? 'Mainnet · real funds.' : 'Testnet only.'} Your keys stay in your
+                wallet throughout setup.
               </p>
             </aside>
           ) : null}

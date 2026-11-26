@@ -8,12 +8,13 @@ import { Link, useParams } from 'react-router';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { CardGridSkeleton, LoadingRegion } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
+import { useNetworkMode } from '@/lib/networkMode';
 import { WorkflowProgramSummary } from './BuilderV2';
 import { ListingStatusV2 } from './ListingStatusV2';
-import { workflowV2Deployment } from './chainV2';
 import { toDraft } from './modelV2';
 import { v2ApiBase, v2ListingId, v2ListingQuery, v2MarketPage } from './listingV2';
 import {
@@ -35,15 +36,20 @@ function shortAddress(address: string) {
 }
 
 export function WorkflowMarketplaceV2() {
+  const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
   const [search, setSearch] = useState('');
   const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'marketplace', search],
-    enabled: Boolean(workflowV2Deployment),
+    queryKey: ['workflow-v2', 'marketplace', mode, search],
+    enabled: isDeploymentConfigured,
     placeholderData: keepPreviousData,
     refetchOnMount: 'always',
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
-      const params = new URLSearchParams({ q: search, ...(pageParam ? { after: pageParam } : {}) });
+      const params = new URLSearchParams({
+        q: search,
+        network: mode,
+        ...(pageParam ? { after: pageParam } : {}),
+      });
       const response = await fetch(`${v2ApiBase}/v3/marketplace?${params}`, { signal });
       if (!response.ok) throw new Error('The Marketplace could not load.');
       return v2MarketPage.parse(await response.json());
@@ -58,15 +64,22 @@ export function WorkflowMarketplaceV2() {
       <PageHeading
         eyebrow="Discover"
         title="Marketplace"
-        description="Browse testnet workflows published by other wallets and copy one as your own draft."
+        description={
+          isMainnet
+            ? 'Browse mainnet workflows published by other wallets and copy one as your own draft.'
+            : 'Browse testnet workflows published by other wallets and copy one as your own draft.'
+        }
         aside={<span className="rb-chip rb-chip--plain">{items.length} listed</span>}
       />
 
-      {!workflowV2Deployment && (
-        <p className="rb-note">
-          The Marketplace opens when the V2 testnet deployment is configured.
-        </p>
-      )}
+      {!isDeploymentConfigured &&
+        (isMainnet ? (
+          <MainnetUnavailableCallout context="Marketplace" />
+        ) : (
+          <p className="rb-note">
+            The Marketplace opens when the V2 testnet deployment is configured.
+          </p>
+        ))}
 
       <Toolbar>
         <label className="rb-search">
@@ -92,7 +105,7 @@ export function WorkflowMarketplaceV2() {
         <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
       )}
 
-      {query.isPending && Boolean(workflowV2Deployment) && (
+      {query.isPending && isDeploymentConfigured && (
         <LoadingRegion label="Loading Marketplace…">
           <CardGridSkeleton count={3} />
         </LoadingRegion>
@@ -167,9 +180,10 @@ export function WorkflowMarketplaceV2() {
 }
 
 export function WorkflowListingV2() {
+  const { mode } = useNetworkMode();
   const { listingId } = useParams();
   const id = v2ListingId.safeParse(listingId);
-  const query = useQuery(v2ListingQuery(id.data));
+  const query = useQuery(v2ListingQuery(id.data, mode));
   if (!id.success) return <p role="alert">This listing link is invalid.</p>;
   if (!query.isFetchedAfterMount || !query.data || query.error || query.failureReason)
     return <ListingStatusV2 query={query} />;
@@ -207,7 +221,11 @@ export function WorkflowListingV2() {
               </span>
               <div>
                 <PanelTitle>Listing details</PanelTitle>
-                <PanelCopy>Published on the testnet Marketplace.</PanelCopy>
+                <PanelCopy>
+                  {mode === 'mainnet'
+                    ? 'Published on the Mainnet Marketplace.'
+                    : 'Published on the testnet Marketplace.'}
+                </PanelCopy>
               </div>
             </div>
           </PanelHeader>

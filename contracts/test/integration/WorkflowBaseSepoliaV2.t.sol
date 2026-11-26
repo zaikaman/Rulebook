@@ -79,7 +79,16 @@ contract WorkflowBaseSepoliaV2Test is Test {
             address(agent),
             P.BASE_SEPOLIA,
             WorkflowProtocolsV2.Networks(
-                address(baseUsdc), address(baseWeth), address(baseRouter), address(basePair)
+                address(baseUsdc),
+                address(baseWeth),
+                address(baseRouter),
+                address(basePair),
+                0,
+                address(0),
+                address(0),
+                address(0),
+                0,
+                0
             ),
             validator
         );
@@ -89,7 +98,16 @@ contract WorkflowBaseSepoliaV2Test is Test {
             address(agent),
             P.UNICHAIN_SEPOLIA,
             WorkflowProtocolsV2.Networks(
-                address(uniUsdc), address(uniWeth), address(uniRouter), address(uniPair)
+                address(uniUsdc),
+                address(uniWeth),
+                address(uniRouter),
+                address(uniPair),
+                0,
+                address(0),
+                address(0),
+                address(0),
+                0,
+                0
             ),
             validator
         );

@@ -1,7 +1,7 @@
 import { decodeAbiParameters, encodeAbiParameters, getAbiItem, type Hex } from 'viem';
 
 import { workflowProgramValidatorV2Abi } from './abi/index.js';
-import { isFundsChain } from './chains.js';
+import { isFundsChain, isSameNetworkMode } from './chains.js';
 import { workflowLimits } from './workflows.js';
 
 export const workflowV2Trigger = {
@@ -97,7 +97,11 @@ export function workflowV2Nodes(root: WorkflowV2Branch): WorkflowV2Program['node
 /** Uses the settlement validator's generated ABI so its tuple order stays in sync with Solidity. */
 export function encodeWorkflowV2(program: WorkflowV2Program): Hex {
   if (!isFundsChain(program.chain) || !isFundsChain(program.originChain))
-    throw new Error('Select a supported workflow testnet.');
+    throw new Error('Select a supported workflow network.');
+  if (!isSameNetworkMode(program.chain, program.originChain))
+    throw new Error(
+      'Settlement and watched trigger networks must both be testnet or both be mainnet.',
+    );
   return encodeAbiParameters(workflowV2ProgramParameters, [{ ...program, version: 2 }]);
 }
 

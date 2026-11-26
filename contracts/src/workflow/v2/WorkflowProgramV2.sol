@@ -6,6 +6,9 @@ library WorkflowProgramV2 {
     uint32 internal constant UNICHAIN_SEPOLIA = 1301;
     uint32 internal constant BASE_SEPOLIA = 84_532;
     uint32 internal constant LASNA = 5_318_007;
+    uint32 internal constant UNICHAIN_MAINNET = 130;
+    uint32 internal constant BASE_MAINNET = 8453;
+    uint32 internal constant REACTIVE_MAINNET = 1597;
     uint8 internal constant VERSION = 2;
     uint8 internal constant MAX_NODES = 15;
     uint8 internal constant MAX_DEPTH = 3;
@@ -96,7 +99,19 @@ library WorkflowProgramV2 {
     error InvalidProgram();
 
     function isFundsChain(uint32 chainId) internal pure returns (bool) {
-        return chainId == UNICHAIN_SEPOLIA || chainId == BASE_SEPOLIA;
+        return chainId == UNICHAIN_SEPOLIA || chainId == BASE_SEPOLIA || chainId == UNICHAIN_MAINNET
+            || chainId == BASE_MAINNET;
+    }
+
+    function isSameEnvironment(uint32 a, uint32 b) internal pure returns (bool) {
+        if (
+            (a == UNICHAIN_SEPOLIA || a == BASE_SEPOLIA)
+                && (b == UNICHAIN_SEPOLIA || b == BASE_SEPOLIA)
+        ) {
+            return true;
+        }
+        return (a == UNICHAIN_MAINNET || a == BASE_MAINNET)
+            && (b == UNICHAIN_MAINNET || b == BASE_MAINNET);
     }
 
     /// @notice Decodes and validates a canonical program before it can be installed.
@@ -106,6 +121,7 @@ library WorkflowProgramV2 {
         if (
             keccak256(encoded) != keccak256(abi.encode(program)) || program.version != VERSION
                 || !isFundsChain(program.chain) || !isFundsChain(program.originChain)
+                || !isSameEnvironment(program.chain, program.originChain)
                 || program.trigger < SCHEDULE || program.trigger > TRANSFER
                 || program.slippage > 1000
         ) revert InvalidProgram();

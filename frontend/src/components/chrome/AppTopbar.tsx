@@ -4,8 +4,10 @@ import { useLocation } from 'react-router';
 import { Link } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
-import { Button } from '@/ui';
+import { Badge, Button } from '@/ui';
+import { NetworkModeSwitch } from './NetworkModeSwitch.js';
 import { WalletControl } from './WalletControl.js';
 
 function pageLabel(pathname: string): string {
@@ -27,6 +29,7 @@ function pageLabel(pathname: string): string {
 export function AppTopbar() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
+  const { automationName } = useNetworkMode();
 
   return (
     <header className="app-topbar">
@@ -40,6 +43,7 @@ export function AppTopbar() {
 
       <div className="app-topbar-actions">
         {' '}
+        <NetworkModeSwitch />
         <Button
           variant="quiet"
           className="app-assistant-topbar-trigger"
@@ -49,10 +53,10 @@ export function AppTopbar() {
           <HugeiconsIcon icon={SparklesIcon} size={15} strokeWidth={1.8} aria-hidden="true" />
           <span className="app-assistant-topbar-label">Ask Bookkeeper</span>
         </Button>
-        <span className="rb-chip rb-chip--plain">
+        <Badge plain data-testid="active-automation-network">
           <span className="app-live-dot" aria-hidden="true" />
-          Reactive Lasna
-        </span>
+          {automationName}
+        </Badge>
         <WalletControl />
       </div>
     </header>

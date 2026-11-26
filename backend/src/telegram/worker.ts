@@ -74,14 +74,20 @@ interface DeliveryLogger {
 
 export class TelegramWorker {
   private readonly lifetime = new AbortController();
+  private readonly workflowList: readonly WorkflowTelegramAlerts[];
+  private readonly fundingList: readonly TelegramFundingAlerts[];
 
   constructor(
     private readonly db: TelegramDatabase,
     private readonly service: TelegramService,
     private readonly log: DeliveryLogger,
-    private readonly workflow?: WorkflowTelegramAlerts,
-    private readonly funding?: TelegramFundingAlerts,
-  ) {}
+    workflow?: WorkflowTelegramAlerts | readonly WorkflowTelegramAlerts[],
+    funding?: TelegramFundingAlerts | readonly TelegramFundingAlerts[],
+    private readonly transport: typeof fetch = fetch,
+  ) {
+    this.workflowList = !workflow ? [] : Array.isArray(workflow) ? workflow : [workflow];
+    this.fundingList = !funding ? [] : Array.isArray(funding) ? funding : [funding];
+  }
 
   async run() {
     await Promise.all([
@@ -92,7 +98,15 @@ export class TelegramWorker {
       this.repeat(10_000, 'Telegram unfinished runs could not be checked', () =>
         this.service.processUnfinished(),
       ),
-      this.repeat(5_000, 'Telegram funding checks failed', () => this.funding?.process()),
+      this.repeat(5_000, 'Telegram funding checks failed', async () => {
+        if (!this.fundingList.length) return;
+        const results = await Promise.allSettled(
+          this.fundingList.map((runner) => runner.process()),
+        );
+        if (results.some(({ status }) => status === 'rejected')) {
+          throw new Error('Some Telegram funding checks failed');
+        }
+      }),
     ]);
   }
 
@@ -130,18 +144,30 @@ export class TelegramWorker {
           }
         }
         if (!signal.aborted) {
-          const [job] = await this.db.rpc(
-            'telegram_claim_alert_delivery',
-            { p_deployment: this.workflow?.deployment ?? null },
-            claims,
-          );
-          if (job) await this.deliverClaim(job);
+          await this.deliverOnce();
         }
       } catch {
         this.log.warn('Telegram worker database operation failed');
       }
       await sleep(1000, undefined, { signal }).catch(() => undefined);
     }
+  }
+
+  async deliverOnce(): Promise<boolean> {
+    const { signal } = this.lifetime;
+    const deployments: readonly (string | null)[] = this.workflowList.length
+      ? this.workflowList.map((runner) => runner.deployment)
+      : [null];
+    let claimedAny = false;
+    for (const p_deployment of deployments) {
+      if (signal.aborted) break;
+      const [job] = await this.db.rpc('telegram_claim_alert_delivery', { p_deployment }, claims);
+      if (job) {
+        claimedAny = true;
+        await this.deliverClaim(job);
+      }
+    }
+    return claimedAny;
   }
 
   private async deliverClaim(job: z.infer<typeof claims>[number]) {
@@ -155,10 +181,24 @@ export class TelegramWorker {
     if (alert) {
       try {
         if (alert.kind === 'payout') {
-          const current = await this.workflow?.stillInGrace(alert);
-          message = current === undefined ? undefined : current ? destination.message : null;
+          const workflowRunner = this.workflowList.find((runner) =>
+            runner.handlesChain(alert.chain),
+          );
+          if (!workflowRunner) {
+            this.log.warn(`No workflow alert runner configured for chain ${alert.chain}`);
+            message = undefined;
+          } else {
+            const current = await workflowRunner.stillInGrace(alert);
+            message = current ? destination.message : null;
+          }
         } else {
-          message = await this.funding?.currentMessage(alert);
+          const fundingRunner = this.fundingList.find((runner) => runner.handlesChain(alert.chain));
+          if (!fundingRunner) {
+            this.log.warn(`No funding alert runner configured for chain ${alert.chain}`);
+            message = undefined;
+          } else {
+            message = await fundingRunner.currentMessage(alert);
+          }
         }
       } catch {
         message = undefined;
@@ -175,6 +215,7 @@ export class TelegramWorker {
       destination.chat_id,
       message,
       destination.attempts,
+      this.transport,
     );
     await finish(result, delay);
     if (result === 'failed' || result === 'blocked') this.log.warn(`Telegram delivery ${result}`);

@@ -1,5 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
+import {
+  BASE_SEPOLIA_CHAIN_ID,
+  LASNA_CHAIN_ID,
+  UNICHAIN_MAINNET_CHAIN_ID,
+  UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
+} from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import Fastify from 'fastify';
 import { toFunctionSelector } from 'viem';
@@ -147,9 +154,98 @@ it('returns workflow health only for the requested owner and deployment', async 
       ],
     });
     expect(requests[0]?.url.pathname).toBe('/rest/v1/rpc/workflow_v2_health');
-    expect(requests[0]?.body).toEqual({ p_deployment: factory, p_owner: owner });
+    expect(requests[0]?.body).toEqual({
+      p_deployment: workflowDeploymentKey(LASNA_CHAIN_ID, factory),
+      p_owner: owner,
+      p_chains: [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+    });
     expect((await app.inject({ url: '/v3/health?owner=bad' })).statusCode).toBe(400);
   } finally {
     await app.close();
+  }
+});
+
+it('filters workflow_v2_health strictly by p_chains in SQL', async () => {
+  const db = await healthDatabase();
+  try {
+    await db.exec(
+      `
+      drop function workflow_v2_health(text, text);
+      create function workflow_v2_health(p_deployment text, p_owner text, p_chains integer[] default null)
+      returns table (
+        workflow_id text,
+        last_run_id text,
+        last_status text,
+        last_reason text,
+        last_expires_at bigint,
+        last_path smallint,
+        last_lasna_transaction text,
+        last_destination_transaction text,
+        last_success_id text,
+        last_success_path smallint,
+        last_success_lasna_transaction text,
+        last_success_destination_transaction text,
+        pending_run_id text,
+        pending_expires_at bigint
+      ) language sql stable set search_path = public as $$
+        with latest as (
+          select distinct on (workflow_id) *
+          from workflow_v2_activity
+          where deployment = p_deployment and owner = p_owner
+            and (p_chains is null or chain = any(p_chains))
+          order by workflow_id, lasna_block desc, id desc, chain desc
+        ),
+        success as (
+          select distinct on (workflow_id) *
+          from workflow_v2_activity
+          where deployment = p_deployment and owner = p_owner
+            and (p_chains is null or chain = any(p_chains))
+            and status = 'confirmed'
+          order by workflow_id, lasna_block desc, id desc, chain desc
+        ),
+        pending as (
+          select distinct on (workflow_id) *
+          from workflow_v2_activity
+          where deployment = p_deployment and owner = p_owner
+            and (p_chains is null or chain = any(p_chains))
+            and status = 'pending'
+          order by workflow_id, lasna_block desc, id desc, chain desc
+        )
+        select
+          latest.workflow_id, latest.id, latest.status, latest.reason, latest.expires_at,
+          latest.path, latest.lasna_transaction, latest.destination_transaction,
+          success.id, success.path, success.lasna_transaction, success.destination_transaction,
+          pending.id, pending.expires_at
+        from latest
+        left join success using (workflow_id)
+        left join pending using (workflow_id);
+      $$;
+    `,
+    );
+    await db.exec(`
+      insert into workflow_v2_accounts values
+        ('current', 1597, 'agent', 'owner', 'agent'),
+        ('current', ${UNICHAIN_MAINNET_CHAIN_ID}, 'vault-main', 'owner', 'agent');
+      insert into workflow_v2_activations values
+        ('current', ${UNICHAIN_MAINNET_CHAIN_ID}, 'agent', '${workflowId}', '1', 'hash-1', 'Mainnet transfer');
+      insert into workflow_v2_runs values
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${successId}', 'agent', '${workflowId}', 'hash-1', '1', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${hash}', '0', '${hash}', 100, 1),
+        ('current', ${UNICHAIN_MAINNET_CHAIN_ID}, '${failedId}', 'agent', '${workflowId}', 'hash-1', '1', ${UNICHAIN_MAINNET_CHAIN_ID}, '${hash}', '1', '${hash}', 200, 1);
+      insert into workflow_v2_outcomes values
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${successId}', '${workflowId}', 'vault', '1', '${hash}', 90, 0, 1, '0x00000000', 4),
+        ('current', ${UNICHAIN_MAINNET_CHAIN_ID}, '${failedId}', '${workflowId}', 'vault-main', '1', '${hash}', 91, 1, 4, '0x12345678', null);
+    `);
+
+    const testnetHealth = await db.query(
+      `select last_run_id, last_status from workflow_v2_health('current', 'owner', array[${UNICHAIN_SEPOLIA_CHAIN_ID}, ${BASE_SEPOLIA_CHAIN_ID}])`,
+    );
+    expect(testnetHealth.rows).toEqual([{ last_run_id: successId, last_status: 'confirmed' }]);
+
+    const mainnetHealth = await db.query(
+      `select last_run_id, last_status from workflow_v2_health('current', 'owner', array[${UNICHAIN_MAINNET_CHAIN_ID}])`,
+    );
+    expect(mainnetHealth.rows).toEqual([{ last_run_id: failedId, last_status: 'failed' }]);
+  } finally {
+    await db.close();
   }
 });

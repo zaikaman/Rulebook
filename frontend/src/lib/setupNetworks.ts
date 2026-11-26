@@ -9,13 +9,16 @@ import {
 } from 'viem';
 import type { Connector } from 'wagmi';
 
-export function permittedSetupChains(permissions: readonly WalletPermission[] | null | undefined) {
+export function permittedSetupChains(
+  permissions: readonly WalletPermission[] | null | undefined,
+  chains: readonly number[] = SUPPORTED_CHAIN_IDS,
+) {
   const declared: readonly WalletPermission[] = Array.isArray(permissions) ? permissions : [];
   const chainIds: unknown = declared
     .find((permission) => permission.parentCapability === 'endowment:permitted-chains')
     ?.caveats?.find(({ type }) => type === 'restrictNetworkSwitching')?.value;
   return Array.isArray(chainIds)
-    ? SUPPORTED_CHAIN_IDS.filter((id) => chainIds.includes(numberToHex(id)))
+    ? chains.filter((id) => chainIds.includes(numberToHex(id)))
     : undefined;
 }
 
@@ -62,6 +65,7 @@ export async function allowSetupNetwork(
 export async function checkSetupNetworks(
   connector: Pick<Connector, 'type' | 'getProvider' | 'getChainId'>,
   owner: Address,
+  chains: readonly number[] = SUPPORTED_CHAIN_IDS,
 ) {
   if (connector.type === 'walletConnect') {
     const provider = (await connector.getProvider()) as
@@ -69,9 +73,7 @@ export async function checkSetupNetworks(
     const accounts = Object.values(provider?.session?.namespaces ?? {})
       .flatMap((namespace) => namespace.accounts)
       .map((account) => account.toLowerCase());
-    return SUPPORTED_CHAIN_IDS.filter((id) =>
-      accounts.includes(`eip155:${id}:${owner.toLowerCase()}`),
-    );
+    return chains.filter((id) => accounts.includes(`eip155:${id}:${owner.toLowerCase()}`));
   }
 
   const provider = (await connector.getProvider()) as EIP1193Provider | undefined;
@@ -81,11 +83,12 @@ export async function checkSetupNetworks(
   try {
     const allowed = permittedSetupChains(
       await provider.request({ method: 'wallet_getPermissions' }),
+      chains,
     );
     if (allowed) return allowed;
   } catch {
     // Let the user confirm the other network in their wallet.
   }
   const currentChain = await connector.getChainId();
-  return SUPPORTED_CHAIN_IDS.filter((id) => currentChain === id);
+  return chains.filter((id) => currentChain === id);
 }

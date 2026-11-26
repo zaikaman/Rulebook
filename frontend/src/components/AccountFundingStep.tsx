@@ -6,10 +6,11 @@ import {
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
+  automationChainFor,
   BASE_SEPOLIA_CHAIN_ID,
   feeCreditWarningThreshold,
   getChain,
-  LASNA_CHAIN_ID,
+  networkModeForChain,
   type Address,
   type FundsChainId,
 } from '@rulebook/shared';
@@ -82,12 +83,15 @@ export function AccountFundingStep({
     setAmounts(defaultFundingAmounts(funds, chainId));
   }, [funds, initKey, chainId]);
 
-  const ethToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseEth : testnetTokens.eth;
-  const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
-  const lasnaNetwork = getChain(LASNA_CHAIN_ID);
   const settlementNetwork = getChain(chainId);
+  const mode = networkModeForChain(chainId);
+  const isMainnet = mode === 'mainnet';
+  const autoChainId = automationChainFor(mode);
+  const lasnaNetwork = getChain(autoChainId);
+  const watchSymbol = lasnaNetwork.nativeSymbol;
+  const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
 
-  const watchingParsed = parseFundingAmount(amounts.watching, 18, 'lREACT', funds?.walletWatch);
+  const watchingParsed = parseFundingAmount(amounts.watching, 18, watchSymbol, funds?.walletWatch);
   const executionParsed = parseFundingAmount(amounts.execution, 18, 'ETH', funds?.walletNative);
   const usdcParsed = parseFundingAmount(amounts.usdc, 6, 'USDC', funds?.walletStable);
 
@@ -105,9 +109,9 @@ export function AccountFundingStep({
     plannedItems.push({
       id: 'watching',
       amount: watchingParsed.amount,
-      display: `${exactUnits(watchingParsed.amount, 18)} lREACT`,
-      chainId: LASNA_CHAIN_ID,
-      label: `Deposit ${exactUnits(watchingParsed.amount, 18)} lREACT for watching credit`,
+      display: `${exactUnits(watchingParsed.amount, 18)} ${watchSymbol}`,
+      chainId: autoChainId,
+      label: `Deposit ${exactUnits(watchingParsed.amount, 18)} ${watchSymbol} for watching credit`,
       networkName: lasnaNetwork.name,
     });
   }
@@ -154,7 +158,7 @@ export function AccountFundingStep({
   }
 
   const continueLabel = startWorkflow ? 'Start building' : 'Open Account & Vault';
-  const watchingThreshold = feeCreditWarningThreshold(LASNA_CHAIN_ID);
+  const watchingThreshold = feeCreditWarningThreshold(autoChainId);
   const executionThreshold = feeCreditWarningThreshold(chainId);
 
   let statusLine = 'Pre-filled from your wallet balances. Leave any field blank to skip it.';
@@ -190,8 +194,8 @@ export function AccountFundingStep({
           chainId={depositError.chainId}
         >
           <p className="mt-2">
-            Allow this account on Reactive Lasna and {settlementNetwork.name} in your wallet, then
-            retry the remaining deposits.
+            Allow this account on {lasnaNetwork.name} and {settlementNetwork.name} in your wallet,
+            then retry the remaining deposits.
             {savedNotice}
           </p>
         </ErrorState>
@@ -203,17 +207,17 @@ export function AccountFundingStep({
       depositError.walk((cause) => cause instanceof InsufficientFundsError) instanceof
         InsufficientFundsError
     ) {
-      const feeToken = failedItem === 'watching' ? testnetTokens.react : ethToken;
-      const feeSymbol = failedItem === 'watching' ? 'lREACT' : feeToken.symbol;
+      const feeNetwork = failedItem === 'watching' ? lasnaNetwork : settlementNetwork;
+      const feeSymbol = failedItem === 'watching' ? watchSymbol : 'ETH';
       errorNode = (
         <ErrorState
-          message={`Leave a little test ${feeSymbol} on ${feeToken.network.name} to cover the transaction fee.${savedNotice}`}
-          chainId={feeToken.network.chainId}
+          message={`Leave a little ${isMainnet ? '' : 'test '}${feeSymbol} on ${feeNetwork.name} to cover the transaction fee.${savedNotice}`}
+          chainId={feeNetwork.chainId}
         />
       );
     } else {
       const failedChain =
-        failedItem === 'watching' ? LASNA_CHAIN_ID : failedItem ? chainId : undefined;
+        failedItem === 'watching' ? autoChainId : failedItem ? chainId : undefined;
       errorNode = (
         <ErrorState
           message={`A deposit could not be completed.${savedNotice}`}
@@ -305,7 +309,7 @@ export function AccountFundingStep({
                 <div className="account-setup__funding-title">
                   <span className="account-setup__network-dot" aria-hidden="true" />
                   <h3>Watching credit</h3>
-                  <NetworkBadge chainId={LASNA_CHAIN_ID} />
+                  <NetworkBadge chainId={autoChainId} />
                 </div>
                 <div className="account-setup__funding-status">
                   {renderBadge(
@@ -317,7 +321,7 @@ export function AccountFundingStep({
                   )}
                   {confirmed.watching && (
                     <TxLink
-                      chainId={LASNA_CHAIN_ID}
+                      chainId={autoChainId}
                       txHash={confirmed.watching}
                       label="View transaction"
                     />
@@ -327,8 +331,8 @@ export function AccountFundingStep({
               <p>Pays your agent to watch triggers and evaluate rules.</p>
               <div className="account-setup__funding-field">
                 <Field
-                  label="Watching credit (lREACT)"
-                  hint={`Wallet: ${exactUnits(funds.walletWatch, 18)} lREACT${funds.watch > 0n ? ` · Current reserve: ${exactUnits(funds.watch, 18)} lREACT` : ''}. Keep a little for network gas.`}
+                  label={`Watching credit (${watchSymbol})`}
+                  hint={`Wallet: ${exactUnits(funds.walletWatch, 18)} ${watchSymbol}${funds.watch > 0n ? ` · Current reserve: ${exactUnits(funds.watch, 18)} ${watchSymbol}` : ''}. Keep a little for network gas.`}
                   error={!confirmed.watching ? watchingParsed.error : undefined}
                 >
                   {(ids) => (
@@ -429,7 +433,7 @@ export function AccountFundingStep({
                   hint={
                     usdcAvailable
                       ? `Wallet: ${exactUnits(funds.walletStable, 6)} USDC${funds.stable > 0n ? ` · In vault: ${exactUnits(funds.stable, 6)} USDC` : ''}.`
-                      : `Test USDC is unavailable on ${settlementNetwork.name}.`
+                      : `${isMainnet ? '' : 'Test '}USDC is unavailable on ${settlementNetwork.name}.`
                   }
                   error={!confirmed.usdc ? usdcParsed.error : undefined}
                 >
@@ -450,7 +454,7 @@ export function AccountFundingStep({
                     />
                   )}
                 </Field>
-                {usdcAvailable && funds.walletStable === 0n && !confirmed.usdc && (
+                {!isMainnet && usdcAvailable && funds.walletStable === 0n && !confirmed.usdc && (
                   <a
                     className="app-link account-setup__funding-faucet"
                     href={usdcToken.faucet}

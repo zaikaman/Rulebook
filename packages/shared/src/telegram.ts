@@ -60,12 +60,13 @@ export type TelegramSettings = z.infer<typeof telegramSettingsSchema>;
 export function telegramSignIn(
   agent: `0x${string}`,
   { origin, nonce, expiresAt, browser }: TelegramChallenge,
+  chainId: number = LASNA_CHAIN_ID,
 ) {
   return {
     domain: {
       name: 'Rulebook Telegram notifications',
       version: '1',
-      chainId: LASNA_CHAIN_ID,
+      chainId,
       verifyingContract: agent,
     },
     types: {

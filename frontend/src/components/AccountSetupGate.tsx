@@ -1,4 +1,4 @@
-import { UNICHAIN_SEPOLIA_CHAIN_ID, type Address, type FundsChainId } from '@rulebook/shared';
+import { type Address, type FundsChainId } from '@rulebook/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -7,6 +7,7 @@ import { useAccount } from 'wagmi';
 
 import type { SetupFundingWallet } from '../hooks/useAccountFunding.js';
 import { useAccountSetup, type SetupWallet } from '../hooks/useAccountSetup.js';
+import { useNetworkMode } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 import { CreateAccount } from '../pages/CreateAccount.js';
 import { AppShell } from './AppShell.js';
@@ -30,7 +31,7 @@ export function WalletAccountSetupGate({
   title,
   children,
   wallet,
-  chainId = UNICHAIN_SEPOLIA_CHAIN_ID,
+  chainId,
   availableChains,
   onChainChange,
   findLinkedChain,
@@ -47,12 +48,14 @@ export function WalletAccountSetupGate({
   startWorkflow?: boolean;
   workflowScope?: string;
 }) {
+  const { mode, defaultFundsChainId } = useNetworkMode();
+  const resolvedChainId = chainId ?? defaultFundsChainId;
   const { address, isReconnecting } = useAccount();
   const queryClient = useQueryClient();
   const owner = isReconnecting ? undefined : (address?.toLowerCase() as Address | undefined);
-  const setup = useAccountSetup({ owner, wallet, scope: workflowScope, chainId });
+  const setup = useAccountSetup({ owner, wallet, scope: workflowScope, chainId: resolvedChainId });
   const existingLinked = useQuery({
-    queryKey: ['wallet-setup-linked-chain', owner, workflowScope],
+    queryKey: ['wallet-setup-linked-chain', mode, owner, workflowScope],
     enabled: Boolean(owner && findLinkedChain),
     queryFn: () => findLinkedChain!(owner!),
     retry: false,
@@ -107,9 +110,9 @@ export function WalletAccountSetupGate({
     return (
       <AppShell focused>
         <CreateAccount
-          key={owner}
+          key={`${mode}:${owner ?? ''}`}
           setup={setup}
-          chainId={chainId}
+          chainId={resolvedChainId}
           availableChains={availableChains}
           onChainChange={onChainChange}
           fundingWallet={fundingWallet}
@@ -119,7 +122,7 @@ export function WalletAccountSetupGate({
               ? () => {
                   setFundingDoneFor(owner);
                   void queryClient.invalidateQueries({
-                    queryKey: ['wallet-setup-linked-chain', owner],
+                    queryKey: ['wallet-setup-linked-chain', mode, owner],
                   });
                 }
               : undefined
@@ -129,5 +132,5 @@ export function WalletAccountSetupGate({
     );
   }
 
-  return children({ agent, vault, chain: chainId });
+  return children({ agent, vault, chain: resolvedChainId });
 }

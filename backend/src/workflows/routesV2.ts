@@ -1,12 +1,16 @@
 import {
-  FUNDS_CHAIN_IDS,
   addressSchema,
+  automationChainFor,
   fundsChainIdSchema,
+  fundsChainsFor,
+  networkModeSchema,
+  workflowDeploymentKey,
   workflowHealthResponseSchema,
   workflowIdSchema,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
   type Address,
+  type NetworkMode,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyInstance } from 'fastify';
@@ -25,6 +29,7 @@ const query = z.object({
   id: workflowIdSchema.optional(),
   workflow: workflowIdSchema.optional(),
   after: z.string().max(250).optional(),
+  network: networkModeSchema.default('testnet'),
 });
 const listingId = z.string().regex(/^[1-9]\d{0,77}$/);
 const listing = z.object({
@@ -124,14 +129,34 @@ function runProof(row: z.infer<typeof proofRow>) {
 export function registerWorkflowV2Routes(
   app: FastifyInstance,
   db: SupabaseClient,
-  factory: Address,
+  factoryOrDeployments: Address | { testnet?: Address; mainnet?: Address },
 ) {
-  const deployment = factory.toLowerCase();
+  function resolveDeployment(network: NetworkMode) {
+    const address =
+      typeof factoryOrDeployments === 'string'
+        ? network === 'testnet'
+          ? factoryOrDeployments
+          : undefined
+        : network === 'mainnet'
+          ? factoryOrDeployments.mainnet
+          : factoryOrDeployments.testnet;
+    return {
+      deployment: address ? workflowDeploymentKey(automationChainFor(network), address) : null,
+      chains: fundsChainsFor(network),
+    };
+  }
+
   app.get('/v3/marketplace', async (request, reply) => {
     const params = z
-      .object({ q: z.string().max(160).default(''), after: z.string().max(250).optional() })
+      .object({
+        q: z.string().max(160).default(''),
+        after: z.string().max(250).optional(),
+        network: networkModeSchema.default('testnet'),
+      })
       .safeParse(request.query);
     if (!params.success) return reply.code(400).send({ message: 'Check the search parameters.' });
+    const { deployment, chains } = resolveDeployment(params.data.network);
+    if (!deployment) return { listings: [], nextCursor: null };
     let before;
     if (params.data.after) {
       try {
@@ -145,7 +170,8 @@ export function registerWorkflowV2Routes(
     let page = db
       .from('workflow_v2_market_listings')
       .select('*')
-      .match({ deployment, visible: true });
+      .match({ deployment, visible: true })
+      .in('chain', [...chains]);
     const search = params.data.q.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
     if (search) page = page.ilike('title', `%${search}%`);
     if (before)
@@ -173,11 +199,18 @@ export function registerWorkflowV2Routes(
 
   app.get('/v3/marketplace/:id', async (request, reply) => {
     const params = z.object({ id: listingId }).safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ message: 'This listing ID is invalid.' });
+    const networkQuery = z
+      .object({ network: networkModeSchema.default('testnet') })
+      .safeParse(request.query);
+    if (!params.success || !networkQuery.success)
+      return reply.code(400).send({ message: 'This listing ID is invalid.' });
+    const { deployment, chains } = resolveDeployment(networkQuery.data.network);
+    if (!deployment) return reply.code(404).send({ message: 'This listing is unavailable.' });
     const { data, error } = await db
       .from('workflow_v2_market_listings')
       .select('*')
       .match({ deployment, visible: true, id: params.data.id })
+      .in('chain', [...chains])
       .maybeSingle();
     if (error) throw error;
     return data
@@ -186,11 +219,16 @@ export function registerWorkflowV2Routes(
   });
 
   app.get('/v3/health', async (request, reply) => {
-    const input = z.object({ owner: addressSchema }).safeParse(request.query);
+    const input = z
+      .object({ owner: addressSchema, network: networkModeSchema.default('testnet') })
+      .safeParse(request.query);
     if (!input.success) return reply.code(400).send({ message: 'Check the wallet address.' });
+    const { deployment, chains } = resolveDeployment(input.data.network);
+    if (!deployment) return workflowHealthResponseSchema.parse({ workflows: [] });
     const { data, error } = await db.rpc('workflow_v2_health', {
       p_deployment: deployment,
       p_owner: input.data.owner,
+      p_chains: [...chains],
     });
     if (error) throw error;
     const rows = z.array(healthRow).parse(data);
@@ -234,12 +272,15 @@ export function registerWorkflowV2Routes(
   app.get('/v3/activity', async (request, reply) => {
     const input = query.safeParse(request.query);
     if (!input.success) return reply.code(400).send({ message: 'Check the activity filters.' });
+    const { deployment } = resolveDeployment(input.data.network);
+    if (!deployment) return { runs: [], nextCursor: null };
     const after = readCursor(input.data.after);
     const limit = 24;
     let pageQuery = db
       .from('workflow_v2_activity')
       .select('*')
-      .match({ deployment, owner: input.data.owner.toLowerCase() });
+      .match({ deployment, owner: input.data.owner.toLowerCase() })
+      .in('chain', [...fundsChainsFor(input.data.network)]);
     if (input.data.id) pageQuery = pageQuery.eq('id', input.data.id);
     if (input.data.workflow) pageQuery = pageQuery.eq('workflow_id', input.data.workflow);
     if (after) {
@@ -276,12 +317,18 @@ export function registerWorkflowV2Routes(
 
   app.get('/v3/runs/:id', async (request, reply) => {
     const params = z.object({ id: workflowIdSchema }).safeParse(request.params);
-    if (!params.success) return reply.code(400).send({ message: 'This run ID is invalid.' });
+    const networkQuery = z
+      .object({ network: networkModeSchema.default('testnet') })
+      .safeParse(request.query);
+    if (!params.success || !networkQuery.success)
+      return reply.code(400).send({ message: 'This run ID is invalid.' });
+    const { deployment, chains } = resolveDeployment(networkQuery.data.network);
+    if (!deployment) return reply.code(404).send({ message: 'This run has not been indexed.' });
     const { data, error } = await db
       .from('workflow_v2_activity')
       .select(proofColumns)
       .eq('deployment', deployment)
-      .in('chain', [...FUNDS_CHAIN_IDS])
+      .in('chain', [...chains])
       .eq('id', params.data.id)
       .order('lasna_block', { ascending: false })
       .limit(1)

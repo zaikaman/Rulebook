@@ -15,6 +15,7 @@ contract MockSystemContract is IReactiveSystem {
 
     mapping(address => uint256) public reserves;
     mapping(address => uint256) public debts;
+    mapping(bytes32 => bool) private _subscribed;
 
     uint256 public subscribeCount;
     uint256 public unsubscribeCount;
@@ -26,17 +27,39 @@ contract MockSystemContract is IReactiveSystem {
         _requests.push(config);
     }
 
-    function subscribe(uint256, address, uint256 topic0, uint256 topic1, uint256, uint256)
-        external
-    {
+    function subscribe(
+        uint256 chainId,
+        address source,
+        uint256 topic0,
+        uint256 topic1,
+        uint256,
+        uint256
+    ) external {
         subscribeCount += 1;
         lastSubscribedTopic = topic0;
         lastSubscribedTopic1 = topic1;
+        _subscribed[keccak256(abi.encode(chainId, source, topic0))] = true;
     }
 
-    function unsubscribe(uint256, address, uint256, uint256 topic1, uint256, uint256) external {
+    function unsubscribe(
+        uint256 chainId,
+        address source,
+        uint256 topic0,
+        uint256 topic1,
+        uint256,
+        uint256
+    ) external {
         unsubscribeCount += 1;
         lastUnsubscribedTopic1 = topic1;
+        _subscribed[keccak256(abi.encode(chainId, source, topic0))] = false;
+    }
+
+    function isSubscribed(uint256 chainId, address source, uint256 topic0)
+        external
+        view
+        returns (bool)
+    {
+        return _subscribed[keccak256(abi.encode(chainId, source, topic0))];
     }
 
     function requestCount() external view returns (uint256 count) {
