@@ -6,6 +6,8 @@ import {
   emptyPath,
   encodeWorkflowV2,
   isSameNetworkMode,
+  networkModeForChain,
+  resolveRulewrightNetwork,
   toProgram,
   triggers,
   v2DraftSchema,
@@ -14,6 +16,7 @@ import {
   workflowV2Check,
   workflowV2Unit,
   type DraftPath,
+  type NetworkMode,
   type RulewrightRequest,
   type RulewrightResult,
   type V2Draft,
@@ -139,13 +142,12 @@ export async function generateRulewrightDraft(
   signal: AbortSignal,
 ): Promise<RulewrightResult> {
   const deadline = AbortSignal.timeout(geminiTimeoutMs);
-  const networkGuidance = request.network
-    ? `\nTarget network mode: ${request.network}. Only use ${
-        request.network === 'mainnet'
-          ? 'Unichain (130) or Base (8453)'
-          : 'Unichain Sepolia (1301) or Base Sepolia (84532)'
-      } for chain and originChain.`
-    : '';
+  const targetNetwork = resolveRulewrightNetwork(request);
+  const networkGuidance = `\nTarget network mode: ${targetNetwork}. Only use ${
+    targetNetwork === 'mainnet'
+      ? 'Unichain (130) or Base (8453)'
+      : 'Unichain Sepolia (1301) or Base Sepolia (84532)'
+  } for chain and originChain.`;
   let patch: Patch;
   try {
     const response = await fetch(config.endpoint, {
@@ -191,7 +193,7 @@ export async function generateRulewrightDraft(
   let draft: V2Draft;
   let encoded: `0x${string}`;
   try {
-    draft = mergePatch(request, patch);
+    draft = mergePatch(request, patch, targetNetwork);
     encoded = encodeWorkflowV2(toProgram(draft));
   } catch (error) {
     return {
@@ -213,8 +215,18 @@ export async function generateRulewrightDraft(
   return { type: 'draft', draft };
 }
 
-function mergePatch(request: RulewrightRequest, patch: Patch): V2Draft {
-  const defaultChain = request.network ? defaultFundsChainFor(request.network) : undefined;
+function mergePatch(request: RulewrightRequest, patch: Patch, targetNetwork: NetworkMode): V2Draft {
+  if (
+    request.draft &&
+    (networkModeForChain(request.draft.chain) !== targetNetwork ||
+      (request.draft.originChain &&
+        networkModeForChain(request.draft.originChain) !== targetNetwork))
+  ) {
+    throw new Error(
+      `Keep chains in ${targetNetwork} (${targetNetwork === 'mainnet' ? '130 or 8453' : '1301 or 84532'}).`,
+    );
+  }
+  const defaultChain = defaultFundsChainFor(targetNetwork);
   const baseline = request.draft ?? emptyDraft(defaultChain);
   const updates: Record<string, boolean | number | string> = {};
   for (const { field, value } of patch.settings) {
@@ -270,16 +282,13 @@ function mergePatch(request: RulewrightRequest, patch: Patch): V2Draft {
     throw new Error('Can you clarify the trigger and branch changes you want?');
 
   const draft = parsed.data;
-  if (request.network) {
-    const expected = defaultFundsChainFor(request.network);
-    if (
-      !isSameNetworkMode(draft.chain, expected) ||
-      !isSameNetworkMode(draft.originChain, expected)
-    ) {
-      throw new Error(
-        `Keep chains in ${request.network} (${request.network === 'mainnet' ? '130 or 8453' : '1301 or 84532'}).`,
-      );
-    }
+  if (
+    !isSameNetworkMode(draft.chain, defaultChain) ||
+    !isSameNetworkMode(draft.originChain, defaultChain)
+  ) {
+    throw new Error(
+      `Keep chains in ${targetNetwork} (${targetNetwork === 'mainnet' ? '130 or 8453' : '1301 or 84532'}).`,
+    );
   }
   confirmGuardrails(request, baseline, draft);
   const walletPattern = /\b0x[\da-f]{40}\b/gi;

@@ -38,10 +38,10 @@ contract WorkflowAgentV2 is AbstractPayer {
     // after the boundary has certainly passed on both chains, so the Agent never suppresses a run
     // the Vault would settle against the week the spend was recorded in.
     uint64 private constant WEEK_SKEW = 10 minutes;
-    // Reactive blocks arrive near ~0.78s (Mainnet) to ~1.09s (Lasna). Conservative per-chain
+    // Reactive blocks arrive near ~0.785s (Mainnet) to ~1.09s (Lasna). Conservative per-chain
     // block-time overestimates wake the agent shortly before reset while minimizing mainnet re-pins.
     uint256 private constant LASNA_BLOCK_MS = 2_000;
-    uint256 private constant MAINNET_BLOCK_MS = 900;
+    uint256 private constant MAINNET_BLOCK_MS = 820;
 
     struct Entry {
         bytes32 hash;
@@ -64,10 +64,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     struct PriceState {
         uint128 price;
         uint128 previousPrice;
+        uint128 priorPrice;
         uint64 time;
+        uint64 previousTime;
         bytes32 observation;
         uint256 blockNumber;
         uint256 logIndex;
+        uint256 previousBlockNumber;
     }
 
     struct ActivityCursor {
@@ -229,12 +232,8 @@ contract WorkflowAgentV2 is AbstractPayer {
                 || originAfter == 0 || bytes(title).length == 0 || bytes(title).length > 80
         ) revert InvalidWorkflow();
         if (entry.epoch == 0) known.push(workflow);
-        if (entry.trigger != 0) {
-            if (entry.chain != program.chain) delete budgets[workflow];
-            _stop(workflow, entry);
-        } else {
-            delete budgets[workflow];
-        }
+        if (entry.trigger == 0 || entry.chain != program.chain) delete budgets[workflow];
+        if (entry.trigger != 0) _stop(workflow, entry);
         if (active.length >= MAX_ACTIVE) revert InvalidWorkflow();
         bytes32 hash = keccak256(encoded);
         entry.hash = hash;
@@ -329,7 +328,6 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _stop(bytes32 workflow, Entry storage entry) private {
         if (paused[workflow]) {
             paused[workflow] = false;
-            _unpin(workflow);
             _settlementFilters(entry, false);
         } else {
             _filters(entry, false);
@@ -369,11 +367,10 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
     function _triggerFilters(Entry storage entry, bool enabled) private {
-        ChainConfig.Config memory autoCfg = ChainConfig.get(automationChain);
         ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
         uint256 priceTopic = originCfg.poolFee == 0 ? SYNC : SWAP_V3;
         if (entry.trigger == P.SCHEDULE) {
-            _filter(Filter(automationChain, autoCfg.cronSource, CRON, ANY, ANY), enabled);
+            _filterCron(ANY, enabled);
             if (entry.dip) {
                 _filter(Filter(entry.originChain, originCfg.pair, priceTopic, ANY, ANY), enabled);
             }
@@ -484,6 +481,7 @@ contract WorkflowAgentV2 is AbstractPayer {
             if (
                 log._contract == logCfg.usdc && log.topic_0 == TRANSFER
                     && log.topic_1 == uint160(owner) && log.topic_2 != log.topic_1
+                    && (vaults[logChain] == address(0) || log.topic_2 != uint160(vaults[logChain]))
                     && log.data.length == 32
                     && (log.block_number > cursor.blockNumber
                         || (log.block_number == cursor.blockNumber
@@ -505,7 +503,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                 _retire(workflow, entry);
                 continue;
             }
-            _route(workflow, log, autoCfg, market);
+            _route(workflow, log, autoCfg.cronSource, market);
             ++index;
         }
     }
@@ -543,11 +541,16 @@ contract WorkflowAgentV2 is AbstractPayer {
                 PriceMath.usdcPerWethFromSqrtPriceX96(uint160(sqrtPriceRaw), cfg.usdc < cfg.weth);
         }
         if (observed == 0 || observed > type(uint128).max) return false;
+        if (log.block_number > state.blockNumber) {
+            state.priorPrice = state.previousPrice;
+            state.previousPrice = state.price;
+            state.previousTime = state.time;
+            state.previousBlockNumber = state.blockNumber;
+        }
         state.blockNumber = log.block_number;
         state.logIndex = log.log_index;
         state.time = uint64(block.timestamp);
         state.observation = keccak256(abi.encode(log.chain_id, log.tx_hash, log.log_index));
-        state.previousPrice = state.price;
         state.price = uint128(observed);
         return true;
     }
@@ -555,18 +558,18 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _route(
         bytes32 workflow,
         IReactive.LogRecord calldata log,
-        ChainConfig.Config memory autoCfg,
+        address cronSource,
         bool market
     ) private {
         Entry storage entry = entries[workflow];
         if (paused[workflow]) {
-            _wakeIfDue(workflow, entry, log, autoCfg);
+            _wakeIfDue(workflow, entry, log, cronSource);
             return;
         }
         P.Run memory run;
         if (entry.trigger == P.SCHEDULE) {
             if (
-                log.chain_id != automationChain || log._contract != autoCfg.cronSource
+                log.chain_id != automationChain || log._contract != cronSource
                     || log.topic_0 != CRON || log.topic_1 != log.block_number
                     || log.block_number <= entry.lasnaAfter || block.timestamp < entry.nextDue
             ) return;
@@ -582,14 +585,22 @@ contract WorkflowAgentV2 is AbstractPayer {
         } else {
             if (log.chain_id != entry.originChain) return;
             if (entry.originChain == entry.chain && log.block_number <= entry.originAfter) return;
-            ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
             if (entry.trigger == P.PRICE) {
                 if (!market) return;
-                PriceState storage state = prices[entry.originChain][originCfg.pair];
+                PriceState storage state = prices[entry.originChain][log._contract];
                 PriceHigh storage high = highs[workflow];
-                if (state.price > high.value) {
-                    high.value = state.price;
-                    high.blockNumber = uint64(log.block_number);
+                uint128 closedPrice = state.previousPrice;
+                bool spikeWick = automationChain == ChainConfig.REACTIVE_MAINNET
+                    && state.priorPrice != 0
+                    && uint256(closedPrice) * 20 >= uint256(state.priorPrice) * 21
+                    && uint256(closedPrice) * 20 >= uint256(state.price) * 21;
+                if (
+                    closedPrice > high.value && !spikeWick && state.previousTime >= entry.nextDue
+                        && (entry.originChain != entry.chain
+                            || state.previousBlockNumber > entry.originAfter)
+                ) {
+                    high.value = closedPrice;
+                    high.blockNumber = uint64(state.previousBlockNumber);
                 }
                 run.observed = state.price;
                 run.previous = state.previousPrice;
@@ -600,34 +611,25 @@ contract WorkflowAgentV2 is AbstractPayer {
                 if (log.data.length != 32) return;
                 uint256 amount = abi.decode(log.data, (uint256));
                 if (amount == 0) return;
-                if (entry.trigger == P.PAYMENT) {
-                    if (
-                        log._contract != originCfg.usdc || log.topic_0 != TRANSFER
-                            || log.topic_2 != uint160(vaults[entry.chain])
-                            || log.topic_1 == log.topic_2
-                    ) return;
-                    run.actor = address(uint160(log.topic_1));
-                } else if (entry.trigger == P.TRANSFER) {
-                    if (log._contract != entry.source || log.topic_0 != TRANSFER) return;
-                    if (entry.subject == address(0)) {
-                        if (
-                            log.topic_2 != uint160(vaults[entry.chain])
-                                || log.topic_1 == log.topic_2
-                        ) return;
-                    } else if (
-                        log.topic_1 != uint160(entry.subject)
-                            && log.topic_2 != uint160(entry.subject)
-                    ) {
+                address sourceToken = entry.trigger == P.PAYMENT
+                    ? ChainConfig.get(entry.originChain).usdc
+                    : entry.source;
+                address watched = entry.trigger == P.PAYMENT ? address(0) : entry.subject;
+                if (log._contract != sourceToken || log.topic_0 != TRANSFER) return;
+                if (watched == address(0)) {
+                    if (log.topic_2 != uint160(vaults[entry.chain]) || log.topic_1 == log.topic_2) {
                         return;
                     }
-                    run.actor = address(
-                        uint160(
-                            entry.subject != address(0) && log.topic_1 == uint160(entry.subject)
-                                ? log.topic_2
-                                : log.topic_1
-                        )
-                    );
+                } else if (log.topic_1 != uint160(watched) && log.topic_2 != uint160(watched)) {
+                    return;
                 }
+                run.actor = address(
+                    uint160(
+                        watched != address(0) && log.topic_1 == uint160(watched)
+                            ? log.topic_2
+                            : log.topic_1
+                    )
+                );
                 run.observed = amount;
                 run.observationTime = uint64(block.timestamp);
             }
@@ -639,11 +641,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         run.originLogIndex = uint64(log.log_index);
         run.originBlock = uint64(log.block_number);
         run.expiresAt = uint64(block.timestamp) + LIFETIME;
-        bytes32 runId = keccak256(
-            abi.encode(
-                address(this), workflow, run.originChain, run.originTransaction, run.originLogIndex
-            )
-        );
+        bytes32 runId = _runId(workflow, run.originChain, run.originTransaction, run.originLogIndex);
         if (seen[runId]) return;
         // A run the Vault can only reject on budget would still cost a callback fee, so it is not
         // requested now. The schedule retries on its next tick. A payment or transfer origin is a
@@ -853,8 +851,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice Holds the Reactive cron subscription that drives retries while runnable items wait.
     function _cronFilter(bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.get(automationChain);
-        _filter(Filter(automationChain, cfg.cronSource, CRON, ANY, ANY), enabled);
+        _filterCron(ANY, enabled);
     }
 
     /// @notice Removes the trigger filters of a workflow whose weekly budget cannot fund any path.
@@ -892,11 +889,11 @@ contract WorkflowAgentV2 is AbstractPayer {
         bytes32 workflow,
         Entry storage entry,
         IReactive.LogRecord calldata log,
-        ChainConfig.Config memory cfg
+        address cronSource
     ) private {
         uint64 target = wakeAt[workflow];
         if (
-            target == 0 || log.chain_id != automationChain || log._contract != cfg.cronSource
+            target == 0 || log.chain_id != automationChain || log._contract != cronSource
                 || log.topic_0 != CRON || log.topic_1 != target
         ) return;
         uint64 reset = _resetAt(workflow);
@@ -927,8 +924,14 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     /// @notice One exact cron block, used only by a paused workflow.
     function _wakeFilter(uint64 target, bool enabled) private {
-        ChainConfig.Config memory cfg = ChainConfig.get(automationChain);
-        _filter(Filter(automationChain, cfg.cronSource, CRON, target, ANY), enabled);
+        _filterCron(target, enabled);
+    }
+
+    function _filterCron(uint256 topic1, bool enabled) private {
+        _filter(
+            Filter(automationChain, ChainConfig.get(automationChain).cronSource, CRON, topic1, ANY),
+            enabled
+        );
     }
 
     /// @notice First `Cron100` block expected at or after `reset`, or zero when it has passed.
@@ -995,7 +998,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev The mirrored budget is never larger than the Vault's own spend and never newer than the
     /// week the Vault would settle against, so this can only suppress runs the Vault would skip.
     function _budgetBlocks(bytes32 workflow, uint256 observed) private view returns (bool) {
-        Budget memory budget = budgets[workflow];
+        Budget storage budget = budgets[workflow];
         if (!budget.known) return false;
         uint128 usdcSpent = budget.usdcSpent;
         uint128 wethSpent = budget.wethSpent;
@@ -1010,7 +1013,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev A path above the configured limit can never run; such a workflow is paused without a
     /// reset wake, and only a budget edit that admits a path brings it back.
     function _budgetBlocksFresh(bytes32 workflow, uint256 observed) private view returns (bool) {
-        Budget memory budget = budgets[workflow];
+        Budget storage budget = budgets[workflow];
         if (!budget.known) return false;
         return _budgetBlocksFrom(workflow, observed, budget, 0, 0);
     }
@@ -1018,7 +1021,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _budgetBlocksFrom(
         bytes32 workflow,
         uint256 observed,
-        Budget memory budget,
+        Budget storage budget,
         uint128 usdcSpent,
         uint128 wethSpent
     ) private view returns (bool) {

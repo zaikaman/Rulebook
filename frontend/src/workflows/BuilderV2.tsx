@@ -294,10 +294,11 @@ function RecipePicker({
 }) {
   const { mode, defaultFundsChainId } = useNetworkMode();
   const chains = configuredFundsChains(mode);
-  const [recipeChain, setRecipeChain] = useState<SettlementChain>(defaultFundsChainId);
+  const fallbackChain = chains[0] ?? defaultFundsChainId;
+  const [recipeChain, setRecipeChain] = useState<SettlementChain>(fallbackChain);
   useEffect(() => {
-    if (!chains.includes(recipeChain)) setRecipeChain(defaultFundsChainId);
-  }, [chains, defaultFundsChainId, recipeChain]);
+    if (!chains.includes(recipeChain)) setRecipeChain(fallbackChain);
+  }, [chains, fallbackChain, recipeChain]);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<(typeof recipeCategories)[number]>('All categories');
   const [selected, select] = useState<WorkflowV2RecipeId | undefined>(
@@ -427,9 +428,9 @@ function RecipePicker({
                   <span className="rb-recipe-title">{item.title}</span>
                   <span className="rb-recipe-summary">{recipeSummaries[item.id]}</span>
                   <span className="rb-recipe-meta">
-                    {chains.length > 1
+                    {chains.length > 0
                       ? chains.map((id) => v2Network(id).name).join(' · ')
-                      : v2Network(item.chain).name}
+                      : v2Network(defaultFundsChainId).name}
                   </span>
                 </span>
                 <span className="rb-recipe-arrow" aria-hidden="true">

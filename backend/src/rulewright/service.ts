@@ -6,7 +6,9 @@ import {
   decodeWorkflowV2,
   fundsChainsFor,
   isFundsChain,
+  isSameNetworkMode,
   networkModeForChain,
+  resolveRulewrightNetwork,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
@@ -76,9 +78,7 @@ export class RulewrightService {
   }
 
   private targetNetworkFor(request: Pick<RulewrightRequest, 'network' | 'draft'>): NetworkMode {
-    return (
-      request.network ?? (request.draft ? networkModeForChain(request.draft.chain) : 'testnet')
-    );
+    return resolveRulewrightNetwork(request);
   }
 
   async ready(network?: NetworkMode) {
@@ -164,9 +164,17 @@ export class RulewrightService {
 
   async enqueue(token: string, origin: string, request: RulewrightRequest) {
     if (
+      request.draft?.originChain &&
+      !isSameNetworkMode(request.draft.chain, request.draft.originChain)
+    ) {
+      throw new Error('Rulewright draft originChain must stay in the same network mode as chain.');
+    }
+    if (
       request.network &&
       request.draft &&
-      networkModeForChain(request.draft.chain) !== request.network
+      (networkModeForChain(request.draft.chain) !== request.network ||
+        (request.draft.originChain &&
+          networkModeForChain(request.draft.originChain) !== request.network))
     ) {
       throw new Error('Rulewright draft network does not match the selected network mode.');
     }
@@ -178,7 +186,7 @@ export class RulewrightService {
       .rpc('rulewright_enqueue', {
         p_session: hash(token),
         p_origin: origin,
-        p_payload: request,
+        p_payload: { ...request, network: targetNetwork },
         p_network: targetNetwork,
       })
       .abortSignal(databaseTimeout());
@@ -242,10 +250,11 @@ export class RulewrightService {
             };
           } else {
             try {
+              const scopedPayload: RulewrightRequest = { ...job.payload, network: targetNetwork };
               result = await generateRulewrightDraft(
                 this.provider,
-                job.payload,
-                (encoded, abort) => this.validate(encoded, abort),
+                scopedPayload,
+                (encoded, abort) => this.validate(encoded, targetNetwork, abort),
                 signal,
               );
             } catch {
@@ -285,14 +294,14 @@ export class RulewrightService {
     }
   }
 
-  private async validate(encoded: Hex, signal: AbortSignal) {
+  private async validate(encoded: Hex, targetNetwork: NetworkMode, signal: AbortSignal) {
     const deadline = AbortSignal.any([signal, AbortSignal.timeout(10_000)]);
     try {
       await new Promise<void>((resolve, reject) => {
         const abort = () => reject(deadline.reason);
         if (deadline.aborted) return abort();
         deadline.addEventListener('abort', abort, { once: true });
-        this.validateOnChain(encoded)
+        this.validateOnChain(encoded, targetNetwork)
           .then(resolve, reject)
           .finally(() => deadline.removeEventListener('abort', abort));
       });
@@ -309,14 +318,22 @@ export class RulewrightService {
     }
   }
 
-  private async validateOnChain(encoded: Hex) {
-    const decodedChain = decodeWorkflowV2(encoded).chain;
-    if (!isFundsChain(decodedChain)) {
-      throw new Error(`Unsupported workflow chain ${decodedChain}`);
+  private async validateOnChain(encoded: Hex, targetNetwork: NetworkMode) {
+    const decoded = decodeWorkflowV2(encoded);
+    if (!isFundsChain(decoded.chain) || !isFundsChain(decoded.originChain)) {
+      throw new Error(`Unsupported workflow chain ${decoded.chain}`);
     }
-    const factory = this.factories[decodedChain];
-    if (!factory) throw new Error(`No Vault factory configured for chain ${decodedChain}`);
-    const client = clientFor(this.clients, decodedChain);
+    if (
+      networkModeForChain(decoded.chain) !== targetNetwork ||
+      networkModeForChain(decoded.originChain) !== targetNetwork
+    ) {
+      throw new Error(
+        `Workflow chains (${decoded.chain}, ${decoded.originChain}) do not match ${targetNetwork}.`,
+      );
+    }
+    const factory = this.factories[decoded.chain];
+    if (!factory) throw new Error(`No Vault factory configured for chain ${decoded.chain}`);
+    const client = clientFor(this.clients, decoded.chain);
     const validator = await client.readContract({
       address: factory,
       abi: workflowVaultFactoryV2Abi,

@@ -78,6 +78,9 @@ describe('AppMobileNav', () => {
       'data-network-mode',
       'testnet',
     );
+    for (const link of Array.from(container.querySelectorAll('a'))) {
+      expect(link.getAttribute('href')).not.toContain('network=');
+    }
   });
 
   it('calls setMode when switching between Testnet and Mainnet', () => {
@@ -130,6 +133,11 @@ describe('AppMobileNav', () => {
       'data-network-mode',
       'mainnet',
     );
+    const links = Array.from(container.querySelectorAll('a'));
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toContain('?network=mainnet');
+    }
   });
 
   it('omits the live dot when Mainnet deployment is unconfigured while keeping the warning badge', () => {

@@ -60,6 +60,9 @@ describe('AppSidebar', () => {
       'data-network-mode',
       'testnet',
     );
+    for (const link of Array.from(container.querySelectorAll('a'))) {
+      expect(link.getAttribute('href')).not.toContain('network=');
+    }
   });
 
   it('renders singular vault wording when Testnet has only Unichain Sepolia configured', () => {
@@ -108,6 +111,12 @@ describe('AppSidebar', () => {
     expect(rail?.textContent).not.toContain('Reactive Lasna');
     expect(rail?.textContent).not.toContain('Unichain Sepolia');
     expect(rail?.textContent).not.toContain('Base Sepolia');
+
+    const links = Array.from(container.querySelectorAll('a'));
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute('href')).toContain('?network=mainnet');
+    }
   });
 
   it('renders singular vault wording when Mainnet has only Unichain configured', () => {

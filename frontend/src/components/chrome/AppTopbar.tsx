@@ -4,7 +4,7 @@ import { useLocation } from 'react-router';
 import { Link } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { Badge, Button } from '@/ui';
 import { NetworkModeSwitch } from './NetworkModeSwitch.js';
@@ -29,12 +29,12 @@ function pageLabel(pathname: string): string {
 export function AppTopbar() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
-  const { automationName } = useNetworkMode();
+  const { mode, automationName } = useNetworkMode();
 
   return (
     <header className="app-topbar">
       <nav aria-label="Workspace breadcrumb" className="app-crumb">
-        <Link to={appRoutes.workflows}>Workspace</Link>
+        <Link to={withNetworkQuery(appRoutes.workflows, mode)}>Workspace</Link>
         <span className="app-crumb-sep" aria-hidden="true">
           /
         </span>

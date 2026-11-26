@@ -4,12 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  encodeWorkflowV2,
   emptyDraft,
   getChain,
   rulewrightRequestSchema,
+  toProgram,
   workflowV2Action,
   workflowV2Trigger,
   workflowV2Unit,
@@ -347,6 +350,18 @@ describe('Gemini request handling', () => {
         followUps: [],
       }),
     ).rejects.toThrow(/does not match/);
+    const mixedOrigin = {
+      prompt: 'Mismatched origin chain',
+      draft: { ...emptyDraft(UNICHAIN_SEPOLIA_CHAIN_ID), originChain: BASE_MAINNET_CHAIN_ID },
+      followUps: [],
+    };
+    expect(rulewrightRequestSchema.safeParse(mixedOrigin).success).toBe(false);
+    await expect(service.enqueue('t'.repeat(43), origin, mixedOrigin)).rejects.toThrow(
+      /same network mode/,
+    );
+    await expect(
+      service.enqueue('t'.repeat(43), origin, { ...mixedOrigin, network: 'testnet' }),
+    ).rejects.toThrow(/same network mode/);
     expect(rpc).not.toHaveBeenCalled();
 
     const dualService = new RulewrightService(
@@ -363,5 +378,127 @@ describe('Gemini request handling', () => {
     ).resolves.toBeNull();
     expect(clients.lasna.verifyMessage).not.toHaveBeenCalled();
     expect(clients.reactiveMainnet.verifyMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('persists resolved network into p_payload, enforces it in Gemini, and blocks cross-env on-chain validation', async () => {
+    const rpc = vi.fn(() => ({
+      abortSignal: vi.fn(async () => ({
+        data: { status: 'queued', id: crypto.randomUUID() },
+        error: null,
+      })),
+    }));
+    const mockSupabase = { rpc } as never;
+    const testnetRead = vi.fn();
+    const mainnetRead = vi.fn();
+    const clients = {
+      unichain: { readContract: testnetRead },
+      baseSepolia: { readContract: testnetRead },
+      unichainMainnet: { readContract: mainnetRead },
+      baseMainnet: { readContract: mainnetRead },
+    } as never;
+
+    const dualService = new RulewrightService(
+      mockSupabase,
+      clients,
+      {
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: '0x1111111111111111111111111111111111111111',
+        [UNICHAIN_MAINNET_CHAIN_ID]: '0x2222222222222222222222222222222222222222',
+      },
+      provider,
+    );
+
+    // 1. Omitted network defaults to testnet and persists network: 'testnet' in p_payload.
+    await dualService.enqueue('t'.repeat(43), origin, {
+      prompt: 'Alert every hour',
+      followUps: [],
+    });
+    expect(rpc).toHaveBeenLastCalledWith('rulewright_enqueue', {
+      p_session: expect.any(String),
+      p_origin: origin,
+      p_payload: { prompt: 'Alert every hour', followUps: [], network: 'testnet' },
+      p_network: 'testnet',
+    });
+
+    // 2. Mainnet draft with omitted network resolves and persists network: 'mainnet'.
+    const mainnetDraft = emptyDraft(UNICHAIN_MAINNET_CHAIN_ID);
+    await dualService.enqueue('t'.repeat(43), origin, {
+      prompt: 'Update draft',
+      draft: mainnetDraft,
+      followUps: [],
+    });
+    expect(rpc).toHaveBeenLastCalledWith('rulewright_enqueue', {
+      p_session: expect.any(String),
+      p_origin: origin,
+      p_payload: { prompt: 'Update draft', draft: mainnetDraft, followUps: [], network: 'mainnet' },
+      p_network: 'mainnet',
+    });
+
+    // 3. Even if network is omitted in generateRulewrightDraft(), Gemini receives testnet guidance
+    //    and any patch targeting Mainnet chains (130 / 8453) is rejected before validate().
+    let sentSystemPrompt = '';
+    const mainnetPatch = {
+      type: 'draft',
+      message: '',
+      settings: [
+        { field: 'title', value: 'Sneaky mainnet alert' },
+        { field: 'chain', value: String(UNICHAIN_MAINNET_CHAIN_ID) },
+        { field: 'originChain', value: String(BASE_MAINNET_CHAIN_ID) },
+        { field: 'interval', value: '3600' },
+      ],
+      nodes: [
+        {
+          path: '',
+          check: 0,
+          value: '',
+          upper: '',
+          steps: [
+            { kind: workflowV2Action.alert, unit: workflowV2Unit.fixed, amount: '', recipient: '' },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', async (_url: unknown, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}');
+      sentSystemPrompt = body.messages?.[0]?.content ?? '';
+      return Response.json({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(mainnetPatch) } }],
+      });
+    });
+    const validate = vi.fn();
+    const geminiResult = await generateRulewrightDraft(
+      provider,
+      { prompt: 'Alert on mainnet every hour', followUps: [] },
+      validate,
+      new AbortController().signal,
+    );
+    expect(sentSystemPrompt).toContain('Target network mode: testnet.');
+    expect(geminiResult).toMatchObject({
+      type: 'question',
+      message: expect.stringContaining('Keep chains in testnet'),
+    });
+    expect(validate).not.toHaveBeenCalled();
+
+    // 4. validateOnChain rejects encoded Mainnet program under a testnet session without touching mainnet RPC.
+    const mainnetEncoded = encodeWorkflowV2(
+      toProgram({
+        ...emptyDraft(UNICHAIN_MAINNET_CHAIN_ID),
+        title: 'Mainnet alert',
+        interval: '3600',
+        root: {
+          steps: [
+            { kind: workflowV2Action.alert, unit: workflowV2Unit.fixed, amount: '', recipient: '' },
+          ],
+        },
+      }),
+    );
+    await expect(
+      (
+        dualService as unknown as {
+          validateOnChain: (encoded: Hex, targetNetwork: 'testnet' | 'mainnet') => Promise<void>;
+        }
+      ).validateOnChain(mainnetEncoded, 'testnet'),
+    ).rejects.toThrow(/do not match testnet/);
+    expect(mainnetRead).not.toHaveBeenCalled();
+    expect(testnetRead).not.toHaveBeenCalled();
   });
 });

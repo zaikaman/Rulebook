@@ -29,6 +29,13 @@ abstract contract WorkflowProtocolsV2 {
         uint32 usdcFeedMaxAge;
     }
 
+    struct MarketCache {
+        uint256 oraclePrice;
+        uint256 v3SpotPrice;
+        bool oracleLoaded;
+        bool v3SpotLoaded;
+    }
+
     error InvalidMarket();
     error NoLongerEligible();
     error OracleUnavailable();
@@ -46,6 +53,10 @@ abstract contract WorkflowProtocolsV2 {
     address public immutable sequencerFeed;
     uint32 public immutable ethFeedMaxAge;
     uint32 public immutable usdcFeedMaxAge;
+    uint256 private immutable ethFeedScale;
+    uint256 private immutable usdcFeedScale;
+    bool internal immutable marketVerified;
+    bool private immutable usdcIsToken0;
 
     constructor(Networks memory cfg) {
         if (
@@ -65,6 +76,56 @@ abstract contract WorkflowProtocolsV2 {
         sequencerFeed = cfg.sequencerFeed;
         ethFeedMaxAge = cfg.ethFeedMaxAge;
         usdcFeedMaxAge = cfg.usdcFeedMaxAge;
+        ethFeedScale = cfg.ethUsdFeed != address(0) ? _feedScale(cfg.ethUsdFeed) : 0;
+        usdcFeedScale = cfg.usdcUsdFeed != address(0) ? _feedScale(cfg.usdcUsdFeed) : 0;
+
+        bool verified;
+        bool isUsdc0;
+        if (
+            cfg.router != address(0) && cfg.pair != address(0) && cfg.router.code.length > 0
+                && cfg.pair.code.length > 0
+        ) {
+            address factoryAddr = _staticAddress(
+                cfg.router, abi.encodeWithSelector(IUniswapV2Router02.factory.selector)
+            );
+            address resolved = cfg.poolFee == 0
+                ? _staticAddress(
+                    factoryAddr, abi.encodeCall(IUniswapV2Factory.getPair, (cfg.usdc, cfg.weth))
+                )
+                : _staticAddress(
+                    factoryAddr,
+                    abi.encodeCall(IUniswapV3Factory.getPool, (cfg.usdc, cfg.weth, cfg.poolFee))
+                );
+            if (resolved != cfg.pair) revert InvalidMarket();
+            address t0 =
+                _staticAddress(cfg.pair, abi.encodeWithSelector(IUniswapV2Pair.token0.selector));
+            address t1 =
+                _staticAddress(cfg.pair, abi.encodeWithSelector(IUniswapV2Pair.token1.selector));
+            bool validTokens =
+                (t0 == cfg.usdc && t1 == cfg.weth) || (t0 == cfg.weth && t1 == cfg.usdc);
+            if (!validTokens) revert InvalidMarket();
+            verified = true;
+            isUsdc0 = (t0 == cfg.usdc);
+        }
+        marketVerified = verified;
+        usdcIsToken0 = isUsdc0;
+    }
+
+    function _staticAddress(address target, bytes memory data) private view returns (address) {
+        (bool ok, bytes memory ret) = target.staticcall(data);
+        if (!ok || ret.length < 32) revert InvalidMarket();
+        return abi.decode(ret, (address));
+    }
+
+    function _feedScale(address feed) private view returns (uint256) {
+        uint8 feedDecimals;
+        try IAggregatorV3(feed).decimals() returns (uint8 dec) {
+            feedDecimals = dec;
+        } catch {
+            revert OracleUnavailable();
+        }
+        if (feedDecimals > 18) revert InvalidMarket();
+        return 10 ** (18 - feedDecimals);
     }
 
     /// @notice External oracle USDC-per-WETH price (1e18), or 0 when no feed is configured.
@@ -77,7 +138,8 @@ abstract contract WorkflowProtocolsV2 {
         if (pair == address(0)) revert InvalidMarket();
         IUniswapV2Pair pool = IUniswapV2Pair(pair);
         (uint112 first, uint112 second,) = pool.getReserves();
-        return pool.token0() == usdc ? (first, second) : (second, first);
+        bool isUsdc0 = marketVerified ? usdcIsToken0 : pool.token0() == usdc;
+        return isUsdc0 ? (first, second) : (second, first);
     }
 
     function _v3SpotPrice() internal view returns (uint256) {
@@ -85,50 +147,72 @@ abstract contract WorkflowProtocolsV2 {
         IUniswapV3Pool pool = IUniswapV3Pool(pair);
         (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
         uint128 liq = pool.liquidity();
-        address t0 = pool.token0();
-        address t1 = pool.token1();
-        bool usdcIsToken0 = t0 == usdc;
-        bool validTokens = (usdcIsToken0 && t1 == weth) || (t0 == weth && t1 == usdc);
+        bool isUsdc0;
+        if (marketVerified) {
+            isUsdc0 = usdcIsToken0;
+        } else {
+            address t0 = pool.token0();
+            address t1 = pool.token1();
+            isUsdc0 = t0 == usdc;
+            if (!((isUsdc0 && t1 == weth) || (t0 == weth && t1 == usdc))) revert InvalidMarket();
+        }
         if (
-            !validTokens || liq == 0 || sqrtPriceX96 < PriceMath.MIN_SQRT_RATIO
+            liq == 0 || sqrtPriceX96 < PriceMath.MIN_SQRT_RATIO
                 || sqrtPriceX96 >= PriceMath.MAX_SQRT_RATIO
         ) revert InvalidMarket();
-        uint256 spot = PriceMath.usdcPerWethFromSqrtPriceX96(sqrtPriceX96, usdcIsToken0);
+        uint256 spot = PriceMath.usdcPerWethFromSqrtPriceX96(sqrtPriceX96, isUsdc0);
         if (spot == 0) revert InvalidMarket();
         return spot;
     }
 
-    function _isOracleConsistent(uint256 observed) internal view returns (bool) {
-        if (ethUsdFeed == address(0)) return true;
-        return !PriceMath.movedBy(observed, _oraclePrice(), MAX_PRICE_DEVIATION_BPS);
+    function _cachedOraclePrice(MarketCache memory cache) internal view returns (uint256) {
+        if (ethUsdFeed == address(0)) return 0;
+        if (!cache.oracleLoaded) {
+            cache.oraclePrice = _oraclePrice();
+            cache.oracleLoaded = true;
+        }
+        return cache.oraclePrice;
     }
 
-    function _guardOraclePrice(uint256 observed) internal view {
+    function _isOracleConsistent(MarketCache memory cache, uint256 observed)
+        internal
+        view
+        returns (bool)
+    {
+        if (ethUsdFeed == address(0)) return true;
+        return !PriceMath.movedBy(observed, _cachedOraclePrice(cache), MAX_PRICE_DEVIATION_BPS);
+    }
+
+    function _guardOraclePrice(MarketCache memory cache, uint256 observed) internal view {
         if (ethUsdFeed == address(0)) return;
-        uint256 externalPrice = _oraclePrice();
+        uint256 externalPrice = _cachedOraclePrice(cache);
         if (PriceMath.movedBy(observed, externalPrice, MAX_PRICE_DEVIATION_BPS)) {
             revert OraclePriceDeviation(observed, externalPrice);
         }
     }
 
-    function _price() internal view returns (uint256) {
+    function _price(MarketCache memory cache) internal view returns (uint256) {
         uint256 spot;
         if (poolFee == 0) {
             (uint112 stable, uint112 wrapped) = _reserves();
             if (stable == 0 || wrapped == 0) revert InvalidMarket();
             spot = PriceMath.usdcPerWeth(stable, wrapped);
         } else {
-            spot = _v3SpotPrice();
+            if (!cache.v3SpotLoaded) {
+                cache.v3SpotPrice = _v3SpotPrice();
+                cache.v3SpotLoaded = true;
+            }
+            spot = cache.v3SpotPrice;
         }
-        _guardOraclePrice(spot);
+        _guardOraclePrice(cache, spot);
         return spot;
     }
 
     function _oraclePrice() internal view returns (uint256) {
         if (sequencerFeed != address(0)) _requireSequencerUp();
-        uint256 ethUsd = _readFeed(ethUsdFeed, ethFeedMaxAge);
+        uint256 ethUsd = _readFeed(ethUsdFeed, ethFeedMaxAge, ethFeedScale);
         if (usdcUsdFeed == address(0)) return ethUsd;
-        uint256 usdcUsd = _readFeed(usdcUsdFeed, usdcFeedMaxAge);
+        uint256 usdcUsd = _readFeed(usdcUsdFeed, usdcFeedMaxAge, usdcFeedScale);
         uint256 price = Math.mulDiv(ethUsd, PriceMath.PRICE_SCALE, usdcUsd);
         if (price == 0) revert OracleUnavailable();
         return price;
@@ -157,7 +241,7 @@ abstract contract WorkflowProtocolsV2 {
         }
     }
 
-    function _readFeed(address feed, uint32 maxAge) private view returns (uint256) {
+    function _readFeed(address feed, uint32 maxAge, uint256 scale) private view returns (uint256) {
         uint80 roundId;
         int256 answer;
         uint256 updatedAt;
@@ -178,47 +262,49 @@ abstract contract WorkflowProtocolsV2 {
         ) {
             revert OracleUnavailable();
         }
-        uint8 feedDecimals;
-        try IAggregatorV3(feed).decimals() returns (uint8 dec) {
-            feedDecimals = dec;
-        } catch {
-            revert OracleUnavailable();
-        }
-        if (feedDecimals > 18) revert InvalidMarket();
-        uint256 scale = 10 ** (18 - feedDecimals);
         if (uint256(answer) > type(uint256).max / scale) revert OracleUnavailable();
         return uint256(answer) * scale;
     }
 
     function _swap(
+        MarketCache memory cache,
         bool sell,
         uint256 amount,
         uint16 slippage,
         uint64 expiresAt,
         uint256 referencePrice
     ) internal returns (uint256 received) {
-        if (router == address(0) || pair == address(0)) revert InvalidMarket();
+        if (router == address(0) || pair == address(0)) {
+            revert InvalidMarket();
+        }
         uint24 effectiveFee = poolFee == 0 ? PriceMath.V2_FEE_PPM : poolFee;
         uint256 spotQuote;
         if (poolFee == 0) {
-            IUniswapV2Router02 exchange = IUniswapV2Router02(router);
-            if (IUniswapV2Factory(exchange.factory()).getPair(usdc, weth) != pair) {
-                revert InvalidMarket();
+            if (!marketVerified) {
+                if (
+                    IUniswapV2Factory(IUniswapV2Router02(router).factory()).getPair(usdc, weth)
+                        != pair
+                ) {
+                    revert InvalidMarket();
+                }
             }
             (uint112 stable, uint112 wrapped) = _reserves();
             spotQuote = sell
                 ? PriceMath.expectedOut(amount, wrapped, stable)
                 : PriceMath.expectedOut(amount, stable, wrapped);
         } else {
-            if (
-                IUniswapV3Factory(IV3SwapRouter(router).factory()).getPool(usdc, weth, poolFee)
-                    != pair
-            ) revert InvalidMarket();
-            spotQuote = PriceMath.quotedOut(sell, amount, _v3SpotPrice(), poolFee);
+            if (!marketVerified) {
+                if (
+                    IUniswapV3Factory(IV3SwapRouter(router).factory()).getPool(usdc, weth, poolFee)
+                        != pair
+                ) revert InvalidMarket();
+            }
+            uint256 v3Spot = cache.v3SpotLoaded ? cache.v3SpotPrice : _v3SpotPrice();
+            spotQuote = PriceMath.quotedOut(sell, amount, v3Spot, poolFee);
         }
         uint256 floor = PriceMath.applySlippage(spotQuote, slippage);
         if (ethUsdFeed != address(0)) {
-            uint256 externalPrice = _oraclePrice();
+            uint256 externalPrice = _cachedOraclePrice(cache);
             uint16 maxDeviation =
                 slippage > MAX_PRICE_DEVIATION_BPS ? slippage : MAX_PRICE_DEVIATION_BPS;
             if (
@@ -258,6 +344,7 @@ abstract contract WorkflowProtocolsV2 {
                         sqrtPriceLimitX96: 0
                     })
                 );
+            cache.v3SpotLoaded = false;
         }
         token.forceApprove(router, 0);
         if (received < floor) revert SlippageExceeded(floor, received);

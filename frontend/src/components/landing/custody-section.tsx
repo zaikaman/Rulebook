@@ -1,9 +1,11 @@
 import { Link } from 'react-router';
 
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 import { landingImages } from './landing-images.js';
 
 export function CustodySection() {
+  const { mode } = useNetworkMode();
   return (
     <section
       id="guarantees"
@@ -39,7 +41,7 @@ export function CustodySection() {
             </div>
           </dl>
           <Link
-            to={appRoutes.cost}
+            to={withNetworkQuery(appRoutes.cost, mode)}
             className="mt-6 inline-block text-sm font-medium text-blue-200 underline underline-offset-4 hover:text-white"
           >
             See who pays for what

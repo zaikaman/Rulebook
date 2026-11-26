@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
-import { automationChainFor, getChain, networkModeForChain } from './chains.js';
+import {
+  automationChainFor,
+  getChain,
+  isSameNetworkMode,
+  networkModeForChain,
+  type NetworkMode,
+} from './chains.js';
 import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { v2DraftSchema } from './workflowV2Draft.js';
 import { workflowLimits } from './workflows.js';
@@ -55,7 +61,22 @@ export const rulewrightRequestSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.network && value.draft && networkModeForChain(value.draft.chain) !== value.network) {
+    if (
+      value.draft?.originChain &&
+      !isSameNetworkMode(value.draft.chain, value.draft.originChain)
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Draft origin chain must stay in the same network mode as the draft chain.',
+        path: ['draft', 'originChain'],
+      });
+    }
+    if (
+      value.network &&
+      value.draft &&
+      (networkModeForChain(value.draft.chain) !== value.network ||
+        (value.draft.originChain && networkModeForChain(value.draft.originChain) !== value.network))
+    ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Draft network does not match the selected network mode.',
@@ -79,6 +100,12 @@ export const rulewrightJobSchema = z.discriminatedUnion('status', [
 export type RulewrightChallenge = z.infer<typeof rulewrightChallengeSchema>;
 export type RulewrightRequest = z.infer<typeof rulewrightRequestSchema>;
 export type RulewrightResult = z.infer<typeof rulewrightResultSchema>;
+
+export function resolveRulewrightNetwork(
+  request: Pick<RulewrightRequest, 'network' | 'draft'>,
+): NetworkMode {
+  return request.network ?? (request.draft ? networkModeForChain(request.draft.chain) : 'testnet');
+}
 
 export function rulewrightSignIn({
   owner,

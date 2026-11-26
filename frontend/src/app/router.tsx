@@ -4,7 +4,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useSearchParams } from 
 import { AppShell } from '../components/AppShell.js';
 import { LoadingRegion, PanelSkeleton } from '../components/chrome/Skeleton.js';
 import { OfflineState } from '../components/OfflineState.js';
-import { getUrlNetworkMode, useNetworkMode } from '../lib/networkMode.js';
+import { getUrlNetworkMode, useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { LandingPage } from '../pages/LandingPage.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import '../styles/workflows.css';
@@ -75,6 +75,11 @@ function WorkspaceLayout() {
 function WorkflowAccountFundsRoute() {
   const { mode } = useNetworkMode();
   return <WorkflowAccountV2 key={mode} manage />;
+}
+
+function NetworkNavigate({ to }: { readonly to: string }) {
+  const { mode } = useNetworkMode();
+  return <Navigate to={withNetworkQuery(to, mode)} replace />;
 }
 
 function NetworkModeQuerySync() {
@@ -148,15 +153,15 @@ export function AppRouter() {
             <Route path="workflows/:id/edit" element={<WorkflowBuilderV2 />} />
             <Route path="activity" element={<WorkflowActivityV2 />} />
             <Route path="runs/:id" element={<WorkflowProof />} />
-            <Route path="rules" element={<Navigate to="/workflows" replace />} />
-            <Route path="rules/:agent/:ruleId" element={<Navigate to="/workflows" replace />} />
+            <Route path="rules" element={<NetworkNavigate to="/workflows" />} />
+            <Route path="rules/:agent/:ruleId" element={<NetworkNavigate to="/workflows" />} />
             <Route path="proof" element={<WorkflowProofLookup />} />
-            <Route path="proof/:reactiveTxHash" element={<Navigate to="/proof" replace />} />
+            <Route path="proof/:reactiveTxHash" element={<NetworkNavigate to="/proof" />} />
             <Route path="marketplace" element={<WorkflowMarketplaceV2 />} />
             <Route path="marketplace/:listingId" element={<WorkflowListingV2 />} />
-            <Route path="leaderboard" element={<Navigate to="/marketplace" replace />} />
+            <Route path="leaderboard" element={<NetworkNavigate to="/marketplace" />} />
             <Route path="cost" element={<WorkflowCost />} />
-            <Route path="*" element={<Navigate to="/workflows" replace />} />
+            <Route path="*" element={<NetworkNavigate to="/workflows" />} />
           </Route>
         </Routes>
       </ErrorBoundary>

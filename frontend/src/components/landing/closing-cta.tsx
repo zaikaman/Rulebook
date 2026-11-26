@@ -1,10 +1,12 @@
 import { HugeiconsIcon } from '@hugeicons/react';
 import { ArrowRight02Icon } from '@hugeicons/core-free-icons';
 import { Link } from 'react-router';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 import { landingImages } from './landing-images.js';
 
 export function ClosingCta() {
+  const { mode } = useNetworkMode();
   return (
     <section className="relative z-10 overflow-hidden px-6 py-28 text-center">
       <img
@@ -25,7 +27,7 @@ export function ClosingCta() {
           Set up your account on Mainnet or Testnet and create your first automation.
         </p>
         <Link
-          to={appRoutes.create}
+          to={withNetworkQuery(appRoutes.create, mode)}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
           <span>Build a workflow</span>

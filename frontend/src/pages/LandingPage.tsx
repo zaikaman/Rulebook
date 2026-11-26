@@ -12,9 +12,11 @@ import { SiteFooter } from '@/components/landing/site-footer.js';
 import { SiteNav } from '@/components/landing/site-nav.js';
 import { StackSection } from '@/components/landing/stack-section.js';
 import { UseCasesSection } from '@/components/landing/use-cases-section.js';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 
 export function LandingPage() {
+  const { mode } = useNetworkMode();
   return (
     <div id="top" className="relative min-h-screen overflow-x-hidden bg-[#020202] text-neutral-300">
       <BackgroundEffects />
@@ -39,7 +41,7 @@ export function LandingPage() {
 
             <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
               <Link
-                to={appRoutes.create}
+                to={withNetworkQuery(appRoutes.create, mode)}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
               >
                 <span>Build a workflow</span>

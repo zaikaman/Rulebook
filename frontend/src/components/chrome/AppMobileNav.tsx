@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { Badge, Button } from '@/ui';
 import { NetworkModeSwitch } from './NetworkModeSwitch.js';
@@ -39,7 +39,7 @@ export function AppMobileNav() {
   return (
     <div className="app-mobile" data-network-mode={mode}>
       <div className="app-mobile-bar">
-        <Link to={appRoutes.landing} aria-label="Rulebook home">
+        <Link to={withNetworkQuery(appRoutes.landing, mode)} aria-label="Rulebook home">
           <Wordmark />
         </Link>
         <div className="flex min-w-0 items-center gap-2">
@@ -79,7 +79,7 @@ export function AppMobileNav() {
           return (
             <Link
               key={item.href}
-              to={item.href}
+              to={withNetworkQuery(item.href, mode)}
               aria-current={active ? (pathname === item.href ? 'page' : 'location') : undefined}
               className="app-mobile-tab"
             >

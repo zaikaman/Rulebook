@@ -1,9 +1,11 @@
 import { Link } from 'react-router';
 import { Wordmark } from '@/components/chrome/Wordmark.js';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 import { landingLinks } from './landing-links.js';
 
 export function SiteFooter() {
+  const { mode } = useNetworkMode();
   return (
     <footer className="relative z-10 border-t border-white/5 py-14">
       <div className="mx-auto grid max-w-6xl gap-10 px-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
@@ -24,7 +26,7 @@ export function SiteFooter() {
             </a>
           ))}
           <Link
-            to={appRoutes.workflows}
+            to={withNetworkQuery(appRoutes.workflows, mode)}
             className="text-white transition-colors hover:text-blue-200"
           >
             Open Rulebook

@@ -62,6 +62,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         bool dipAvailable;
         bool dip;
         bool swapped;
+        MarketCache market;
     }
 
     error Unauthorized();
@@ -142,7 +143,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                 && (cfg.router == address(0)
                     || cfg.pair == address(0)
                     || cfg.ethUsdFeed == address(0)
-                    || cfg.sequencerFeed == address(0))
+                    || cfg.sequencerFeed == address(0)
+                    || !marketVerified)
         ) revert InvalidMarket();
         factory = msg.sender;
         callbackProxy = proxy;
@@ -437,18 +439,18 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             ) {
                 revert StaleObservation();
             }
-            _guardOraclePrice(run.observed);
+            _guardOraclePrice(ctx.market, run.observed);
             memory_.positionBlock = run.originBlock;
             memory_.positionIndex = run.originLogIndex;
             if (run.observed > memory_.peak) memory_.peak = uint128(run.observed);
             if (
-                run.high > memory_.peak && _isOracleConsistent(run.high)
+                run.high > memory_.peak && _isOracleConsistent(ctx.market, run.high)
                     && (run.originChain != chain
                         || run.highBlock > authorizations[workflow].originAfter)
             ) {
                 memory_.peak = run.high;
             }
-            ctx.price = program.originChain == chain ? _price() : run.observed;
+            ctx.price = program.originChain == chain ? _price(ctx.market) : run.observed;
         }
 
         if (run.activityTime > memory_.activity) {
@@ -530,12 +532,19 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
+        if (check == P.DIP_BY) {
+            if (
+                run.observed == 0 || run.previous == 0 || !ctx.dipAvailable
+                    || uint256(run.observationTime) + Math.min(PRICE_MAX_AGE, program.interval)
+                        < block.timestamp
+            ) return false;
+        }
         if (ctx.price == 0) {
             if (_usesOriginPrice(program)) {
                 ctx.price = run.observed;
-                if (ctx.price != 0) _guardOraclePrice(ctx.price);
+                if (ctx.price != 0) _guardOraclePrice(ctx.market, ctx.price);
             } else {
-                ctx.price = _price();
+                ctx.price = _price(ctx.market);
             }
         }
         if (ctx.price == 0) return false;
@@ -545,21 +554,20 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.PRICE_BELOW) return price < threshold;
         if (check == P.PRICE_OUTSIDE) return price < threshold || price > node.upper;
         if (check == P.DIP_BY) {
-            if (
-                run.previous == 0 || !ctx.dipAvailable
-                    || uint256(run.observationTime) + Math.min(PRICE_MAX_AGE, program.interval)
-                        < block.timestamp
-            ) return false;
+            _guardOraclePrice(ctx.market, run.previous);
             uint256 target = Math.mulDiv(run.previous, P.BPS - threshold, P.BPS);
             bool dipped = run.observed <= target && price <= target;
             ctx.dip = ctx.dip || dipped;
             return dipped;
         }
         if (check == P.PRICE_RISES_THROUGH) {
-            return run.previous != 0 && run.previous < threshold && run.observed >= threshold
-                && price >= threshold;
+            if (run.previous == 0) return false;
+            _guardOraclePrice(ctx.market, run.previous);
+            return run.previous < threshold && run.observed >= threshold && price >= threshold;
         }
         if (check == P.PRICE_FALLS_THROUGH) {
+            if (run.previous == 0) return false;
+            _guardOraclePrice(ctx.market, run.previous);
             return run.previous >= threshold && run.observed < threshold && price < threshold;
         }
 
@@ -645,7 +653,12 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             _requireBalance(action.kind == P.SELL ? weth : usdc, amount);
             uint256 referencePrice = _usesOriginPrice(program) ? ctx.price : 0;
             received = _swap(
-                action.kind == P.SELL, amount, program.slippage, run.expiresAt, referencePrice
+                ctx.market,
+                action.kind == P.SELL,
+                amount,
+                program.slippage,
+                run.expiresAt,
+                referencePrice
             );
             account = address(this);
             if (program.trigger == P.PRICE) ctx.swapped = true;

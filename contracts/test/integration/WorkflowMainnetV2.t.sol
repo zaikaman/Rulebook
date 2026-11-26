@@ -6,8 +6,15 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {PriceMath} from "../../src/libraries/PriceMath.sol";
+import {IAggregatorV3} from "../../src/shared/Chainlink.sol";
 import {UnsupportedChain} from "../../src/shared/Errors.sol";
 import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
+import {
+    IUniswapV2Factory,
+    IUniswapV2Pair,
+    IUniswapV2Router02
+} from "../../src/shared/UniswapV2.sol";
+import {IUniswapV3Factory, IUniswapV3Pool, IV3SwapRouter} from "../../src/shared/UniswapV3.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
@@ -218,6 +225,12 @@ contract WorkflowMainnetV2Test is Test {
         vm.etch(uni.ethUsdFeed, hex"00");
         vm.etch(uni.usdcUsdFeed, hex"00");
         vm.etch(uni.sequencerFeed, hex"00");
+        vm.mockCall(
+            uni.ethUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(18))
+        );
+        vm.mockCall(
+            uni.usdcUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(18))
+        );
         // Missing router/pair code on mainnet also rejects deployment.
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
         new WorkflowVaultFactoryV2();
@@ -225,6 +238,14 @@ contract WorkflowMainnetV2Test is Test {
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
         new WorkflowVaultFactoryV2();
         vm.etch(uni.pair, hex"00");
+        vm.mockCall(uni.router, abi.encodeCall(IV3SwapRouter.factory, ()), abi.encode(uni.router));
+        vm.mockCall(
+            uni.router,
+            abi.encodeCall(IUniswapV3Factory.getPool, (uni.usdc, uni.weth, uni.poolFee)),
+            abi.encode(uni.pair)
+        );
+        vm.mockCall(uni.pair, abi.encodeCall(IUniswapV3Pool.token0, ()), abi.encode(uni.usdc));
+        vm.mockCall(uni.pair, abi.encodeCall(IUniswapV3Pool.token1, ()), abi.encode(uni.weth));
         WorkflowVaultFactoryV2 uniFactory = new WorkflowVaultFactoryV2();
         assertEq(uniFactory.chain(), ChainConfig.UNICHAIN_MAINNET);
         assertEq(uniFactory.callbackProxy(), uni.callbackProxy);
@@ -279,6 +300,22 @@ contract WorkflowMainnetV2Test is Test {
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
         new WorkflowVaultFactoryV2();
         vm.etch(base.usdcUsdFeed, hex"00");
+        vm.mockCall(
+            base.ethUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(8))
+        );
+        vm.mockCall(
+            base.usdcUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(8))
+        );
+        vm.mockCall(
+            base.router, abi.encodeCall(IUniswapV2Router02.factory, ()), abi.encode(base.router)
+        );
+        vm.mockCall(
+            base.router,
+            abi.encodeCall(IUniswapV2Factory.getPair, (base.usdc, base.weth)),
+            abi.encode(base.pair)
+        );
+        vm.mockCall(base.pair, abi.encodeCall(IUniswapV2Pair.token0, ()), abi.encode(base.usdc));
+        vm.mockCall(base.pair, abi.encodeCall(IUniswapV2Pair.token1, ()), abi.encode(base.weth));
         WorkflowVaultFactoryV2 baseFactory = new WorkflowVaultFactoryV2();
         assertEq(baseFactory.chain(), ChainConfig.BASE_MAINNET);
         assertEq(baseFactory.callbackProxy(), base.callbackProxy);
@@ -925,7 +962,7 @@ contract WorkflowMainnetV2Test is Test {
         vm.expectRevert(WorkflowProtocolsV2.OracleUnavailable.selector);
         baseVault.oraclePrice();
 
-        // 5. Feed reverts on latestRoundData() or decimals().
+        // 5. Feed reverts on latestRoundData() or decimals() at construction.
         baseEthUsd.setAnswer(2_000e8);
         baseEthUsd.setReverts(true);
         vm.expectRevert(WorkflowProtocolsV2.OracleUnavailable.selector);
@@ -933,14 +970,26 @@ contract WorkflowMainnetV2Test is Test {
         baseEthUsd.setReverts(false);
 
         baseEthUsd.setDecimalsReverts(true);
+        WorkflowProtocolsV2.Networks memory baseNet = WorkflowProtocolsV2.Networks(
+            address(baseUsdc),
+            address(baseWeth),
+            address(baseRouter),
+            address(basePair),
+            0,
+            address(baseEthUsd),
+            address(baseUsdcUsd),
+            address(baseSequencer),
+            BASE_ETH_MAX_AGE,
+            USDC_MAX_AGE
+        );
         vm.expectRevert(WorkflowProtocolsV2.OracleUnavailable.selector);
-        baseVault.oraclePrice();
+        new WorkflowVaultV2(PROXY, OWNER, address(agent), P.BASE_MAINNET, baseNet, validator);
         baseEthUsd.setDecimalsReverts(false);
 
-        // 6. Decimals > 18 reverts InvalidMarket.
+        // 6. Decimals > 18 reverts InvalidMarket at construction.
         baseEthUsd.setDecimals(19);
         vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
-        baseVault.oraclePrice();
+        new WorkflowVaultV2(PROXY, OWNER, address(agent), P.BASE_MAINNET, baseNet, validator);
         baseEthUsd.setDecimals(8);
 
         // 7. Extreme USDC price scaling overflow or rounding ETH/USDC to 0 reverts OracleUnavailable.
@@ -1230,15 +1279,54 @@ contract WorkflowMainnetV2Test is Test {
         unichainRouter.setPool(
             address(unichainUsdc), address(unichainWeth), UNI_POOL_FEE, address(0)
         );
-        assertEq(
-            _deliverAndExpectReason(
-                unichainVault,
-                buyWf,
-                _run(buyWf, 955, P.UNICHAIN_MAINNET, 0),
-                unichainVault.FAILED(),
-                abi.encodeWithSelector(WorkflowProtocolsV2.InvalidMarket.selector)
-            ),
-            unichainVault.FAILED()
+        WorkflowProtocolsV2.Networks memory mismatchedPoolNet = WorkflowProtocolsV2.Networks(
+            address(unichainUsdc),
+            address(unichainWeth),
+            address(unichainRouter),
+            address(unichainPair),
+            UNI_POOL_FEE,
+            address(uniEthUsd),
+            address(uniUsdcUsd),
+            address(uniSequencer),
+            UNI_ETH_MAX_AGE,
+            USDC_MAX_AGE
+        );
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            PROXY, OWNER, address(agent), P.UNICHAIN_MAINNET, mismatchedPoolNet, validator
+        );
+        unichainRouter.setPool(
+            address(unichainUsdc), address(unichainWeth), UNI_POOL_FEE, address(unichainPair)
+        );
+
+        // Constructor rejects reverting factory/pair calls and wrong token pairs.
+        vm.mockCallRevert(address(unichainRouter), abi.encodeCall(IV3SwapRouter.factory, ()), "bad");
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            PROXY, OWNER, address(agent), P.UNICHAIN_MAINNET, mismatchedPoolNet, validator
+        );
+        vm.clearMockedCalls();
+
+        MockV3Pool wrongTokenPool =
+            new MockV3Pool(address(unichainUsdc), address(baseWeth), UNI_POOL_FEE);
+        unichainRouter.setPool(
+            address(unichainUsdc), address(unichainWeth), UNI_POOL_FEE, address(wrongTokenPool)
+        );
+        WorkflowProtocolsV2.Networks memory wrongTokensNet = WorkflowProtocolsV2.Networks(
+            address(unichainUsdc),
+            address(unichainWeth),
+            address(unichainRouter),
+            address(wrongTokenPool),
+            UNI_POOL_FEE,
+            address(uniEthUsd),
+            address(uniUsdcUsd),
+            address(uniSequencer),
+            UNI_ETH_MAX_AGE,
+            USDC_MAX_AGE
+        );
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            PROXY, OWNER, address(agent), P.UNICHAIN_MAINNET, wrongTokensNet, validator
         );
         unichainRouter.setPool(
             address(unichainUsdc), address(unichainWeth), UNI_POOL_FEE, address(unichainPair)
@@ -1490,8 +1578,409 @@ contract WorkflowMainnetV2Test is Test {
 
         assertTrue(lasnaAgent.watchingPaused(sepWf));
         assertTrue(agent.watchingPaused(mainnetWf));
-        // Mainnet uses 900ms/block vs 2000ms/block on Lasna, so the pinned wake block is further ahead.
+        // Mainnet uses 820ms/block vs 2000ms/block on Lasna, so the pinned wake block is further ahead.
         assertGt(agent.wakeBlock(mainnetWf), lasnaAgent.wakeBlock(sepWf));
+    }
+
+    function testSameBlockFlashLoanRoundTripDoesNotForgePreviousPriceForDipOrCrossings() public {
+        bytes32 dipWf = keccak256("same block flash dip");
+        _enable(
+            dipWf,
+            unichainVault,
+            _program(
+                P.UNICHAIN_MAINNET,
+                P.UNICHAIN_MAINNET,
+                P.SCHEDULE,
+                _branch(P.DIP_BY, 500, _action(P.BUY, 100e6, address(0)))
+            ),
+            1_000e6,
+            0
+        );
+        bytes32 fallWf = keccak256("same block flash fall");
+        P.Program memory fallProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.UNICHAIN_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_FALLS_THROUGH, 2_100e18, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        fallProg.once = true;
+        _enable(fallWf, unichainVault, fallProg, 100e6, 0);
+
+        bytes32 riseWf = keccak256("same block flash rise");
+        P.Program memory riseProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.UNICHAIN_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_RISES_THROUGH, 1_900e18, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        riseProg.once = true;
+        _enable(riseWf, unichainVault, riseProg, 100e6, 0);
+
+        unichainUsdc.mint(address(unichainVault), 1_000e6);
+        address realUniPool = ChainConfig.unichainMainnet().pair;
+
+        // Block 10: establish baseline $2,000.
+        IReactive.LogRecord memory swap = _uniSwapLog(10, 0, _sqrtPriceFor(2_000e18));
+        vm.prank(address(system));
+        agent.react(swap);
+
+        // Block 11: atomic flash-loan pushes price up to $2,500 (log_index 1) then back to $2,000 (log_index 2).
+        IReactive.LogRecord memory flashUp = _uniSwapLog(11, 1, _sqrtPriceFor(2_500e18));
+        IReactive.LogRecord memory flashBack = _uniSwapLog(11, 2, _sqrtPriceFor(2_000e18));
+        vm.prank(address(system));
+        agent.react(flashUp);
+        vm.prank(address(system));
+        agent.react(flashBack);
+
+        uint256 countBeforeCron = system.requestCount();
+        // Check latest dispatched PRICE requests for fallWf & riseWf (flashBack dispatched them).
+        for (uint256 i = countBeforeCron - 2; i < countBeforeCron; ++i) {
+            CallbackConfiguration memory req = system.requestAt(i);
+            (,, P.Run memory decoded) =
+                abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
+            assertApproxEqRel(decoded.previous, 2_000e18, 0.001e18);
+            assertApproxEqRel(decoded.observed, 2_000e18, 0.001e18);
+            _deliverRequest(i, address(unichainVault));
+        }
+
+        // Block 11 second flash-loan down to $1,500 (log_index 3) and back to $2,000 (log_index 4).
+        IReactive.LogRecord memory flashDown = _uniSwapLog(11, 3, _sqrtPriceFor(1_500e18));
+        IReactive.LogRecord memory flashReturn = _uniSwapLog(11, 4, _sqrtPriceFor(2_000e18));
+        vm.prank(address(system));
+        agent.react(flashDown);
+        vm.prank(address(system));
+        agent.react(flashReturn);
+
+        uint256 countAfterReturn = system.requestCount();
+        for (uint256 i = countAfterReturn - 2; i < countAfterReturn; ++i) {
+            CallbackConfiguration memory req = system.requestAt(i);
+            (,, P.Run memory decoded) =
+                abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
+            assertApproxEqRel(decoded.previous, 2_000e18, 0.001e18);
+            _deliverRequest(i, address(unichainVault));
+        }
+
+        // Cron tick dispatches DIP_BY: run.previous must still be ~$2,000 (not $2,500).
+        IReactive.LogRecord memory cronLog;
+        cronLog.chain_id = ChainConfig.REACTIVE_MAINNET;
+        cronLog._contract = ChainConfig.reactiveMainnet().cronSource;
+        cronLog.topic_0 = CRON;
+        cronLog.topic_1 = block.number + 1;
+        cronLog.block_number = block.number + 1;
+        cronLog.tx_hash = 9_999;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        _deliverRequest(system.requestCount() - 1, address(unichainVault));
+
+        assertEq(unichainRouter.swapCount(), 0);
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
+        assertTrue(realUniPool != address(0));
+    }
+
+    function testCrossBlockManipulatedPreviousPriceBlockedByOracleOnVault() public {
+        bytes32 dipWf = keccak256("vault guard prev dip");
+        _enable(
+            dipWf,
+            unichainVault,
+            _program(
+                P.UNICHAIN_MAINNET,
+                P.BASE_MAINNET,
+                P.SCHEDULE,
+                _branch(P.DIP_BY, 500, _action(P.BUY, 100e6, address(0)))
+            ),
+            1_000e6,
+            0
+        );
+        bytes32 fallWf = keccak256("vault guard prev fall");
+        P.Program memory fallProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_FALLS_THROUGH, 2_100e18, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        fallProg.once = true;
+        _enable(fallWf, unichainVault, fallProg, 100e6, 0);
+
+        bytes32 riseWf = keccak256("vault guard prev rise");
+        P.Program memory riseProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_RISES_THROUGH, 1_900e18, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        riseProg.once = true;
+        _enable(riseWf, unichainVault, riseProg, 100e6, 0);
+
+        unichainUsdc.mint(address(unichainVault), 1_000e6);
+
+        P.Run memory dipRun = _run(dipWf, 1_101, P.BASE_MAINNET, 2_000e18);
+        dipRun.previous = 2_500e18;
+        dipRun.observationId = keccak256("cross block spike dip");
+        assertEq(
+            _deliverAndExpectReason(
+                unichainVault,
+                dipWf,
+                dipRun,
+                unichainVault.FAILED(),
+                abi.encodeWithSelector(
+                    WorkflowProtocolsV2.OraclePriceDeviation.selector, 2_500e18, 2_000e18
+                )
+            ),
+            unichainVault.FAILED()
+        );
+
+        P.Run memory fallRun = _run(fallWf, 1_102, P.BASE_MAINNET, 2_000e18);
+        fallRun.previous = 2_500e18;
+        assertEq(
+            _deliverAndExpectReason(
+                unichainVault,
+                fallWf,
+                fallRun,
+                unichainVault.FAILED(),
+                abi.encodeWithSelector(
+                    WorkflowProtocolsV2.OraclePriceDeviation.selector, 2_500e18, 2_000e18
+                )
+            ),
+            unichainVault.FAILED()
+        );
+
+        P.Run memory riseRun = _run(riseWf, 1_103, P.BASE_MAINNET, 2_000e18);
+        riseRun.previous = 1_500e18;
+        assertEq(
+            _deliverAndExpectReason(
+                unichainVault,
+                riseWf,
+                riseRun,
+                unichainVault.FAILED(),
+                abi.encodeWithSelector(
+                    WorkflowProtocolsV2.OraclePriceDeviation.selector, 1_500e18, 2_000e18
+                )
+            ),
+            unichainVault.FAILED()
+        );
+
+        assertEq(unichainRouter.swapCount(), 0);
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
+        (,,, bool fallActive) = unichainVault.authorizations(fallWf);
+        (,,, bool riseActive) = unichainVault.authorizations(riseWf);
+        assertTrue(fallActive);
+        assertTrue(riseActive);
+    }
+
+    function testSingleBlockFlashLoanOrWickDoesNotPoisonAgentHighsForTrailingRecovery() public {
+        bytes32 trailWf = keccak256("agent high wick guard");
+        P.Program memory prog = _program(
+            P.UNICHAIN_MAINNET,
+            P.UNICHAIN_MAINNET,
+            P.PRICE,
+            _branch(P.TRAILING, 500, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        prog.once = true;
+        _enable(trailWf, unichainVault, prog, 100e6, 0);
+        unichainUsdc.mint(address(unichainVault), 100e6);
+
+        // Block 10: baseline $2,000.
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(10, 0, _sqrtPriceFor(2_000e18)));
+        // Block 11: intra-block flash-loan spike to $10,000 then back to $2,000.
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(11, 1, _sqrtPriceFor(10_000e18)));
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(11, 2, _sqrtPriceFor(2_000e18)));
+        // Block 12: 1-block cross-block spike wick to $10,000.
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(12, 0, _sqrtPriceFor(10_000e18)));
+        // Block 13: returns to $2,000 -> spikeWick suppresses $10,000 from highs[workflow].
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(13, 0, _sqrtPriceFor(2_000e18)));
+
+        // Block 14-16: legitimate rise to $2,060 (held >=2 blocks / closes block 14) then drop to $1,940.
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(14, 0, _sqrtPriceFor(2_060e18)));
+        uint256 peakReqIdx = system.requestCount();
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(15, 0, _sqrtPriceFor(1_940e18)));
+
+        CallbackConfiguration memory req = system.requestAt(peakReqIdx);
+        (,, P.Run memory decoded) = abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
+        assertApproxEqRel(decoded.high, 2_060e18, 0.001e18);
+        assertEq(decoded.highBlock, 14);
+
+        // Out-of-order delivery (delivering drop directly without delivering peak callback first) still triggers TRAILING.
+        uniEthUsd.setAnswer(1_970e18);
+        unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
+        _deliverRequest(peakReqIdx, address(unichainVault));
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 10e6);
+    }
+
+    function testWorstCaseThreeActionPriceLeafCachesOracleAndAvoidsRedundantExternalCalls() public {
+        bytes32 leafWf = keccak256("cached oracle 3 action leaf");
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = P.Node(P.PRICE_FALLS_THROUGH, 1, 3, 2_010e18, 0, new P.Action[](0));
+        nodes[1] = P.Node(P.TRAILING, 2, 4, 500, 0, new P.Action[](0));
+        nodes[2].actions = new P.Action[](3);
+        nodes[2].actions[0] = _action(P.BUY, 100e6, address(0));
+        nodes[2].actions[1] = _action(P.SEND, 10e6, RECIPIENT);
+        nodes[2].actions[2] = _action(P.SEND, 10e6, OWNER);
+        _enable(
+            leafWf,
+            unichainVault,
+            _program(P.UNICHAIN_MAINNET, P.UNICHAIN_MAINNET, P.PRICE, nodes),
+            500e6,
+            0
+        );
+        unichainUsdc.mint(address(unichainVault), 500e6);
+
+        // Seed peak at $2,060.
+        unichainPair.setPrice(_sqrtPriceFor(2_060e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(unichainVault, leafWf, _run(leafWf, 1_201, P.UNICHAIN_MAINNET, 2_060e18)),
+            unichainVault.SKIPPED()
+        );
+
+        // Drop to $1,940 (within 5% of $2,000 oracle, >=5% below $2,060 peak, falls through $2,010).
+        unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
+        P.Run memory run = _run(leafWf, 1_202, P.UNICHAIN_MAINNET, 1_940e18);
+        run.previous = 2_060e18;
+        run.high = 2_060e18;
+        run.highBlock = uint64(block.number);
+
+        vm.expectCall(address(uniEthUsd), abi.encodeCall(IAggregatorV3.latestRoundData, ()), 1);
+        vm.expectCall(address(uniUsdcUsd), abi.encodeCall(IAggregatorV3.latestRoundData, ()), 1);
+        vm.expectCall(address(uniSequencer), abi.encodeCall(IAggregatorV3.latestRoundData, ()), 1);
+        vm.expectCall(address(uniEthUsd), abi.encodeCall(IAggregatorV3.decimals, ()), 0);
+        vm.expectCall(address(uniUsdcUsd), abi.encodeCall(IAggregatorV3.decimals, ()), 0);
+        vm.expectCall(address(unichainRouter), abi.encodeCall(IV3SwapRouter.factory, ()), 0);
+
+        uint256 before = gasleft();
+        vm.prank(PROXY);
+        unichainVault.execute(address(agent), leafWf, run);
+        uint256 used = before - gasleft();
+        assertEq(unichainVault.outcomes(_runId(leafWf, run)), unichainVault.CONFIRMED());
+        assertEq(unichainRouter.swapCount(), 1);
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 10e6);
+        assertLt(used, 850_000);
+    }
+
+    function testAutomatedVaultRefillDoesNotResetInactivityTimer() public {
+        bytes32 inactWf = keccak256("refill vs inactivity");
+        P.Program memory inactProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.UNICHAIN_MAINNET,
+            P.SCHEDULE,
+            _branch(P.INACTIVITY, 1 days, _action(P.INACTIVITY_PAYOUT, 10e6, RECIPIENT))
+        );
+        inactProg.once = true;
+        _enable(inactWf, unichainVault, inactProg, 100e6, 0);
+        unichainUsdc.mint(address(unichainVault), 100e6);
+
+        uint256 start = vm.getBlockTimestamp();
+        vm.warp(start + 12 hours);
+
+        // Automated REFILL emits Transfer(OWNER, unichainVault, 100e6) -> must NOT reset lastActivity.
+        IReactive.LogRecord memory refillTransfer;
+        refillTransfer.chain_id = P.UNICHAIN_MAINNET;
+        refillTransfer._contract = ChainConfig.unichainMainnet().usdc;
+        refillTransfer.topic_0 = TRANSFER;
+        refillTransfer.topic_1 = uint160(OWNER);
+        refillTransfer.topic_2 = uint160(address(unichainVault));
+        refillTransfer.block_number = 500;
+        refillTransfer.tx_hash = 500;
+        refillTransfer.data = abi.encode(100e6);
+        vm.prank(address(system));
+        agent.react(refillTransfer);
+
+        vm.warp(start + 1 days + 1 minutes);
+        IReactive.LogRecord memory cronLog;
+        cronLog.chain_id = ChainConfig.REACTIVE_MAINNET;
+        cronLog._contract = ChainConfig.reactiveMainnet().cronSource;
+        cronLog.topic_0 = CRON;
+        cronLog.topic_1 = block.number + 1;
+        cronLog.block_number = block.number + 1;
+        cronLog.tx_hash = 501;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0, address(unichainVault));
+        CallbackConfiguration memory req = system.requestAt(0);
+        (,, P.Run memory decoded) = abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
+        assertEq(decoded.activityTime, 0);
+        assertEq(unichainVault.outcomes(_runId(inactWf, decoded)), unichainVault.IN_GRACE_PERIOD());
+
+        // Real user Transfer(OWNER, RECIPIENT, 1e6) DOES reset lastActivity.
+        IReactive.LogRecord memory userTransfer = refillTransfer;
+        userTransfer.topic_2 = uint160(RECIPIENT);
+        userTransfer.block_number = 502;
+        userTransfer.tx_hash = 502;
+        userTransfer.data = abi.encode(1e6);
+        vm.prank(address(system));
+        agent.react(userTransfer);
+
+        vm.warp(vm.getBlockTimestamp() + 1 hours + 1);
+        cronLog.topic_1 = block.number + 2;
+        cronLog.block_number = block.number + 2;
+        cronLog.tx_hash = 503;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        _deliverRequest(1, address(unichainVault));
+        CallbackConfiguration memory req2 = system.requestAt(1);
+        (,, P.Run memory decoded2) = abi.decode(_slice(req2.payload, 4), (address, bytes32, P.Run));
+        assertGt(decoded2.activityTime, 0);
+        assertEq(unichainVault.outcomes(_runId(inactWf, decoded2)), unichainVault.SKIPPED());
+    }
+
+    function testStaleCrossChainDipObservationSkipsCleanlyDespiteOracleDivergence() public {
+        bytes32 dipWf = keccak256("stale cross dip");
+        _enable(
+            dipWf,
+            unichainVault,
+            _program(
+                P.UNICHAIN_MAINNET,
+                P.BASE_MAINNET,
+                P.SCHEDULE,
+                _branch(P.DIP_BY, 500, _action(P.BUY, 100e6, address(0)))
+            ),
+            1_000e6,
+            0
+        );
+        unichainUsdc.mint(address(unichainVault), 1_000e6);
+
+        uint256 oldTime = vm.getBlockTimestamp();
+        vm.warp(oldTime + 2 hours);
+        uniEthUsd.setAnswer(2_000e18);
+        uniUsdcUsd.setAnswer(1e18);
+
+        P.Run memory staleDip = _run(dipWf, 1_301, P.BASE_MAINNET, 1_800e18);
+        staleDip.previous = 2_000e18;
+        staleDip.observationTime = uint64(oldTime);
+        staleDip.observationId = keccak256("stale dip obs");
+
+        vm.expectEmit(true, true, false, true, address(unichainVault));
+        emit WorkflowVaultV2.Outcome(
+            dipWf, _runId(dipWf, staleDip), 1, unichainVault.SKIPPED(), 2, bytes4(0)
+        );
+        assertEq(_deliver(unichainVault, dipWf, staleDip), unichainVault.SKIPPED());
+        assertEq(unichainRouter.swapCount(), 0);
+    }
+
+    function _uniSwapLog(uint64 blockNum, uint64 logIdx, uint160 sqrtPriceX96)
+        private
+        pure
+        returns (IReactive.LogRecord memory swap)
+    {
+        swap.chain_id = P.UNICHAIN_MAINNET;
+        swap._contract = ChainConfig.unichainMainnet().pair;
+        swap.topic_0 = SWAP_V3;
+        swap.block_number = blockNum;
+        swap.log_index = logIdx;
+        swap.tx_hash = uint256(blockNum) * 100 + logIdx;
+        swap.data = abi.encode(
+            int256(1_000e6),
+            int256(-0.5 ether),
+            uint256(sqrtPriceX96),
+            uint256(V3_LIQUIDITY),
+            int24(0)
+        );
     }
 
     function testCrossChainTransferWithPriceCheckUsesDestinationPriceNotTransferAmount() public {

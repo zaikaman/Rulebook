@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 import { PhoneShowcase } from './phone-showcase.js';
 import { SectionHeading } from './section-heading.js';
@@ -20,6 +21,7 @@ const steps = [
 ] as const;
 
 export function ExecutionSection() {
+  const { mode } = useNetworkMode();
   return (
     <section id="proof" className="relative z-10 mx-auto max-w-6xl scroll-mt-28 px-6 py-20">
       <SectionHeading
@@ -41,7 +43,7 @@ export function ExecutionSection() {
             ))}
           </ol>
           <Link
-            to={appRoutes.workflows}
+            to={withNetworkQuery(appRoutes.workflows, mode)}
             className="mt-4 inline-block text-sm font-medium text-blue-200 underline underline-offset-4 hover:text-white"
           >
             Open Workflows

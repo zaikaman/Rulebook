@@ -280,7 +280,7 @@ describe('deploy-production', () => {
   });
 
   describe('buildFrontendEnvLines', () => {
-    it('emits empty VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT when mainnet is absent and forwards mainnet config & RPC overrides when present', () => {
+    it('emits empty VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT when mainnet is absent and forwards explicit VITE_* RPC overrides without falling back to backend RPC URLs', () => {
       const testnetOnly = {
         WORKFLOW_V2_DEPLOYMENT: '{"lasna":{"factory":"0x1","startBlock":1}}',
       };
@@ -306,8 +306,10 @@ describe('deploy-production', () => {
           settings: withMainnet,
           envMap: {
             VITE_UNICHAIN_MAINNET_RPC_URL: 'https://rpc.example.com/v2/abc',
-            UNICHAIN_MAINNET_RPC_URL: 'https://fallback.example.com',
-            BASE_MAINNET_RPC_URL: 'https://base-rpc.example.com',
+            LASNA_RPC_URL: 'https://lasna-secret.example.com/key',
+            REACTIVE_MAINNET_RPC_URL: 'https://reactive-secret.example.com/key',
+            UNICHAIN_MAINNET_RPC_URL: 'https://fallback.example.com/secret',
+            BASE_MAINNET_RPC_URL: 'https://base-rpc.example.com/secret',
             VITE_REACTIVE_MAINNET_WALLET_RPC_URL: 'https://wallet.example.com',
             WORKFLOW_V2_ACTIVATION: 'true',
           },
@@ -317,7 +319,6 @@ describe('deploy-production', () => {
         'VITE_WORKFLOW_V2_DEPLOYMENT={"lasna":{"factory":"0x1","startBlock":1}}',
         'VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT={"reactive":{"factory":"0x2","startBlock":2}}',
         'VITE_UNICHAIN_MAINNET_RPC_URL=https://rpc.example.com/v2/abc',
-        'VITE_BASE_MAINNET_RPC_URL=https://base-rpc.example.com/',
         'VITE_REACTIVE_MAINNET_WALLET_RPC_URL=https://wallet.example.com/',
         'VITE_WORKFLOW_V2_ACTIVATION=true',
       ]);

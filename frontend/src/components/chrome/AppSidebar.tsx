@@ -4,7 +4,7 @@ import { getChain } from '@rulebook/shared';
 import type { ComponentProps } from 'react';
 import { Link, useLocation } from 'react-router';
 
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { Badge } from '@/ui';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
@@ -42,13 +42,14 @@ const groups: readonly { readonly label: string; readonly items: readonly RailIt
 
 function RailLink({ label, href, icon, activeOn = [], exact }: RailItem) {
   const { pathname } = useLocation();
+  const { mode } = useNetworkMode();
   const active =
     isActiveRoute(pathname, href, exact ?? false) ||
     activeOn.some((path) => isActiveRoute(pathname, path, false));
 
   return (
     <Link
-      to={href}
+      to={withNetworkQuery(href, mode)}
       data-active={active || undefined}
       aria-current={pathname === href ? 'page' : active ? 'location' : undefined}
       className="app-nav-item"
@@ -94,7 +95,7 @@ export function AppSidebar() {
   return (
     <aside className="app-rail" data-network-mode={mode}>
       <div className="app-rail-brand">
-        <Link to={appRoutes.landing} aria-label="Rulebook home">
+        <Link to={withNetworkQuery(appRoutes.landing, mode)} aria-label="Rulebook home">
           <Wordmark />
         </Link>
         <Badge
@@ -130,7 +131,7 @@ export function AppSidebar() {
           <p data-testid="sidebar-funds-summary">{settlementSummary}</p>
         </div>
 
-        <Link to={appRoutes.landing} className="app-rail-back">
+        <Link to={withNetworkQuery(appRoutes.landing, mode)} className="app-rail-back">
           <HugeiconsIcon icon={ArrowLeft01Icon} size={14} aria-hidden="true" />
           <span>Back to overview</span>
         </Link>
