@@ -112,3 +112,89 @@ test('/workflows/:id/edit shows MainnetUnavailableCallout when mainnet is unconf
 
   expect(pageErrors).toEqual([]);
 });
+
+test('mobile navigation switches cleanly between Testnet and Mainnet without overflow', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message);
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${appUrl}/workflows`);
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
+
+  const mobileBar = page.getByTestId('mobile-network-bar');
+  const mobileMode = page.getByTestId('mobile-network-mode');
+  const testnetToggle = page.getByTestId('mobile-network-mode-testnet');
+  const mainnetToggle = page.getByTestId('mobile-network-mode-mainnet');
+
+  await expect(mobileBar).toBeVisible();
+  await expect(mobileMode).toHaveText('Testnet');
+  await expect(testnetToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'false');
+
+  await mainnetToggle.click();
+  await expect(mobileBar).toHaveAttribute('data-network-mode', 'mainnet');
+  await expect(mobileMode).toHaveText('Mainnet · Real funds');
+  await expect(mobileMode).toHaveAttribute('data-tone', 'paused');
+  await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(testnetToggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
+  await page.reload();
+  await expect(mobileBar).toHaveAttribute('data-network-mode', 'mainnet');
+  await expect(mobileMode).toHaveText('Mainnet · Real funds');
+  await expect(mainnetToggle).toHaveAttribute('aria-pressed', 'true');
+
+  await testnetToggle.click();
+  await expect(mobileBar).toHaveAttribute('data-network-mode', 'testnet');
+  await expect(mobileMode).toHaveText('Testnet');
+  await expect(testnetToggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeHidden();
+
+  expect(pageErrors).toEqual([]);
+});
+
+test('mobile navigation warns on ?network=mainnet deep links and shows automation chain on tablet', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message);
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${appUrl}/workflows?network=mainnet`);
+
+  const mobileBar = page.getByTestId('mobile-network-bar');
+  const mobileMode = page.getByTestId('mobile-network-mode');
+  const mobileAutomation = page.getByTestId('mobile-automation-network');
+
+  await expect(mobileBar).toHaveAttribute('data-network-mode', 'mainnet');
+  await expect(mobileMode).toBeVisible();
+  await expect(mobileMode).toHaveText('Mainnet · Real funds');
+  await expect(mobileMode).toHaveAttribute('data-tone', 'paused');
+  await expect(page.getByTestId('mobile-network-mode-mainnet')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await expect(mobileAutomation).toBeVisible();
+  await expect(mobileAutomation).toContainText('Reactive Mainnet');
+
+  await page.getByTestId('mobile-network-mode-testnet').click();
+  await expect(mobileMode).toHaveText('Testnet');
+  await expect(mobileAutomation).toContainText('Reactive Lasna');
+
+  expect(pageErrors).toEqual([]);
+});

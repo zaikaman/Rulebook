@@ -4,8 +4,10 @@ import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
+import { useNetworkMode } from '@/lib/networkMode';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
-import { Button } from '@/ui';
+import { Badge, Button } from '@/ui';
+import { NetworkModeSwitch } from './NetworkModeSwitch.js';
 import { NewWorkflowLink } from './NewWorkflowLink.js';
 import { WalletControl } from './WalletControl.js';
 import { Wordmark } from './Wordmark.js';
@@ -16,6 +18,7 @@ const items = workflowNavigation;
 export function AppMobileNav() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
+  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const navRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -34,7 +37,7 @@ export function AppMobileNav() {
   }, [pathname]);
 
   return (
-    <div className="app-mobile">
+    <div className="app-mobile" data-network-mode={mode}>
       <div className="app-mobile-bar">
         <Link to={appRoutes.landing} aria-label="Rulebook home">
           <Wordmark />
@@ -51,6 +54,22 @@ export function AppMobileNav() {
           <WalletControl />
           <NewWorkflowLink compact />
         </div>
+      </div>
+      <div className="app-mobile-network" data-network-mode={mode} data-testid="mobile-network-bar">
+        <div className="app-mobile-network-status">
+          <Badge
+            tone={isMainnet ? 'paused' : undefined}
+            plain={!isMainnet}
+            data-testid="mobile-network-mode"
+          >
+            {isMainnet ? 'Mainnet · Real funds' : 'Testnet'}
+          </Badge>
+          <span className="app-mobile-network-chain" data-testid="mobile-automation-network">
+            {isDeploymentConfigured && <span className="app-live-dot" aria-hidden="true" />}
+            {automationName}
+          </span>
+        </div>
+        <NetworkModeSwitch compact testIdPrefix="mobile-network-mode" />
       </div>
       <nav ref={navRef} aria-label="Workspace" className="app-mobile-tabs">
         {items.map((item) => {

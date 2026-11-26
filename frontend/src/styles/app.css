@@ -270,20 +270,52 @@
   margin-inline-start: auto;
 }
 
-.app-network-switch {
+.rb-toolbar.app-network-switch {
   display: inline-flex;
+  flex-wrap: nowrap;
+  flex: none;
   align-items: center;
   gap: 0.125rem;
   padding: 0.1875rem;
   border: 1px solid var(--rb-border);
   border-radius: 0.625rem;
-  background: var(--rb-panel);
+  background: var(--rb-surface-inset);
 }
 
 .app-network-switch .app-button {
   min-block-size: 1.75rem;
   padding: 0.25rem 0.625rem;
   font-size: 0.75rem;
+}
+
+.app-network-switch[data-network-mode='mainnet'] {
+  border-color: var(--rb-status-paused-line);
+}
+
+.app-network-switch[data-network-mode='mainnet'] .app-button[aria-pressed='true'] {
+  border-color: var(--rb-status-paused-line);
+  background: var(--rb-status-paused-tint);
+  color: var(--rb-status-paused);
+  box-shadow: none;
+}
+
+.app-network-switch[data-network-mode='mainnet']
+  .app-button[aria-pressed='true']:not(:disabled):hover {
+  border-color: var(--rb-status-paused);
+  background: color-mix(in oklch, var(--rb-status-paused) 16%, var(--rb-surface-inset));
+  color: var(--rb-status-paused);
+}
+
+.app-network-switch--compact .app-button {
+  min-block-size: 2rem;
+  padding: 0.25rem 0.5625rem;
+  font-size: 0.75rem;
+}
+
+@media (pointer: coarse) {
+  .app-network-switch--compact .app-button {
+    min-block-size: 2.25rem;
+  }
 }
 
 .app-topbar .wallet-control {
@@ -324,6 +356,10 @@
   backdrop-filter: blur(14px);
 }
 
+.app-mobile[data-network-mode='mainnet'] {
+  border-block-end-color: var(--rb-status-paused-line);
+}
+
 @media (min-width: 64rem) {
   .app-mobile {
     display: none;
@@ -338,11 +374,57 @@
   padding: 0.625rem 1rem;
 }
 
+.app-mobile-network {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-block: 1px solid var(--rb-border);
+  padding: 0.375rem 1rem;
+  background: var(--rb-surface-sunken);
+}
+
+.app-mobile-network[data-network-mode='mainnet'] {
+  border-block-color: var(--rb-status-paused-line);
+  background: var(--rb-status-paused-tint);
+}
+
+.app-mobile-network-status {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-mobile-network-chain {
+  display: none;
+  min-inline-size: 0;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--rb-ink-muted);
+  font-size: 0.75rem;
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+@media (min-width: 34rem) {
+  .app-mobile-network-chain {
+    display: inline-flex;
+  }
+}
+
+@media (width < 24rem) {
+  .app-mobile-network {
+    padding-inline: 0.75rem;
+  }
+}
+
 .app-mobile-tabs {
   display: flex;
   gap: 0.25rem;
   overflow-x: auto;
-  padding: 0 0.5rem 0.5rem;
+  padding: 0.5rem 0.5rem 0.5rem;
   scrollbar-width: none;
 }
 
