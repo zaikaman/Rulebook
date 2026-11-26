@@ -22,6 +22,7 @@ import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import { verifyTelegramProxy } from '../../scripts/deploy-production.mjs';
 import { registerTelegramRoutes } from '../src/api/routes/telegram.js';
 import { clientFor, createChainClients } from '../src/chain/clients.js';
 import { ConfigError, loadConfig } from '../src/config.js';
@@ -1155,6 +1156,43 @@ describe('dual mode & mainnet backend support', () => {
       );
       expect(prepared?.chat_id).toBe('222');
       expect(prepared?.message).toContain('Mainnet Workflow');
+
+      const seenProxyRequests: string[] = [];
+      const injectFetch: typeof fetch = async (input, init) => {
+        const url = new URL(
+          typeof input === 'string' || input instanceof URL ? String(input) : input.url,
+        );
+        const method = init?.method ?? 'GET';
+        seenProxyRequests.push(`${method} ${url.pathname}${url.search}`);
+        const requestHeaders: Record<string, string> = {};
+        new Headers(init?.headers).forEach((value, key) => {
+          requestHeaders[key] = value;
+        });
+        const injected = await app.inject({
+          method: method as 'GET' | 'DELETE' | 'POST' | 'PATCH' | 'PUT' | 'HEAD' | 'OPTIONS',
+          url: `${url.pathname}${url.search}`,
+          headers: requestHeaders,
+        });
+        const responseHeaders = new Headers();
+        for (const [key, value] of Object.entries(injected.headers)) {
+          if (value === undefined) continue;
+          if (Array.isArray(value)) {
+            for (const entry of value) responseHeaders.append(key, String(entry));
+          } else {
+            responseHeaders.set(key, String(value));
+          }
+        }
+        return new Response(injected.statusCode === 204 ? null : injected.body, {
+          status: injected.statusCode,
+          headers: responseHeaders,
+        });
+      };
+      await verifyTelegramProxy({ web: origin, hasMainnet: true, fetchImpl: injectFetch });
+      const zeroAddress = `0x${'0'.repeat(40)}`;
+      expect(seenProxyRequests).toContain(`DELETE /v1/accounts/${zeroAddress}/telegram/session`);
+      expect(seenProxyRequests).toContain(
+        `DELETE /v1/accounts/${zeroAddress}/telegram/session?network=mainnet`,
+      );
       await app.close();
     } finally {
       await db.close();

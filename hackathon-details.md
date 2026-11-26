@@ -8,6 +8,24 @@ Every Second Counts: time-sensitive DeFi on Unichain Sepolia and/or Base Sepolia
 
 Set It and Forget It: personal automations anyone can build, no contract experience needed
 
+Set It and Forget It
+Build something useful for yourself, on any supported chain
+
+Open to anyone, including people who’ve never written a contract and are building with AI coding tools. The brief is simple: build a reactive contract that solves a problem for you. Latency matters less here than usefulness.
+
+Ideas
+
+A portfolio tracker
+An alert when a liquidity position hits a price
+Custom rebalancing rules
+An automation nobody’s thought of yet
+What we’re looking for
+
+A tool you’d actually keep running
+A clear personal purpose
+A creative take on event-driven logic
+Network: Reactive mainnet/Lasna testnet, with any supported chain Mainnet available chains | Testnet available chains
+
 Reactive Meets AI: neural networks working alongside reactive contracts
 
 Each track's section has the full brief, ideas, and network requirements.

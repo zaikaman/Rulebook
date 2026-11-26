@@ -365,6 +365,24 @@ export async function verifyApiReady({ api, web, hasMainnet = false, fetchImpl =
   }
 }
 
+export function telegramSessionCookieName(network) {
+  if (network !== 'testnet' && network !== 'mainnet') {
+    throw new Error(`Unsupported Telegram network: ${network}`);
+  }
+  return network === 'mainnet'
+    ? '__Secure-rulebook-telegram-mainnet'
+    : '__Secure-rulebook-telegram';
+}
+
+function setCookieHeaders(headers) {
+  if (typeof headers.getSetCookie === 'function') {
+    const entries = headers.getSetCookie();
+    if (entries.length > 0) return entries;
+  }
+  const single = headers.get('set-cookie');
+  return single ? [single] : [];
+}
+
 export async function verifyTelegramProxy({ web, hasMainnet = false, fetchImpl = fetch }) {
   const networks = hasMainnet ? ['testnet', 'mainnet'] : ['testnet'];
   for (const network of networks) {
@@ -401,12 +419,16 @@ export async function verifyTelegramProxy({ web, hasMainnet = false, fetchImpl =
         redirect: 'error',
         signal: AbortSignal.timeout(20_000),
       });
-      const cookie = response.headers.get('set-cookie');
-      if (
-        !response.ok ||
-        !cookie?.startsWith('__Secure-rulebook-telegram=;') ||
-        !cookie.includes('Max-Age=0; HttpOnly; SameSite=Strict; Secure')
-      ) {
+      const expectedCookiePrefix = `${telegramSessionCookieName(network)}=;`;
+      const expectedPath = `Path=/v1/accounts/${ZERO_ADDRESS}/telegram;`;
+      const expectedAttributes = 'Max-Age=0; HttpOnly; SameSite=Strict; Secure';
+      const hasClearedCookie = setCookieHeaders(response.headers).some(
+        (cookie) =>
+          cookie.startsWith(expectedCookiePrefix) &&
+          cookie.includes(expectedPath) &&
+          cookie.includes(expectedAttributes),
+      );
+      if (!response.ok || !hasClearedCookie) {
         throw new Error(
           `The ${network} Telegram account proxy did not forward the browser session cookie.`,
         );

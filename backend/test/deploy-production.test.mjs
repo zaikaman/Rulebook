@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   buildFrontendEnvLines,
   mergeVercelTelegramRewrites,
+  telegramSessionCookieName,
   validateHerokuWorkflowConfig,
   verifyApiReady,
   verifyTelegramProxy,
@@ -398,11 +399,12 @@ describe('deploy-production', () => {
           return Response.json({ available: true });
         }
         if (url.includes('/session')) {
+          const network =
+            new URL(url).searchParams.get('network') === 'mainnet' ? 'mainnet' : 'testnet';
           return new Response(null, {
             status: 200,
             headers: {
-              'set-cookie':
-                '__Secure-rulebook-telegram=; Max-Age=0; HttpOnly; SameSite=Strict; Secure',
+              'set-cookie': `${telegramSessionCookieName(network)}=; Path=/v1/accounts/0x0000000000000000000000000000000000000000/telegram; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
             },
           });
         }
@@ -435,6 +437,106 @@ describe('deploy-production', () => {
       expect(seenUrls).toContain(
         'https://web.example.com/v1/accounts/0x0000000000000000000000000000000000000000/telegram?network=mainnet',
       );
+      expect(seenUrls).toContain(
+        'https://web.example.com/v1/accounts/0x0000000000000000000000000000000000000000/telegram/session',
+      );
+      expect(seenUrls).toContain(
+        'https://web.example.com/v1/accounts/0x0000000000000000000000000000000000000000/telegram/session?network=mainnet',
+      );
+    });
+
+    it('resolves network-specific Telegram session cookie names and rejects unsupported networks', () => {
+      expect(telegramSessionCookieName('testnet')).toBe('__Secure-rulebook-telegram');
+      expect(telegramSessionCookieName('mainnet')).toBe('__Secure-rulebook-telegram-mainnet');
+      expect(() => telegramSessionCookieName('devnet')).toThrow(
+        /Unsupported Telegram network: devnet/,
+      );
+    });
+
+    it('rejects mismatched network cookie prefixes and missing or altered cookie paths', async () => {
+      const zeroAddress = '0x0000000000000000000000000000000000000000';
+      const makeFetch = (cookieFor) => async (input) => {
+        const url = new URL(String(input));
+        const network = url.searchParams.get('network') === 'mainnet' ? 'mainnet' : 'testnet';
+        if (url.pathname === '/v1/telegram/availability') {
+          return Response.json({ available: true });
+        }
+        if (url.pathname.endsWith('/session')) {
+          return new Response(null, {
+            status: 200,
+            headers: { 'set-cookie': cookieFor(network) },
+          });
+        }
+        return new Response(null, { status: 401 });
+      };
+
+      await expect(
+        verifyTelegramProxy({
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl: makeFetch(
+            () =>
+              `__Secure-rulebook-telegram=; Path=/v1/accounts/${zeroAddress}/telegram; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
+          ),
+        }),
+      ).rejects.toThrow(
+        /The mainnet Telegram account proxy did not forward the browser session cookie\./,
+      );
+
+      await expect(
+        verifyTelegramProxy({
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl: makeFetch(
+            () =>
+              `__Secure-rulebook-telegram-mainnet=; Path=/v1/accounts/${zeroAddress}/telegram; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
+          ),
+        }),
+      ).rejects.toThrow(
+        /The testnet Telegram account proxy did not forward the browser session cookie\./,
+      );
+
+      await expect(
+        verifyTelegramProxy({
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl: makeFetch(
+            (network) =>
+              `${telegramSessionCookieName(network)}=; Path=/wrong; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
+          ),
+        }),
+      ).rejects.toThrow(
+        /The testnet Telegram account proxy did not forward the browser session cookie\./,
+      );
+    });
+
+    it('accepts multiple Set-Cookie headers when a proxy prepends its own cookie', async () => {
+      const zeroAddress = '0x0000000000000000000000000000000000000000';
+      const fetchImpl = async (input) => {
+        const url = new URL(String(input));
+        const network = url.searchParams.get('network') === 'mainnet' ? 'mainnet' : 'testnet';
+        if (url.pathname === '/v1/telegram/availability') {
+          return Response.json({ available: true });
+        }
+        if (url.pathname.endsWith('/session')) {
+          const headers = new Headers();
+          headers.append('set-cookie', '__cf_bm=abc; Path=/; HttpOnly; Secure');
+          headers.append(
+            'set-cookie',
+            `${telegramSessionCookieName(network)}=; Path=/v1/accounts/${zeroAddress}/telegram; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
+          );
+          return new Response(null, { status: 200, headers });
+        }
+        return new Response(null, { status: 401 });
+      };
+
+      await expect(
+        verifyTelegramProxy({
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl,
+        }),
+      ).resolves.toBeUndefined();
     });
   });
 });
