@@ -16,10 +16,10 @@ export function BackgroundEffects() {
       </div>
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[44rem] overflow-hidden mix-blend-screen motion-reduce:hidden sm:h-[900px]"
-        style={{ maskImage: fadeMask, WebkitMaskImage: fadeMask }}
+        className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[44rem] overflow-hidden mix-blend-screen sm:h-[900px]"
+        style={{ maskImage: fadeMask, WebkitMaskImage: fadeMask, contain: 'layout paint' }}
       >
-        <UnicornScene projectId="bKN5upvoulAmWvInmHza" />
+        <UnicornScene />
       </div>
     </>
   );

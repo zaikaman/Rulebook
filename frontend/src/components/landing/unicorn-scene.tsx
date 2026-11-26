@@ -1,70 +1,65 @@
 import { useEffect, useRef } from 'react';
+import heroBackdropMp4 from '@/assets/landing/hero-backdrop.mp4';
+import heroBackdropPoster from '@/assets/landing/hero-backdrop-poster.webp';
+import heroBackdropWebm from '@/assets/landing/hero-backdrop.webm';
 
-interface UnicornSceneInstance {
-  destroy(): void;
-}
-
-interface UnicornRuntime {
-  addScene(options: {
-    element: HTMLDivElement;
-    projectId: string;
-    lazyLoad: boolean;
-  }): Promise<UnicornSceneInstance>;
-}
-
-declare global {
-  interface Window {
-    UnicornStudio?: UnicornRuntime;
-  }
-}
-
-const runtimeUrl =
-  'https://cdn.jsdelivr.net/gh/hiunicornstudio/unicornstudio.js@v1.4.29/dist/unicornStudio.umd.js';
-let runtimeLoad: Promise<UnicornRuntime | undefined> | undefined;
-
-function loadRuntime() {
-  runtimeLoad ??= new Promise<UnicornRuntime | undefined>((resolve) => {
-    const script = document.createElement('script');
-    script.src = runtimeUrl;
-    script.async = true;
-    script.onload = () => resolve(window.UnicornStudio);
-    script.onerror = () => {
-      script.remove();
-      runtimeLoad = undefined;
-      resolve(undefined);
-    };
-    document.head.append(script);
-  });
-  return runtimeLoad;
-}
-
-export function UnicornScene({ projectId }: { readonly projectId: string }) {
-  const sceneContainer = useRef<HTMLDivElement>(null);
+export function UnicornScene() {
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
-    const element = sceneContainer.current;
-    if (!element || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      return;
-    }
+    const video = videoRef.current;
+    if (!video) return;
 
-    let disposed = false;
-    let scene: UnicornSceneInstance | undefined;
-    void (async () => {
-      const runtime = await loadRuntime();
-      if (!runtime || disposed) return;
+    let inView = true;
 
-      const instance = await runtime.addScene({ element, projectId, lazyLoad: true });
-      if (disposed) instance.destroy();
-      else scene = instance;
-    })().catch(() => {
-      // The ambient background covers unsupported WebGL and unavailable embeds.
-    });
+    const syncPlayback = () => {
+      if (inView && !document.hidden) {
+        void video.play().catch(() => {
+          // Autoplay may be blocked by browser policy; poster remains visible.
+        });
+      } else {
+        video.pause();
+      }
+    };
+
+    const observer =
+      typeof IntersectionObserver !== 'undefined'
+        ? new IntersectionObserver(
+            (entries) => {
+              const entry = entries[0];
+              if (!entry) return;
+              inView = entry.isIntersecting;
+              syncPlayback();
+            },
+            { rootMargin: '120px 0px' },
+          )
+        : undefined;
+    observer?.observe(video);
+
+    document.addEventListener('visibilitychange', syncPlayback);
+    syncPlayback();
 
     return () => {
-      disposed = true;
-      scene?.destroy();
+      observer?.disconnect();
+      document.removeEventListener('visibilitychange', syncPlayback);
+      video.pause();
     };
-  }, [projectId]);
+  }, []);
 
-  return <div ref={sceneContainer} className="absolute inset-0" />;
+  return (
+    <video
+      ref={videoRef}
+      data-unicorn-mode="video"
+      className="h-full w-full object-cover object-top"
+      autoPlay
+      loop
+      muted
+      playsInline
+      preload="auto"
+      poster={heroBackdropPoster}
+    >
+      <source src={heroBackdropWebm} type="video/webm" />
+      <source src={heroBackdropMp4} type="video/mp4" />
+    </video>
+  );
 }
