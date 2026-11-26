@@ -63,7 +63,7 @@ test('defaults to Testnet and cleanly switches between Testnet and Mainnet witho
   expect(pageErrors).toEqual([]);
 });
 
-test('?network= query parameter initializes and preserves network mode across reloads', async ({
+test('?network= query parameter scopes the session without mutating localStorage', async ({
   page,
 }) => {
   const pageErrors: string[] = [];
@@ -71,18 +71,30 @@ test('?network= query parameter initializes and preserves network mode across re
     pageErrors.push(error.message);
   });
 
-  await page.goto(`${appUrl}/runs/nonexistent-run?network=mainnet`);
   await page.goto(`${appUrl}/workflows`);
-  await expect(page.getByTestId('network-mode-mainnet')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Mainnet');
-  await expect(page.getByTestId('sidebar-network-mode')).toHaveText('Mainnet');
-  await expect(page.getByTestId('sidebar-automation-network')).toContainText('Reactive Mainnet');
+  await page.evaluate(() => window.localStorage.clear());
 
-  await page.goto(`${appUrl}/marketplace?network=testnet`);
+  await page.goto(`${appUrl}/runs/nonexistent-run?network=mainnet`);
+  await expect(page.getByTestId('network-mode-mainnet')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.localStorage.getItem('rulebook.networkMode'))).toBeNull();
+
+  // Visiting /workflows without ?network= falls back to stored mode (testnet).
+  await page.goto(`${appUrl}/workflows`);
   await expect(page.getByTestId('network-mode-testnet')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Lasna');
   await expect(page.getByTestId('sidebar-network-mode')).toHaveText('Testnet');
   await expect(page.getByTestId('sidebar-automation-network')).toContainText('Reactive Lasna');
+
+  // Explicitly clicking Mainnet persists, then ?network=testnet temporarily views Testnet without overwriting Mainnet.
+  await page.getByTestId('network-mode-mainnet').click();
+  expect(await page.evaluate(() => window.localStorage.getItem('rulebook.networkMode'))).toBe(
+    'mainnet',
+  );
+  await page.goto(`${appUrl}/marketplace?network=testnet`);
+  await expect(page.getByTestId('network-mode-testnet')).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => window.localStorage.getItem('rulebook.networkMode'))).toBe(
+    'mainnet',
+  );
 
   expect(pageErrors).toEqual([]);
 });

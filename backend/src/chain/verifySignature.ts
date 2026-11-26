@@ -10,36 +10,28 @@ export interface WalletSignatureVerification {
 }
 
 /**
- * Verifies an EOA signature locally first, then falls back to ERC-1271 `verifyMessage` across the
- * configured automation chains. Rejects cleanly (`false`) if at least one chain evaluates the
- * signature as invalid and none confirm it, and only throws when every attempted RPC check fails.
+ * Verifies an EOA signature locally first, then falls back to ERC-1271 `verifyMessage` on the
+ * single automation chain belonging to the challenge's environment. Rejects cleanly (`false`) if
+ * the client is unconfigured or evaluates the signature as invalid, and throws if the RPC check
+ * fails.
  */
 export async function verifyWalletSignature(
   clients: ChainClients,
   verification: WalletSignatureVerification,
-  automationChains: readonly AutomationChainId[],
+  automationChain: AutomationChainId,
 ): Promise<boolean> {
   if (await verifyMessage(verification).catch(() => false)) {
     return true;
   }
-  const targets: PublicClient[] = [];
-  for (const chainId of automationChains) {
-    try {
-      targets.push(clientFor(clients, chainId));
-    } catch {
-      // Unconfigured client for this chainId.
-    }
-  }
-  if (targets.length === 0) return false;
-
-  const outcomes = await Promise.allSettled(
-    targets.map((client) => client.verifyMessage(verification)),
-  );
-  if (outcomes.some((outcome) => outcome.status === 'fulfilled' && outcome.value)) {
-    return true;
-  }
-  if (outcomes.some((outcome) => outcome.status === 'fulfilled')) {
+  let target: PublicClient;
+  try {
+    target = clientFor(clients, automationChain);
+  } catch {
     return false;
   }
-  throw new Error('Could not verify the wallet signature.');
+  try {
+    return await target.verifyMessage(verification);
+  } catch {
+    throw new Error('Could not verify the wallet signature.');
+  }
 }

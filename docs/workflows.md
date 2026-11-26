@@ -24,6 +24,11 @@ Each workflow card and its detail page show one health status: **Watching for th
 
 The Marketplace publishes the exact enabled program version. Copying creates an editable draft that keeps the trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the payout recipients so the copier chooses their own. Each wallet provides its own Vault funds and signs its own authorization.
 
+## Mainnet swap slippage and trade-size limits
+
+- **Unichain Mainnet oracle heartbeat vs. slippage**: Unichain Mainnet Chainlink feeds (`ethUsdFeed` and `usdcUsdFeed`, both configured with `maxAge = 90_000` seconds) have 24-hour heartbeats, so an oracle answer can lag live pool spot by hours during quiet or trending markets. Because `WorkflowProtocolsV2._swap` sets `floor = max(applySlippage(spotQuote, slippage), applySlippage(oracleQuote, slippage))` and requires `spotQuote >= floor`, tight slippage (`<= 0.5%`) will revert (`SlippageExceeded`) whenever spot drifts past that tolerance relative to the last Chainlink update. Use **1.0% or higher slippage** (within the 10% protocol cap) for Unichain Mainnet swaps and the mainnet smoke check.
+- **Unichain Mainnet Uniswap V3 (0.30% pool) linear spot quote and sizing**: On Unichain Mainnet (`poolFee = 3000`, pool `0x8927058918e3CFf6F55EfE45A58db1be1F069E49`), `_v3SpotPrice()` computes a zero-price-impact linear quote via `PriceMath.quotedOut` rather than a full tick-by-tick AMM quote. Larger single swaps incur real price impact across ticks below the linear floor, causing `SwapRouter02` to revert safely (`FAILED`) while protecting Vault funds from bad fills. Keep single swap sizes small relative to active V3 pool liquidity (for larger allocations, split purchases across scheduled runs or increase slippage tolerance within the 10% cap).
+
 ## Deploy and verify
 
 Build the contracts with Foundry and regenerate the shared ABIs with `npm run generate`. Run `DeployWorkflowsV2.s.sol:DeployWorkflowsV2` against the `lasna`, `unichain_sepolia`, and `base_sepolia` RPC aliases (or `node scripts/deploy-workflows-v2.mjs --base`). The script deploys the Agent factory on Lasna and the identical `WorkflowVaultFactoryV2` on Unichain Sepolia and Base Sepolia. Record confirmed addresses, blocks, transaction hashes, and bytecode hashes.

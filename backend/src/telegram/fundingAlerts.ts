@@ -191,9 +191,10 @@ export class TelegramFundingAlerts {
   private message(chain: FundingChain, { state, reserve, debt }: CreditReading) {
     const info = funding[chain];
     const isMainnet = networkModeForChain(chain) === 'mainnet';
-    const link = `${this.origin}/account?credit=${info.route}${
-      isMainnet ? `${isFundsChain(chain) ? `&chain=${chain}` : ''}&network=mainnet` : ''
-    }`;
+    const params = new URLSearchParams({ credit: info.route });
+    if (isFundsChain(chain)) params.set('chain', String(chain));
+    if (isMainnet) params.set('network', 'mainnet');
+    const link = `${this.origin}/account?${params.toString()}`;
     if (state === 'healthy') {
       return [
         `Rulebook · ${info.token} credit restored`,

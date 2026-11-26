@@ -7,7 +7,7 @@ import { useAccount } from 'wagmi';
 
 import type { SetupFundingWallet } from '../hooks/useAccountFunding.js';
 import { useAccountSetup, type SetupWallet } from '../hooks/useAccountSetup.js';
-import { useNetworkMode } from '../lib/networkMode.js';
+import { useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 import { CreateAccount } from '../pages/CreateAccount.js';
 import { AppShell } from './AppShell.js';
@@ -88,7 +88,7 @@ export function WalletAccountSetupGate({
                 if (findLinkedChain) void existingLinked.refetch();
               }}
             >
-              <Link to={appRoutes.accountFunds} className="app-link">
+              <Link to={withNetworkQuery(appRoutes.accountFunds, mode)} className="app-link">
                 Manage existing vault funds
               </Link>
             </ErrorState>

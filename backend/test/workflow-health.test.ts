@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import {
   BASE_SEPOLIA_CHAIN_ID,
@@ -97,6 +99,7 @@ it('returns workflow health only for the requested owner and deployment', async 
   const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   const requests: { url: URL; body: unknown }[] = [];
   const row = {
+    chain: UNICHAIN_SEPOLIA_CHAIN_ID,
     workflow_id: workflowId,
     last_run_id: failedId,
     last_status: 'failed',
@@ -131,6 +134,7 @@ it('returns workflow health only for the requested owner and deployment', async 
     expect(response.json()).toEqual({
       workflows: [
         {
+          chain: UNICHAIN_SEPOLIA_CHAIN_ID,
           workflowId,
           lastRun: {
             id: failedId,
@@ -162,6 +166,55 @@ it('returns workflow health only for the requested owner and deployment', async 
     expect((await app.inject({ url: '/v3/health?owner=bad' })).statusCode).toBe(400);
   } finally {
     await app.close();
+  }
+});
+
+it('keys workflow_v2_health by (chain, workflow_id) and returns distinct rows for duplicate workflowIds across settlement chains', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec('create role anon; create role authenticated; create role service_role;');
+    const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
+    const files = (await readdir(migrationsDir)).filter((name) => name.endsWith('.sql')).sort();
+    for (const file of files) {
+      await db.exec(await readFile(join(migrationsDir, file), 'utf8'));
+    }
+    await db.exec(`
+      insert into workflow_v2_accounts values
+        ('current', 5318007, 'agent', 'owner', 'agent'),
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, 'vault-uni', 'owner', 'agent'),
+        ('current', ${BASE_SEPOLIA_CHAIN_ID}, 'vault-base', 'owner', 'agent');
+      insert into workflow_v2_activations values
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, 'agent', '${workflowId}', '1', 'hash-u', 'Unichain rule'),
+        ('current', ${BASE_SEPOLIA_CHAIN_ID}, 'agent', '${workflowId}', '1', 'hash-b', 'Base rule');
+      insert into workflow_v2_runs values
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${successId}', 'agent', '${workflowId}', 'hash-u', '1', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${hash}', '0', '${hash}', 100, 1),
+        ('current', ${BASE_SEPOLIA_CHAIN_ID}, '${failedId}', 'agent', '${workflowId}', 'hash-b', '1', ${BASE_SEPOLIA_CHAIN_ID}, '${hash}', '1', '${hash}', 200, 1);
+      insert into workflow_v2_outcomes values
+        ('current', ${UNICHAIN_SEPOLIA_CHAIN_ID}, '${successId}', '${workflowId}', 'vault-uni', '1', '${hash}', 90, 0, 1, '0x00000000', 4),
+        ('current', ${BASE_SEPOLIA_CHAIN_ID}, '${failedId}', '${workflowId}', 'vault-base', '1', '${hash}', 91, 1, 4, '0x12345678', null);
+    `);
+
+    const { rows } = await db.query(
+      `select chain, workflow_id, last_run_id, last_status
+       from workflow_v2_health('current', 'owner', array[${UNICHAIN_SEPOLIA_CHAIN_ID}, ${BASE_SEPOLIA_CHAIN_ID}])
+       order by chain`,
+    );
+    expect(rows).toEqual([
+      {
+        chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        workflow_id: workflowId,
+        last_run_id: successId,
+        last_status: 'confirmed',
+      },
+      {
+        chain: BASE_SEPOLIA_CHAIN_ID,
+        workflow_id: workflowId,
+        last_run_id: failedId,
+        last_status: 'failed',
+      },
+    ]);
+  } finally {
+    await db.close();
   }
 });
 

@@ -2,6 +2,8 @@ import {
   decodeWorkflowV2,
   deriveWorkflowHealth,
   isFundsChain,
+  networkModeForChain,
+  workflowHealthKey,
   workflowHealthResponseSchema,
   type FundsChainId,
   type NetworkMode,
@@ -13,7 +15,7 @@ import {
 import { useQueries, useQuery } from '@tanstack/react-query';
 import { zeroAddress, type Address } from 'viem';
 
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { configuredFundsChains, readFundsV2, readWorkflowV2 } from './chainV2';
 import { workflowFundingNeeds } from './fundingV2';
@@ -22,7 +24,15 @@ import { useWorkflowCredits } from './WorkflowCredit';
 
 export type WorkflowHealthItem = Pick<
   Awaited<ReturnType<typeof readWorkflowV2>>,
-  'id' | 'active' | 'staged' | 'partiallyPaused' | 'closed' | 'program' | 'budget' | 'auth'
+  | 'id'
+  | 'chain'
+  | 'active'
+  | 'staged'
+  | 'partiallyPaused'
+  | 'closed'
+  | 'program'
+  | 'budget'
+  | 'auth'
 >;
 
 export interface WorkflowHealthRow {
@@ -74,7 +84,10 @@ export function useWorkflowHealth(
     chains.map((chain, index) => [chain, fundQueries[index]?.data]),
   );
   const indexed = new Map<string, WorkflowHealthEntry>(
-    (query.data?.workflows ?? []).map((entry) => [entry.workflowId, entry]),
+    (query.data?.workflows ?? []).map((entry) => [
+      workflowHealthKey(entry.chain, entry.workflowId),
+      entry,
+    ]),
   );
   const rows = new Map<string, WorkflowHealthRow>();
 
@@ -85,14 +98,17 @@ export function useWorkflowHealth(
     } catch {
       continue;
     }
-    const settlementChain: FundsChainId = isFundsChain(program.chain)
-      ? program.chain
-      : defaultFundsChainId;
-    const entry = indexed.get(item.id);
+    const settlementChain: FundsChainId = isFundsChain(item.chain)
+      ? item.chain
+      : isFundsChain(program.chain)
+        ? program.chain
+        : defaultFundsChainId;
+    const key = workflowHealthKey(settlementChain, item.id);
+    const entry = indexed.get(key);
     const needs = workflowFundingNeeds(program);
     const balances = fundsByChain.get(settlementChain);
     const executionCredit = credits.byChain?.[settlementChain] ?? null;
-    rows.set(item.id, {
+    rows.set(key, {
       chain: settlementChain,
       health: deriveWorkflowHealth({
         active: item.active,
@@ -132,32 +148,45 @@ export function workflowHealthHref(
   workflowId: string,
   lastRunId?: string | null,
   chain?: FundsChainId,
+  mode?: NetworkMode,
 ) {
+  const resolvedMode = mode ?? (chain ? networkModeForChain(chain) : 'testnet');
   const chainSuffix = chain ? `&chain=${chain}` : '';
   const chainQuery = chain ? `?chain=${chain}` : '';
+  let href: string | undefined;
   switch (health.fix) {
     case 'execution-credit':
-      return `${appRoutes.account}?credit=execution${chainSuffix}`;
+      href = `${appRoutes.account}?credit=execution${chainSuffix}`;
+      break;
     case 'watching-credit':
-      return `${appRoutes.account}?credit=watching`;
+      href = `${appRoutes.account}?credit=watching`;
+      break;
     case 'weekly-budget':
-      return `${appRoutes.workflows}/${workflowId}?budget=1#weekly-budget`;
+      href = `${appRoutes.workflows}/${workflowId}?budget=1${chainSuffix}#weekly-budget`;
+      break;
     case 'account':
     case 'allowance':
-      return `${appRoutes.account}${chainQuery}`;
+      href = `${appRoutes.account}${chainQuery}`;
+      break;
     case 'edit':
-      return `${appRoutes.workflows}/${workflowId}/edit`;
+      href = `${appRoutes.workflows}/${workflowId}/edit${chainQuery}`;
+      break;
     case 'pause':
-      return `${appRoutes.workflows}/${workflowId}`;
+      href = `${appRoutes.workflows}/${workflowId}${chainQuery}`;
+      break;
     case 'run':
-      return lastRunId
+      href = lastRunId
         ? `${appRoutes.runs}/${lastRunId}`
         : `${appRoutes.activity}?workflow=${workflowId}`;
+      break;
     case 'activity':
-      return `${appRoutes.activity}?workflow=${workflowId}`;
+      href = `${appRoutes.activity}?workflow=${workflowId}`;
+      break;
     case 'none':
-      return undefined;
+      href = undefined;
+      break;
   }
+  return href ? withNetworkQuery(href, resolvedMode) : undefined;
 }
 
 export const workflowRunStatusLabels: Record<WorkflowHealthRunSchema['status'], string> = {

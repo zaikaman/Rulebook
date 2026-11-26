@@ -16,6 +16,7 @@ import {
   retireStaleWorkflowsForChain,
   retireWorkflow,
   runWithWorkflowCleanup,
+  smokeSlippagePercent,
   type AgentEntryState,
   type ChainSmokeEvidence,
   type RetireWorkflowDeps,
@@ -140,6 +141,15 @@ describe('smoke-workflows-v2', () => {
       expect(fundsRpcEnvName(8453)).toBe('BASE_MAINNET_RPC_URL');
       expect(fundsRpcEnvName(1301)).toBe('UNICHAIN_RPC_URL');
       expect(fundsRpcEnvName(84532)).toBe('BASE_SEPOLIA_RPC_URL');
+    });
+  });
+
+  describe('smokeSlippagePercent', () => {
+    it('uses 1.0% slippage on mainnet chains and 0.5% on testnet chains', () => {
+      expect(smokeSlippagePercent(130)).toBe('1.0');
+      expect(smokeSlippagePercent(8453)).toBe('1.0');
+      expect(smokeSlippagePercent(1301)).toBe('0.5');
+      expect(smokeSlippagePercent(84532)).toBe('0.5');
     });
   });
 

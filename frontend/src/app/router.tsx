@@ -91,7 +91,7 @@ function NetworkModeQuerySync() {
     prevUrlModeRef.current = urlMode;
 
     if (urlChanged && urlMode && urlMode !== mode) {
-      setMode(urlMode);
+      setMode(urlMode, { persist: false });
       return;
     }
     if (modeChanged && urlMode && urlMode !== mode) {
@@ -101,7 +101,7 @@ function NetworkModeQuerySync() {
       return;
     }
     if (urlMode && urlMode !== mode) {
-      setMode(urlMode);
+      setMode(urlMode, { persist: false });
     }
   }, [mode, searchParams, setMode, setSearchParams, urlMode]);
 

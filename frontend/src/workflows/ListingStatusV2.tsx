@@ -4,7 +4,7 @@ import { Link } from 'react-router';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { ErrorState, SyncState } from '@/ui';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { ListingReadError } from './listingV2';
 
 export function ListingStatusV2({
@@ -14,7 +14,7 @@ export function ListingStatusV2({
   query: UseQueryResult<unknown>;
   copying?: boolean;
 }) {
-  const { automationName } = useNetworkMode();
+  const { mode, automationName } = useNetworkMode();
   const syncing =
     query.failureReason instanceof ListingReadError && query.failureReason.kind === 'syncing';
   const checkAgain = () => void query.refetch({ cancelRefetch: false });
@@ -33,7 +33,7 @@ export function ListingStatusV2({
       <PageHeading
         title={copying ? 'Copy workflow' : 'Listing details'}
         aside={
-          <Link className="app-button" to="/marketplace">
+          <Link className="app-button" to={withNetworkQuery('/marketplace', mode)}>
             Back to Marketplace
           </Link>
         }

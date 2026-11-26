@@ -1,8 +1,14 @@
-import { isFundsChain, type WeeklyBudgetAmounts, type WorkflowV2Program } from '@rulebook/shared';
+import {
+  networkModeForChain,
+  isFundsChain,
+  type WeeklyBudgetAmounts,
+  type WorkflowV2Program,
+} from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import type { Address } from 'viem';
 
+import { withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { Button, Callout, PanelCopy } from '@/ui';
 import { readFundsV2, settlementFactory, type SettlementChain } from './chainV2';
@@ -83,7 +89,10 @@ export function WorkflowFundingNotice({
       title={title}
       action={
         account ? (
-          <Link className="app-button" to={`${appRoutes.account}?chain=${chain}`}>
+          <Link
+            className="app-button"
+            to={withNetworkQuery(`${appRoutes.account}?chain=${chain}`, networkModeForChain(chain))}
+          >
             Open Account &amp; Vault
           </Link>
         ) : (

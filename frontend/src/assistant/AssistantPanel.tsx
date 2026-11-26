@@ -3,6 +3,7 @@ import {
   assistantSignIn,
   type AssistantPage,
   type AssistantReference,
+  type NetworkMode,
 } from '@rulebook/shared';
 import {
   Alert02Icon,
@@ -32,7 +33,7 @@ import { useNetworkMode } from '@/lib/networkMode';
 import { Badge, Button, Callout, Dialog, ErrorState } from '@/ui';
 import '../styles/assistant.css';
 
-type Session = { owner: string; token: string };
+type Session = { owner: string; network: NetworkMode; token: string };
 type ToolState = 'start' | 'done' | 'error';
 type ToolRead = { name: string; label: string; state: ToolState; detail?: string };
 type Message = {
@@ -113,7 +114,10 @@ export function AssistantPanel({
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
 
-  const usableSession = session && address && session.owner === address ? session : undefined;
+  const usableSession =
+    session && address && session.owner === address && session.network === mode
+      ? session
+      : undefined;
 
   useEffect(() => {
     if (session && address && session.owner !== address) {
@@ -128,6 +132,7 @@ export function AssistantPanel({
     prevModeRef.current = mode;
     operation.current?.abort();
     operation.current = undefined;
+    setSession(undefined);
     setMessages([]);
     setConversationId(undefined);
     setStreaming(false);
@@ -151,8 +156,12 @@ export function AssistantPanel({
     setVerifying(true);
     setError(undefined);
     try {
-      const challenge = await api.assistantChallenge(address, new AbortController().signal);
-      if (challenge.origin !== window.location.origin || challenge.owner !== address.toLowerCase())
+      const challenge = await api.assistantChallenge(address, new AbortController().signal, mode);
+      if (
+        challenge.origin !== window.location.origin ||
+        challenge.owner !== address.toLowerCase() ||
+        challenge.network !== mode
+      )
         throw new Error('Bookkeeper received an unexpected wallet challenge.');
       const signature = await signMessageAsync({
         connector,
@@ -164,7 +173,7 @@ export function AssistantPanel({
         signature,
         new AbortController().signal,
       );
-      setSession({ owner: address, ...response });
+      setSession({ owner: address, network: mode, ...response });
       setMessages([]);
       setConversationId(undefined);
     } catch (cause) {

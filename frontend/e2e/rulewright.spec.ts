@@ -35,6 +35,7 @@ async function installRulewrightResponses(page: Page) {
   const challenge = rulewrightChallengeSchema.parse({
     owner: USER_ADDRESS,
     origin: FIXTURE_FRONTEND_URL,
+    network: 'testnet',
     nonce: `0x${randomBytes(32).toString('hex')}`,
     expiresAt: Math.floor(Date.now() / 1000) + 300,
   });
@@ -53,7 +54,10 @@ async function installRulewrightResponses(page: Page) {
     }
     if (request.method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
     if (path === '/availability') return send({ available: true });
-    if (path === '/challenge') return send(challenge);
+    if (path === '/challenge') {
+      expect(request.postDataJSON()).toEqual({ owner: USER_ADDRESS, network: 'testnet' });
+      return send(challenge);
+    }
     if (path === '/session') {
       const { nonce, signature } = request.postDataJSON();
       expect(nonce).toBe(challenge.nonce);

@@ -7,6 +7,7 @@ import {
   isFundsChain,
   networkModeForChain,
   readAmount,
+  workflowHealthKey,
   workflowIdSchema,
   workflowV2RunStatusSchema,
   workflowAgentFactoryV2Abi,
@@ -107,8 +108,13 @@ export function WorkflowsV2() {
   const health = useWorkflowHealth(owner, rows.data);
   const activeCount = workflows.filter((row) => row.active).length;
   const attention = workflows.filter(
-    (row) => health.rows.get(row.id)?.health.attention ?? !row.active,
+    (row) => health.rows.get(workflowHealthKey(row.chain, row.id))?.health.attention ?? !row.active,
   ).length;
+  const idCounts = new Map<string, number>();
+  for (const row of workflows) {
+    const normalized = row.id.toLowerCase();
+    idCounts.set(normalized, (idCounts.get(normalized) ?? 0) + 1);
+  }
 
   return (
     <section className="app-page">
@@ -121,7 +127,10 @@ export function WorkflowsV2() {
             : 'Build, activate, and monitor the testnet automations that run from your wallet.'
         }
         aside={
-          <Link className="app-button app-button--primary" to="/workflows/new">
+          <Link
+            className="app-button app-button--primary"
+            to={withNetworkQuery('/workflows/new', mode)}
+          >
             <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden="true" />
             New workflow
           </Link>
@@ -226,10 +235,13 @@ export function WorkflowsV2() {
           description="A workflow watches for a trigger, checks your conditions, then acts from your vault. Start from a recipe or build the logic yourself."
           action={
             <>
-              <Link className="app-button app-button--primary" to="/workflows/new">
+              <Link
+                className="app-button app-button--primary"
+                to={withNetworkQuery('/workflows/new', mode)}
+              >
                 Build a workflow
               </Link>
-              <Link className="app-button" to="/marketplace">
+              <Link className="app-button" to={withNetworkQuery('/marketplace', mode)}>
                 Browse Marketplace
               </Link>
             </>
@@ -241,7 +253,12 @@ export function WorkflowsV2() {
       {!!workflows.length && (
         <ul className="rb-card-grid">
           {workflows.map((row) => {
-            const view = health.rows.get(row.id);
+            const key = workflowHealthKey(row.chain, row.id);
+            const view = health.rows.get(key);
+            const isDuplicateId = (idCounts.get(row.id.toLowerCase()) ?? 0) > 1;
+            const detailPath = isDuplicateId
+              ? `/workflows/${row.id}?chain=${row.chain}`
+              : `/workflows/${row.id}`;
             const ready = !row.active && row.staged && row.auth[3];
             const tone =
               view?.health.tone ??
@@ -277,12 +294,12 @@ export function WorkflowsV2() {
                       ? 'The Vault authorization is staged. Finish activation to start watching.'
                       : 'This workflow is not watching for events.');
             const fixHref = view
-              ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain)
+              ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain, mode)
               : undefined;
             return (
-              <li key={row.id}>
+              <li key={key}>
                 <div className="rb-card">
-                  <Link to={`/workflows/${row.id}`} className="rb-card-body">
+                  <Link to={withNetworkQuery(detailPath, mode)} className="rb-card-body">
                     <div className="rb-card-head">
                       <span className="rb-card-icon" aria-hidden="true">
                         <HugeiconsIcon icon={Book02Icon} size={18} strokeWidth={1.7} />
@@ -345,13 +362,20 @@ export function WorkflowsV2() {
 
 export function WorkflowDetailV2() {
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
+  const [params] = useSearchParams();
+  const rawChain = params.get('chain');
+  const parsedChain = rawChain ? Number(rawChain) : NaN;
+  const preferredChain =
+    isFundsChain(parsedChain) && networkModeForChain(parsedChain) === mode
+      ? (parsedChain as SettlementChain)
+      : undefined;
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const wallet = useWorkflowV2Wallet();
   const data = useQuery({
-    queryKey: ['workflow-v2', 'detail', mode, wallet.owner, raw],
+    queryKey: ['workflow-v2', 'detail', mode, wallet.owner, raw, preferredChain],
     enabled: Boolean(wallet.owner && id.success && isDeploymentConfigured),
-    queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode),
+    queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode, preferredChain),
     refetchInterval: 12_000,
   });
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
@@ -436,7 +460,15 @@ export function WorkflowDetailV2() {
       />
       <div className="workflow-actions">
         {!item.closed && (
-          <Link className="app-button" to={`/workflows/${item.id}/edit`}>
+          <Link
+            className="app-button"
+            to={withNetworkQuery(
+              preferredChain
+                ? `/workflows/${item.id}/edit?chain=${item.chain}`
+                : `/workflows/${item.id}/edit`,
+              mode,
+            )}
+          >
             {active ? 'Edit workflow' : 'Review and activate'}
           </Link>
         )}
@@ -473,7 +505,10 @@ export function WorkflowDetailV2() {
             Check in
           </button>
         )}
-        <Link to={`${appRoutes.activity}?workflow=${item.id}`} className="app-button">
+        <Link
+          to={withNetworkQuery(`${appRoutes.activity}?workflow=${item.id}`, mode)}
+          className="app-button"
+        >
           Activity
         </Link>
       </div>
@@ -838,7 +873,7 @@ export function WorkflowActivityV2() {
     return (
       <section className="app-page">
         <ErrorState message="The Activity filter is invalid.">
-          <Link className="app-link" to={appRoutes.activity}>
+          <Link className="app-link" to={withNetworkQuery(appRoutes.activity, mode)}>
             Open Activity
           </Link>
         </ErrorState>
@@ -882,11 +917,14 @@ export function WorkflowActivityV2() {
       {(workflowId || requestedId) && (
         <div className="rb-inline">
           {workflowId && (
-            <Link className="app-link" to={`${appRoutes.workflows}/${workflowId}`}>
+            <Link
+              className="app-link"
+              to={withNetworkQuery(`${appRoutes.workflows}/${workflowId}`, mode)}
+            >
               {rows[0]?.title ?? 'Open workflow'}
             </Link>
           )}
-          <Link className="app-link" to={appRoutes.activity}>
+          <Link className="app-link" to={withNetworkQuery(appRoutes.activity, mode)}>
             All activity
           </Link>
         </div>
@@ -987,13 +1025,14 @@ export function WorkflowActivityV2() {
           action={
             <Link
               className="app-button"
-              to={
+              to={withNetworkQuery(
                 requestedId
-                  ? withNetworkQuery(`${appRoutes.runs}/${requestedId}`, mode)
+                  ? `${appRoutes.runs}/${requestedId}`
                   : workflowId
                     ? `${appRoutes.workflows}/${workflowId}`
-                    : appRoutes.workflows
-              }
+                    : appRoutes.workflows,
+                mode,
+              )}
             >
               {requestedId ? 'Open public proof' : workflowId ? 'Open workflow' : 'View workflows'}
             </Link>
@@ -1039,7 +1078,13 @@ export function WorkflowActivityV2() {
                 </span>
                 <div className="rb-run-body">
                   <div className="rb-run-head">
-                    <Link className="rb-run-title" to={`/workflows/${run.workflowId}`}>
+                    <Link
+                      className="rb-run-title"
+                      to={withNetworkQuery(
+                        `/workflows/${run.workflowId}?chain=${run.chain}`,
+                        runMode,
+                      )}
+                    >
                       {run.title}
                     </Link>
                     <span className="rb-chip" data-tone={tone}>
@@ -1075,7 +1120,12 @@ export function WorkflowActivityV2() {
                       Public proof
                     </Link>
                     {!requestedId && (
-                      <Link to={`${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}`}>
+                      <Link
+                        to={withNetworkQuery(
+                          `${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}`,
+                          runMode,
+                        )}
+                      >
                         Run details
                         <HugeiconsIcon icon={ArrowRight01Icon} size={12} aria-hidden="true" />
                       </Link>
@@ -1396,7 +1446,7 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
     chains.includes(selectedSetup.chain)
       ? selectedSetup.chain
       : (initialChain ?? defaultFundsChainId);
-  const builder = <Navigate to={appRoutes.newWorkflow} replace />;
+  const builder = <Navigate to={withNetworkQuery(appRoutes.newWorkflow, mode)} replace />;
   const accountFor = (chain: SettlementChain) => (
     <AppShell>
       <WorkflowAccountV2

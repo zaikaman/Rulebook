@@ -53,21 +53,23 @@ export function setStoredNetworkMode(mode: NetworkMode): void {
 export function getInitialNetworkMode(): NetworkMode {
   const fromUrl = getUrlNetworkMode();
   if (fromUrl) {
-    setStoredNetworkMode(fromUrl);
     return fromUrl;
   }
   return getStoredNetworkMode();
 }
 
 export function withNetworkQuery(path: string, mode: NetworkMode, alwaysInclude = false): string {
-  const [pathname = '', rawSearch = ''] = path.split('?');
+  const hashIndex = path.indexOf('#');
+  const basePath = hashIndex === -1 ? path : path.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? '' : path.slice(hashIndex);
+  const [pathname = '', rawSearch = ''] = basePath.split('?');
   const params = new URLSearchParams(rawSearch);
   params.delete('network');
   if (alwaysInclude || mode === 'mainnet') {
     params.set('network', mode);
   }
   const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
+  return `${query ? `${pathname}?${query}` : pathname}${hash}`;
 }
 
 export interface NetworkModeState {
@@ -83,8 +85,12 @@ export interface NetworkModeState {
   readonly isDeploymentConfigured: boolean;
 }
 
+export interface SetNetworkModeOptions {
+  readonly persist?: boolean;
+}
+
 export interface NetworkModeContextValue extends NetworkModeState {
-  readonly setMode: (next: NetworkMode) => void;
+  readonly setMode: (next: NetworkMode, options?: SetNetworkModeOptions) => void;
 }
 
 export function buildNetworkModeState(
@@ -121,8 +127,10 @@ export function NetworkModeProvider({ children }: { readonly children: ReactNode
   const queryClient = useQueryClient();
 
   const setMode = useCallback(
-    (next: NetworkMode) => {
-      setStoredNetworkMode(next);
+    (next: NetworkMode, options?: SetNetworkModeOptions) => {
+      if (options?.persist !== false) {
+        setStoredNetworkMode(next);
+      }
       setModeState(next);
       void queryClient.invalidateQueries();
     },

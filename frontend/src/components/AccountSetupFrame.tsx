@@ -9,6 +9,7 @@ import { HugeiconsIcon } from '@hugeicons/react';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Link } from 'react-router';
 
+import { useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 import { WalletControl } from './chrome/WalletControl.js';
 import { Wordmark } from './chrome/Wordmark.js';
@@ -47,6 +48,7 @@ export function AccountSetupFrame({
   isMainnet?: boolean;
   children: ReactNode;
 }) {
+  const { mode } = useNetworkMode();
   const heading = useRef<HTMLHeadingElement>(null);
   const previousStep = useRef(step);
   useEffect(() => {
@@ -57,7 +59,11 @@ export function AccountSetupFrame({
   return (
     <div className="account-setup" data-workflow={workflow || undefined}>
       <header className="account-setup__toolbar">
-        <Link to={appRoutes.landing} className="account-setup__brand" aria-label="Rulebook home">
+        <Link
+          to={withNetworkQuery(appRoutes.landing, mode)}
+          className="account-setup__brand"
+          aria-label="Rulebook home"
+        >
           <Wordmark />
         </Link>
         {connected && (
@@ -188,12 +194,12 @@ export function AccountSetupFrame({
         </div>
 
         <div className="account-setup__links">
-          <Link to={appRoutes.workflows} className="account-setup__exit">
+          <Link to={withNetworkQuery(appRoutes.workflows, mode)} className="account-setup__exit">
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
             {workflow ? 'Back to workflows' : 'Back to rules'}
           </Link>
           {manageAccount && (
-            <Link className="account-setup__exit" to={manageAccountHref}>
+            <Link className="account-setup__exit" to={withNetworkQuery(manageAccountHref, mode)}>
               Manage vault funds
             </Link>
           )}

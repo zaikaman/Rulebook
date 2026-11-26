@@ -69,6 +69,7 @@ const run = z.object({
   status: workflowV2RunStatusSchema,
 });
 const healthRow = z.object({
+  chain: settlementChain,
   workflow_id: workflowIdSchema,
   last_run_id: workflowIdSchema.nullable(),
   last_status: workflowV2RunStatusSchema.nullable(),
@@ -236,6 +237,7 @@ export function registerWorkflowV2Routes(
       workflows: rows.map((row) => {
         const failure = row.last_reason ? workflowV2FailureReason(row.last_reason) : undefined;
         return {
+          chain: row.chain,
           workflowId: row.workflow_id,
           lastRun:
             row.last_run_id && row.last_status && row.last_lasna_transaction

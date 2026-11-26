@@ -1,4 +1,4 @@
-import { feeCreditWarningThreshold, getChain } from '@rulebook/shared';
+import { feeCreditWarningThreshold, getChain, isFundsChain } from '@rulebook/shared';
 import {
   ArrowRight01Icon,
   ArrowUpRight01Icon,
@@ -16,7 +16,7 @@ import { formatEther, formatGwei } from 'viem';
 
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { PageHeading } from '@/components/chrome/PageHeading';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { workflowClient } from './chainV2';
 import { workflowCreditsFor } from './WorkflowCredit';
@@ -58,7 +58,10 @@ export function WorkflowCost() {
         title="Workflow costs"
         description="See which balances pay for your workflows and what changes the cost of a run."
         aside={
-          <Link className="app-button app-button--primary" to={appRoutes.account}>
+          <Link
+            className="app-button app-button--primary"
+            to={withNetworkQuery(appRoutes.account, mode)}
+          >
             <HugeiconsIcon icon={Wallet01Icon} size={16} aria-hidden="true" />
             Open Account &amp; Vault
           </Link>
@@ -172,7 +175,10 @@ export function WorkflowCost() {
                 <footer className="rb-cost-lane-foot">
                   <Link
                     className="app-button"
-                    to={`${appRoutes.account}?credit=${kind}&chain=${chain}`}
+                    to={withNetworkQuery(
+                      `${appRoutes.account}?credit=${kind}${isFundsChain(chain) ? `&chain=${chain}` : ''}`,
+                      mode,
+                    )}
                   >
                     Add {title.toLowerCase()}
                     <HugeiconsIcon icon={ArrowRight01Icon} size={15} aria-hidden="true" />
@@ -224,7 +230,7 @@ export function WorkflowCost() {
               incur data fees.
             </p>
           </div>
-          <Link className="app-button" to={appRoutes.proof}>
+          <Link className="app-button" to={withNetworkQuery(appRoutes.proof, mode)}>
             Open workflow proof
             <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
           </Link>

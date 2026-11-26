@@ -7,11 +7,11 @@ import { SectionHeading } from './section-heading.js';
 const steps = [
   {
     title: 'The pool price moves',
-    body: 'A price update on Unichain Sepolia puts WETH below your limit.',
+    body: 'A price update on Unichain puts WETH below your limit.',
   },
   {
     title: 'Your workflow chooses a path',
-    body: 'Your Agent on Reactive Lasna sees the update, checks your conditions, and asks your Vault to run the chosen steps.',
+    body: 'Your Agent on Reactive Network sees the update, checks your conditions, and asks your Vault to run the chosen steps.',
   },
   {
     title: 'Your vault checks the trade',

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { networkModeForChain } from './chains.js';
+import { automationChainFor, getChain, networkModeForChain } from './chains.js';
 import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { v2DraftSchema } from './workflowV2Draft.js';
 import { workflowLimits } from './workflows.js';
@@ -12,6 +12,7 @@ export const rulewrightChallengeSchema = z.object({
   nonce: txHashSchema,
   owner: addressSchema,
   origin: z.string().url(),
+  network: networkModeSchema,
   expiresAt: z.number().int().positive(),
 });
 
@@ -79,13 +80,23 @@ export type RulewrightChallenge = z.infer<typeof rulewrightChallengeSchema>;
 export type RulewrightRequest = z.infer<typeof rulewrightRequestSchema>;
 export type RulewrightResult = z.infer<typeof rulewrightResultSchema>;
 
-export function rulewrightSignIn({ owner, origin, nonce, expiresAt }: RulewrightChallenge) {
+export function rulewrightSignIn({
+  owner,
+  origin,
+  network,
+  nonce,
+  expiresAt,
+}: RulewrightChallenge) {
+  const chainId = automationChainFor(network);
+  const networkName = getChain(chainId).name;
   return [
     'Rulebook requests wallet verification for Rulewright.',
     'This signature authorizes a temporary workflow drafting session.',
     '',
     `Wallet: ${owner}`,
     `Origin: ${origin}`,
+    `Network: ${networkName} (${network})`,
+    `Chain ID: ${chainId}`,
     `Nonce: ${nonce}`,
     `Expires: ${new Date(expiresAt * 1000).toISOString()}`,
   ].join('\n');

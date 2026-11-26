@@ -46,7 +46,12 @@ import { ApiError, api } from '@/lib/api';
 import { isWalletRejection } from '@/lib/errors';
 import { useNetworkMode } from '@/lib/networkMode';
 
-export type RulewrightSession = { owner: string; token: string; expiresAt: number };
+export type RulewrightSession = {
+  owner: string;
+  network: NetworkMode;
+  token: string;
+  expiresAt: number;
+};
 
 const queueWaitMs = 5 * 60_000;
 const pollMs = 2000;
@@ -186,7 +191,10 @@ export function RulewrightDialog({
   const [error, setError] = useState<string>();
 
   const activeSession =
-    verified && verified.owner === address && verified.expiresAt * 1000 > Date.now() + queueWaitMs
+    verified &&
+    verified.owner === address &&
+    verified.network === mode &&
+    verified.expiresAt * 1000 > Date.now() + queueWaitMs
       ? verified
       : undefined;
   const result = preview?.result;
@@ -200,12 +208,14 @@ export function RulewrightDialog({
     prevModeRef.current = mode;
     operation.current?.abort();
     operation.current = undefined;
+    session.current = undefined;
+    setVerified(undefined);
     setBusy(undefined);
     setPreview(undefined);
     setHistory([]);
     setAnswer('');
     setError(undefined);
-  }, [mode]);
+  }, [mode, session]);
 
   useEffect(() => {
     const element = dialog.current;
@@ -226,10 +236,11 @@ export function RulewrightDialog({
     setBusy('wallet');
     setError(undefined);
     try {
-      const challenge = await api.rulewrightChallenge(address, signal);
+      const challenge = await api.rulewrightChallenge(address, signal, mode);
       if (
         challenge.origin !== window.location.origin ||
-        challenge.owner !== address.toLowerCase()
+        challenge.owner !== address.toLowerCase() ||
+        challenge.network !== mode
       ) {
         throw new Error('Rulewright received an unexpected wallet challenge.');
       }
@@ -241,7 +252,7 @@ export function RulewrightDialog({
       if (signal.aborted) return;
       const response = await api.rulewrightSession(challenge.nonce, signature, signal);
       if (signal.aborted) return;
-      const next = { owner: address, ...response };
+      const next = { owner: address, network: mode, ...response };
       session.current = next;
       setVerified(next);
     } catch (cause) {
@@ -498,7 +509,7 @@ export function RulewrightDialog({
     }
     const descriptionExample = draft
       ? 'Change the schedule to every day.'
-      : 'Buy 10 USDC of WETH every 6 hours. Cap each run at 10 USDC and limit slippage to 0.5%.';
+      : 'Buy 10 USDC of WETH every 6 hours. Cap each run at 10 USDC and limit slippage to 1%.';
     const value = question ? answer : prompt;
     return (
       <form className="rb-rulewright__form" onSubmit={(event) => void generate(event)}>

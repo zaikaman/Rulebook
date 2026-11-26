@@ -8,12 +8,10 @@ import {
   assistantHistoryLimit,
   assistantSessionSchema,
   assistantSignIn,
-  LASNA_CHAIN_ID,
-  REACTIVE_MAINNET_CHAIN_ID,
+  automationChainFor,
   type Address,
   type AssistantChallenge,
   type AssistantPage,
-  type AutomationChainId,
   type NetworkMode,
   type WorkflowV2Deployment,
   type WorkflowV2MainnetDeployment,
@@ -130,13 +128,6 @@ export class AssistantService {
     return Boolean(this.deployments[network]);
   }
 
-  private configuredAutomationChains(): AutomationChainId[] {
-    const chains: AutomationChainId[] = [];
-    if (this.deployments.testnet) chains.push(LASNA_CHAIN_ID);
-    if (this.deployments.mainnet) chains.push(REACTIVE_MAINNET_CHAIN_ID);
-    return chains;
-  }
-
   async ready(network?: NetworkMode) {
     if (
       network
@@ -153,21 +144,25 @@ export class AssistantService {
     return !error;
   }
 
-  async challenge(owner: Address, origin: string): Promise<AssistantChallenge> {
+  async challenge(
+    owner: Address,
+    origin: string,
+    network: NetworkMode = 'testnet',
+  ): Promise<AssistantChallenge> {
     const nonce = `0x${randomBytes(32).toString('hex')}` as const;
     const expiresAt = timestamp() + challengeSeconds;
     const { error } = await this.db
       .from('assistant_sessions')
-      .insert({ nonce, owner, origin, expires_at: date(expiresAt) })
+      .insert({ nonce, owner, origin, network, expires_at: date(expiresAt) })
       .abortSignal(databaseTimeout());
     if (error) throw new Error('Bookkeeper could not create the wallet challenge.');
-    return { nonce, owner, origin, expiresAt };
+    return { nonce, owner, origin, network, expiresAt };
   }
 
   async signIn(nonce: Hex, origin: string, signature: Hex) {
     const { data, error } = await this.db
       .from('assistant_sessions')
-      .select('nonce,owner,origin,expires_at')
+      .select('nonce,owner,origin,network,expires_at')
       .eq('nonce', nonce)
       .eq('origin', origin)
       .is('token_hash', null)
@@ -180,6 +175,7 @@ export class AssistantService {
       ...data,
       expiresAt: Date.parse(data.expires_at) / 1000,
     });
+    if (!this.hasDeployment(challenge.network)) return null;
     const verification = {
       address: challenge.owner,
       message: assistantSignIn(challenge),
@@ -190,7 +186,7 @@ export class AssistantService {
       verified = await verifyWalletSignature(
         this.clients,
         verification,
-        this.configuredAutomationChains(),
+        automationChainFor(challenge.network),
       );
     } catch {
       throw new Error('Bookkeeper could not verify the wallet signature.');
@@ -217,6 +213,7 @@ export class AssistantService {
     origin: string,
     conversation: string | undefined,
     message: string,
+    network: NetworkMode = 'testnet',
   ): Promise<AssistantAdmission> {
     const { data, error } = await this.db
       .rpc('assistant_admit', {
@@ -224,6 +221,7 @@ export class AssistantService {
         p_origin: origin,
         p_conversation: conversation ?? null,
         p_message: message,
+        p_network: network,
       })
       .abortSignal(databaseTimeout());
     if (error) throw new Error('Bookkeeper could not open this conversation.');

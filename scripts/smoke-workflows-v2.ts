@@ -211,6 +211,10 @@ export function fundsRpcEnvName(chainId: FundsChainId): string {
   }
 }
 
+export function smokeSlippagePercent(chainId: FundsChainId): string {
+  return chainId === UNICHAIN_MAINNET_CHAIN_ID || chainId === BASE_MAINNET_CHAIN_ID ? '1.0' : '0.5';
+}
+
 export function assertSmokeCliArgs(argv: readonly string[] = process.argv.slice(2)): void {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
@@ -1321,7 +1325,7 @@ async function main() {
             'scheduled-buy',
             {
               buyUsdc: SMOKE_SCHEDULE_BUY_USDC,
-              slippagePercent: '0.5',
+              slippagePercent: smokeSlippagePercent(fundsChainId),
               intervalSeconds: '3600',
             },
             { chain: fundsChainId, originChain: fundsChainId },

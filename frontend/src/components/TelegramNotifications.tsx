@@ -20,7 +20,7 @@ import { useSignTypedData } from 'wagmi';
 import { useChainGuard } from '../hooks/useChainGuard.js';
 import { Spinner } from './chrome/Spinner.js';
 import { api, ApiError } from '../lib/api.js';
-import { useNetworkMode } from '../lib/networkMode.js';
+import { useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 
 type Pairing = Awaited<ReturnType<typeof api.telegramPair>>;
@@ -363,14 +363,17 @@ function TelegramSettingsPanel(props: NotificationProps) {
             {connected && workflow && current.actionAlerts !== undefined && (
               <p className="app-copy">
                 This setting covers run confirmations and workflow alerts. Manage action alerts in{' '}
-                <Link className="app-link" to={appRoutes.account}>
+                <Link
+                  className="app-link"
+                  to={withNetworkQuery(appRoutes.account, networkMode.mode)}
+                >
                   Account &amp; Vault
                 </Link>
                 .
               </p>
             )}
             {!connected && (
-              <Link className="app-link" to={appRoutes.account}>
+              <Link className="app-link" to={withNetworkQuery(appRoutes.account, networkMode.mode)}>
                 Connect Telegram in Account
               </Link>
             )}

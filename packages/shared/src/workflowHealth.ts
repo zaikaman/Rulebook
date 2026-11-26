@@ -8,6 +8,7 @@ import {
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
 } from './chains.js';
+import { fundsChainIdSchema } from './schemas.js';
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
 import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './workflowsV2.js';
 
@@ -133,6 +134,7 @@ export const workflowHealthSuccessSchema = z.object({
 });
 
 export const workflowHealthEntrySchema = z.object({
+  chain: fundsChainIdSchema,
   workflowId: workflowIdSchema,
   lastRun: workflowHealthRunSchema.nullable(),
   lastSuccess: workflowHealthSuccessSchema.nullable(),
@@ -143,6 +145,10 @@ export const workflowHealthEntrySchema = z.object({
     })
     .nullable(),
 });
+
+export function workflowHealthKey(chain: number, workflowId: string): string {
+  return `${chain}:${workflowId.toLowerCase()}`;
+}
 
 export const workflowHealthResponseSchema = z.object({
   workflows: z.array(workflowHealthEntrySchema),

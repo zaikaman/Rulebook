@@ -4,6 +4,7 @@ import {
   feeCreditWarningThreshold,
   getChain,
   isAutomationChain,
+  isFundsChain,
   workflowVaultFactoryV2Abi,
   type AutomationChainId,
   type FundsChainId,
@@ -22,7 +23,7 @@ import { useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { formatEther, zeroAddress, type Address } from 'viem';
 
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import {
   configuredFundsChains,
@@ -243,7 +244,10 @@ export function WorkflowCreditNotice({
             Add watching and execution credit after your account and vault are created.{' '}
             <Link
               className="app-link"
-              to={chain ? `${appRoutes.account}?chain=${chain}` : appRoutes.account}
+              to={withNetworkQuery(
+                chain ? `${appRoutes.account}?chain=${chain}` : appRoutes.account,
+                mode,
+              )}
             >
               Open Account &amp; Vault
             </Link>
@@ -283,7 +287,10 @@ export function WorkflowCreditNotice({
                     </div>
                     <Link
                       className="app-button rb-fee-action"
-                      to={`${appRoutes.account}?credit=${credit.kind}&chain=${credit.chain}`}
+                      to={withNetworkQuery(
+                        `${appRoutes.account}?credit=${credit.kind}${isFundsChain(credit.chain) ? `&chain=${credit.chain}` : ''}`,
+                        mode,
+                      )}
                     >
                       Add {credit.title.toLowerCase()}
                     </Link>

@@ -2,12 +2,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import { setTimeout as pause } from 'node:timers/promises';
 
 import {
+  automationChainFor,
   decodeWorkflowV2,
   fundsChainsFor,
   isFundsChain,
-  LASNA_CHAIN_ID,
   networkModeForChain,
-  REACTIVE_MAINNET_CHAIN_ID,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
@@ -17,7 +16,6 @@ import {
   workflowProgramValidatorV2Abi,
   workflowVaultFactoryV2Abi,
   type Address,
-  type AutomationChainId,
   type FundsChainId,
   type NetworkMode,
   type RulewrightChallenge,
@@ -83,13 +81,6 @@ export class RulewrightService {
     );
   }
 
-  private configuredAutomationChains(): AutomationChainId[] {
-    const chains: AutomationChainId[] = [];
-    if (this.hasNetwork('testnet')) chains.push(LASNA_CHAIN_ID);
-    if (this.hasNetwork('mainnet')) chains.push(REACTIVE_MAINNET_CHAIN_ID);
-    return chains;
-  }
-
   async ready(network?: NetworkMode) {
     if (
       network
@@ -106,21 +97,25 @@ export class RulewrightService {
     return !error;
   }
 
-  async challenge(owner: Address, origin: string): Promise<RulewrightChallenge> {
+  async challenge(
+    owner: Address,
+    origin: string,
+    network: NetworkMode = 'testnet',
+  ): Promise<RulewrightChallenge> {
     const nonce = `0x${randomBytes(32).toString('hex')}` as const;
     const expiresAt = timestamp() + challengeSeconds;
     const { error } = await this.db
       .from('rulewright_sessions')
-      .insert({ nonce, owner, origin, expires_at: date(expiresAt) })
+      .insert({ nonce, owner, origin, network, expires_at: date(expiresAt) })
       .abortSignal(databaseTimeout());
     if (error) throw new Error('Rulewright could not create the wallet challenge.');
-    return { nonce, owner, origin, expiresAt };
+    return { nonce, owner, origin, network, expiresAt };
   }
 
   async signIn(nonce: Hex, origin: string, signature: Hex) {
     const { data, error } = await this.db
       .from('rulewright_sessions')
-      .select('nonce,owner,origin,expires_at')
+      .select('nonce,owner,origin,network,expires_at')
       .eq('nonce', nonce)
       .eq('origin', origin)
       .is('token_hash', null)
@@ -133,6 +128,7 @@ export class RulewrightService {
       ...data,
       expiresAt: Date.parse(data.expires_at) / 1000,
     });
+    if (!this.hasNetwork(challenge.network)) return null;
     const verification = {
       address: challenge.owner,
       message: rulewrightSignIn(challenge),
@@ -143,7 +139,7 @@ export class RulewrightService {
       verified = await verifyWalletSignature(
         this.clients,
         verification,
-        this.configuredAutomationChains(),
+        automationChainFor(challenge.network),
       );
     } catch {
       throw new Error('Rulewright could not verify the wallet signature.');
@@ -183,6 +179,7 @@ export class RulewrightService {
         p_session: hash(token),
         p_origin: origin,
         p_payload: request,
+        p_network: targetNetwork,
       })
       .abortSignal(databaseTimeout());
     if (error) throw new Error('Rulewright could not queue the workflow request.');

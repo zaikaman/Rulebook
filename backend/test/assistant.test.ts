@@ -1,14 +1,22 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
+  assistantSignIn,
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
+  encodeWorkflowV2,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowDeploymentKey,
+  workflowHealthKey,
+  workflowV2Action,
+  workflowV2Trigger,
+  workflowV2Unit,
 } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import Fastify from 'fastify';
@@ -38,25 +46,24 @@ async function admit(
   audience = origin,
   conversation: string | null = null,
   message = 'What needs attention?',
+  network: 'testnet' | 'mainnet' = 'testnet',
 ) {
   const { rows } = await db.query<{ result: Admission }>(
-    'select assistant_admit($1, $2, $3, $4) as result',
-    [session, audience, conversation, message],
+    'select assistant_admit($1, $2, $3, $4, $5) as result',
+    [session, audience, conversation, message, network],
   );
   return rows[0]!.result;
 }
 
 beforeAll(async () => {
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  await db.exec(
-    readFileSync(new URL('../db/migrations/0021_assistant.sql', import.meta.url), 'utf8'),
-  );
-  await db.exec(
-    readFileSync(
-      new URL('../db/migrations/0022_assistant_persistent_sessions.sql', import.meta.url),
-      'utf8',
-    ),
-  );
+  const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
+  const files = readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+  for (const file of files) {
+    await db.exec(readFileSync(join(migrationsDir, file), 'utf8'));
+  }
 });
 
 afterAll(async () => db.close());
@@ -70,10 +77,10 @@ describe('assistant admission', () => {
     await db.exec(
       'truncate assistant_sessions, assistant_conversations, assistant_messages restart identity cascade',
     );
-    await db.query("insert into assistant_sessions values ('nonce', $1, $2, 'token-hash', null)", [
-      wallet,
-      origin,
-    ]);
+    await db.query(
+      "insert into assistant_sessions (nonce, owner, origin, token_hash, expires_at, network) values ('nonce', $1, $2, 'token-hash', null, 'testnet')",
+      [wallet, origin],
+    );
   });
 
   it('requires a current wallet session and matching origin', async () => {
@@ -150,10 +157,48 @@ describe('assistant admission', () => {
       authenticated: boolean;
       server: boolean;
     }>(`select
-      has_function_privilege('anon', 'assistant_admit(text,text,uuid,text)', 'execute') as anon,
-      has_function_privilege('authenticated', 'assistant_admit(text,text,uuid,text)', 'execute') as authenticated,
-      has_function_privilege('service_role', 'assistant_admit(text,text,uuid,text)', 'execute') as server`);
+      has_function_privilege('anon', 'assistant_admit(text,text,uuid,text,text)', 'execute') as anon,
+      has_function_privilege('authenticated', 'assistant_admit(text,text,uuid,text,text)', 'execute') as authenticated,
+      has_function_privilege('service_role', 'assistant_admit(text,text,uuid,text,text)', 'execute') as server`);
     expect(rows[0]).toEqual({ anon: false, authenticated: false, server: true });
+  });
+
+  it('scopes sessions and conversations strictly to their network mode', async () => {
+    await db.query(
+      "insert into assistant_sessions (nonce, owner, origin, token_hash, expires_at, network) values ('nonce-main', $1, $2, 'token-mainnet', null, 'mainnet')",
+      [wallet, origin],
+    );
+
+    // Testnet session cannot admit mainnet chat; mainnet session cannot admit testnet chat.
+    expect(await admit('token-hash', origin, null, 'Hello', 'mainnet')).toEqual({
+      status: 'unauthorized',
+    });
+    expect(await admit('token-mainnet', origin, null, 'Hello', 'testnet')).toEqual({
+      status: 'unauthorized',
+    });
+
+    const testnetChat = await admit('token-hash', origin, null, 'Testnet question', 'testnet');
+    expect(testnetChat.status).toBe('ok');
+
+    // Resuming a testnet conversation under mainnet fails even with a valid mainnet session.
+    expect(
+      await admit(
+        'token-mainnet',
+        origin,
+        testnetChat.conversation!,
+        'Cross-env resume',
+        'mainnet',
+      ),
+    ).toEqual({ status: 'missing' });
+
+    const mainnetChat = await admit('token-mainnet', origin, null, 'Mainnet question', 'mainnet');
+    expect(mainnetChat.status).toBe('ok');
+    expect(
+      await admit('token-mainnet', origin, mainnetChat.conversation!, 'Follow-up', 'mainnet'),
+    ).toMatchObject({
+      status: 'ok',
+      history: [{ role: 'user', content: 'Mainnet question' }],
+    });
   });
 });
 
@@ -480,16 +525,17 @@ describe('assistant data tools', () => {
     );
   });
 
-  it('supports mainnet-only AssistantService, per-mode availability, and symmetric ERC-1271 signIn', async () => {
+  it('supports mainnet-only AssistantService, per-mode availability, and environment-scoped ERC-1271 signIn', async () => {
     const mainnetDeployment = {
       reactive: { factory: '0x3333333333333333333333333333333333333333' as const, startBlock: 1 },
       unichain: { factory: '0x4444444444444444444444444444444444444444' as const, startBlock: 1 },
     };
     const expiresAtIso = new Date(Math.floor(Date.now() / 1000) * 1000 + 60_000).toISOString();
-    const challengeRow = {
+    let challengeRow = {
       nonce: `0x${'1'.repeat(64)}`,
       owner: wallet,
       origin,
+      network: 'mainnet',
       expires_at: expiresAtIso,
     };
     const selectChain = {
@@ -504,15 +550,29 @@ describe('assistant data tools', () => {
     selectChain.is.mockReturnValue(selectChain);
     selectChain.gt.mockReturnValue(selectChain);
     selectChain.abortSignal.mockReturnValue(selectChain);
+    const updateChain = {
+      eq: vi.fn(),
+      is: vi.fn(),
+      gt: vi.fn(),
+      select: vi.fn(),
+      abortSignal: vi.fn(),
+      maybeSingle: vi.fn(async () => ({ data: { nonce: challengeRow.nonce }, error: null })),
+    };
+    updateChain.eq.mockReturnValue(updateChain);
+    updateChain.is.mockReturnValue(updateChain);
+    updateChain.gt.mockReturnValue(updateChain);
+    updateChain.select.mockReturnValue(updateChain);
+    updateChain.abortSignal.mockReturnValue(updateChain);
     const supabase = {
       from: vi.fn(() => ({
         select: vi.fn(() => selectChain),
+        update: vi.fn(() => updateChain),
       })),
     } as never;
     const clients = {
-      lasna: { verifyMessage: vi.fn().mockResolvedValue(false) },
+      lasna: { verifyMessage: vi.fn().mockResolvedValue(true) },
       unichain: {},
-      reactiveMainnet: { verifyMessage: vi.fn().mockRejectedValue(new Error('rpc down')) },
+      reactiveMainnet: { verifyMessage: vi.fn().mockResolvedValue(false) },
     } as never;
     const service = new AssistantService(
       supabase,
@@ -523,7 +583,7 @@ describe('assistant data tools', () => {
     await expect(service.ready('mainnet')).resolves.toBe(true);
     await expect(service.ready('testnet')).resolves.toBe(false);
 
-    // Dual-mode service: flaky reactiveMainnet RPC does not throw 500 when lasna evaluates invalid signature to false.
+    // Mainnet challenge must NOT accept a Lasna ERC-1271 wallet signature or even query Lasna.
     const dualService = new AssistantService(
       supabase,
       clients,
@@ -539,6 +599,24 @@ describe('assistant data tools', () => {
     await expect(
       dualService.signIn(`0x${'1'.repeat(64)}` as Hex, origin, '0x1234' as Hex),
     ).resolves.toBeNull();
+    expect(clients.lasna.verifyMessage).not.toHaveBeenCalled();
+    expect(clients.reactiveMainnet.verifyMessage).toHaveBeenCalledTimes(1);
+
+    // Testnet challenge queries only Lasna and includes Network/Chain ID in signed challenge.
+    challengeRow = { ...challengeRow, network: 'testnet' };
+    const signed = await dualService.signIn(`0x${'1'.repeat(64)}` as Hex, origin, '0x1234' as Hex);
+    expect(signed).toMatchObject({ token: expect.any(String) });
+    expect(clients.lasna.verifyMessage).toHaveBeenCalledWith({
+      address: wallet,
+      message: assistantSignIn({
+        nonce: challengeRow.nonce as Hex,
+        owner: wallet as Address,
+        origin,
+        network: 'testnet',
+        expiresAt: Math.floor(Date.parse(expiresAtIso) / 1000),
+      }),
+      signature: '0x1234',
+    });
 
     const app = Fastify();
     registerAssistantRoutes(app, {
@@ -557,6 +635,154 @@ describe('assistant data tools', () => {
         await app.inject({ method: 'GET', url: '/v2/assistant/availability?network=mainnet' })
       ).json(),
     ).toEqual({ available: true });
+    expect(
+      (
+        await app.inject({
+          method: 'POST',
+          url: '/v2/assistant/challenge',
+          headers: { origin },
+          payload: { owner: wallet, network: 'testnet' },
+        })
+      ).statusCode,
+    ).toBe(503);
     await app.close();
+  });
+
+  it('lists duplicate workflowIds across Unichain and Base Vaults without masking either chain', async () => {
+    const owner = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' as const;
+    const agent = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' as const;
+    const uniVault = '0x1111111111111111111111111111111111111111' as const;
+    const baseVault = '0x2222222222222222222222222222222222222222' as const;
+    const sharedId = `0x${'4'.repeat(64)}` as Hex;
+    const uniEncoded = encodeWorkflowV2({
+      chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      trigger: workflowV2Trigger.schedule,
+      interval: 3600,
+      expires: 0n,
+      source: '0x0000000000000000000000000000000000000000',
+      subject: '0x0000000000000000000000000000000000000000',
+      usdcCap: 1_000_000n,
+      wethCap: 0n,
+      slippage: 50,
+      once: false,
+      nodes: [
+        {
+          check: 0,
+          yes: 0,
+          no: 0,
+          value: 0n,
+          upper: 0n,
+          actions: [
+            {
+              kind: workflowV2Action.buy,
+              unit: workflowV2Unit.fixed,
+              amount: 1_000_000n,
+              account: '0x0000000000000000000000000000000000000000',
+            },
+          ],
+        },
+      ],
+    });
+    const baseEncoded = encodeWorkflowV2({
+      chain: BASE_SEPOLIA_CHAIN_ID,
+      originChain: BASE_SEPOLIA_CHAIN_ID,
+      trigger: workflowV2Trigger.schedule,
+      interval: 7200,
+      expires: 0n,
+      source: '0x0000000000000000000000000000000000000000',
+      subject: '0x0000000000000000000000000000000000000000',
+      usdcCap: 2_000_000n,
+      wethCap: 0n,
+      slippage: 50,
+      once: false,
+      nodes: [
+        {
+          check: 0,
+          yes: 0,
+          no: 0,
+          value: 0n,
+          upper: 0n,
+          actions: [
+            {
+              kind: workflowV2Action.buy,
+              unit: workflowV2Unit.fixed,
+              amount: 2_000_000n,
+              account: '0x0000000000000000000000000000000000000000',
+            },
+          ],
+        },
+      ],
+    });
+    const deployment = {
+      lasna: { factory: '0x3333333333333333333333333333333333333333' as const, startBlock: 1 },
+      unichain: { factory: '0x4444444444444444444444444444444444444444' as const, startBlock: 1 },
+      base: { factory: '0x5555555555555555555555555555555555555555' as const, startBlock: 1 },
+    };
+    const clients = {
+      lasna: {
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'agentOf') return agent;
+          if (functionName === 'entries')
+            return [`0x${'b'.repeat(64)}`, 1n, 0n, 0n, 1, BASE_SEPOLIA_CHAIN_ID, 0n, 0n];
+          if (functionName === 'titles') return 'Base active workflow';
+          if (functionName === 'programs') return baseEncoded;
+          return 0n;
+        },
+      },
+      unichain: {
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'vaultOf') return uniVault;
+          if (functionName === 'workflowIds') return [sharedId];
+          if (functionName === 'authorizations') return [`0x${'a'.repeat(64)}`, 1n, 1n, true];
+          if (functionName === 'titles') return 'Unichain staged workflow';
+          if (functionName === 'programs') return uniEncoded;
+          if (functionName === 'workflowMemory') return [0n, 0n, 0n, 0n, 0n, 0n, 0n, false];
+          if (functionName === 'weeklyBudget') return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0];
+          return 0n;
+        },
+      },
+      base: {
+        readContract: async ({ functionName }: { functionName: string }) => {
+          if (functionName === 'vaultOf') return baseVault;
+          if (functionName === 'workflowIds') return [sharedId];
+          if (functionName === 'authorizations') return [`0x${'b'.repeat(64)}`, 1n, 1n, true];
+          if (functionName === 'workflowMemory') return [0n, 0n, 0n, 0n, 0n, 0n, 0n, false];
+          if (functionName === 'weeklyBudget') return [0n, 0n, 0n, 0n, 0n, 0n, 0n, 0];
+          return 0n;
+        },
+      },
+    };
+    const executor = new AssistantToolExecutor({} as never, clients as never, deployment, owner);
+    const res = await executor.execute('list_workflows', {});
+    const parsed = JSON.parse(res.content) as {
+      count: number;
+      workflows: Array<{ id: string; chain: number; title: string; status: string; href: string }>;
+    };
+    expect(parsed.count).toBe(2);
+    expect(parsed.workflows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: sharedId,
+          chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+          title: 'Unichain staged workflow',
+          status: 'ready to activate',
+          href: `/workflows/${sharedId}?chain=${UNICHAIN_SEPOLIA_CHAIN_ID}`,
+        }),
+        expect.objectContaining({
+          id: sharedId,
+          chain: BASE_SEPOLIA_CHAIN_ID,
+          title: 'Base active workflow',
+          status: 'active',
+          href: `/workflows/${sharedId}?chain=${BASE_SEPOLIA_CHAIN_ID}`,
+        }),
+      ]),
+    );
+    expect(res.references.map((r) => r.id)).toEqual(
+      expect.arrayContaining([
+        workflowHealthKey(UNICHAIN_SEPOLIA_CHAIN_ID, sharedId),
+        workflowHealthKey(BASE_SEPOLIA_CHAIN_ID, sharedId),
+      ]),
+    );
   });
 });

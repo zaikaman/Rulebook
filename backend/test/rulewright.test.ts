@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { PGlite } from '@electric-sql/pglite';
 import {
@@ -23,19 +25,27 @@ const db = new PGlite();
 const origin = 'https://rulebook.example';
 const wallet = '0x1111111111111111111111111111111111111111';
 
-async function enqueue(session: string, audience = origin) {
+async function enqueue(
+  session: string,
+  audience = origin,
+  network: 'testnet' | 'mainnet' = 'testnet',
+) {
   const response = await db.query<{ result: { status: string; id?: string } }>(
-    'select rulewright_enqueue($1, $2, $3) as result',
-    [session, audience, { prompt: 'Describe a schedule', followUps: [] }],
+    'select rulewright_enqueue($1, $2, $3, $4) as result',
+    [session, audience, { prompt: 'Describe a schedule', followUps: [] }, network],
   );
   return response.rows[0]!.result;
 }
 
 beforeAll(async () => {
   await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-  await db.exec(
-    readFileSync(new URL('../db/migrations/0016_rulewright.sql', import.meta.url), 'utf8'),
-  );
+  const migrationsDir = fileURLToPath(new URL('../db/migrations', import.meta.url));
+  const files = readdirSync(migrationsDir)
+    .filter((name) => name.endsWith('.sql'))
+    .sort();
+  for (const file of files) {
+    await db.exec(readFileSync(join(migrationsDir, file), 'utf8'));
+  }
 });
 
 afterAll(async () => db.close());
@@ -48,7 +58,7 @@ describe('Rulewright job queue', () => {
   beforeEach(async () => {
     await db.exec('truncate rulewright_sessions, rulewright_jobs');
     await db.query(
-      "insert into rulewright_sessions values ($1, $2, $3, $4, now() + interval '20 minutes')",
+      "insert into rulewright_sessions (nonce, owner, origin, token_hash, expires_at, network) values ($1, $2, $3, $4, now() + interval '20 minutes', 'testnet')",
       ['nonce', wallet, origin, 'token-hash'],
     );
   });
@@ -62,6 +72,7 @@ describe('Rulewright job queue', () => {
       "insert into rulewright_sessions values ('expired', 'wallet', 'https://rulebook.example', 'expired', now())",
     );
     expect(await enqueue('expired')).toEqual({ status: 'unauthorized' });
+    expect(await enqueue('token-hash', origin, 'mainnet')).toEqual({ status: 'unauthorized' });
     expect((await enqueue('token-hash')).status).toBe('queued');
   });
 
@@ -105,10 +116,20 @@ describe('Rulewright job queue', () => {
 
   it('grants queue operations only to the backend role', async () => {
     const { rows } = await db.query(`select
-      has_function_privilege('anon', 'rulewright_claim()', 'execute') as anon,
-      has_function_privilege('authenticated', 'rulewright_claim()', 'execute') as authenticated,
-      has_function_privilege('service_role', 'rulewright_claim()', 'execute') as server`);
-    expect(rows[0]).toEqual({ anon: false, authenticated: false, server: true });
+      has_function_privilege('anon', 'rulewright_claim()', 'execute') as claim_anon,
+      has_function_privilege('authenticated', 'rulewright_claim()', 'execute') as claim_authenticated,
+      has_function_privilege('service_role', 'rulewright_claim()', 'execute') as claim_server,
+      has_function_privilege('anon', 'rulewright_enqueue(text,text,jsonb,text)', 'execute') as enqueue_anon,
+      has_function_privilege('authenticated', 'rulewright_enqueue(text,text,jsonb,text)', 'execute') as enqueue_authenticated,
+      has_function_privilege('service_role', 'rulewright_enqueue(text,text,jsonb,text)', 'execute') as enqueue_server`);
+    expect(rows[0]).toEqual({
+      claim_anon: false,
+      claim_authenticated: false,
+      claim_server: true,
+      enqueue_anon: false,
+      enqueue_authenticated: false,
+      enqueue_server: true,
+    });
   });
 });
 
@@ -260,13 +281,14 @@ describe('Gemini request handling', () => {
     expect(validate).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects unconfigured mainnet requests before enqueue/quota and handles flaky mainnet ERC-1271 RPC symmetrically', async () => {
+  it('rejects unconfigured mainnet requests before enqueue/quota and isolates ERC-1271 signIn per environment', async () => {
     const rpc = vi.fn();
     const expiresAtIso = new Date(Math.floor(Date.now() / 1000) * 1000 + 60_000).toISOString();
     const challengeRow = {
       nonce: `0x${'1'.repeat(64)}`,
       owner: wallet,
       origin,
+      network: 'mainnet',
       expires_at: expiresAtIso,
     };
     const selectChain = {
@@ -288,9 +310,9 @@ describe('Gemini request handling', () => {
       })),
     } as never;
     const clients = {
-      lasna: { verifyMessage: vi.fn().mockResolvedValue(false) },
+      lasna: { verifyMessage: vi.fn().mockResolvedValue(true) },
       unichain: {},
-      reactiveMainnet: { verifyMessage: vi.fn().mockRejectedValue(new Error('mainnet rpc error')) },
+      reactiveMainnet: { verifyMessage: vi.fn().mockResolvedValue(false) },
     } as never;
 
     const service = new RulewrightService(
@@ -339,5 +361,7 @@ describe('Gemini request handling', () => {
     await expect(
       dualService.signIn(`0x${'1'.repeat(64)}` as Hex, origin, '0x1234' as Hex),
     ).resolves.toBeNull();
+    expect(clients.lasna.verifyMessage).not.toHaveBeenCalled();
+    expect(clients.reactiveMainnet.verifyMessage).toHaveBeenCalledTimes(1);
   });
 });

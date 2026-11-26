@@ -17,7 +17,10 @@ import { BookkeeperAnswerError } from './service.js';
 
 const base = '/v2/assistant';
 const challengeBody = z
-  .object({ owner: addressSchema.refine((owner) => owner !== zeroAddress) })
+  .object({
+    owner: addressSchema.refine((owner) => owner !== zeroAddress),
+    network: networkModeSchema.default('testnet'),
+  })
   .strict();
 const sessionBody = z
   .object({
@@ -79,7 +82,15 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
       const body = challengeBody.safeParse(request.body);
       if (!body.success)
         return sendError(reply, 400, 'assistant_wallet', 'Enter a valid wallet address.');
-      return route.service.challenge(body.data.owner, route.origin);
+      if (!route.service.hasDeployment(body.data.network)) {
+        return sendError(
+          reply,
+          503,
+          'assistant_network_unavailable',
+          `Bookkeeper is not configured for ${body.data.network}.`,
+        );
+      }
+      return route.service.challenge(body.data.owner, route.origin, body.data.network);
     },
   );
 
@@ -132,6 +143,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
         route.origin,
         body.data.conversationId,
         body.data.message,
+        targetNetwork,
       );
       if (admission.status === 'unauthorized') return unauthorized(reply);
       if (admission.status === 'limited')

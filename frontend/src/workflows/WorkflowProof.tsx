@@ -225,7 +225,7 @@ export function WorkflowProof() {
                 {proof.isFetching ? 'Refreshing…' : 'Refresh proof'}
               </button>
             )}
-            <Link className="app-button" to={appRoutes.proof}>
+            <Link className="app-button" to={withNetworkQuery(appRoutes.proof, mode)}>
               Find another run
             </Link>
           </div>
@@ -234,7 +234,7 @@ export function WorkflowProof() {
 
       {!id.success ? (
         <ErrorState message="This run ID is invalid.">
-          <Link to={appRoutes.proof} className="app-link">
+          <Link to={withNetworkQuery(appRoutes.proof, mode)} className="app-link">
             Find a run by ID
           </Link>
         </ErrorState>

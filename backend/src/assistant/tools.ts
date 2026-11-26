@@ -6,6 +6,7 @@ import {
   checks,
   decodeWorkflowV2,
   executionCreditAbi,
+  fundsChainIdSchema,
   fundsChainsFor,
   getChain,
   isAutomationChain,
@@ -16,6 +17,7 @@ import {
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
   workflowDeploymentKey,
+  workflowHealthKey,
   workflowIdSchema,
   workflowVaultFactoryV2Abi,
   workflowVaultV2Abi,
@@ -80,7 +82,14 @@ export const assistantToolDefinitions: readonly AssistantToolDefinition[] = [
       'Read one workflow in full, including its trigger, checks, actions, per-run caps, weekly budget, expiry, and status. Call it when the question is about a specific workflow id.',
     parameters: {
       type: 'object',
-      properties: { workflowId: workflowIdArgument },
+      properties: {
+        workflowId: workflowIdArgument,
+        chain: {
+          type: 'integer',
+          description:
+            'Optional settlement chain ID when the same workflowId exists on multiple chains.',
+        },
+      },
       required: ['workflowId'],
       additionalProperties: false,
     },
@@ -156,7 +165,9 @@ const listRunsArguments = z
     limit: z.number().int().min(1).max(10).optional(),
   })
   .strict();
-const workflowArguments = z.object({ workflowId: workflowIdSchema }).strict();
+const workflowArguments = z
+  .object({ workflowId: workflowIdSchema, chain: fundsChainIdSchema.optional() })
+  .strict();
 const runArguments = z.object({ runId: workflowIdSchema }).strict();
 const marketplaceArguments = z
   .object({
@@ -372,12 +383,12 @@ export class AssistantToolExecutor {
       case 'list_workflows':
         return this.listWorkflows();
       case 'get_workflow': {
-        const { workflowId } = workflowArguments.parse(input);
-        const workflow = await this.workflow(workflowId);
+        const { workflowId, chain } = workflowArguments.parse(input);
+        const workflow = await this.workflow(workflowId, chain);
         return this.result({ workflow }, workflow.title, [
           {
             kind: 'workflow',
-            id: workflow.id,
+            id: workflowHealthKey(workflow.chain, workflow.id),
             label: `Open ${workflow.title}`,
             href: workflow.href,
           },
@@ -626,16 +637,29 @@ export class AssistantToolExecutor {
     const uniqueReverse = allIds
       .slice()
       .reverse()
-      .filter(({ id }) => {
-        if (seen.has(id)) return false;
-        seen.add(id);
+      .filter(({ id, chain }) => {
+        const key = workflowHealthKey(chain, id);
+        if (seen.has(key)) return false;
+        seen.add(key);
         return true;
       });
+    const chainCounts = new Map<string, number>();
+    for (const { id } of uniqueReverse) {
+      const normalized = id.toLowerCase();
+      chainCounts.set(normalized, (chainCounts.get(normalized) ?? 0) + 1);
+    }
     const selected = uniqueReverse.slice(0, 6);
     const workflows = await Promise.all(
       selected.map(async ({ id, chain }) => {
         try {
-          return await this.workflow(id, chain);
+          const snapshot = await this.workflow(id, chain);
+          if ((chainCounts.get(id.toLowerCase()) ?? 0) > 1) {
+            return {
+              ...snapshot,
+              href: this.withNetwork(`/workflows/${id}?chain=${chain}`),
+            };
+          }
+          return snapshot;
         } catch (error) {
           return {
             id,
@@ -651,7 +675,7 @@ export class AssistantToolExecutor {
         : [
             {
               kind: 'workflow' as const,
-              id: workflow.id,
+              id: workflowHealthKey(workflow.chain, workflow.id),
               label: `Open ${workflow.title}`,
               href: workflow.href,
             },
@@ -673,8 +697,9 @@ export class AssistantToolExecutor {
   }
 
   private async workflow(id: Hex, hintChain?: FundsChainId): Promise<WorkflowSnapshot> {
-    const key = hintChain ? `${hintChain}:${id}` : id;
-    const cached = this.workflows.get(key) ?? this.workflows.get(id);
+    const normalized = id.toLowerCase();
+    const key = hintChain ? workflowHealthKey(hintChain, normalized) : normalized;
+    const cached = this.workflows.get(key);
     if (cached) return cached;
     const pending = this.readWorkflow(id, hintChain);
     this.workflows.set(key, pending);
@@ -723,16 +748,29 @@ export class AssistantToolExecutor {
       }
     }
 
-    if (!targetChain || !auth || (entry[1] === 0n && auth[1] === 0n))
+    if (!targetChain || !auth) {
       throw new Error('This workflow was not found for the connected wallet.');
+    }
+    const entryMatchesChain = entry[5] === targetChain;
+    if ((!entryMatchesChain || entry[1] === 0n) && auth[1] === 0n) {
+      throw new Error('This workflow was not found for the connected wallet.');
+    }
     const vault = vaults[targetChain]!;
     const sink = clientFor(this.clients, targetChain);
 
-    const staged = auth[1] > entry[1] && (auth[3] || entry[1] === 0n);
-    const active = entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
-    const version = staged ? auth[0] : entry[0];
+    const staged = entryMatchesChain
+      ? auth[1] > entry[1] && (auth[3] || entry[1] === 0n)
+      : auth[1] > 0n;
+    const active =
+      entryMatchesChain &&
+      entry[4] !== 0 &&
+      auth[3] &&
+      entry[1] === auth[1] &&
+      entry[0] === auth[0];
+    const readFromVault = staged || !entryMatchesChain;
+    const version = readFromVault ? auth[0] : entry[0];
     const [title, encoded, memory, budget] = await Promise.all([
-      staged
+      readFromVault
         ? sink.readContract({
             address: vault,
             abi: workflowVaultV2Abi,
@@ -745,7 +783,7 @@ export class AssistantToolExecutor {
             functionName: 'titles',
             args: [id],
           }),
-      staged
+      readFromVault
         ? sink.readContract({
             address: vault,
             abi: workflowVaultV2Abi,
@@ -811,7 +849,9 @@ export class AssistantToolExecutor {
         resetsAt: Number(budget[6]),
       },
       paths: readablePaths(draft.root),
-      href: this.withNetwork(`/workflows/${id}`),
+      href: hintChain
+        ? this.withNetwork(`/workflows/${id}?chain=${targetChain}`)
+        : this.withNetwork(`/workflows/${id}`),
     };
   }
 

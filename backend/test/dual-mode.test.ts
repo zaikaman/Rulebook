@@ -1465,5 +1465,51 @@ describe('dual mode & mainnet backend support', () => {
     expect(currentFundingMsg).toContain(
       `https://app.example.com/account?credit=execution&chain=${UNICHAIN_MAINNET_CHAIN_ID}&network=mainnet`,
     );
+
+    const testnetFundingAlerts = new TelegramFundingAlerts(
+      { rpc: vi.fn(async () => null) as never },
+      {
+        lasna: {
+          getBlock: vi.fn(async () => ({ number: 10n, timestamp: 9999999999n })),
+          readContract: vi.fn(async () => 0n),
+        } as unknown as PublicClient,
+        unichain: {
+          getBlock: vi.fn(async () => ({ number: 10n, timestamp: 9999999999n })),
+          readContract: vi.fn(async () => 0n),
+        } as unknown as PublicClient,
+        base: {
+          getBlock: vi.fn(async () => ({ number: 10n, timestamp: 9999999999n })),
+          readContract: vi.fn(async () => 0n),
+        } as unknown as PublicClient,
+      },
+      REACTIVE_FACTORY,
+      {
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: UNICHAIN_FACTORY,
+        [BASE_SEPOLIA_CHAIN_ID]: BASE_FACTORY,
+      },
+      'https://app.example.com',
+      LASNA_CHAIN_ID,
+    );
+    const baseSepoliaMsg = await testnetFundingAlerts.currentMessage({
+      kind: 'funding',
+      chain: BASE_SEPOLIA_CHAIN_ID,
+      beneficiary: '0xdddddddddddddddddddddddddddddddddddddddd',
+      state: 'empty',
+      block: '5',
+    });
+    expect(baseSepoliaMsg).toContain(
+      `https://app.example.com/account?credit=execution&chain=${BASE_SEPOLIA_CHAIN_ID}`,
+    );
+    expect(baseSepoliaMsg).not.toContain('network=mainnet');
+
+    const lasnaMsg = await testnetFundingAlerts.currentMessage({
+      kind: 'funding',
+      chain: LASNA_CHAIN_ID,
+      beneficiary: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      state: 'empty',
+      block: '5',
+    });
+    expect(lasnaMsg).toContain('https://app.example.com/account?credit=watching');
+    expect(lasnaMsg).not.toContain('chain=');
   });
 });

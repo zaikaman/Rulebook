@@ -86,11 +86,11 @@ export class ApiClient {
     );
   }
 
-  rulewrightChallenge(owner: string, signal: AbortSignal) {
+  rulewrightChallenge(owner: string, signal: AbortSignal, network: NetworkMode = 'testnet') {
     return this.request(
       '/v2/rulewright/challenge',
       rulewrightChallengeSchema,
-      rulewrightRequest('POST', signal, { owner }),
+      rulewrightRequest('POST', signal, { owner, network }),
     );
   }
 
@@ -129,11 +129,11 @@ export class ApiClient {
     );
   }
 
-  assistantChallenge(owner: string, signal: AbortSignal) {
+  assistantChallenge(owner: string, signal: AbortSignal, network: NetworkMode = 'testnet') {
     return this.request(
       '/v2/assistant/challenge',
       assistantChallengeSchema,
-      assistantRequest('POST', signal, { owner }),
+      assistantRequest('POST', signal, { owner, network }),
     );
   }
 

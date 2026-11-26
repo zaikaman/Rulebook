@@ -1,4 +1,5 @@
 import {
+  BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
   createWorkflowV2Recipe,
   deriveWorkflowHealth,
@@ -7,6 +8,8 @@ import {
 } from '@rulebook/shared';
 import { describe, expect, it } from 'vitest';
 import type { Address } from 'viem';
+
+import { workflowHealthHref } from '../src/workflows/health.js';
 
 const recipient: Address = '0x0000000000000000000000000000000000000001';
 const executionThreshold = 100_000_000_000_000n;
@@ -318,5 +321,49 @@ describe('workflow health', () => {
       }),
     );
     expect(health.summary).toContain('Base Sepolia');
+  });
+
+  it('builds network-aware health fix hrefs without leaking automation chains into ?chain=', () => {
+    const wfId = `0x${'1'.repeat(64)}`;
+    const runId = `0x${'2'.repeat(64)}`;
+    const execution = deriveWorkflowHealth(
+      input({
+        executionCredit: { reserve: 0n, debt: 0n, threshold: executionThreshold },
+      }),
+    );
+    expect(workflowHealthHref(execution, wfId, null, BASE_MAINNET_CHAIN_ID, 'mainnet')).toBe(
+      `/account?credit=execution&chain=${BASE_MAINNET_CHAIN_ID}&network=mainnet`,
+    );
+
+    const watching = deriveWorkflowHealth(
+      input({
+        watchingCredit: { reserve: 0n, debt: 0n, threshold: watchingThreshold },
+      }),
+    );
+    expect(workflowHealthHref(watching, wfId, null, BASE_MAINNET_CHAIN_ID, 'mainnet')).toBe(
+      '/account?credit=watching&network=mainnet',
+    );
+
+    const budget = deriveWorkflowHealth(
+      input({
+        budget: {
+          usdcLimit: 10_000_000n,
+          usdcRemaining: 0n,
+          wethLimit: 0n,
+          wethRemaining: 0n,
+          resetsAt: 1_800_000_000n,
+        },
+      }),
+    );
+    expect(workflowHealthHref(budget, wfId, null, BASE_MAINNET_CHAIN_ID, 'mainnet')).toBe(
+      `/workflows/${wfId}?budget=1&chain=${BASE_MAINNET_CHAIN_ID}&network=mainnet#weekly-budget`,
+    );
+
+    const pending = deriveWorkflowHealth(
+      input({ lastRun: { status: 'pending', reason: null, reasonCode: null, recovery: null } }),
+    );
+    expect(workflowHealthHref(pending, wfId, runId, BASE_MAINNET_CHAIN_ID, 'mainnet')).toBe(
+      `/runs/${runId}?network=mainnet`,
+    );
   });
 });

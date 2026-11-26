@@ -78,32 +78,38 @@ describe('networkMode storage & URL helpers', () => {
     expect(getUrlNetworkMode('')).toBeNull();
   });
 
-  it('prefers the URL query parameter over localStorage in getInitialNetworkMode', () => {
+  it('prefers the URL query parameter over localStorage in getInitialNetworkMode without mutating storage', () => {
+    const setItem = vi.fn();
     vi.stubGlobal('window', {
       location: { search: '?network=mainnet' },
       localStorage: {
         getItem: () => 'testnet',
-        setItem: () => {},
+        setItem,
       },
     });
     expect(getInitialNetworkMode()).toBe('mainnet');
+    expect(setItem).not.toHaveBeenCalled();
 
     vi.stubGlobal('window', {
       location: { search: '?network=testnet' },
       localStorage: {
         getItem: () => 'mainnet',
-        setItem: () => {},
+        setItem,
       },
     });
     expect(getInitialNetworkMode()).toBe('testnet');
+    expect(setItem).not.toHaveBeenCalled();
   });
 
-  it('builds network-qualified routes cleanly', () => {
+  it('builds network-qualified routes cleanly including hash fragments', () => {
     expect(withNetworkQuery('/runs/abc', 'mainnet')).toBe('/runs/abc?network=mainnet');
     expect(withNetworkQuery('/runs/abc', 'testnet')).toBe('/runs/abc');
     expect(withNetworkQuery('/runs/abc', 'testnet', true)).toBe('/runs/abc?network=testnet');
     expect(withNetworkQuery('/account?credit=reactive', 'mainnet')).toBe(
       '/account?credit=reactive&network=mainnet',
+    );
+    expect(withNetworkQuery('/workflows/0xabc?budget=1#weekly-budget', 'mainnet')).toBe(
+      '/workflows/0xabc?budget=1&network=mainnet#weekly-budget',
     );
     expect(withNetworkQuery('/runs/abc?network=testnet', 'mainnet')).toBe(
       '/runs/abc?network=mainnet',

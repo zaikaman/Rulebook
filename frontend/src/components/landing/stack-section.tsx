@@ -7,22 +7,22 @@ const services = [
   {
     name: 'Reactive Network',
     logo: reactiveLogo,
-    role: 'Your Agent watches for triggers and chooses a workflow path on Lasna.',
+    role: 'Your Agent watches for triggers and chooses a workflow path on Reactive Mainnet or Lasna.',
   },
   {
-    name: 'Uniswap V2',
+    name: 'Uniswap V2 & V3',
     logo: uniswapLogo,
-    role: 'Your vault uses Uniswap pools to read prices and make swaps.',
+    role: 'Your vault uses Uniswap V2 and V3 pools to read prices and execute swaps.',
   },
   {
-    name: 'Unichain Sepolia',
+    name: 'Unichain',
     logo: unichainLogo,
-    role: 'Your vault can settle swaps, transfers, and withdrawals on Unichain Sepolia.',
+    role: 'Your vault can settle swaps, transfers, and withdrawals on Unichain Mainnet or Sepolia.',
   },
   {
-    name: 'Base Sepolia',
+    name: 'Base',
     logo: baseLogo,
-    role: 'Your vault can also settle swaps, transfers, and cross-chain triggers on Base Sepolia.',
+    role: 'Your vault can also settle swaps, transfers, and cross-chain triggers on Base Mainnet or Sepolia.',
   },
 ] as const;
 

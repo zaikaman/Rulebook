@@ -92,6 +92,22 @@ test('supports deploying a Base Sepolia Vault and selecting Base Sepolia or cros
   await expect(originTriggerSelect).toBeVisible();
   await originTriggerSelect.click();
   await page.getByRole('option', { name: 'Unichain Sepolia' }).click();
+
+  // Verify On a schedule + Price dipped by (%) also unlocks cross-chain Trigger network.
+  await triggerType.selectOption('1');
+  await expect(page.getByText('Trigger network')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.getByRole('button', { name: 'Checks' }).click();
+  await page.getByRole('button', { name: /Price dipped by \(%\)/i }).click();
+  await page.getByRole('button', { name: /Main path/i }).click();
+  await page.locator('.react-flow__node').first().click();
+  const scheduleOriginSelect = page
+    .getByRole('combobox')
+    .filter({ hasText: /Base Sepolia/i })
+    .last();
+  await expect(scheduleOriginSelect).toBeVisible();
+  await scheduleOriginSelect.click();
+  await page.getByRole('option', { name: 'Unichain Sepolia' }).click();
 });
 
 test('onboards and funds a new wallet directly on Base Sepolia and returns to Base Sepolia without re-onboarding', async ({

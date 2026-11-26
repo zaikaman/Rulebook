@@ -294,25 +294,133 @@ async function until(label, timeout, task) {
   throw new Error('Timed out waiting for ' + label + '.');
 }
 
-async function apiReady() {
-  const api = origin('HEROKU_API_URL');
-  const web = origin('PRODUCTION_WEB_URL');
+const ZERO_ADDRESS = '0x' + '0'.repeat(40);
+
+export function mergeVercelTelegramRewrites(vercel, server) {
+  const telegramRewrites = [
+    {
+      source: '/v1/telegram/availability',
+      destination: server + '/v1/telegram/availability',
+    },
+    {
+      source: '/v1/accounts/:agent/telegram',
+      destination: server + '/v1/accounts/:agent/telegram',
+    },
+    {
+      source: '/v1/accounts/:agent/telegram/:path*',
+      destination: server + '/v1/accounts/:agent/telegram/:path*',
+    },
+  ];
+  const managedSources = new Set(telegramRewrites.map((entry) => entry.source));
+  const existing = Array.isArray(vercel?.rewrites) ? vercel.rewrites : [];
+  return {
+    ...vercel,
+    rewrites: [
+      ...telegramRewrites,
+      ...existing.filter((entry) => !managedSources.has(entry?.source)),
+    ],
+  };
+}
+
+export async function verifyApiReady({ api, web, hasMainnet = false, fetchImpl = fetch }) {
   try {
-    const health = await json(api + '/health');
-    if (health.status !== 'ok' || health.database?.reachable !== true) return false;
-    const response = await fetch(api + '/v3/marketplace', {
-      headers: { Origin: web, Accept: 'application/json' },
+    const healthResponse = await fetchImpl(api + '/health', {
       signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok || response.headers.get('access-control-allow-origin') !== web) return false;
-    const page = await response.json();
-    return (
-      Array.isArray(page.listings) &&
-      (page.nextCursor === null || typeof page.nextCursor === 'string')
-    );
+    if (!healthResponse.ok) return false;
+    const health = await healthResponse.json();
+    if (health.status !== 'ok' || health.database?.reachable !== true) return false;
+
+    const networks = hasMainnet ? ['testnet', 'mainnet'] : ['testnet'];
+    for (const network of networks) {
+      const query = network === 'mainnet' ? '?network=mainnet' : '';
+      const response = await fetchImpl(api + '/v3/marketplace' + query, {
+        headers: { Origin: web, Accept: 'application/json' },
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (!response.ok || response.headers.get('access-control-allow-origin') !== web) return false;
+      const page = await response.json();
+      if (
+        !Array.isArray(page.listings) ||
+        (page.nextCursor !== null && typeof page.nextCursor !== 'string')
+      ) {
+        return false;
+      }
+      if (network === 'mainnet') {
+        const healthCheck = await fetchImpl(
+          `${api}/v3/health?owner=${ZERO_ADDRESS}&network=mainnet`,
+          {
+            headers: { Origin: web, Accept: 'application/json' },
+            signal: AbortSignal.timeout(20_000),
+          },
+        );
+        if (!healthCheck.ok) return false;
+        const healthPayload = await healthCheck.json();
+        if (!Array.isArray(healthPayload.workflows)) return false;
+      }
+    }
+    return true;
   } catch {
     return false;
   }
+}
+
+export async function verifyTelegramProxy({ web, hasMainnet = false, fetchImpl = fetch }) {
+  const networks = hasMainnet ? ['testnet', 'mainnet'] : ['testnet'];
+  for (const network of networks) {
+    const query = network === 'mainnet' ? '&network=mainnet' : '';
+    const availabilityResponse = await fetchImpl(
+      `${web}/v1/telegram/availability?workflow=true${query}`,
+      {
+        signal: AbortSignal.timeout(20_000),
+      },
+    );
+    if (!availabilityResponse.ok) {
+      throw new Error(`HTTP ${availabilityResponse.status} from ${new URL(web).hostname}`);
+    }
+    const availability = await availabilityResponse.json();
+    if (typeof availability.available !== 'boolean') {
+      throw new Error(`The frontend does not proxy ${network} Telegram requests to the API.`);
+    }
+    if (availability.available) {
+      const suffix = network === 'mainnet' ? '?network=mainnet' : '';
+      const settings = `${web}/v1/accounts/${ZERO_ADDRESS}/telegram`;
+      const anonymous = await fetchImpl(`${settings}${suffix}`, {
+        redirect: 'error',
+        signal: AbortSignal.timeout(20_000),
+      });
+      if (anonymous.status !== 401) {
+        throw new Error(
+          `The ${network} Telegram account proxy did not require wallet verification.`,
+        );
+      }
+      // An anonymous request clears only the response cookie and leaves the database untouched.
+      const response = await fetchImpl(`${settings}/session${suffix}`, {
+        method: 'DELETE',
+        headers: { Origin: web },
+        redirect: 'error',
+        signal: AbortSignal.timeout(20_000),
+      });
+      const cookie = response.headers.get('set-cookie');
+      if (
+        !response.ok ||
+        !cookie?.startsWith('__Secure-rulebook-telegram=;') ||
+        !cookie.includes('Max-Age=0; HttpOnly; SameSite=Strict; Secure')
+      ) {
+        throw new Error(
+          `The ${network} Telegram account proxy did not forward the browser session cookie.`,
+        );
+      }
+    }
+  }
+}
+
+async function apiReady(hasMainnet = false) {
+  return verifyApiReady({
+    api: origin('HEROKU_API_URL'),
+    web: origin('PRODUCTION_WEB_URL'),
+    hasMainnet,
+  });
 }
 
 async function backend() {
@@ -339,7 +447,9 @@ async function backend() {
     }
   }
   const config = await heroku('/config-vars');
-  validateHerokuWorkflowConfig(config, await workflowSettings());
+  const settings = await workflowSettings();
+  const hasMainnet = Boolean(settings.WORKFLOW_V2_MAINNET_DEPLOYMENT);
+  validateHerokuWorkflowConfig(config, settings);
   for (const name of ['DATABASE_URL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) {
     if (!config[name]?.trim()) throw new Error('Missing Heroku setting: ' + name);
   }
@@ -390,12 +500,14 @@ async function backend() {
       web.length > 0 && web.every((dyno) => dyno.state === 'up' && dyno.release?.id === releaseId)
     );
   });
-  await until('healthy API and Marketplace CORS', 3 * 60_000, apiReady);
+  await until('healthy API and Marketplace CORS', 3 * 60_000, () => apiReady(hasMainnet));
   console.log('Heroku release verified: ' + releaseId);
 }
 
 async function smoke() {
   const web = origin('PRODUCTION_WEB_URL');
+  const settings = await workflowSettings();
+  const hasMainnet = Boolean(settings.WORKFLOW_V2_MAINNET_DEPLOYMENT);
   await until('public Marketplace page and API', 3 * 60_000, async () => {
     try {
       const page = await fetch(web + '/marketplace', {
@@ -403,43 +515,16 @@ async function smoke() {
         signal: AbortSignal.timeout(20_000),
       });
       return (
-        page.ok && page.headers.get('content-type')?.includes('text/html') && (await apiReady())
+        page.ok &&
+        page.headers.get('content-type')?.includes('text/html') &&
+        (await apiReady(hasMainnet))
       );
     } catch {
       return false;
     }
   });
   console.log('Verified public Marketplace and API.');
-  const availability = await json(web + '/v1/telegram/availability?workflow=true');
-  if (typeof availability.available !== 'boolean') {
-    throw new Error('The frontend does not proxy Telegram requests to the API.');
-  }
-  if (availability.available) {
-    const account = '0x' + '0'.repeat(40);
-    const settings = `${web}/v1/accounts/${account}/telegram`;
-    const anonymous = await fetch(settings, {
-      redirect: 'error',
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (anonymous.status !== 401) {
-      throw new Error('The Telegram account proxy did not require wallet verification.');
-    }
-    // An anonymous request clears only the response cookie and leaves the database untouched.
-    const response = await fetch(settings + '/session', {
-      method: 'DELETE',
-      headers: { Origin: web },
-      redirect: 'error',
-      signal: AbortSignal.timeout(20_000),
-    });
-    const cookie = response.headers.get('set-cookie');
-    if (
-      !response.ok ||
-      !cookie?.startsWith('__Secure-rulebook-telegram=;') ||
-      !cookie.includes('Max-Age=0; HttpOnly; SameSite=Strict; Secure')
-    ) {
-      throw new Error('The Telegram account proxy did not forward the browser session cookie.');
-    }
-  }
+  await verifyTelegramProxy({ web, hasMainnet });
   console.log('Verified the Telegram API through the frontend origin.');
 }
 
@@ -456,20 +541,9 @@ async function main() {
         env('VERCEL_PROJECT_ID');
         const settings = await workflowSettings();
         const vercelFile = new URL('../frontend/vercel.json', import.meta.url);
-        const vercel = JSON.parse(await readFile(vercelFile, 'utf8'));
-        vercel.rewrites.unshift(
-          {
-            source: '/v1/telegram/availability',
-            destination: server + '/v1/telegram/availability',
-          },
-          {
-            source: '/v1/accounts/:agent/telegram',
-            destination: server + '/v1/accounts/:agent/telegram',
-          },
-          {
-            source: '/v1/accounts/:agent/telegram/:path*',
-            destination: server + '/v1/accounts/:agent/telegram/:path*',
-          },
+        const vercel = mergeVercelTelegramRewrites(
+          JSON.parse(await readFile(vercelFile, 'utf8')),
+          server,
         );
         await writeFile(vercelFile, JSON.stringify(vercel, null, 2) + '\n');
         await appendFile(

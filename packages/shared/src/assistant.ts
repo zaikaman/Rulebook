@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { automationChainFor, getChain } from './chains.js';
 import { addressSchema, networkModeSchema, txHashSchema } from './schemas.js';
 import { workflowIdSchema } from './workflows.js';
 
@@ -11,6 +12,7 @@ export const assistantChallengeSchema = z.object({
   nonce: txHashSchema,
   owner: addressSchema,
   origin: z.string().url(),
+  network: networkModeSchema,
   expiresAt: z.number().int().positive(),
 });
 
@@ -77,7 +79,9 @@ export type AssistantRequest = z.infer<typeof assistantRequestSchema>;
 export type AssistantReference = z.infer<typeof assistantReferenceSchema>;
 export type AssistantStreamEvent = z.infer<typeof assistantStreamEventSchema>;
 
-export function assistantSignIn({ owner, origin, nonce, expiresAt }: AssistantChallenge) {
+export function assistantSignIn({ owner, origin, network, nonce, expiresAt }: AssistantChallenge) {
+  const chainId = automationChainFor(network);
+  const networkName = getChain(chainId).name;
   return [
     'Rulebook requests wallet verification for Bookkeeper.',
     'This signature authorizes a temporary, read-only account assistant session.',
@@ -85,6 +89,8 @@ export function assistantSignIn({ owner, origin, nonce, expiresAt }: AssistantCh
     '',
     `Wallet: ${owner}`,
     `Origin: ${origin}`,
+    `Network: ${networkName} (${network})`,
+    `Chain ID: ${chainId}`,
     `Nonce: ${nonce}`,
     `Expires: ${new Date(expiresAt * 1000).toISOString()}`,
   ].join('\n');

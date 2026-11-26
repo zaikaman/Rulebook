@@ -18,6 +18,7 @@ import {
   slippageIssue,
   stepAmountRules,
   toCopyDraft,
+  UNICHAIN_MAINNET_CHAIN_ID,
   weeklyBudgetFromDraft,
   workflowFieldSpecs,
   workflowGuardrailFields,
@@ -30,6 +31,7 @@ import {
   workflowV2Trigger as T,
   workflowV2Unit as U,
   type FundsChainId,
+  type TriggerCode,
   type WeeklyBudgetAmounts,
   type WorkflowFieldName,
   type WorkflowV2Program,
@@ -74,7 +76,7 @@ import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
-import { useNetworkMode } from '@/lib/networkMode';
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
 import { useWorkflowFunding, WorkflowFundingNotice } from './WorkflowFunding';
@@ -478,7 +480,11 @@ function RecipePicker({
                   {recipeFields[recipe.id].map((field) => {
                     const spec = workflowFieldSpecs[field];
                     if (!spec) return null;
-                    const hint = 'hint' in spec ? spec.hint : undefined;
+                    const baseHint = 'hint' in spec ? spec.hint : undefined;
+                    const hint =
+                      field === 'slippagePercent' && recipeChain === UNICHAIN_MAINNET_CHAIN_ID
+                        ? 'At least 0.01% and at most 10%. On Unichain Mainnet, 1% or higher is recommended due to 24-hour Chainlink heartbeats and linear Uniswap V3 quoting; keep single swaps small relative to pool depth.'
+                        : baseHint;
                     const issue = shownIssue(field);
                     if (spec.kind === 'direction') {
                       return (
@@ -751,15 +757,21 @@ export function WorkflowBuilderV2() {
   const [params] = useSearchParams();
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
+  const rawChain = params.get('chain');
+  const parsedChain = rawChain ? Number(rawChain) : NaN;
+  const preferredChain =
+    isFundsChain(parsedChain) && networkModeForChain(parsedChain) === mode
+      ? (parsedChain as SettlementChain)
+      : undefined;
   const copy = params.get('copy');
   const copyId = v2ListingId.safeParse(copy);
   const query = useQuery({
-    queryKey: ['workflow-v2', 'edit', mode, address, raw],
+    queryKey: ['workflow-v2', 'edit', mode, address, raw, preferredChain],
     enabled: Boolean(id.success && address && isDeploymentConfigured),
-    queryFn: () => readWorkflowV2(address!, id.data!, mode),
+    queryFn: () => readWorkflowV2(address!, id.data!, mode, preferredChain),
   });
   const budgetQuery = useQuery({
-    queryKey: ['workflow-v2', 'weekly-budget', mode, address, raw],
+    queryKey: ['workflow-v2', 'weekly-budget', mode, address, raw, query.data?.chain],
     enabled: Boolean(id.success && address && isDeploymentConfigured && query.data),
     queryFn: () => readWorkflowWeeklyBudget(query.data!.chain, query.data!.vault, id.data!),
   });
@@ -823,11 +835,13 @@ export function WorkflowBuilderV2() {
       <WorkflowCopyV2 key={`${mode}:${copyId.data}`} listingId={copyId.data} recipe={recipe} />
     );
 
+  const editChain = raw ? (query.data?.chain ?? preferredChain ?? '') : '';
+
   return (
     <Editor
-      key={`${mode}:${raw ? address : 'new'}:${raw ?? 'new'}:${copy ?? recipe ?? ''}`}
+      key={`${mode}:${raw ? `${editChain}:${address}` : 'new'}:${raw ?? 'new'}:${copy ?? recipe ?? ''}`}
       id={id.data}
-      storageKey={`rulebook-v2-draft:${mode}:${raw ?? copy ?? recipe ?? 'new'}`}
+      storageKey={`rulebook-v2-draft:${mode}:${raw ? `${editChain}:${raw}` : (copy ?? recipe ?? 'new')}`}
       original={
         query.data && budgetQuery.data
           ? {
@@ -873,6 +887,10 @@ function loadDraft(storageKey: string) {
   }
 }
 
+function supportsCrossChain(trigger: TriggerCode, dipBy: boolean) {
+  return trigger === T.price || trigger === T.transfer || (trigger === T.schedule && dipBy);
+}
+
 function Editor({
   id,
   original,
@@ -910,6 +928,7 @@ function Editor({
   const diagram = useMemo(() => diagramV2(draft), [draft]);
   const spending = useMemo(() => draftSpending(draft), [draft]);
   const hasSwap = useMemo(() => draftHasSwap(draft), [draft]);
+  const hasDipBy = useMemo(() => draftHasCheck(draft, C.dipBy), [draft]);
   const hasInactivityPayout = useMemo(() => draftHasAction(draft, A.inactivityPayout), [draft]);
   const hasPaymentFrom = useMemo(() => draftHasCheck(draft, C.paymentFrom), [draft]);
   const [nodeGroup, setNodeGroup] = useState<(typeof nodeGroups)[number]>('Triggers');
@@ -960,8 +979,13 @@ function Editor({
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
   useEffect(() => {
-    if (rulewrightSession.current?.owner !== address) rulewrightSession.current = undefined;
-  }, [address]);
+    if (
+      rulewrightSession.current?.owner !== address ||
+      rulewrightSession.current?.network !== mode
+    ) {
+      rulewrightSession.current = undefined;
+    }
+  }, [address, mode]);
   useLayoutEffect(() => {
     inspectorBody.current?.scrollTo({ top: 0 });
   }, [canvasSelection, canvasStep, inspectorView]);
@@ -975,7 +999,17 @@ function Editor({
   }, [storageKey, workflowId, draft, positions, recipes]);
   function update(fields: Partial<V2Draft>) {
     revision.current += 1;
-    setDraft((current) => ({ ...current, ...fields }));
+    setDraft((current) => {
+      const next = { ...current, ...fields };
+      if (
+        next.trigger === T.schedule &&
+        next.originChain !== next.chain &&
+        !draftHasCheck(next, C.dipBy)
+      ) {
+        return { ...next, originChain: next.chain };
+      }
+      return next;
+    });
     setError(undefined);
     review(undefined);
     setBudget(undefined);
@@ -1169,7 +1203,10 @@ function Editor({
     <Callout
       title="One payment workflow per Vault"
       action={
-        <Link className="app-button" to={`/workflows/${paymentConflict.id}`}>
+        <Link
+          className="app-button"
+          to={withNetworkQuery(`/workflows/${paymentConflict.id}?chain=${draft.chain}`, mode)}
+        >
           Open {paymentConflict.title ?? 'existing workflow'}
         </Link>
       }
@@ -1200,7 +1237,10 @@ function Editor({
         </button>
       )}
       {id && (
-        <Link className="app-button" to={`/workflows/${id}`}>
+        <Link
+          className="app-button"
+          to={withNetworkQuery(`/workflows/${id}?chain=${draft.chain}`, mode)}
+        >
           View workflow
         </Link>
       )}
@@ -1269,8 +1309,7 @@ function Editor({
                     onChange={(nextValue) => {
                       const nextChain = Number(nextValue);
                       if (!isFundsChain(nextChain)) return;
-                      const crossCapable =
-                        draft.trigger === T.price || draft.trigger === T.transfer;
+                      const crossCapable = supportsCrossChain(draft.trigger, hasDipBy);
                       update({
                         chain: nextChain as FundsChainId,
                         ...(draft.originChain === draft.chain || !crossCapable
@@ -1322,7 +1361,11 @@ function Editor({
               <Input
                 name={workflowGuardrailFields.slippage.label}
                 value={draft.slippage}
-                hint={workflowGuardrailFields.slippage.hint}
+                hint={
+                  draft.chain === UNICHAIN_MAINNET_CHAIN_ID
+                    ? 'Required when a path swaps. At least 0.01% and at most 10%. On Unichain Mainnet, 1% or higher is recommended due to 24-hour Chainlink heartbeats and linear Uniswap V3 quoting; split large swaps across runs.'
+                    : workflowGuardrailFields.slippage.hint
+                }
                 placeholder={workflowGuardrailFields.slippage.placeholder}
                 error={slippageIssue(draft.slippage, hasSwap)}
                 change={(slippage) => update({ slippage })}
@@ -1378,7 +1421,7 @@ function Editor({
                     (value) => String(value) === event.target.value,
                   );
                   if (next) {
-                    const crossCapable = next === T.price || next === T.transfer;
+                    const crossCapable = supportsCrossChain(next, hasDipBy);
                     update({
                       trigger: next,
                       ...(!crossCapable && draft.originChain !== draft.chain
@@ -1403,10 +1446,14 @@ function Editor({
                 })}
               </select>
             </V2Field>
-            {chains.length > 1 && (draft.trigger === T.price || draft.trigger === T.transfer) && (
+            {chains.length > 1 && supportsCrossChain(draft.trigger, hasDipBy) && (
               <V2Field
                 name="Trigger network"
-                hint={`Watch pool prices or token transfers on this network and settle on ${v2Network(draft.chain).name}.`}
+                hint={
+                  draft.trigger === T.schedule
+                    ? `Watch pool prices for the dip check on this network and settle on ${v2Network(draft.chain).name}.`
+                    : `Watch pool prices or token transfers on this network and settle on ${v2Network(draft.chain).name}.`
+                }
               >
                 <Select
                   value={String(draft.originChain)}
@@ -2103,7 +2150,9 @@ function Editor({
                       } catch {
                         /* The chain transaction is confirmed. */
                       }
-                      navigate(`/workflows/${workflowId}`);
+                      navigate(
+                        withNetworkQuery(`/workflows/${workflowId}?chain=${draft.chain}`, mode),
+                      );
                     }
                   }}
                 >

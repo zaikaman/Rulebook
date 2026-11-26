@@ -5,7 +5,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   buildFrontendEnvLines,
+  mergeVercelTelegramRewrites,
   validateHerokuWorkflowConfig,
+  verifyApiReady,
+  verifyTelegramProxy,
   workflowSettings,
 } from '../../scripts/deploy-production.mjs';
 
@@ -344,6 +347,94 @@ describe('deploy-production', () => {
           envMap: { WORKFLOW_V2_ACTIVATION: 'yes' },
         }),
       ).toThrow(/WORKFLOW_V2_ACTIVATION must be "true" or "false"/);
+    });
+  });
+
+  describe('mergeVercelTelegramRewrites', () => {
+    it('is idempotent across repeated invocations and updates the backend destination', () => {
+      const base = {
+        buildCommand: 'npm run build',
+        rewrites: [{ source: '/(.*)', destination: '/index.html' }],
+      };
+      const once = mergeVercelTelegramRewrites(base, 'https://api-one.example.com');
+      const twice = mergeVercelTelegramRewrites(once, 'https://api-two.example.com');
+      expect(twice.rewrites).toEqual([
+        {
+          source: '/v1/telegram/availability',
+          destination: 'https://api-two.example.com/v1/telegram/availability',
+        },
+        {
+          source: '/v1/accounts/:agent/telegram',
+          destination: 'https://api-two.example.com/v1/accounts/:agent/telegram',
+        },
+        {
+          source: '/v1/accounts/:agent/telegram/:path*',
+          destination: 'https://api-two.example.com/v1/accounts/:agent/telegram/:path*',
+        },
+        { source: '/(.*)', destination: '/index.html' },
+      ]);
+    });
+  });
+
+  describe('verifyApiReady and verifyTelegramProxy', () => {
+    it('probes mainnet marketplace, health, and telegram proxy routes when hasMainnet is true', async () => {
+      const seenUrls = [];
+      const fetchImpl = async (input) => {
+        const url = String(input);
+        seenUrls.push(url);
+        if (url.endsWith('/health')) {
+          return Response.json({ status: 'ok', database: { reachable: true } });
+        }
+        if (url.includes('/v3/marketplace')) {
+          return Response.json(
+            { listings: [], nextCursor: null },
+            { headers: { 'access-control-allow-origin': 'https://web.example.com' } },
+          );
+        }
+        if (url.includes('/v3/health')) {
+          return Response.json({ workflows: [] });
+        }
+        if (url.includes('/v1/telegram/availability')) {
+          return Response.json({ available: true });
+        }
+        if (url.includes('/session')) {
+          return new Response(null, {
+            status: 200,
+            headers: {
+              'set-cookie':
+                '__Secure-rulebook-telegram=; Max-Age=0; HttpOnly; SameSite=Strict; Secure',
+            },
+          });
+        }
+        return new Response(null, { status: 401 });
+      };
+
+      await expect(
+        verifyApiReady({
+          api: 'https://api.example.com',
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl,
+        }),
+      ).resolves.toBe(true);
+      await expect(
+        verifyTelegramProxy({
+          web: 'https://web.example.com',
+          hasMainnet: true,
+          fetchImpl,
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(seenUrls).toContain('https://api.example.com/v3/marketplace?network=mainnet');
+      expect(seenUrls).toContain(
+        'https://api.example.com/v3/health?owner=0x0000000000000000000000000000000000000000&network=mainnet',
+      );
+      expect(seenUrls).toContain(
+        'https://web.example.com/v1/telegram/availability?workflow=true&network=mainnet',
+      );
+      expect(seenUrls).toContain(
+        'https://web.example.com/v1/accounts/0x0000000000000000000000000000000000000000/telegram?network=mainnet',
+      );
     });
   });
 });

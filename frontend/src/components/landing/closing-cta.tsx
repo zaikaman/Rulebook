@@ -19,10 +19,10 @@ export function ClosingCta() {
       />
       <div className="relative mx-auto max-w-3xl">
         <h2 className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_both] mb-5 text-4xl font-medium leading-tight tracking-tight text-white md:text-5xl">
-          Try Rulebook on testnet
+          Start building with Rulebook
         </h2>
         <p className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.1s_both] mx-auto mb-10 max-w-xl text-base font-light leading-relaxed text-neutral-400">
-          Get test tokens, set up your account, and create your first automation.
+          Set up your account on Mainnet or Testnet and create your first automation.
         </p>
         <Link
           to={appRoutes.create}

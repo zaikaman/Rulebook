@@ -1,6 +1,8 @@
+import { workflowHealthKey } from '@rulebook/shared';
 import type { Address } from 'viem';
 import { Link } from 'react-router';
 
+import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { Badge, FactList, Panel, PanelBody, PanelHeader, PanelHeading } from '@/ui';
 import {
@@ -18,15 +20,19 @@ export function WorkflowHealthPanel({
   readonly item: WorkflowHealthItem;
   readonly owner?: Address;
 }) {
+  const { mode } = useNetworkMode();
   const { rows, pending, runsUnavailable, creditsUnavailable } = useWorkflowHealth(owner, [item]);
-  const view = rows.get(item.id);
+  const view = rows.get(workflowHealthKey(item.chain, item.id));
   if (!view) return null;
-  const href = workflowHealthHref(view.health, item.id, view.lastRun?.id, view.chain);
+  const href = workflowHealthHref(view.health, item.id, view.lastRun?.id, view.chain, mode);
   const facts = [
     {
       term: 'Last successful run',
       value: view.lastSuccess ? (
-        <Link className="app-link" to={`${appRoutes.runs}/${view.lastSuccess.id}`}>
+        <Link
+          className="app-link"
+          to={withNetworkQuery(`${appRoutes.runs}/${view.lastSuccess.id}`, mode)}
+        >
           {shortRun(view.lastSuccess.id)}
         </Link>
       ) : (
@@ -40,7 +46,10 @@ export function WorkflowHealthPanel({
             value: (
               <>
                 {workflowRunStatusLabels[view.lastRun.status]}{' '}
-                <Link className="app-link" to={`${appRoutes.runs}/${view.lastRun.id}`}>
+                <Link
+                  className="app-link"
+                  to={withNetworkQuery(`${appRoutes.runs}/${view.lastRun.id}`, mode)}
+                >
                   {shortRun(view.lastRun.id)}
                 </Link>
               </>

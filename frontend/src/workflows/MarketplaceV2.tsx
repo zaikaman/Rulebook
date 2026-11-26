@@ -126,7 +126,10 @@ export function WorkflowMarketplaceV2() {
                 Clear search
               </button>
             ) : (
-              <Link className="app-button app-button--primary" to="/workflows/new">
+              <Link
+                className="app-button app-button--primary"
+                to={withNetworkQuery('/workflows/new', mode)}
+              >
                 Build a workflow
               </Link>
             )
@@ -196,7 +199,10 @@ export function WorkflowListingV2() {
         title={item.title}
         description={item.description}
         aside={
-          <Link className="app-button app-button--primary" to={`/workflows/new?copy=${item.id}`}>
+          <Link
+            className="app-button app-button--primary"
+            to={withNetworkQuery(`/workflows/new?copy=${item.id}`, mode)}
+          >
             Copy as draft
           </Link>
         }

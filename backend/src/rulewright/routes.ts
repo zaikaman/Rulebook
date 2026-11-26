@@ -14,7 +14,10 @@ import type { ServerDeps } from '../deps.js';
 
 const base = '/v2/rulewright';
 const challengeBody = z
-  .object({ owner: addressSchema.refine((owner) => owner !== zeroAddress) })
+  .object({
+    owner: addressSchema.refine((owner) => owner !== zeroAddress),
+    network: networkModeSchema.default('testnet'),
+  })
   .strict();
 const sessionBody = z
   .object({
@@ -79,7 +82,15 @@ export function registerRulewrightRoutes(app: FastifyInstance, deps: ServerDeps)
       const body = challengeBody.safeParse(request.body);
       if (!body.success)
         return sendError(reply, 400, 'rulewright_wallet', 'Enter a valid wallet address.');
-      return route.service.challenge(body.data.owner, route.origin);
+      if (!route.service.hasNetwork(body.data.network)) {
+        return sendError(
+          reply,
+          503,
+          'rulewright_network_unavailable',
+          `Rulewright is not configured for ${body.data.network}.`,
+        );
+      }
+      return route.service.challenge(body.data.owner, route.origin, body.data.network);
     },
   );
 

@@ -19,14 +19,15 @@ export function CustodySection() {
             Your wallet owns the vault
           </h2>
           <p className="mt-6 max-w-md text-base leading-relaxed text-neutral-300">
-            Funds you deposit go into a vault on Unichain Sepolia or Base Sepolia. Only your wallet
-            can withdraw them directly.
+            Funds you deposit go into a vault on Unichain or Base (Mainnet or Sepolia). Only your
+            wallet can withdraw them directly.
           </p>
           <dl className="mt-6 space-y-5">
             <div>
               <dt className="text-sm font-medium text-white">Network fees</dt>
               <dd className="mt-1.5 text-sm leading-relaxed text-neutral-400">
-                Add test REACT for watching and test ETH for running your workflows.
+                Add REACT for watching and ETH for running your workflows (or test tokens in Testnet
+                mode).
               </dd>
             </div>
             <div>

@@ -14,6 +14,7 @@ import {
   validateWorkflowV2Program,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
+  workflowHealthKey,
   workflowProgramValidatorV2Abi,
   workflowV2Action,
   workflowV2Trigger,
@@ -238,14 +239,21 @@ async function workflowVersion(
   const mode = networkModeForChain(chain);
   const autoClient = workflowClient(automationChainFor(mode));
   const client = workflowClient(chain);
-  const [entry, auth] = await Promise.all([
+  const [rawEntry, auth] = await Promise.all([
     preloadedEntry ?? v2Entry(agent, id, mode),
     v2Authorization(chain, vault, id),
   ]);
+  const entryMatchesChain = rawEntry[5] === chain;
+  const entry = (
+    entryMatchesChain ? rawEntry : [zeroHash, 0n, 0n, 0n, 0, chain, 0n, 0n]
+  ) as Awaited<ReturnType<typeof v2Entry>>;
   if (entry[1] === 0n && auth[1] === 0n)
     throw new Error('This workflow was not found for the connected wallet.');
-  const staged = auth[1] > entry[1] && (auth[3] || entry[1] === 0n);
-  const title = staged
+  const staged = entryMatchesChain
+    ? auth[1] > entry[1] && (auth[3] || entry[1] === 0n)
+    : auth[1] > 0n;
+  const readFromVault = staged || !entryMatchesChain;
+  const title = readFromVault
     ? await client.readContract({
         address: vault,
         abi: workflowVaultV2Abi,
@@ -258,9 +266,22 @@ async function workflowVersion(
         functionName: 'titles',
         args: [id],
       });
-  const active = entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
-  const partiallyPaused = !active && entry[4] !== 0 && !auth[3];
-  return { agent, vault, id, chain, entry, auth, title, active, staged, partiallyPaused } as const;
+  const active =
+    entryMatchesChain && entry[4] !== 0 && auth[3] && entry[1] === auth[1] && entry[0] === auth[0];
+  const partiallyPaused = !active && entryMatchesChain && entry[4] !== 0 && !auth[3];
+  return {
+    agent,
+    vault,
+    id,
+    chain,
+    entry,
+    auth,
+    title,
+    active,
+    staged,
+    partiallyPaused,
+    readFromVault,
+  } as const;
 }
 
 async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workflowVersion>>) {
@@ -268,7 +289,7 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
   const autoClient = workflowClient(automationChainFor(mode));
   const client = workflowClient(item.chain);
   const [program, memory, budget] = await Promise.all([
-    item.staged
+    item.readFromVault
       ? client.readContract({
           address: item.vault,
           abi: workflowVaultV2Abi,
@@ -321,8 +342,8 @@ export async function readWorkflowsV2(owner: Address, mode: NetworkMode = 'testn
       .map((id) => ({ chain, vault, id })),
   );
   const seen = new Set<string>();
-  const unique = items.filter(({ id }) => {
-    const key = id.toLowerCase();
+  const unique = items.filter(({ chain, id }) => {
+    const key = workflowHealthKey(chain, id);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -392,7 +413,12 @@ export async function readPaymentWorkflow(
   return readPaymentWorkflowFromVault(chain, vault);
 }
 
-export async function readWorkflowV2(owner: Address, id: Hex, mode: NetworkMode = 'testnet') {
+export async function readWorkflowV2(
+  owner: Address,
+  id: Hex,
+  mode: NetworkMode = 'testnet',
+  preferredChain?: SettlementChain,
+) {
   const chains = configuredFundsChains(mode);
   const [agent, ...vaultList] = await Promise.all([
     readAgent(owner, undefined, mode),
@@ -404,6 +430,17 @@ export async function readWorkflowV2(owner: Address, id: Hex, mode: NetworkMode 
   if (agent === zeroAddress || !deployed.length)
     throw new Error('This wallet has no workflow account.');
   const entry = await v2Entry(agent, id, mode);
+  if (preferredChain) {
+    const explicit = deployed.find((item) => item.chain === preferredChain);
+    if (explicit) {
+      const auth = await v2Authorization(explicit.chain, explicit.vault, id);
+      if (auth[1] !== 0n || auth[3] || entry[5] === explicit.chain) {
+        return readWorkflowVersionDetails(
+          await workflowVersion(agent, explicit.vault, id, explicit.chain, entry),
+        );
+      }
+    }
+  }
   const entryChain = isFundsChain(entry[5]) ? entry[5] : undefined;
   const preferred = entryChain ? deployed.find((item) => item.chain === entryChain) : undefined;
   if (preferred) {
