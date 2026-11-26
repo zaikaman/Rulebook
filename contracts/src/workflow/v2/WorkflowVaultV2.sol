@@ -503,6 +503,13 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         return false;
     }
 
+    /// @notice True when `run.observed` carries a remote origin-chain price rather than a
+    /// transfer or payment amount.
+    function _usesOriginPrice(P.Program memory program) private view returns (bool) {
+        return program.originChain != chain
+            && (program.trigger == P.PRICE || program.trigger == P.SCHEDULE);
+    }
+
     function _evaluate(
         P.Program memory program,
         P.Node memory node,
@@ -524,11 +531,11 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
         if (ctx.price == 0) {
-            if (program.originChain == chain) {
-                ctx.price = _price();
-            } else {
+            if (_usesOriginPrice(program)) {
                 ctx.price = run.observed;
                 if (ctx.price != 0) _guardOraclePrice(ctx.price);
+            } else {
+                ctx.price = _price();
             }
         }
         if (ctx.price == 0) return false;
@@ -636,10 +643,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             IERC20(usdc).safeTransfer(account, amount);
         } else if (action.kind == P.BUY || action.kind == P.SELL) {
             _requireBalance(action.kind == P.SELL ? weth : usdc, amount);
-            uint256 referencePrice = program.originChain != chain
-                && (program.trigger == P.PRICE || program.trigger == P.SCHEDULE)
-                ? ctx.price
-                : 0;
+            uint256 referencePrice = _usesOriginPrice(program) ? ctx.price : 0;
             received = _swap(
                 action.kind == P.SELL, amount, program.slippage, run.expiresAt, referencePrice
             );

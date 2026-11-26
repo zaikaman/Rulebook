@@ -506,6 +506,53 @@ contract WorkflowBaseSepoliaV2Test is Test {
         );
     }
 
+    function testCrossChainTransferWithPriceCheckUsesDestinationPoolOnTestnet() public {
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = P.Node(P.AMOUNT_ABOVE, 1, 4, 10e6, 0, new P.Action[](0));
+        nodes[1] = P.Node(P.PRICE_AT_LEAST, 2, 3, 2e18, 0, new P.Action[](0));
+        nodes[2].actions = _actions(_action(P.SEND, 1e6, RECIPIENT));
+        P.Program memory prog = _program(P.UNICHAIN_SEPOLIA, P.BASE_SEPOLIA, P.TRANSFER, nodes);
+        prog.source = address(baseUsdc);
+        prog.subject = SUBJECT;
+        uniUsdc.mint(address(uniVault), 5e6);
+        _enable(uniVault, WF_UNI, 1, prog, 5e6, 0);
+
+        uniPair.setReserves(1_900_000 * 10_000, 10_000 ether);
+        IReactive.LogRecord memory transfer1;
+        transfer1.chain_id = P.BASE_SEPOLIA;
+        transfer1._contract = address(baseUsdc);
+        transfer1.topic_0 = TRANSFER;
+        transfer1.topic_1 = uint160(SUBJECT);
+        transfer1.topic_2 = uint160(RECIPIENT);
+        transfer1.block_number = 901;
+        transfer1.tx_hash = 901;
+        transfer1.data = abi.encode(5 ether);
+        vm.prank(address(system));
+        agent.react(transfer1);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0, uniVault, PROXY_UNI);
+        assertEq(
+            uniVault.outcomes(_runId(WF_UNI, P.BASE_SEPOLIA, bytes32(uint256(901)), 0)),
+            uniVault.SKIPPED()
+        );
+        assertEq(uniUsdc.balanceOf(RECIPIENT), 0);
+
+        uniPair.setReserves(2_100_000 * 10_000, 10_000 ether);
+        IReactive.LogRecord memory transfer2 = transfer1;
+        transfer2.block_number = 902;
+        transfer2.tx_hash = 902;
+        transfer2.data = abi.encode(100e6);
+        vm.prank(address(system));
+        agent.react(transfer2);
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1, uniVault, PROXY_UNI);
+        assertEq(
+            uniVault.outcomes(_runId(WF_UNI, P.BASE_SEPOLIA, bytes32(uint256(902)), 0)),
+            uniVault.CONFIRMED()
+        );
+        assertEq(uniUsdc.balanceOf(RECIPIENT), 1e6);
+    }
+
     function _enable(
         WorkflowVaultV2 targetVault,
         bytes32 workflow,

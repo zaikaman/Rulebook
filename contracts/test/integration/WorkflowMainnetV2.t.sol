@@ -1494,6 +1494,151 @@ contract WorkflowMainnetV2Test is Test {
         assertGt(agent.wakeBlock(mainnetWf), lasnaAgent.wakeBlock(sepWf));
     }
 
+    function testCrossChainTransferWithPriceCheckUsesDestinationPriceNotTransferAmount() public {
+        // 1. 6-decimal USDC transfer + AMOUNT_ABOVE + PRICE_AT_LEAST + BUY.
+        bytes32 xferBuyWf = keccak256("cross transfer price buy");
+        P.Node[] memory buyNodes = new P.Node[](5);
+        buyNodes[0] = P.Node(P.AMOUNT_ABOVE, 1, 4, 100e6, 0, new P.Action[](0));
+        buyNodes[1] = P.Node(P.PRICE_AT_LEAST, 2, 3, 1_950e18, 0, new P.Action[](0));
+        buyNodes[2].actions = new P.Action[](1);
+        buyNodes[2].actions[0] = _action(P.BUY, 200e6, address(0));
+        P.Program memory xferBuyProg =
+            _program(P.UNICHAIN_MAINNET, P.BASE_MAINNET, P.TRANSFER, buyNodes);
+        xferBuyProg.source = address(baseUsdc);
+        xferBuyProg.subject = RECIPIENT;
+        _enable(xferBuyWf, unichainVault, xferBuyProg, 1_000e6, 0);
+        unichainUsdc.mint(address(unichainVault), 1_000e6);
+
+        IReactive.LogRecord memory xferLog;
+        xferLog.chain_id = P.BASE_MAINNET;
+        xferLog._contract = address(baseUsdc);
+        xferLog.topic_0 = TRANSFER;
+        xferLog.topic_1 = uint160(OWNER);
+        xferLog.topic_2 = uint160(RECIPIENT);
+        xferLog.block_number = 1_001;
+        xferLog.tx_hash = 1_001;
+        xferLog.data = abi.encode(500e6);
+        vm.prank(address(system));
+        agent.react(xferLog);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0, address(unichainVault));
+        assertEq(
+            unichainVault.outcomes(
+                _runId(xferBuyWf, _run(xferBuyWf, 1_001, P.BASE_MAINNET, 500e6))
+            ),
+            unichainVault.CONFIRMED()
+        );
+        assertEq(unichainRouter.swapCount(), 1);
+
+        // 2. 18-decimal token transfer near oracle price must NOT misroute PRICE_BELOW.
+        bytes32 xferBelowWf = keccak256("cross transfer price below");
+        P.Program memory xferBelowProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.BASE_MAINNET,
+            P.TRANSFER,
+            _branch(P.PRICE_BELOW, 1_950e18, _action(P.SEND, 50e6, RECIPIENT))
+        );
+        xferBelowProg.source = address(baseWeth);
+        xferBelowProg.subject = RECIPIENT;
+        _enable(xferBelowWf, unichainVault, xferBelowProg, 500e6, 0);
+        unichainUsdc.mint(address(unichainVault), 500e6);
+
+        assertEq(
+            _deliver(
+                unichainVault, xferBelowWf, _run(xferBelowWf, 1_002, P.BASE_MAINNET, 1_940 ether)
+            ),
+            unichainVault.SKIPPED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
+
+        // 3. Large 18-decimal transfer amount still confirms when live destination price is below threshold.
+        uniEthUsd.setAnswer(1_900e18);
+        unichainPair.setPrice(_sqrtPriceFor(1_900e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(
+                unichainVault, xferBelowWf, _run(xferBelowWf, 1_003, P.BASE_MAINNET, 2_050 ether)
+            ),
+            unichainVault.CONFIRMED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 50e6);
+
+        // 4. Destination spot manipulation is still blocked by _price() oracle guard.
+        uniEthUsd.setAnswer(2_000e18);
+        uint160 manipSqrt = _sqrtPriceFor(1_500e18);
+        uint256 manipSpot = PriceMath.usdcPerWethFromSqrtPriceX96(manipSqrt, true);
+        unichainPair.setPrice(manipSqrt, V3_LIQUIDITY);
+        assertEq(
+            _deliverAndExpectReason(
+                unichainVault,
+                xferBelowWf,
+                _run(xferBelowWf, 1_004, P.BASE_MAINNET, 500 ether),
+                unichainVault.FAILED(),
+                abi.encodeWithSelector(
+                    WorkflowProtocolsV2.OraclePriceDeviation.selector, manipSpot, 2_000e18
+                )
+            ),
+            unichainVault.FAILED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 50e6);
+
+        // 5. PRICE_OUTSIDE and PRICE_AT_MOST evaluate against live destination price, not transfer amount.
+        unichainPair.setPrice(_sqrtPriceFor(2_000e18), V3_LIQUIDITY);
+        bytes32 xferOutsideWf = keccak256("cross transfer price outside");
+        P.Node[] memory outNodes =
+            _branch(P.PRICE_OUTSIDE, 1_800e18, _action(P.SEND, 25e6, RECIPIENT));
+        outNodes[0].upper = 2_200e18;
+        P.Program memory xferOutsideProg =
+            _program(P.UNICHAIN_MAINNET, P.BASE_MAINNET, P.TRANSFER, outNodes);
+        xferOutsideProg.source = address(baseUsdc);
+        xferOutsideProg.subject = RECIPIENT;
+        _enable(xferOutsideWf, unichainVault, xferOutsideProg, 500e6, 0);
+
+        assertEq(
+            _deliver(
+                unichainVault, xferOutsideWf, _run(xferOutsideWf, 1_005, P.BASE_MAINNET, 500e6)
+            ),
+            unichainVault.SKIPPED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 50e6);
+
+        uniEthUsd.setAnswer(2_300e18);
+        unichainPair.setPrice(_sqrtPriceFor(2_300e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(
+                unichainVault,
+                xferOutsideWf,
+                _run(xferOutsideWf, 1_006, P.BASE_MAINNET, 2_000 ether)
+            ),
+            unichainVault.CONFIRMED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 75e6);
+
+        bytes32 xferAtMostWf = keccak256("cross transfer price at most");
+        P.Program memory xferAtMostProg = _program(
+            P.UNICHAIN_MAINNET,
+            P.BASE_MAINNET,
+            P.TRANSFER,
+            _branch(P.PRICE_AT_MOST, 2_100e18, _action(P.SEND, 10e6, RECIPIENT))
+        );
+        xferAtMostProg.source = address(baseUsdc);
+        xferAtMostProg.subject = RECIPIENT;
+        _enable(xferAtMostWf, unichainVault, xferAtMostProg, 500e6, 0);
+
+        assertEq(
+            _deliver(unichainVault, xferAtMostWf, _run(xferAtMostWf, 1_007, P.BASE_MAINNET, 100e6)),
+            unichainVault.SKIPPED()
+        );
+        uniEthUsd.setAnswer(2_050e18);
+        unichainPair.setPrice(_sqrtPriceFor(2_050e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(
+                unichainVault, xferAtMostWf, _run(xferAtMostWf, 1_008, P.BASE_MAINNET, 3_000 ether)
+            ),
+            unichainVault.CONFIRMED()
+        );
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 85e6);
+    }
+
     function _sqrtPriceFor(uint256 usdcPerWeth) private pure returns (uint160) {
         uint256 root = Math.sqrt(Math.mulDiv(1e30, 1e18, usdcPerWeth));
         return uint160(((uint256(1) << 96) * root) / 1e9);
