@@ -67,6 +67,7 @@ import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { Callout, Field, Select } from '@/ui';
 import { formatContractError } from '@/lib/errors';
 import { WalletControl } from '@/components/chrome/WalletControl';
@@ -745,7 +746,7 @@ export function WorkflowProgramSummary({
 }
 
 export function WorkflowBuilderV2() {
-  const { mode } = useNetworkMode();
+  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const { address } = useAccount();
   const [params] = useSearchParams();
   const { id: raw } = useParams();
@@ -754,15 +755,31 @@ export function WorkflowBuilderV2() {
   const copyId = v2ListingId.safeParse(copy);
   const query = useQuery({
     queryKey: ['workflow-v2', 'edit', mode, address, raw],
-    enabled: Boolean(id.success && address),
+    enabled: Boolean(id.success && address && isDeploymentConfigured),
     queryFn: () => readWorkflowV2(address!, id.data!, mode),
   });
   const budgetQuery = useQuery({
     queryKey: ['workflow-v2', 'weekly-budget', mode, address, raw],
-    enabled: Boolean(id.success && address && query.data),
+    enabled: Boolean(id.success && address && isDeploymentConfigured && query.data),
     queryFn: () => readWorkflowWeeklyBudget(query.data!.chain, query.data!.vault, id.data!),
   });
   if (raw && !id.success) return <p role="alert">This workflow link is invalid.</p>;
+  if (raw && !isDeploymentConfigured) {
+    return (
+      <section className="app-page">
+        <PageHeading title="Edit workflow" />
+        {isMainnet ? (
+          <MainnetUnavailableCallout context="Editing workflows" />
+        ) : (
+          <Callout title={`Contracts are not configured for ${automationName}`}>
+            <p>
+              Editing workflows requires deployed {automationName} contracts in this environment.
+            </p>
+          </Callout>
+        )}
+      </section>
+    );
+  }
   if (raw && !address)
     return (
       <section className="app-page">

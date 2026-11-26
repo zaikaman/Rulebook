@@ -61,3 +61,29 @@ test('?network= query parameter initializes and preserves network mode across re
 
   expect(pageErrors).toEqual([]);
 });
+
+test('/workflows/:id/edit shows MainnetUnavailableCallout when mainnet is unconfigured', async ({
+  page,
+}) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message);
+  });
+
+  await page.goto(
+    `${appUrl}/workflows/0x1111111111111111111111111111111111111111111111111111111111111111/edit?network=mainnet`,
+  );
+
+  await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeVisible();
+  await expect(
+    page.getByText('Editing workflows requires deployed Mainnet Agent and Vault factories.'),
+  ).toBeVisible();
+  await expect(page.getByText('This wallet has no workflow account.')).toBeHidden();
+
+  await page.getByRole('button', { name: 'Switch to Testnet' }).click();
+  await expect(page.getByTestId('network-mode-testnet')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('active-automation-network')).toContainText('Reactive Lasna');
+  await expect(page.getByText('Mainnet contracts are not deployed yet')).toBeHidden();
+
+  expect(pageErrors).toEqual([]);
+});
