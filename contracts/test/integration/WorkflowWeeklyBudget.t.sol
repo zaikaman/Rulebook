@@ -351,6 +351,128 @@ contract WorkflowWeeklyBudgetTest is Test {
         _assertBudgetSnapshot(1e6);
     }
 
+    function testBudgetSyncedSkipsUnbudgetedClosedAndNonBudgetSkippedExpiredOrFailedOutcomes()
+        public
+    {
+        // 1. Unbudgeted workflow emits zero BudgetSynced on authorizeWithWeeklyBudget(..., 0, 0)
+        //    and zero BudgetSynced on CONFIRMED / SKIPPED / FAILED / EXPIRED.
+        bytes32 unbudgeted = keccak256("unbudgeted");
+        bytes memory schedEncoded =
+            abi.encode(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.authorizeWithWeeklyBudget(unbudgeted, 1, schedEncoded, "Unbudgeted", 0, 0);
+        assertEq(_countBudgetSynced(unbudgeted), 0, "zero limit staging emits no BudgetSynced");
+
+        vm.recordLogs();
+        P.Run memory insufficientRun = _run(101, P.SCHEDULE);
+        insufficientRun.programHash = keccak256(schedEncoded);
+        vm.prank(PROXY);
+        vault.execute(address(agent), unbudgeted, insufficientRun);
+        assertEq(vault.outcomes(_runIdFor(unbudgeted, insufficientRun)), vault.SKIPPED());
+        assertEq(
+            _countBudgetSynced(unbudgeted), 0, "InsufficientVaultBalance emits no BudgetSynced"
+        );
+
+        usdc.mint(address(vault), 5e6);
+        vm.recordLogs();
+        P.Run memory okRun = _run(102, P.SCHEDULE);
+        okRun.programHash = keccak256(schedEncoded);
+        vm.prank(PROXY);
+        vault.execute(address(agent), unbudgeted, okRun);
+        assertEq(vault.outcomes(_runIdFor(unbudgeted, okRun)), vault.CONFIRMED());
+        assertEq(_countBudgetSynced(unbudgeted), 0, "unbudgeted CONFIRMED emits no BudgetSynced");
+
+        // 2. Budgeted workflow skips BudgetSynced on non-budget SKIPPED, EXPIRED, FAILED, and Closed.
+        bytes32 budgeted = keccak256("budgeted-selective");
+        P.Program memory prog =
+            _program(P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.SEND, 1e6, RECIPIENT)));
+        prog.once = true;
+        bytes memory encoded = abi.encode(prog);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(budgeted, 1, encoded, "Budgeted", 2e6, 0);
+        agent.enable(budgeted, 1, encoded, "Budgeted", uint64(block.number));
+        vm.stopPrank();
+        _price(1_500_000);
+
+        // Non-budget SKIPPED (empty condition leaf)
+        vm.recordLogs();
+        P.Run memory emptyLeaf = _run(103, P.PRICE);
+        emptyLeaf.programHash = keccak256(encoded);
+        emptyLeaf.observed = 1.5e18;
+        vm.prank(PROXY);
+        vault.execute(address(agent), budgeted, emptyLeaf);
+        assertEq(vault.outcomes(_runIdFor(budgeted, emptyLeaf)), vault.SKIPPED());
+        assertEq(_countBudgetSynced(budgeted), 0, "non-budget SKIPPED emits no BudgetSynced");
+
+        // EXPIRED callback
+        vm.recordLogs();
+        P.Run memory expiredRun = _run(104, P.PRICE);
+        expiredRun.programHash = keccak256(encoded);
+        expiredRun.expiresAt = uint64(block.timestamp - 1);
+        vm.prank(PROXY);
+        vault.execute(address(agent), budgeted, expiredRun);
+        assertEq(vault.outcomes(_runIdFor(budgeted, expiredRun)), vault.EXPIRED());
+        assertEq(_countBudgetSynced(budgeted), 0, "EXPIRED emits no BudgetSynced");
+
+        // FAILED callback (CapExceeded on budgeted PAYMENT workflow)
+        bytes32 failWf = keccak256("budgeted-failed");
+        P.Program memory failProg =
+            _program(P.PAYMENT, _path(P.Action(P.SEND, P.PERCENT, 5_000, RECIPIENT)));
+        failProg.usdcCap = 1e6;
+        bytes memory failEncoded = abi.encode(failProg);
+        vm.prank(OWNER);
+        vault.authorizeWithWeeklyBudget(failWf, 1, failEncoded, "FailCheck", 2e6, 0);
+        vm.recordLogs();
+        P.Run memory failedRun = _run(105, P.PAYMENT);
+        failedRun.programHash = keccak256(failEncoded);
+        failedRun.observed = 3e6;
+        vm.prank(PROXY);
+        vault.execute(address(agent), failWf, failedRun);
+        assertEq(vault.outcomes(_runIdFor(failWf, failedRun)), vault.FAILED());
+        assertEq(_countBudgetSynced(failWf), 0, "FAILED emits no BudgetSynced");
+
+        // once=true CONFIRMED -> Closed without redundant BudgetSynced
+        _price(2_000_000);
+        vm.recordLogs();
+        P.Run memory closingRun = _run(106, P.PRICE);
+        closingRun.programHash = keccak256(encoded);
+        closingRun.observed = 2e18;
+        vm.prank(PROXY);
+        vault.execute(address(agent), budgeted, closingRun);
+        assertEq(vault.outcomes(_runIdFor(budgeted, closingRun)), vault.CONFIRMED());
+        assertEq(
+            _countBudgetSynced(budgeted), 0, "once=true CONFIRMED emits Closed, not BudgetSynced"
+        );
+
+        // Clearing an existing limit via setWeeklyBudget(..., 0, 0) DOES emit BudgetSynced so Agent unpauses.
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(budgeted, 1, 1, 0, 0);
+        assertEq(_countBudgetSynced(budgeted), 1, "clearing an active limit syncs the Agent");
+    }
+
+    function _runIdFor(bytes32 workflow, P.Run memory run) private view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                address(agent), workflow, run.originChain, run.originTransaction, run.originLogIndex
+            )
+        );
+    }
+
+    function _countBudgetSynced(bytes32 workflow) private view returns (uint256 matches) {
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 index; index < logs.length; ++index) {
+            if (
+                logs[index].emitter == address(vault)
+                    && logs[index].topics[0] == bytes32(BUDGET_SYNCED)
+                    && logs[index].topics[1] == workflow
+            ) {
+                matches += 1;
+            }
+        }
+    }
+
     function testExhaustedBudgetStopsCallbacksUntilTheWeekResets() public {
         _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
         usdc.mint(address(vault), 3e6);

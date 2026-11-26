@@ -492,14 +492,8 @@ contract WorkflowBaseSepoliaV2Test is Test {
         _sync(P.BASE_SEPOLIA, 501, 1_700_000);
         _sync(P.UNICHAIN_SEPOLIA, 11, 2_200_000);
 
-        assertEq(system.requestCount(), 4);
-        // Request 2 is Base 1.7 (SKIPPED because < 2.0), Request 3 is Unichain 2.2 (CONFIRMED because previous was 1.8!)
-        _deliverRequest(2, baseVault, PROXY_BASE);
-        _deliverRequest(3, uniVault, PROXY_UNI);
-        assertEq(
-            baseVault.outcomes(_runId(WF_BASE, P.BASE_SEPOLIA, bytes32(uint256(501)), 0)),
-            baseVault.SKIPPED()
-        );
+        assertEq(system.requestCount(), 1, "only matching Unichain crossing dispatches");
+        _deliverRequest(0, uniVault, PROXY_UNI);
         assertEq(
             uniVault.outcomes(_runId(WF_UNI, P.UNICHAIN_SEPOLIA, bytes32(uint256(11)), 0)),
             uniVault.CONFIRMED()

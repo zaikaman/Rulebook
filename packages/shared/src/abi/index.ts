@@ -29,6 +29,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "PRICE_COOLDOWN",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "automationChain",
     "inputs": [],
     "outputs": [
@@ -279,6 +292,45 @@ export const workflowAgentV2Abi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "meta",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "referencePrice",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "referenceBlock",
+        "type": "uint48",
+        "internalType": "uint48"
+      },
+      {
+        "name": "referenceLogIndex",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "cooldownUntil",
+        "type": "uint40",
+        "internalType": "uint40"
+      },
+      {
+        "name": "flags",
+        "type": "uint8",
+        "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2387,6 +2439,31 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "ReferenceSynced",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "referencePrice",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Revoked",
     "inputs": [
       {
@@ -2785,6 +2862,111 @@ export const workflowVaultFactoryV2Abi = [
 ] as const;
 
 export const workflowProgramValidatorV2Abi = [
+  {
+    "type": "function",
+    "name": "canTriggerPrice",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "previous",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "peak",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referencePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "inspectForAgent",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramV2.AgentPlan",
+        "components": [
+          {
+            "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "originChain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "trigger",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "interval",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "expires",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "subject",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "flags",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "paths",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "pure"
+  },
   {
     "type": "function",
     "name": "validateProgram",

@@ -62,6 +62,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         bool dipAvailable;
         bool dip;
         bool swapped;
+        bool referenceSeeded;
         MarketCache market;
     }
 
@@ -91,6 +92,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     event Revoked(bytes32 indexed workflow, uint64 epoch);
     event CheckIn(bytes32 indexed workflow, uint64 timestamp);
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
+    event ReferenceSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 referencePrice);
     event Outcome(
         bytes32 indexed workflow,
         bytes32 indexed runId,
@@ -290,6 +292,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
 
     function _writeBudget(bytes32 workflow, uint96 usdcLimit, uint96 wethLimit) private {
         WeeklyBudget storage budget = weeklyBudgets[workflow];
+        bool hadLimit = budget.usdcLimit != 0 || budget.wethLimit != 0;
         uint64 start = _weekStart(block.timestamp);
         if (budget.weekStart != start) {
             budget.weekStart = start;
@@ -300,7 +303,9 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         budget.wethLimit = wethLimit;
         budget.revision += 1;
         emit WeeklyBudgetSet(workflow, usdcLimit, wethLimit, budget.revision);
-        _syncBudget(workflow);
+        if (hadLimit || usdcLimit != 0 || wethLimit != 0) {
+            _syncBudget(workflow);
+        }
     }
 
     /// @notice Publishes the effective weekly budget so the Agent can refuse futile dispatches.
@@ -411,7 +416,13 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     ) private {
         outcomes[runId] = status;
         emit Outcome(workflow, runId, epoch, status, path, reason);
-        _syncBudget(workflow);
+        WeeklyBudget storage budget = weeklyBudgets[workflow];
+        if (
+            !workflowMemory[workflow].closed && (budget.usdcLimit != 0 || budget.wethLimit != 0)
+                && (status == CONFIRMED || reason == WeeklyBudgetExceeded.selector)
+        ) {
+            _syncBudget(workflow);
+        }
     }
 
     /// @notice Evaluates and executes the current program. Only the isolated settlement call can enter.
@@ -467,6 +478,9 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         P.Action[] memory actions = program.nodes[cursor].actions;
         if (actions.length == 0) {
             if (P.hasCheck(program, P.INACTIVITY)) memory_.eligibleAt = 0;
+            if (ctx.referenceSeeded) {
+                emit ReferenceSynced(workflow, run.epoch, memory_.referencePrice);
+            }
             return (SKIPPED, cursor);
         }
 
@@ -486,7 +500,18 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             consumedPayments[origin] = true;
         }
         _actions(_settlementBudget(workflow), program, run, runId, actions, ctx);
-        if (ctx.swapped) memory_.referencePrice = uint128(ctx.price);
+        if (ctx.swapped) {
+            memory_.referencePrice = uint128(ctx.price);
+            if (
+                !program.once
+                    && (P.hasCheck(program, P.ABOVE_REFERENCE)
+                        || P.hasCheck(program, P.BELOW_REFERENCE))
+            ) {
+                emit ReferenceSynced(workflow, run.epoch, uint128(ctx.price));
+            }
+        } else if (ctx.referenceSeeded && !program.once) {
+            emit ReferenceSynced(workflow, run.epoch, memory_.referencePrice);
+        }
         if (ctx.dip) consumedDips[workflow][run.observationId] = true;
         if (program.once) {
             memory_.closed = true;
@@ -577,6 +602,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         } else if (referencePrice == 0) {
             referencePrice = node.upper == 0 ? run.observed : node.upper;
             memory_.referencePrice = uint128(referencePrice);
+            ctx.referenceSeeded = true;
         }
         if (check == P.ABOVE_REFERENCE) {
             return price >= Math.mulDiv(referencePrice, P.BPS + threshold, P.BPS);

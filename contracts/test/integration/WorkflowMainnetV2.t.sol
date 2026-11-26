@@ -1143,7 +1143,7 @@ contract WorkflowMainnetV2Test is Test {
         agent.react(badLog);
         assertEq(system.requestCount(), 0);
 
-        // First valid V3 Swap sets baseline ($2,000/WETH) -> PRICE_BELOW 1980 is false (SKIPPED).
+        // First valid V3 Swap sets baseline ($2,000/WETH) -> PRICE_BELOW 1980 is filtered without a callback.
         IReactive.LogRecord memory swap1;
         swap1.chain_id = P.UNICHAIN_MAINNET;
         swap1._contract = realUniPool;
@@ -1159,8 +1159,7 @@ contract WorkflowMainnetV2Test is Test {
         );
         vm.prank(address(system));
         agent.react(swap1);
-        assertEq(system.requestCount(), 1);
-        _deliverRequest(0, address(unichainVault));
+        assertEq(system.requestCount(), 0);
         assertEq(unichainRouter.swapCount(), 0);
 
         // Second V3 Swap moves price to $1,940/WETH (3% drop -> matches both PRICE_BELOW and DIP_BY 2%).
@@ -1178,8 +1177,8 @@ contract WorkflowMainnetV2Test is Test {
         );
         vm.prank(address(system));
         agent.react(swap2);
-        assertEq(system.requestCount(), 2);
-        _deliverRequest(1, address(unichainVault));
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0, address(unichainVault));
         assertEq(unichainRouter.swapCount(), 1);
 
         // Cron tick dispatches SCHEDULE + DIP_BY using the recorded V3 Swap state.
@@ -1192,8 +1191,8 @@ contract WorkflowMainnetV2Test is Test {
         cronLog.tx_hash = 22;
         vm.prank(address(system));
         agent.react(cronLog);
-        assertEq(system.requestCount(), 3);
-        _deliverRequest(2, address(unichainVault));
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1, address(unichainVault));
         assertEq(unichainRouter.swapCount(), 2);
     }
 
@@ -1631,17 +1630,7 @@ contract WorkflowMainnetV2Test is Test {
         agent.react(flashUp);
         vm.prank(address(system));
         agent.react(flashBack);
-
-        uint256 countBeforeCron = system.requestCount();
-        // Check latest dispatched PRICE requests for fallWf & riseWf (flashBack dispatched them).
-        for (uint256 i = countBeforeCron - 2; i < countBeforeCron; ++i) {
-            CallbackConfiguration memory req = system.requestAt(i);
-            (,, P.Run memory decoded) =
-                abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
-            assertApproxEqRel(decoded.previous, 2_000e18, 0.001e18);
-            assertApproxEqRel(decoded.observed, 2_000e18, 0.001e18);
-            _deliverRequest(i, address(unichainVault));
-        }
+        assertEq(system.requestCount(), 0, "flash-loan round-trip dispatches zero price callbacks");
 
         // Block 11 second flash-loan down to $1,500 (log_index 3) and back to $2,000 (log_index 4).
         IReactive.LogRecord memory flashDown = _uniSwapLog(11, 3, _sqrtPriceFor(1_500e18));
@@ -1650,15 +1639,11 @@ contract WorkflowMainnetV2Test is Test {
         agent.react(flashDown);
         vm.prank(address(system));
         agent.react(flashReturn);
-
-        uint256 countAfterReturn = system.requestCount();
-        for (uint256 i = countAfterReturn - 2; i < countAfterReturn; ++i) {
-            CallbackConfiguration memory req = system.requestAt(i);
-            (,, P.Run memory decoded) =
-                abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
-            assertApproxEqRel(decoded.previous, 2_000e18, 0.001e18);
-            _deliverRequest(i, address(unichainVault));
-        }
+        assertEq(
+            system.requestCount(),
+            0,
+            "downward flash-loan round-trip dispatches zero price callbacks"
+        );
 
         // Cron tick dispatches DIP_BY: run.previous must still be ~$2,000 (not $2,500).
         IReactive.LogRecord memory cronLog;
@@ -1670,7 +1655,12 @@ contract WorkflowMainnetV2Test is Test {
         cronLog.tx_hash = 9_999;
         vm.prank(address(system));
         agent.react(cronLog);
-        _deliverRequest(system.requestCount() - 1, address(unichainVault));
+        assertEq(system.requestCount(), 1);
+        CallbackConfiguration memory dipReq = system.requestAt(0);
+        (,, P.Run memory decodedDip) =
+            abi.decode(_slice(dipReq.payload, 4), (address, bytes32, P.Run));
+        assertApproxEqRel(decodedDip.previous, 2_000e18, 0.001e18);
+        _deliverRequest(0, address(unichainVault));
 
         assertEq(unichainRouter.swapCount(), 0);
         assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
@@ -1798,8 +1788,10 @@ contract WorkflowMainnetV2Test is Test {
         vm.prank(address(system));
         agent.react(_uniSwapLog(14, 0, _sqrtPriceFor(2_060e18)));
         uint256 peakReqIdx = system.requestCount();
+        assertEq(peakReqIdx, 0, "spike and rise blocks emit zero wasted callbacks");
         vm.prank(address(system));
         agent.react(_uniSwapLog(15, 0, _sqrtPriceFor(1_940e18)));
+        assertEq(system.requestCount(), 1, "drawdown dispatches once");
 
         CallbackConfiguration memory req = system.requestAt(peakReqIdx);
         (,, P.Run memory decoded) = abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));

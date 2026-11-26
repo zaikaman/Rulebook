@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
@@ -631,12 +631,12 @@ contract WorkflowV2SettlementTest is Test {
         weth.mint(address(vault), 1 ether);
         _price(1_000_000);
         _sync(101, 1_000_000);
-        _deliverRequest(0);
         _sync(102, 2_000_000);
+        assertEq(system.requestCount(), 0, "rising prices do not waste callbacks");
         _sync(103, 1_500_000);
+        assertEq(system.requestCount(), 1, "drawdown dispatches once with the recorded peak");
         _price(1_500_000);
-        _deliverRequest(2);
-        _deliverRequest(1);
+        _deliverRequest(0);
         assertEq(router.swapCount(), 1);
     }
 
@@ -649,8 +649,7 @@ contract WorkflowV2SettlementTest is Test {
         _sync(40, 2_500_000);
         assertEq(system.requestCount(), 0);
         _sync(51, 1_500_000);
-        _price(1_500_000);
-        _deliverRequest(0);
+        assertEq(system.requestCount(), 0, "no pre-authorization peak can trigger a callback");
         assertEq(router.swapCount(), 0);
     }
 
@@ -852,6 +851,361 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(_deliver(_run(101, P.PAYMENT, 1.5e6)), vault.FAILED());
         assertEq(usdc.balanceOf(RECIPIENT), 0);
         assertEq(usdc.balanceOf(address(vault)), 4e6);
+    }
+
+    function testPricePreFilterSuppressesUnmatchedSwapsAcrossAllChecks() public {
+        // Compound tree: PRICE_AT_MOST 1900 -> USDC_BELOW 5e6 -> BUY, else SKIP.
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.PRICE_AT_MOST, 1.9e18, 0, 1, 4);
+        nodes[1] = _check(P.USDC_BELOW, 5e6, 0, 2, 3);
+        nodes[2] = _leaf(_action(P.BUY, 1e6, address(0)));
+        P.Program memory compound = _program(P.PRICE, nodes);
+        _enable(compound);
+        usdc.mint(address(vault), 3e6);
+
+        // Non-matching prices dispatch zero callbacks even though USDC_BELOW is unknown to the Agent.
+        _sync(101, 2_100_000);
+        _sync(102, 1_950_000);
+        assertEq(system.requestCount(), 0);
+
+        // Matching price dispatches conservatively through USDC_BELOW.
+        _price(1_900_000);
+        _sync(103, 1_900_000);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        assertEq(router.swapCount(), 1);
+
+        // Validator direct checks for non-PRICE trigger and zero observed price.
+        WorkflowProgramValidatorV2 validator = agent.validator();
+        bytes memory schedEncoded =
+            abi.encode(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        assertFalse(validator.canTriggerPrice(schedEncoded, 2e18, 0, 0, 0));
+        assertFalse(validator.canTriggerPrice(abi.encode(compound), 0, 0, 0, 0));
+
+        // PRICE_AT_LEAST, PRICE_BELOW, PRICE_OUTSIDE, PRICE_RISES_THROUGH, PRICE_FALLS_THROUGH.
+        bytes32 wfRange = keccak256("range-precheck");
+        P.Node[] memory rangeNodes =
+            _branch(P.PRICE_OUTSIDE, 1.8e18, _action(P.ALERT, 0, address(0)));
+        rangeNodes[0].upper = 2.2e18;
+        P.Program memory rangeProg = _program(P.PRICE, rangeNodes);
+        rangeProg.once = true;
+        bytes memory rangeEncoded = abi.encode(rangeProg);
+        vm.startPrank(OWNER);
+        vault.authorize(wfRange, 1, rangeEncoded, "Range");
+        agent.enable(wfRange, 1, rangeEncoded, "Range", uint64(block.number));
+        vm.stopPrank();
+        _sync(104, 2_000_000);
+        assertEq(system.requestCount(), 1, "inside range is filtered");
+        _sync(105, 2_300_000);
+        assertEq(system.requestCount(), 2, "outside range dispatches");
+        vm.prank(OWNER);
+        agent.disable(wfRange, 1);
+
+        bytes32 wfCross = keccak256("cross-precheck");
+        P.Program memory crossProg = _program(
+            P.PRICE, _branch(P.PRICE_RISES_THROUGH, 2.5e18, _action(P.ALERT, 0, address(0)))
+        );
+        bytes memory crossEncoded = abi.encode(crossProg);
+        vm.startPrank(OWNER);
+        vault.authorize(wfCross, 1, crossEncoded, "Cross");
+        agent.enable(wfCross, 1, crossEncoded, "Cross", uint64(block.number));
+        vm.stopPrank();
+        _sync(106, 2_400_000);
+        _sync(107, 2_450_000);
+        assertEq(system.requestCount(), 2, "below target cross does not dispatch");
+        _sync(108, 2_500_000);
+        assertEq(system.requestCount(), 3, "crossing target dispatches");
+    }
+
+    function testPriceCooldownThrottlesBackToBackSwapsAndPreservesHighs() public {
+        P.Program memory program = _program(
+            P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.SELL, 0.1 ether, address(0)))
+        );
+        _enable(program);
+        weth.mint(address(vault), 1 ether);
+        _price(2_100_000);
+
+        // First matching swap dispatches and starts PRICE_COOLDOWN.
+        _sync(101, 2_100_000);
+        assertEq(system.requestCount(), 1);
+        (,,, uint40 until,) = agent.meta(WORKFLOW);
+        assertEq(until, block.timestamp + agent.PRICE_COOLDOWN());
+
+        // Consecutive matching swaps within 60s are throttled without spamming callbacks.
+        vm.warp(vm.getBlockTimestamp() + 10);
+        _sync(102, 2_200_000);
+        vm.warp(vm.getBlockTimestamp() + 49);
+        _sync(103, 2_300_000);
+        assertEq(system.requestCount(), 1, "swaps inside cooldown are suppressed");
+
+        // Once cooldown expires, the next matching swap dispatches again.
+        vm.warp(vm.getBlockTimestamp() + 1);
+        _sync(104, 2_400_000);
+        assertEq(system.requestCount(), 2, "swap after cooldown dispatches");
+
+        // Re-enabling clears cooldown immediately.
+        bytes memory encoded = abi.encode(program);
+        vm.startPrank(OWNER);
+        vault.authorize(WORKFLOW, 2, encoded, "Workflow V2");
+        agent.enable(WORKFLOW, 2, encoded, "Workflow V2", uint64(block.number));
+        vm.stopPrank();
+        (,,, uint40 resetUntil,) = agent.meta(WORKFLOW);
+        assertEq(resetUntil, 0);
+    }
+
+    function testTrailingUpdatesPeakDuringCooldownAndTriggersOnRecoveryAfterCooldown() public {
+        P.Program memory program =
+            _program(P.PRICE, _branch(P.TRAILING, 1_000, _action(P.SELL, 0.1 ether, address(0))));
+        _enable(program);
+        weth.mint(address(vault), 1 ether);
+
+        _sync(101, 2_000_000);
+        _sync(102, 1_800_000);
+        assertEq(system.requestCount(), 1);
+
+        // Inside cooldown: price rallies to 3_000 then drops to 2_500; cooldown throttles 2_500
+        // but highs[workflow] still records 3_000.
+        vm.warp(vm.getBlockTimestamp() + 10);
+        _sync(103, 3_000_000);
+        _sync(104, 2_500_000);
+        assertEq(system.requestCount(), 1);
+
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN());
+        _sync(105, 2_600_000);
+        assertEq(system.requestCount(), 2);
+        CallbackConfiguration memory req = system.requestAt(1);
+        (,, P.Run memory decoded) = abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
+        assertEq(decoded.high, 3e18, "highs[workflow] kept updating during cooldown");
+    }
+
+    function testReferenceSyncedUpdatesPriceBandMirrorAndFiltersIntermediateSwaps() public {
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.ABOVE_REFERENCE, 1_000, 2e18, 1, 2);
+        nodes[1] = _leaf(_action(P.SELL, 0.1 ether, address(0)));
+        nodes[2] = _check(P.BELOW_REFERENCE, 1_000, 2e18, 3, 4);
+        nodes[3] = _leaf(_action(P.BUY, 1e6, address(0)));
+        _enable(_program(P.PRICE, nodes));
+        usdc.mint(address(vault), 5e6);
+        weth.mint(address(vault), 1 ether);
+
+        // Intermediate prices around initial reference (2.0) dispatch zero callbacks.
+        _sync(101, 2_050_000);
+        _sync(102, 1_850_000);
+        assertEq(system.requestCount(), 0);
+
+        // Price >= 2.2 triggers SELL and emits ReferenceSynced(2.25).
+        _price(2_250_000);
+        _sync(103, 2_250_000);
+        assertEq(system.requestCount(), 1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        assertEq(router.swapCount(), 1);
+
+        // Forward ReferenceSynced to Agent (ignore stale/wrong-epoch/zero logs first).
+        uint256 refSig = uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
+        IReactive.LogRecord memory badRef;
+        badRef.chain_id = P.UNICHAIN_SEPOLIA;
+        badRef._contract = address(vault);
+        badRef.topic_0 = refSig;
+        badRef.topic_1 = uint256(WORKFLOW);
+        badRef.topic_2 = 999; // wrong epoch
+        badRef.block_number = 50;
+        badRef.data = abi.encode(uint128(2.25e18));
+        vm.prank(address(system));
+        agent.react(badRef);
+        (uint128 refBefore,,,,) = agent.meta(WORKFLOW);
+        assertEq(refBefore, 0);
+
+        _forwardReferenceSynced(10);
+        (uint128 refAfter,,,,) = agent.meta(WORKFLOW);
+        assertEq(refAfter, 2.25e18);
+
+        // Stale older ReferenceSynced cannot overwrite newer reference.
+        badRef.topic_2 = 1;
+        badRef.block_number = 5;
+        badRef.data = abi.encode(uint128(1.5e18));
+        vm.prank(address(system));
+        agent.react(badRef);
+        (uint128 refStill,,,,) = agent.meta(WORKFLOW);
+        assertEq(refStill, 2.25e18);
+
+        // Advance past cooldown: price 2.1 (would have matched old 2.0 band, but inside 2.25 +/- 10%
+        // [2.025, 2.475]) is filtered out!
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN() + 1);
+        _sync(104, 2_100_000);
+        assertEq(system.requestCount(), 1, "prices inside updated band are filtered");
+
+        // Price 2.0 (<= 2.25 * 0.9 = 2.025) triggers BUY!
+        _price(2_000_000);
+        _sync(105, 2_000_000);
+        assertEq(system.requestCount(), 2, "crossing updated lower band dispatches");
+        _deliverRequest(1);
+        assertEq(router.swapCount(), 2);
+    }
+
+    function testDynamicReferenceSeedsOnFirstObservationThenSyncs() public {
+        // Dynamic reference (node.upper == 0): Agent allows the first observation through so the
+        // Vault can seed memory_.referencePrice and emit ReferenceSynced even on a SKIPPED leaf.
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.ABOVE_REFERENCE, 1_000, 0, 1, 2);
+        nodes[1] = _leaf(_action(P.SELL, 0.1 ether, address(0)));
+        nodes[2] = _check(P.BELOW_REFERENCE, 1_000, 0, 3, 4);
+        nodes[3] = _leaf(_action(P.BUY, 1e6, address(0)));
+        _enable(_program(P.PRICE, nodes));
+        usdc.mint(address(vault), 5e6);
+
+        _price(2_000_000);
+        _sync(101, 2_000_000);
+        assertEq(system.requestCount(), 1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        assertEq(vault.outcomes(_runId(101)), vault.SKIPPED());
+        _forwardReferenceSynced(10);
+        (uint128 seeded,,,,) = agent.meta(WORKFLOW);
+        assertEq(seeded, 2e18);
+
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN() + 1);
+        _sync(102, 2_050_000);
+        assertEq(system.requestCount(), 1, "intermediate swap filtered after seed");
+    }
+
+    function testSettlementFiltersScopeBudgetSyncedAndSkipAlertOnlyWorkflows() public {
+        uint256 subsBefore = system.subscribeCount();
+        P.Program memory alertProg =
+            _program(P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.ALERT, 0, address(0))));
+        alertProg.once = true;
+        _enable(alertProg);
+        // Subscribed ONLY to CLOSED and pair Sync (2 subscriptions, NO BUDGET_SYNCED, NO REFERENCE_SYNCED).
+        assertEq(system.subscribeCount(), subsBefore + 2);
+        assertFalse(system.isSubscribed(P.UNICHAIN_SEPOLIA, address(vault), BUDGET_SYNCED));
+        assertTrue(
+            system.isSubscribed(
+                P.UNICHAIN_SEPOLIA, address(vault), uint256(keccak256("Closed(bytes32,uint64)"))
+            )
+        );
+    }
+
+    function testMixedReferenceTreeAndStaticReferenceSeedStayInSync() public {
+        // Case A: dynamic ABOVE_REFERENCE (upper=0) -> descendant ABOVE_REFERENCE (upper=3000) with
+        // executable `no` leaf must dispatch at 3200 so Vault seeds memory_.referencePrice=3200.
+        P.Node[] memory mixedNodes = new P.Node[](5);
+        mixedNodes[0] = _check(P.ABOVE_REFERENCE, 1_000, 0, 1, 2);
+        mixedNodes[2] = _check(P.ABOVE_REFERENCE, 500, 3e18, 3, 4);
+        mixedNodes[4] = _leaf(_action(P.ALERT, 0, address(0)));
+        bytes32 wfMixed = keccak256("mixed-ref");
+        bytes memory mixedEncoded = abi.encode(_program(P.PRICE, mixedNodes));
+        vm.startPrank(OWNER);
+        vault.authorize(wfMixed, 1, mixedEncoded, "MixedRef");
+        agent.enable(wfMixed, 1, mixedEncoded, "MixedRef", uint64(block.number));
+        vm.stopPrank();
+        _price(3_200_000);
+        _sync(101, 3_200_000);
+        assertEq(system.requestCount(), 1, "mixed dynamic->static reference tree dispatches");
+        _deliverRequest(0);
+        bytes32 mixedRunId = keccak256(
+            abi.encode(
+                address(agent), wfMixed, P.UNICHAIN_SEPOLIA, bytes32(uint256(101)), uint64(0)
+            )
+        );
+        assertEq(vault.outcomes(mixedRunId), vault.CONFIRMED());
+
+        // Case B: static upper (2500) emits ReferenceSynced on first 0 -> 2500 transition even when SKIPPED.
+        vm.prank(OWNER);
+        agent.disable(wfMixed, 1);
+        P.Node[] memory distinctNodes = new P.Node[](5);
+        distinctNodes[0] = _check(P.ABOVE_REFERENCE, 1_000, 2.5e18, 1, 2);
+        distinctNodes[2] = _check(P.BELOW_REFERENCE, 1_000, 1.8e18, 3, 4);
+        distinctNodes[3] = _leaf(_action(P.ALERT, 0, address(0)));
+        _enable(_program(P.PRICE, distinctNodes));
+        _price(2_400_000);
+        _sync(102, 2_400_000);
+        assertEq(system.requestCount(), 1);
+        vm.recordLogs();
+        assertEq(_deliver(_run(102, P.PRICE, 2.4e18)), vault.SKIPPED());
+        _forwardReferenceSynced(20);
+        (uint128 mirrored,,,,) = agent.meta(WORKFLOW);
+        assertEq(mirrored, 2.5e18, "Vault static seed syncs ReferenceSynced to Agent");
+    }
+
+    function testDelayedReferenceSyncedDoesNotSuppressValidOppositeBandAfterCooldown() public {
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.ABOVE_REFERENCE, 1_000, 2e18, 1, 2);
+        nodes[1] = _leaf(_action(P.SELL, 0.1 ether, address(0)));
+        nodes[2] = _check(P.BELOW_REFERENCE, 1_000, 2e18, 3, 4);
+        nodes[3] = _leaf(_action(P.BUY, 1e6, address(0)));
+        _enable(_program(P.PRICE, nodes));
+        usdc.mint(address(vault), 5e6);
+        weth.mint(address(vault), 1 ether);
+
+        _price(2_250_000);
+        _sync(101, 2_250_000);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        // Intentionally do NOT forward ReferenceSynced yet; advance past PRICE_COOLDOWN.
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN() + 1);
+
+        // Price 2.01 triggers BELOW_REFERENCE against Vault's 2.25 even though node.upper is 2.0.
+        _price(2_010_000);
+        _sync(102, 2_010_000);
+        assertEq(system.requestCount(), 2, "in-flight ReferenceSynced keeps opposite band open");
+        _deliverRequest(1);
+        assertEq(router.swapCount(), 2);
+    }
+
+    function testCompoundTrailingWithHigherPeakBranchAvoidsFalseNegative() public {
+        // Custom tree: PRICE_AT_LEAST 2500 -> ALERT, else TRAILING 10% -> SELL.
+        // Vault.memory_.peak can be raised to 2600 by ALERT even if block 102 is overwritten in same block.
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.PRICE_AT_LEAST, 2.5e18, 0, 1, 2);
+        nodes[1] = _leaf(_action(P.ALERT, 0, address(0)));
+        nodes[2] = _check(P.TRAILING, 1_000, 0, 3, 4);
+        nodes[3] = _leaf(_action(P.SELL, 0.1 ether, address(0)));
+        _enable(_program(P.PRICE, nodes));
+        weth.mint(address(vault), 1 ether);
+
+        _price(2_600_000);
+        _sync(101, 2_600_000);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0); // Vault memory_.peak = 2.6e18
+
+        // Same-block overwrite prevents highs[workflow] from seeing 2.6e18, then cooldown expires.
+        _sync(101, 2_400_000);
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN() + 1);
+        // 2.34 <= 2.6 * 0.9: Vault confirms even though Agent highs[workflow] == 0.
+        _price(2_340_000);
+        _sync(102, 2_340_000);
+        assertEq(system.requestCount(), 2, "compound trailing with higher-peak branch dispatches");
+        _deliverRequest(1);
+        assertEq(router.swapCount(), 1);
+    }
+
+    function _forwardReferenceSynced(uint256 blockNum) private {
+        uint256 refSig = uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 index; index < logs.length; ++index) {
+            if (logs[index].emitter != address(vault) || logs[index].topics[0] != bytes32(refSig)) {
+                continue;
+            }
+            IReactive.LogRecord memory log;
+            log.chain_id = P.UNICHAIN_SEPOLIA;
+            log._contract = address(vault);
+            log.topic_0 = refSig;
+            log.topic_1 = uint256(logs[index].topics[1]);
+            log.topic_2 = uint256(logs[index].topics[2]);
+            log.data = logs[index].data;
+            log.block_number = blockNum;
+            log.tx_hash = blockNum + index;
+            log.log_index = index;
+            vm.prank(address(system));
+            agent.react(log);
+        }
+    }
+
+    function _slice(bytes memory data, uint256 start) private pure returns (bytes memory result) {
+        result = new bytes(data.length - start);
+        for (uint256 i; i < result.length; ++i) {
+            result[i] = data[start + i];
+        }
     }
 
     function _enable(P.Program memory program) private {

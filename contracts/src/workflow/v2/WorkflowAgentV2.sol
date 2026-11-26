@@ -27,8 +27,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     uint256 private constant CLOSED = uint256(keccak256("Closed(bytes32,uint64)"));
     uint256 private constant BUDGET_SYNCED =
         uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
+    uint256 private constant REFERENCE_SYNCED =
+        uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
     uint64 private constant LIFETIME = 10 minutes;
+    uint64 public constant PRICE_COOLDOWN = 60 seconds;
     uint64 private constant CALLBACK_GAS = 850_000;
+    uint8 private constant FLAG_REF_PENDING = 32;
+    uint256 private constant PATH_MASK_104 = (uint256(1) << 104) - 1;
     uint256 private constant MAX_ACTIVE = 4;
     // Bounds the per-workflow waiting list so a burst of blocked triggers can never make a cron
     // retry or a later budget sync unbounded. Oldest runs are kept; the newest is reported dropped.
@@ -91,15 +96,13 @@ contract WorkflowAgentV2 is AbstractPayer {
         uint256 topic2;
     }
 
-    /// @notice Smallest USDC and WETH amount a leaf can consume, recorded when it is installed.
-    /// @dev `percents` counts the percentage steps so the aggregate product can be turned back into
-    /// a lower bound of the Vault's per-step flooring.
-    struct PathCost {
-        uint128 usdc;
-        uint128 weth;
-        uint16 percent;
-        uint8 percents;
-        bool empty;
+    /// @notice Per-workflow runtime flags, mirrored reference price, and PRICE cooldown state.
+    struct WorkflowMeta {
+        uint128 referencePrice;
+        uint48 referenceBlock;
+        uint32 referenceLogIndex;
+        uint40 cooldownUntil;
+        uint8 flags;
     }
 
     /// @notice The last weekly budget the Vault published for a workflow.
@@ -164,7 +167,8 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(bytes32 => Entry) public entries;
     mapping(bytes32 => PriceHigh) private highs;
     mapping(bytes32 => bytes) public programs;
-    mapping(bytes32 => PathCost[]) private paths;
+    mapping(bytes32 => uint256[]) private paths;
+    mapping(bytes32 => WorkflowMeta) public meta;
     mapping(bytes32 => Budget) public budgets;
     mapping(bytes32 => string) public titles;
     mapping(bytes32 => bool) private seen;
@@ -225,14 +229,14 @@ contract WorkflowAgentV2 is AbstractPayer {
         string calldata title,
         uint64 originAfter
     ) external onlyOwner {
-        P.Program memory program = validator.validateProgram(encoded);
+        P.AgentPlan memory plan = validator.inspectForAgent(encoded);
         Entry storage entry = entries[workflow];
         if (
-            workflow == bytes32(0) || epoch <= entry.epoch || vaults[program.chain] == address(0)
+            workflow == bytes32(0) || epoch <= entry.epoch || vaults[plan.chain] == address(0)
                 || originAfter == 0 || bytes(title).length == 0 || bytes(title).length > 80
         ) revert InvalidWorkflow();
         if (entry.epoch == 0) known.push(workflow);
-        if (entry.trigger == 0 || entry.chain != program.chain) delete budgets[workflow];
+        if (entry.trigger == 0 || entry.chain != plan.chain) delete budgets[workflow];
         if (entry.trigger != 0) _stop(workflow, entry);
         if (active.length >= MAX_ACTIVE) revert InvalidWorkflow();
         bytes32 hash = keccak256(encoded);
@@ -240,30 +244,39 @@ contract WorkflowAgentV2 is AbstractPayer {
         entry.epoch = epoch;
         entry.nextDue = uint64(block.timestamp);
         entry.lasnaAfter = uint64(block.number);
-        entry.trigger = program.trigger;
-        entry.chain = program.chain;
-        entry.interval = program.interval;
-        entry.expiry = program.expires;
-        entry.source = program.source;
-        entry.subject = program.subject;
-        entry.dip = P.hasCheck(program, P.DIP_BY);
-        entry.inactivity = P.hasCheck(program, P.INACTIVITY);
-        entry.once = program.once;
+        entry.trigger = plan.trigger;
+        entry.chain = plan.chain;
+        entry.interval = plan.interval;
+        entry.expiry = plan.expires;
+        entry.source = plan.source;
+        entry.subject = plan.subject;
+        entry.dip = (plan.flags & P.FLAG_DIP) != 0;
+        entry.inactivity = (plan.flags & P.FLAG_INACTIVITY) != 0;
+        entry.once = (plan.flags & P.FLAG_ONCE) != 0;
         entry.originAfter = originAfter;
-        entry.originChain = program.originChain;
+        entry.originChain = plan.originChain;
+        meta[workflow] = WorkflowMeta({
+            referencePrice: 0,
+            referenceBlock: 0,
+            referenceLogIndex: 0,
+            cooldownUntil: 0,
+            flags: plan.flags
+        });
         delete highs[workflow];
         programs[hash] = encoded;
-        _paths(workflow, program);
+        paths[workflow] = plan.paths;
         titles[workflow] = title;
         active.push(workflow);
-        _settlementFilters(entry, true);
-        if ((entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE) && _budgetBlocks(workflow, 0))
-        {
+        _settlementFilters(workflow, entry, true);
+        if (
+            (entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE)
+                && (plan.flags & P.FLAG_SPENDS) != 0 && _budgetBlocks(workflow, 0)
+        ) {
             _enterPause(workflow, entry);
         } else {
             _triggerFilters(entry, true);
         }
-        emit Enabled(workflow, hash, program.chain, epoch, title);
+        emit Enabled(workflow, hash, plan.chain, epoch, title);
     }
 
     function disable(bytes32 workflow, uint64 epoch) external onlyOwner {
@@ -328,12 +341,13 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _stop(bytes32 workflow, Entry storage entry) private {
         if (paused[workflow]) {
             paused[workflow] = false;
-            _settlementFilters(entry, false);
+            _settlementFilters(workflow, entry, false);
         } else {
-            _filters(entry, false);
+            _filters(workflow, entry, false);
         }
         _clearPending(workflow);
         _unpin(workflow);
+        delete meta[workflow];
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
             if (active[index] != workflow) continue;
@@ -352,16 +366,30 @@ contract WorkflowAgentV2 is AbstractPayer {
         emit Expired(workflow, epoch);
     }
 
-    function _filters(Entry storage entry, bool enabled) private {
-        _settlementFilters(entry, enabled);
+    function _filters(bytes32 workflow, Entry storage entry, bool enabled) private {
+        _settlementFilters(workflow, entry, enabled);
         _triggerFilters(entry, enabled);
     }
 
     /// @notice Filters that stay installed while a workflow is paused for its weekly budget.
-    function _settlementFilters(Entry storage entry, bool enabled) private {
-        _filter(Filter(entry.chain, vaults[entry.chain], BUDGET_SYNCED, ANY, ANY), enabled);
+    function _settlementFilters(bytes32 workflow, Entry storage entry, bool enabled) private {
+        address vault = vaults[entry.chain];
+        uint8 flags = meta[workflow].flags;
+        if ((flags & P.FLAG_SPENDS) != 0) {
+            _filter(Filter(entry.chain, vault, BUDGET_SYNCED, uint256(workflow), ANY), enabled);
+        }
         if (entry.once) {
-            _filter(Filter(entry.chain, vaults[entry.chain], CLOSED, ANY, ANY), enabled);
+            _filter(
+                Filter(entry.chain, vault, CLOSED, uint256(workflow), uint256(entry.epoch)), enabled
+            );
+        }
+        if ((flags & P.FLAG_USES_REFERENCE) != 0) {
+            _filter(
+                Filter(
+                    entry.chain, vault, REFERENCE_SYNCED, uint256(workflow), uint256(entry.epoch)
+                ),
+                enabled
+            );
         }
     }
 
@@ -444,6 +472,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         if (log.log_index > type(uint64).max || log.block_number > type(uint64).max) return;
         if (log.topic_0 == BUDGET_SYNCED) {
             _syncBudget(log);
+            return;
+        }
+        if (log.topic_0 == REFERENCE_SYNCED) {
+            _syncReference(log);
             return;
         }
         if (log.topic_0 == CLOSED) {
@@ -602,6 +634,15 @@ contract WorkflowAgentV2 is AbstractPayer {
                     high.value = closedPrice;
                     high.blockNumber = uint64(state.previousBlockNumber);
                 }
+                WorkflowMeta storage info = meta[workflow];
+                uint256 refPrice = (info.flags & FLAG_REF_PENDING) != 0
+                    && block.timestamp < uint256(info.cooldownUntil) + LIFETIME
+                    ? type(uint256).max
+                    : info.referencePrice;
+                if (!validator.canTriggerPrice(
+                        programs[entry.hash], state.price, state.previousPrice, high.value, refPrice
+                    )) return;
+                if (block.timestamp < info.cooldownUntil) return;
                 run.observed = state.price;
                 run.previous = state.previousPrice;
                 run.high = high.value;
@@ -665,6 +706,12 @@ contract WorkflowAgentV2 is AbstractPayer {
             entry.nextDue =
                 uint64(due + (1 + (block.timestamp - due) / entry.interval) * entry.interval);
             entry.lasnaAfter = run.originBlock;
+        } else if (entry.trigger == P.PRICE) {
+            uint256 nextCooldown = block.timestamp + PRICE_COOLDOWN;
+            WorkflowMeta storage info = meta[workflow];
+            info.cooldownUntil =
+                nextCooldown > type(uint40).max ? type(uint40).max : uint40(nextCooldown);
+            if ((info.flags & P.FLAG_USES_REFERENCE) != 0) info.flags |= FLAG_REF_PENDING;
         }
         emit Dispatched(
             workflow,
@@ -876,6 +923,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     function _resume(bytes32 workflow, Entry storage entry) private {
         if (!paused[workflow]) return;
         paused[workflow] = false;
+        meta[workflow].cooldownUntil = 0;
         _unpin(workflow);
         _triggerFilters(entry, true);
         emit WatchingResumed(workflow, entry.epoch);
@@ -964,36 +1012,6 @@ contract WorkflowAgentV2 is AbstractPayer {
         );
     }
 
-    /// @notice Records the smallest spend each leaf can produce, so a dispatch can be proven futile.
-    /// @dev Only amounts derived from the signed program and the triggering observation are used.
-    /// Every Vault decision that depends on live destination state stays unknown here, and an
-    /// unknown leaf keeps the workflow dispatching.
-    function _paths(bytes32 workflow, P.Program memory program) private {
-        delete paths[workflow];
-        for (uint256 index; index < program.nodes.length; ++index) {
-            P.Node memory node = program.nodes[index];
-            if (node.check != 0) continue;
-            PathCost memory cost;
-            cost.empty = node.actions.length == 0;
-            for (uint256 step; step < node.actions.length; ++step) {
-                P.Action memory action = node.actions[step];
-                if (action.kind == P.ALERT) continue;
-                if (action.unit == P.PERCENT) {
-                    cost.percent += uint16(action.amount);
-                    cost.percents += 1;
-                } else if (action.kind == P.SELL) {
-                    cost.weth += action.amount;
-                } else if (action.kind == P.REFILL) {
-                    // The Vault pulls at most the deficit below the threshold and at least one unit.
-                    cost.usdc += 1;
-                } else {
-                    cost.usdc += action.amount;
-                }
-            }
-            paths[workflow].push(cost);
-        }
-    }
-
     /// @notice True when every leaf would be rejected by the Vault's weekly budget.
     /// @dev The mirrored budget is never larger than the Vault's own spend and never newer than the
     /// week the Vault would settle against, so this can only suppress runs the Vault would skip.
@@ -1025,25 +1043,28 @@ contract WorkflowAgentV2 is AbstractPayer {
         uint128 usdcSpent,
         uint128 wethSpent
     ) private view returns (bool) {
-        PathCost[] storage plan = paths[workflow];
+        uint256[] storage plan = paths[workflow];
         uint256 count = plan.length;
         if (count == 0) return false;
         for (uint256 index; index < count; ++index) {
-            PathCost memory cost = plan[index];
-            if (cost.empty) continue;
-            uint256 usdc = cost.usdc;
-            if (cost.percent != 0) {
+            uint256 packed = plan[index];
+            if ((packed >> 232) != 0) continue;
+            uint256 usdc = packed & PATH_MASK_104;
+            uint256 weth = (packed >> 104) & PATH_MASK_104;
+            uint256 percent = (packed >> 208) & 0xffff;
+            uint256 percents = (packed >> 224) & 0xff;
+            if (percent != 0) {
                 // Flooring each percentage step separately is worth at least the aggregate floor
                 // minus one unit per extra step, so this stays a lower bound of the real spend.
-                uint256 aggregated = Math.mulDiv(observed, cost.percent, P.BPS);
-                uint256 floorLoss = uint256(cost.percents) - 1;
+                uint256 aggregated = Math.mulDiv(observed, percent, P.BPS);
+                uint256 floorLoss = percents - 1;
                 if (aggregated > floorLoss) {
                     uint256 part = aggregated - floorLoss;
                     usdc = part > type(uint256).max - usdc ? type(uint256).max : usdc + part;
                 }
             }
             if (_exceeds(budget.usdcLimit, usdcSpent, usdc)) continue;
-            if (_exceeds(budget.wethLimit, wethSpent, cost.weth)) continue;
+            if (_exceeds(budget.wethLimit, wethSpent, weth)) continue;
             return false;
         }
         return true;
@@ -1101,5 +1122,31 @@ contract WorkflowAgentV2 is AbstractPayer {
             }
         }
         _retryPending(workflow);
+    }
+
+    /// @notice Keeps the mirrored reference price in step with the Vault's ReferenceSynced log.
+    function _syncReference(IReactive.LogRecord calldata log) private {
+        if (
+            log.data.length != 32 || log.block_number > type(uint48).max
+                || log.log_index > type(uint32).max
+        ) return;
+        bytes32 workflow = bytes32(log.topic_1);
+        Entry storage entry = entries[workflow];
+        if (
+            entry.trigger != P.PRICE || log.chain_id != entry.chain
+                || log._contract != vaults[entry.chain] || log.topic_2 != entry.epoch
+        ) return;
+        uint128 nextReference = abi.decode(log.data, (uint128));
+        if (nextReference == 0) return;
+        WorkflowMeta storage info = meta[workflow];
+        if (
+            log.block_number < info.referenceBlock
+                || (log.block_number == info.referenceBlock
+                    && log.log_index <= info.referenceLogIndex)
+        ) return;
+        info.referencePrice = nextReference;
+        info.referenceBlock = uint48(log.block_number);
+        info.referenceLogIndex = uint32(log.log_index);
+        info.flags &= ~FLAG_REF_PENDING;
     }
 }

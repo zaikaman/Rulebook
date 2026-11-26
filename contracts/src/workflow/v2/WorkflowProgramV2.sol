@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.29;
 
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+
 /// @notice The ABI and limits shared by the V2 Agent and settlement Vaults.
 library WorkflowProgramV2 {
     uint32 internal constant UNICHAIN_SEPOLIA = 1301;
@@ -94,6 +96,24 @@ library WorkflowProgramV2 {
         uint64 activityTime;
         bytes32 observationId;
         address actor;
+    }
+
+    uint8 internal constant FLAG_DIP = 1;
+    uint8 internal constant FLAG_INACTIVITY = 2;
+    uint8 internal constant FLAG_ONCE = 4;
+    uint8 internal constant FLAG_SPENDS = 8;
+    uint8 internal constant FLAG_USES_REFERENCE = 16;
+
+    struct AgentPlan {
+        uint32 chain;
+        uint32 originChain;
+        uint8 trigger;
+        uint32 interval;
+        uint64 expires;
+        address source;
+        address subject;
+        uint8 flags;
+        uint256[] paths;
     }
 
     error InvalidProgram();
@@ -280,6 +300,167 @@ library WorkflowProgramV2 {
             if (program.nodes[index].check == check) return true;
         }
         return false;
+    }
+
+    /// @notice Validates `encoded` and returns the flat metadata and leaf costs the Agent needs.
+    function inspectForAgent(bytes calldata encoded) internal pure returns (AgentPlan memory plan) {
+        Program memory program = validate(encoded);
+        plan.chain = program.chain;
+        plan.originChain = program.originChain;
+        plan.trigger = program.trigger;
+        plan.interval = program.interval;
+        plan.expires = program.expires;
+        plan.source = program.source;
+        plan.subject = program.subject;
+        uint8 flags = program.once ? FLAG_ONCE : 0;
+
+        uint256 leafCount;
+        for (uint256 index; index < program.nodes.length; ++index) {
+            uint8 check = program.nodes[index].check;
+            if (check == 0) {
+                leafCount += 1;
+            } else if (check == DIP_BY) {
+                flags |= FLAG_DIP;
+            } else if (check == INACTIVITY) {
+                flags |= FLAG_INACTIVITY;
+            } else if (check == ABOVE_REFERENCE || check == BELOW_REFERENCE) {
+                flags |= FLAG_USES_REFERENCE;
+            }
+        }
+
+        plan.paths = new uint256[](leafCount);
+        uint256 pathIndex;
+        for (uint256 index; index < program.nodes.length; ++index) {
+            Node memory node = program.nodes[index];
+            if (node.check != 0) continue;
+            uint256 usdc;
+            uint256 weth;
+            uint256 percent;
+            uint256 percents;
+            bool empty = node.actions.length == 0;
+            for (uint256 step; step < node.actions.length; ++step) {
+                Action memory action = node.actions[step];
+                if (action.kind == ALERT) continue;
+                flags |= FLAG_SPENDS;
+                if (action.unit == PERCENT) {
+                    percent += action.amount;
+                    percents += 1;
+                } else if (action.kind == SELL) {
+                    weth += action.amount;
+                } else if (action.kind == REFILL) {
+                    usdc += 1;
+                } else {
+                    usdc += action.amount;
+                }
+            }
+            plan.paths[pathIndex++] = usdc | (weth << 104) | (percent << 208) | (percents << 224)
+                | (empty ? (uint256(1) << 232) : 0);
+        }
+        plan.flags = flags;
+    }
+
+    /// @notice Conservative pre-check for PRICE workflows before dispatching a callback.
+    /// @dev Returns false only when no executable leaf can match the observed price state. Any
+    /// condition that depends on destination-only state (such as USDC balance or an unseeded
+    /// dynamic reference price) keeps both outgoing branches reachable.
+    function canTriggerPrice(
+        bytes calldata encoded,
+        uint256 observed,
+        uint256 previous,
+        uint256 peak,
+        uint256 referencePrice
+    ) internal pure returns (bool) {
+        Program memory program = abi.decode(encoded, (Program));
+        if (program.trigger != PRICE || observed == 0) return false;
+        return _canTriggerPriceNode(program.nodes, 0, observed, previous, peak, referencePrice);
+    }
+
+    function _canTriggerPriceNode(
+        Node[] memory nodes,
+        uint8 cursor,
+        uint256 observed,
+        uint256 previous,
+        uint256 peak,
+        uint256 referencePrice
+    ) private pure returns (bool) {
+        Node memory node = nodes[cursor];
+        uint8 check = node.check;
+        if (check == 0) return node.actions.length != 0;
+
+        bool known = true;
+        bool matched;
+        uint256 threshold = node.value;
+        if (check == PRICE_AT_LEAST) {
+            matched = observed >= threshold;
+        } else if (check == PRICE_AT_MOST) {
+            matched = observed <= threshold;
+        } else if (check == PRICE_BELOW) {
+            matched = observed < threshold;
+        } else if (check == PRICE_OUTSIDE) {
+            matched = observed < threshold || observed > node.upper;
+        } else if (check == PRICE_RISES_THROUGH) {
+            matched = previous != 0 && previous < threshold && observed >= threshold;
+        } else if (check == PRICE_FALLS_THROUGH) {
+            matched = previous != 0 && previous >= threshold && observed < threshold;
+        } else if (check == TRAILING) {
+            uint256 effectivePeak = peak > observed ? peak : observed;
+            matched = observed <= Math.mulDiv(effectivePeak, BPS - threshold, BPS);
+            if (!matched && _hasHigherPeakPath(nodes, 0, effectivePeak)) {
+                known = false;
+            }
+        } else if (check == ABOVE_REFERENCE || check == BELOW_REFERENCE) {
+            if (referencePrice == type(uint256).max) {
+                known = false;
+            } else {
+                uint256 refPrice = referencePrice != 0 ? referencePrice : node.upper;
+                if (refPrice == 0) {
+                    return _hasExecutableLeaf(nodes, node.yes) || _hasExecutableLeaf(nodes, node.no);
+                }
+                referencePrice = refPrice;
+                matched = check == ABOVE_REFERENCE
+                    ? observed >= Math.mulDiv(refPrice, BPS + threshold, BPS)
+                    : observed <= Math.mulDiv(refPrice, BPS - threshold, BPS);
+            }
+        } else {
+            known = false;
+        }
+
+        if (known) {
+            return _canTriggerPriceNode(
+                nodes, matched ? node.yes : node.no, observed, previous, peak, referencePrice
+            );
+        }
+        return _canTriggerPriceNode(nodes, node.yes, observed, previous, peak, referencePrice)
+            || _canTriggerPriceNode(nodes, node.no, observed, previous, peak, referencePrice);
+    }
+
+    function _hasExecutableLeaf(Node[] memory nodes, uint8 cursor) private pure returns (bool) {
+        Node memory node = nodes[cursor];
+        if (node.check == 0) return node.actions.length != 0;
+        return _hasExecutableLeaf(nodes, node.yes) || _hasExecutableLeaf(nodes, node.no);
+    }
+
+    /// @dev True when an executable leaf outside TRAILING.yes could have settled at a price above
+    /// `effectivePeak` (raising Vault `memory_.peak` above the Agent's `highs[workflow]`).
+    function _hasHigherPeakPath(Node[] memory nodes, uint8 cursor, uint256 effectivePeak)
+        private
+        pure
+        returns (bool)
+    {
+        Node memory node = nodes[cursor];
+        if (node.check == 0) return node.actions.length != 0;
+        if (node.check == TRAILING) {
+            return _hasHigherPeakPath(nodes, node.no, effectivePeak);
+        }
+        bool yesReachable = true;
+        if (
+            (node.check == PRICE_AT_MOST || node.check == PRICE_BELOW)
+                && node.value <= effectivePeak
+        ) {
+            yesReachable = false;
+        }
+        return (yesReachable && _hasHigherPeakPath(nodes, node.yes, effectivePeak))
+            || _hasHigherPeakPath(nodes, node.no, effectivePeak);
     }
 
     function runId(address agent, bytes32 workflow, Run calldata run)
