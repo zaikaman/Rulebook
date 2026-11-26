@@ -2,24 +2,36 @@
 /**
  * One-command Workflow V2 release.
  *
- * Deploys the Agent factory on Reactive Lasna and the Vault factory on Unichain Sepolia from
- * `DeployWorkflowsV2.s.sol`, writes `deployments/workflows-v2.json` from the broadcast receipts,
- * points the local backend and frontend environment files at the new pair, and updates the
- * Heroku `WORKFLOW_V2_DEPLOYMENT` config var.
+ * Deploys the Agent factory on Reactive Lasna (or Reactive Mainnet with `--mainnet`) and the
+ * Vault factory on Unichain and Base from `DeployWorkflowsV2.s.sol`, writes the deployment record
+ * from the broadcast receipts, points the local backend and frontend environment files at the new
+ * pair, and updates the Heroku deployment config var.
  *
  * `--check` performs no deployment: it verifies that the record, the local environment files,
- * and Heroku agree and that both factories have code on chain. Use it in preflight and CI.
+ * and Heroku agree and that the factories have code on chain. Use it in preflight and CI.
  * `--record-only` rebuilds the record from the existing Foundry broadcast receipts without
  * deploying, which recovers a lost record or one written by hand.
  *
- * Env: DEPLOYER_PRIVATE_KEY, LASNA_RPC_URL, UNICHAIN_RPC_URL, optional FORGE_PATH,
- * HEROKU_APP_NAME (or --heroku-app), and HEROKU_API_KEY (otherwise read from the Heroku CLI).
+ * Env: DEPLOYER_PRIVATE_KEY (or MAINNET_DEPLOYER_PRIVATE_KEY with `--mainnet`),
+ * LASNA_RPC_URL / UNICHAIN_RPC_URL / BASE_SEPOLIA_RPC_URL (or REACTIVE_MAINNET_RPC_URL /
+ * UNICHAIN_MAINNET_RPC_URL / BASE_MAINNET_RPC_URL), optional LASNA_FEE_CAP,
+ * REACTIVE_MAINNET_FEE_CAP, FORGE_GAS_ESTIMATE_MULTIPLIER, FORGE_PATH, HEROKU_APP_NAME (or
+ * --heroku-app), and HEROKU_API_KEY (otherwise read from the Heroku CLI).
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { concat, createPublicClient, encodeAbiParameters, http, keccak256 } from 'viem';
+import {
+  concat,
+  createPublicClient,
+  encodeAbiParameters,
+  formatEther,
+  formatGwei,
+  http,
+  keccak256,
+  parseEther,
+} from 'viem';
 import { resolveFoundryBinary } from './foundry-env.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -37,11 +49,13 @@ const FRONTEND_ENV_KEY = IS_MAINNET
   : 'VITE_WORKFLOW_V2_DEPLOYMENT';
 const SCRIPT = 'script/DeployWorkflowsV2.s.sol';
 const FORGE = resolveFoundryBinary('forge', process.env.FORGE_PATH);
-const LASNA_FEE_CAP = 950_000_000_000_000_000n;
+export const LASNA_DEFAULT_FEE_CAP = 950_000_000_000_000_000n;
+export const REACTIVE_MAINNET_DEFAULT_FEE_CAP = 5_000_000_000_000_000_000n;
+export const DEFAULT_GAS_ESTIMATE_MULTIPLIER = 130n;
 const GWEI = 1_000_000_000n;
 const AUTOMATION_KEY = IS_MAINNET ? 'reactive' : 'lasna';
 
-const TESTNET_CHAINS = {
+export const TESTNET_CHAINS = {
   lasna: {
     id: 5318007,
     contract: 'WorkflowAgentFactoryV2',
@@ -50,6 +64,8 @@ const TESTNET_CHAINS = {
     explorer: 'https://lasna.reactscan.net',
     rpcEnv: 'LASNA_RPC_URL',
     defaultRpc: 'https://lasna-rpc.rnk.dev/',
+    feeCapEnv: 'LASNA_FEE_CAP',
+    defaultFeeCap: LASNA_DEFAULT_FEE_CAP,
   },
   unichain: {
     id: 1301,
@@ -71,7 +87,7 @@ const TESTNET_CHAINS = {
   },
 };
 
-const MAINNET_CHAINS = {
+export const MAINNET_CHAINS = {
   reactive: {
     id: 1597,
     contract: 'WorkflowAgentFactoryV2',
@@ -80,6 +96,8 @@ const MAINNET_CHAINS = {
     explorer: 'https://reactscan.net',
     rpcEnv: 'REACTIVE_MAINNET_RPC_URL',
     defaultRpc: 'https://mainnet-rpc.rnk.dev/',
+    feeCapEnv: 'REACTIVE_MAINNET_FEE_CAP',
+    defaultFeeCap: REACTIVE_MAINNET_DEFAULT_FEE_CAP,
   },
   unichain: {
     id: 130,
@@ -204,6 +222,108 @@ function cliApp() {
   return index === -1 ? undefined : process.argv[index + 1];
 }
 
+export function resolveFeeCap(chain, envMap = process.env) {
+  const raw = chain.feeCapEnv ? envMap[chain.feeCapEnv]?.trim() : undefined;
+  if (!raw) return chain.defaultFeeCap;
+  if (!/^\d+(?:\.\d{1,18})?$/.test(raw)) {
+    fail(
+      `${chain.feeCapEnv} must be a positive ${chain.nativeSymbol} amount (e.g. "5" or "3.5"), got "${raw}".`,
+    );
+  }
+  const cap = parseEther(raw);
+  if (cap <= 0n) {
+    fail(
+      `${chain.feeCapEnv} must be a positive ${chain.nativeSymbol} amount (e.g. "5" or "3.5"), got "${raw}".`,
+    );
+  }
+  return cap;
+}
+
+export function resolveGasEstimateMultiplier(envMap = process.env) {
+  const raw = envMap.FORGE_GAS_ESTIMATE_MULTIPLIER?.trim();
+  if (!raw) return DEFAULT_GAS_ESTIMATE_MULTIPLIER;
+  if (!/^\d+$/.test(raw)) {
+    fail(
+      `FORGE_GAS_ESTIMATE_MULTIPLIER must be an integer percentage >= 100 (e.g. "130"), got "${raw}".`,
+    );
+  }
+  const multiplier = BigInt(raw);
+  if (multiplier < 100n) {
+    fail(
+      `FORGE_GAS_ESTIMATE_MULTIPLIER must be an integer percentage >= 100 (e.g. "130"), got "${raw}".`,
+    );
+  }
+  return multiplier;
+}
+
+export function computeAutomationGasPlan({
+  chain,
+  estimatedGas,
+  suggestedGasPrice,
+  balance,
+  feeCap,
+  gasEstimateMultiplier = DEFAULT_GAS_ESTIMATE_MULTIPLIER,
+}) {
+  if (estimatedGas <= 0n) {
+    fail(`Invalid gas estimate for ${chain.name}: ${estimatedGas}.`);
+  }
+  if (suggestedGasPrice <= 0n) {
+    fail(`Invalid suggested gas price for ${chain.name}: ${suggestedGasPrice}.`);
+  }
+  if (feeCap <= 0n) {
+    fail(`Invalid fee cap for ${chain.name}: ${feeCap}.`);
+  }
+  if (gasEstimateMultiplier < 100n) {
+    fail(`Invalid gas estimate multiplier for ${chain.name}: ${gasEstimateMultiplier}.`);
+  }
+  if (balance < 0n) {
+    fail(`Invalid balance for ${chain.name}: ${balance}.`);
+  }
+
+  // Round up so preflight never underestimates Foundry's `--gas-estimate-multiplier` limit.
+  const broadcastGas = (estimatedGas * gasEstimateMultiplier + 99n) / 100n;
+  const minGasPrice =
+    suggestedGasPrice >= GWEI ? (suggestedGasPrice / GWEI + 1n) * GWEI : suggestedGasPrice + 1n;
+  const minRequiredBalance = minGasPrice * broadcastGas;
+  const budget = balance < feeCap ? balance : feeCap;
+  const ceiling = budget / broadcastGas;
+
+  if (balance < minRequiredBalance) {
+    fail(
+      `The deployer needs more ${chain.nativeSymbol} on ${chain.name}: balance ${formatEther(balance)} ${chain.nativeSymbol}, minimum required ${formatEther(minRequiredBalance)} ${chain.nativeSymbol} for ${broadcastGas} broadcast gas (${estimatedGas} simulated * ${gasEstimateMultiplier}%) above suggested ${formatGwei(suggestedGasPrice)} gwei.`,
+    );
+  }
+  if (feeCap < minRequiredBalance) {
+    const overrideHint = chain.feeCapEnv ? ` Raise ${chain.feeCapEnv} to override.` : '';
+    fail(
+      `${chain.name} fee cap ${formatEther(feeCap)} ${chain.nativeSymbol} leaves no headroom for ${broadcastGas} broadcast gas (${estimatedGas} simulated * ${gasEstimateMultiplier}%): suggested ${formatGwei(suggestedGasPrice)} gwei, ceiling ${formatGwei(ceiling)} gwei.${overrideHint}`,
+    );
+  }
+
+  const target = suggestedGasPrice * 2n < ceiling ? suggestedGasPrice * 2n : ceiling;
+  const gasPrice = target >= GWEI ? (target / GWEI) * GWEI : target;
+  const requiredBalance = gasPrice * broadcastGas;
+
+  if (gasPrice <= suggestedGasPrice || balance < requiredBalance) {
+    fail(
+      `${chain.name} gas plan failed invariant check: gasPrice ${formatGwei(gasPrice)} gwei (suggested ${formatGwei(suggestedGasPrice)} gwei), required ${formatEther(requiredBalance)} ${chain.nativeSymbol}, balance ${formatEther(balance)} ${chain.nativeSymbol}.`,
+    );
+  }
+
+  const gasPriceArg = gasPrice % GWEI === 0n ? `${gasPrice / GWEI}gwei` : String(gasPrice);
+  return {
+    estimatedGas,
+    broadcastGas,
+    gasEstimateMultiplier,
+    feeCap,
+    budget,
+    ceiling,
+    gasPrice,
+    gasPriceArg,
+    requiredBalance,
+  };
+}
+
 async function deploy(chain, account, deployerKey) {
   const rpc = rpcUrl(chain);
   const publicClient = client(rpc);
@@ -213,22 +333,30 @@ async function deploy(chain, account, deployerKey) {
     const simulation = forge(args, forgeEnv);
     const gas = simulation.match(/Estimated total gas used for script:\s*(\d+)/)?.[1];
     if (!gas) fail(`Could not read the ${chain.name} gas estimate from the dry run.`);
-    const suggested = await publicClient.getGasPrice();
-    const balance = await publicClient.getBalance({ address: account });
-    const budget = balance < LASNA_FEE_CAP ? balance : LASNA_FEE_CAP;
-    const ceiling = budget / BigInt(gas);
-    const price = ((suggested * 2n < ceiling ? suggested * 2n : ceiling) / GWEI) * GWEI;
-    if (price <= suggested) {
-      fail(
-        `${chain.name} fees leave no headroom for ${gas} gas: suggested ${suggested} wei, ceiling ${ceiling} wei.`,
-      );
-    }
-    if (balance < price * BigInt(gas)) {
-      fail(
-        `The deployer needs more ${chain.nativeSymbol} on ${chain.name}: balance ${balance} wei.`,
-      );
-    }
-    args.push('--legacy', '--with-gas-price', `${price / GWEI}gwei`);
+    const [suggestedGasPrice, balance] = await Promise.all([
+      publicClient.getGasPrice(),
+      publicClient.getBalance({ address: account }),
+    ]);
+    const feeCap = resolveFeeCap(chain);
+    const gasEstimateMultiplier = resolveGasEstimateMultiplier();
+    const plan = computeAutomationGasPlan({
+      chain,
+      estimatedGas: BigInt(gas),
+      suggestedGasPrice,
+      balance,
+      feeCap,
+      gasEstimateMultiplier,
+    });
+    console.log(
+      `${chain.name} gas plan: ${plan.estimatedGas} simulated -> ${plan.broadcastGas} broadcast (${plan.gasEstimateMultiplier}%) at ${formatGwei(plan.gasPrice)} gwei (suggested ${formatGwei(suggestedGasPrice)} gwei, max fee ${formatEther(plan.requiredBalance)} / cap ${formatEther(plan.feeCap)} ${chain.nativeSymbol})`,
+    );
+    args.push(
+      '--legacy',
+      '--with-gas-price',
+      plan.gasPriceArg,
+      '--gas-estimate-multiplier',
+      String(plan.gasEstimateMultiplier),
+    );
   }
   forge([...args, '--broadcast', '--start-fresh'], forgeEnv);
   return readBroadcast(chain.id);
@@ -524,11 +652,20 @@ async function recordOnly() {
   await publish(mergeOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
-try {
-  if (process.argv.includes('--check')) await verify();
-  else if (process.argv.includes('--record-only')) await recordOnly();
-  else await release();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : 'Workflow V2 release failed.');
-  process.exitCode = 1;
+function isMainModule() {
+  if (!process.argv[1]) return false;
+  const entry = resolve(process.argv[1]);
+  const self = fileURLToPath(import.meta.url);
+  return process.platform === 'win32' ? entry.toLowerCase() === self.toLowerCase() : entry === self;
+}
+
+if (isMainModule()) {
+  try {
+    if (process.argv.includes('--check')) await verify();
+    else if (process.argv.includes('--record-only')) await recordOnly();
+    else await release();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Workflow V2 release failed.');
+    process.exitCode = 1;
+  }
 }
