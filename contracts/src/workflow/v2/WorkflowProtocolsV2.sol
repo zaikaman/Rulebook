@@ -8,6 +8,7 @@ import {PriceMath} from "../../libraries/PriceMath.sol";
 import {IAggregatorV3} from "../../shared/Chainlink.sol";
 import {IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router02} from "../../shared/UniswapV2.sol";
 import {IUniswapV3Factory, IUniswapV3Pool, IV3SwapRouter} from "../../shared/UniswapV3.sol";
+import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
 /// @notice Settlement-chain reads and protocol calls. External money destinations are pinned at deployment.
 abstract contract WorkflowProtocolsV2 {
@@ -15,6 +16,7 @@ abstract contract WorkflowProtocolsV2 {
 
     uint64 public constant SEQUENCER_GRACE_PERIOD = 1 hours;
     uint16 public constant MAX_PRICE_DEVIATION_BPS = 500;
+    uint16 public constant MAX_PEAK_DEVIATION_BPS = 200;
 
     struct Networks {
         address usdc;
@@ -32,6 +34,8 @@ abstract contract WorkflowProtocolsV2 {
     struct MarketCache {
         uint256 oraclePrice;
         uint256 v3SpotPrice;
+        uint256 usdcUsd;
+        uint80 ethRoundId;
         bool oracleLoaded;
         bool v3SpotLoaded;
     }
@@ -55,10 +59,11 @@ abstract contract WorkflowProtocolsV2 {
     uint32 public immutable usdcFeedMaxAge;
     uint256 private immutable ethFeedScale;
     uint256 private immutable usdcFeedScale;
+    WorkflowProgramValidatorV2 public immutable validator;
     bool internal immutable marketVerified;
     bool private immutable usdcIsToken0;
 
-    constructor(Networks memory cfg) {
+    constructor(Networks memory cfg, WorkflowProgramValidatorV2 validator_) {
         if (
             cfg.usdc == address(0) || cfg.poolFee >= PriceMath.FEE_PPM_DENOMINATOR
                 || (cfg.ethUsdFeed != address(0) && cfg.ethFeedMaxAge == 0)
@@ -107,6 +112,7 @@ abstract contract WorkflowProtocolsV2 {
             verified = true;
             isUsdc0 = (t0 == cfg.usdc);
         }
+        validator = validator_;
         marketVerified = verified;
         usdcIsToken0 = isUsdc0;
     }
@@ -168,19 +174,34 @@ abstract contract WorkflowProtocolsV2 {
     function _cachedOraclePrice(MarketCache memory cache) internal view returns (uint256) {
         if (ethUsdFeed == address(0)) return 0;
         if (!cache.oracleLoaded) {
-            cache.oraclePrice = _oraclePrice();
+            (uint256 price, uint80 ethRoundId, uint256 usdcUsd) = _oraclePriceFull();
+            cache.oraclePrice = price;
+            cache.ethRoundId = ethRoundId;
+            cache.usdcUsd = usdcUsd;
             cache.oracleLoaded = true;
         }
         return cache.oraclePrice;
     }
 
-    function _isOracleConsistent(MarketCache memory cache, uint256 observed)
+    function _isPeakOracleConsistent(MarketCache memory cache, uint256 peak, uint64 since)
         internal
         view
         returns (bool)
     {
         if (ethUsdFeed == address(0)) return true;
-        return !PriceMath.movedBy(observed, _cachedOraclePrice(cache), MAX_PRICE_DEVIATION_BPS);
+        uint256 latest = _cachedOraclePrice(cache);
+        if (peak <= Math.mulDiv(latest, PriceMath.BPS + MAX_PEAK_DEVIATION_BPS, PriceMath.BPS)) {
+            return true;
+        }
+        return validator.verifyHistoricalPeak(
+            ethUsdFeed,
+            usdcUsdFeed != address(0),
+            ethFeedScale,
+            cache.ethRoundId,
+            cache.usdcUsd,
+            peak,
+            since
+        );
     }
 
     function _guardOraclePrice(MarketCache memory cache, uint256 observed) internal view {
@@ -204,66 +225,29 @@ abstract contract WorkflowProtocolsV2 {
             }
             spot = cache.v3SpotPrice;
         }
+        if (spot == 0 || spot > type(uint128).max) revert InvalidMarket();
         _guardOraclePrice(cache, spot);
         return spot;
     }
 
-    function _oraclePrice() internal view returns (uint256) {
-        if (sequencerFeed != address(0)) _requireSequencerUp();
-        uint256 ethUsd = _readFeed(ethUsdFeed, ethFeedMaxAge, ethFeedScale);
-        if (usdcUsdFeed == address(0)) return ethUsd;
-        uint256 usdcUsd = _readFeed(usdcUsdFeed, usdcFeedMaxAge, usdcFeedScale);
-        uint256 price = Math.mulDiv(ethUsd, PriceMath.PRICE_SCALE, usdcUsd);
-        if (price == 0) revert OracleUnavailable();
-        return price;
+    function _oraclePrice() internal view returns (uint256 price) {
+        (price,,) = _oraclePriceFull();
     }
 
-    function _requireSequencerUp() private view {
-        int256 status;
-        uint256 startedAt;
-        uint256 updatedAt;
-        try IAggregatorV3(sequencerFeed).latestRoundData() returns (
-            uint80, int256 answer, uint256 started, uint256 updated, uint80
-        ) {
-            status = answer;
-            startedAt = started;
-            updatedAt = updated;
-        } catch {
-            revert SequencerUnavailable();
-        }
-        // Sequencer status 0 means up; 1 means down. Only check grace period after startedAt,
-        // without imposing a short staleness bound on updatedAt since status feeds update rarely.
-        if (
-            status != 0 || startedAt == 0 || updatedAt == 0 || block.timestamp < startedAt
-                || block.timestamp - startedAt <= SEQUENCER_GRACE_PERIOD
-        ) {
-            revert SequencerUnavailable();
-        }
-    }
-
-    function _readFeed(address feed, uint32 maxAge, uint256 scale) private view returns (uint256) {
-        uint80 roundId;
-        int256 answer;
-        uint256 updatedAt;
-        uint80 answeredInRound;
-        try IAggregatorV3(feed).latestRoundData() returns (
-            uint80 round, int256 value, uint256, uint256 updated, uint80 answered
-        ) {
-            roundId = round;
-            answer = value;
-            updatedAt = updated;
-            answeredInRound = answered;
-        } catch {
-            revert OracleUnavailable();
-        }
-        if (
-            roundId == 0 || answeredInRound < roundId || answer <= 0 || updatedAt == 0
-                || updatedAt > block.timestamp || block.timestamp - updatedAt > maxAge
-        ) {
-            revert OracleUnavailable();
-        }
-        if (uint256(answer) > type(uint256).max / scale) revert OracleUnavailable();
-        return uint256(answer) * scale;
+    function _oraclePriceFull()
+        private
+        view
+        returns (uint256 price, uint80 ethRoundId, uint256 usdcUsd)
+    {
+        return validator.readOracle(
+            ethUsdFeed,
+            usdcUsdFeed,
+            sequencerFeed,
+            ethFeedMaxAge,
+            usdcFeedMaxAge,
+            ethFeedScale,
+            usdcFeedScale
+        );
     }
 
     function _swap(

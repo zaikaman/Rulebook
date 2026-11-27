@@ -1162,6 +1162,20 @@ contract WorkflowMainnetV2Test is Test {
         assertEq(system.requestCount(), 0);
         assertEq(unichainRouter.swapCount(), 0);
 
+        // Cron tick 1 seeds DIP_BY reference baseline ($2,000/WETH) from the live V3 pool without swapping.
+        IReactive.LogRecord memory cronLog;
+        cronLog.chain_id = ChainConfig.REACTIVE_MAINNET;
+        cronLog._contract = ChainConfig.reactiveMainnet().cronSource;
+        cronLog.topic_0 = CRON;
+        cronLog.topic_1 = block.number + 1;
+        cronLog.block_number = block.number + 1;
+        cronLog.tx_hash = 19;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0, address(unichainVault));
+        assertEq(unichainRouter.swapCount(), 0);
+
         // Second V3 Swap moves price to $1,940/WETH (3% drop -> matches both PRICE_BELOW and DIP_BY 2%).
         uniEthUsd.setAnswer(1_940e18);
         unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
@@ -1177,22 +1191,19 @@ contract WorkflowMainnetV2Test is Test {
         );
         vm.prank(address(system));
         agent.react(swap2);
-        assertEq(system.requestCount(), 1);
-        _deliverRequest(0, address(unichainVault));
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1, address(unichainVault));
         assertEq(unichainRouter.swapCount(), 1);
 
-        // Cron tick dispatches SCHEDULE + DIP_BY using the recorded V3 Swap state.
-        IReactive.LogRecord memory cronLog;
-        cronLog.chain_id = ChainConfig.REACTIVE_MAINNET;
-        cronLog._contract = ChainConfig.reactiveMainnet().cronSource;
-        cronLog.topic_0 = CRON;
-        cronLog.topic_1 = block.number + 1;
-        cronLog.block_number = block.number + 1;
+        // Next Cron tick reads live V3 pool at $1,940/WETH and confirms DIP_BY against $2,000 baseline.
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        cronLog.topic_1 = block.number + 2;
+        cronLog.block_number = block.number + 2;
         cronLog.tx_hash = 22;
         vm.prank(address(system));
         agent.react(cronLog);
-        assertEq(system.requestCount(), 2);
-        _deliverRequest(1, address(unichainVault));
+        assertEq(system.requestCount(), 3);
+        _deliverRequest(2, address(unichainVault));
         assertEq(unichainRouter.swapCount(), 2);
     }
 
@@ -1383,14 +1394,16 @@ contract WorkflowMainnetV2Test is Test {
         assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
 
         // 3. Legitimate peak at $2,050, then 5.37% drop to $1,940 (within 5% of $2,000 oracle) confirms SEND.
+        uniEthUsd.setAnswer(2_050e18);
         unichainPair.setPrice(_sqrtPriceFor(2_050e18), V3_LIQUIDITY);
         assertEq(
             _deliver(unichainVault, trailWf, _run(trailWf, 963, P.UNICHAIN_MAINNET, 2_050e18)),
             unichainVault.SKIPPED()
         );
         (uint128 peakRecorded,,,,,,,) = unichainVault.workflowMemory(trailWf);
-        assertEq(peakRecorded, 2_050e18);
+        assertApproxEqRel(peakRecorded, 2_050e18, 0.001e18);
 
+        uniEthUsd.setAnswer(2_000e18);
         unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
         assertEq(
             _deliver(unichainVault, trailWf, _run(trailWf, 964, P.UNICHAIN_MAINNET, 1_940e18)),
@@ -1446,17 +1459,19 @@ contract WorkflowMainnetV2Test is Test {
         spikedRun.highBlock = uint64(block.number);
         assertEq(_deliver(unichainVault, trailWf, spikedRun), unichainVault.SKIPPED());
         (uint128 peakAfterSpike,,,,,,,) = unichainVault.workflowMemory(trailWf);
-        assertEq(peakAfterSpike, 2_000e18);
+        assertApproxEqRel(peakAfterSpike, 2_000e18, 0.001e18);
+        assertLt(peakAfterSpike, 2_010e18);
         assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
 
         // Subsequent normal observation updates peak cleanly.
+        uniEthUsd.setAnswer(2_040e18);
         unichainPair.setPrice(_sqrtPriceFor(2_040e18), V3_LIQUIDITY);
         P.Run memory normalRun = _run(trailWf, 982, P.UNICHAIN_MAINNET, 2_040e18);
         normalRun.high = 2_040e18;
         normalRun.highBlock = uint64(block.number);
         assertEq(_deliver(unichainVault, trailWf, normalRun), unichainVault.SKIPPED());
         (uint128 peakAfterNormal,,,,,,,) = unichainVault.workflowMemory(trailWf);
-        assertEq(peakAfterNormal, 2_040e18);
+        assertApproxEqRel(peakAfterNormal, 2_040e18, 0.001e18);
     }
 
     function testCrossChainScheduleDipSendBlockedByOracleGuardrail() public {
@@ -1585,9 +1600,9 @@ contract WorkflowMainnetV2Test is Test {
         bytes32 dipWf = keccak256("same block flash dip");
         _enable(
             dipWf,
-            unichainVault,
+            baseVault,
             _program(
-                P.UNICHAIN_MAINNET,
+                P.BASE_MAINNET,
                 P.UNICHAIN_MAINNET,
                 P.SCHEDULE,
                 _branch(P.DIP_BY, 500, _action(P.BUY, 100e6, address(0)))
@@ -1615,6 +1630,7 @@ contract WorkflowMainnetV2Test is Test {
         riseProg.once = true;
         _enable(riseWf, unichainVault, riseProg, 100e6, 0);
 
+        baseUsdc.mint(address(baseVault), 1_000e6);
         unichainUsdc.mint(address(unichainVault), 1_000e6);
         address realUniPool = ChainConfig.unichainMainnet().pair;
 
@@ -1660,8 +1676,9 @@ contract WorkflowMainnetV2Test is Test {
         (,, P.Run memory decodedDip) =
             abi.decode(_slice(dipReq.payload, 4), (address, bytes32, P.Run));
         assertApproxEqRel(decodedDip.previous, 2_000e18, 0.001e18);
-        _deliverRequest(0, address(unichainVault));
+        _deliverRequest(0, address(baseVault));
 
+        assertEq(baseRouter.swapCount(), 0);
         assertEq(unichainRouter.swapCount(), 0);
         assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
         assertTrue(realUniPool != address(0));
@@ -1706,11 +1723,16 @@ contract WorkflowMainnetV2Test is Test {
         P.Run memory dipRun = _run(dipWf, 1_101, P.BASE_MAINNET, 2_000e18);
         dipRun.previous = 2_500e18;
         dipRun.observationId = keccak256("cross block spike dip");
+        // Manipulated run.previous cannot forge a dip: Vault seeds referencePrice from validated observed.
+        assertEq(_deliver(unichainVault, dipWf, dipRun), unichainVault.SKIPPED());
+
+        P.Run memory dipSpike = _run(dipWf, 1_104, P.BASE_MAINNET, 2_500e18);
+        dipSpike.observationId = keccak256("cross block spike dip 2");
         assertEq(
             _deliverAndExpectReason(
                 unichainVault,
                 dipWf,
-                dipRun,
+                dipSpike,
                 unichainVault.FAILED(),
                 abi.encodeWithSelector(
                     WorkflowProtocolsV2.OraclePriceDeviation.selector, 2_500e18, 2_000e18
@@ -1784,13 +1806,16 @@ contract WorkflowMainnetV2Test is Test {
         vm.prank(address(system));
         agent.react(_uniSwapLog(13, 0, _sqrtPriceFor(2_000e18)));
 
-        // Block 14-16: legitimate rise to $2,060 (held >=2 blocks / closes block 14) then drop to $1,940.
+        // Block 14-16: legitimate rise to $2,060 held across 2 blocks (14 & 15), then drop to $1,940 at 16.
+        uniEthUsd.setAnswer(2_060e18);
         vm.prank(address(system));
         agent.react(_uniSwapLog(14, 0, _sqrtPriceFor(2_060e18)));
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(15, 0, _sqrtPriceFor(2_060e18)));
         uint256 peakReqIdx = system.requestCount();
         assertEq(peakReqIdx, 0, "spike and rise blocks emit zero wasted callbacks");
         vm.prank(address(system));
-        agent.react(_uniSwapLog(15, 0, _sqrtPriceFor(1_940e18)));
+        agent.react(_uniSwapLog(16, 0, _sqrtPriceFor(1_940e18)));
         assertEq(system.requestCount(), 1, "drawdown dispatches once");
 
         CallbackConfiguration memory req = system.requestAt(peakReqIdx);
@@ -1824,13 +1849,15 @@ contract WorkflowMainnetV2Test is Test {
         unichainUsdc.mint(address(unichainVault), 500e6);
 
         // Seed peak at $2,060.
+        uniEthUsd.setAnswer(2_060e18);
         unichainPair.setPrice(_sqrtPriceFor(2_060e18), V3_LIQUIDITY);
         assertEq(
             _deliver(unichainVault, leafWf, _run(leafWf, 1_201, P.UNICHAIN_MAINNET, 2_060e18)),
             unichainVault.SKIPPED()
         );
 
-        // Drop to $1,940 (within 5% of $2,000 oracle, >=5% below $2,060 peak, falls through $2,010).
+        // Drop to $1,940 (within 5% of $2,000 oracle, >=5% below $2,060 historical oracle peak, falls through $2,010).
+        uniEthUsd.setAnswer(2_000e18);
         unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
         P.Run memory run = _run(leafWf, 1_202, P.UNICHAIN_MAINNET, 1_940e18);
         run.previous = 2_060e18;
@@ -2118,6 +2145,169 @@ contract WorkflowMainnetV2Test is Test {
             unichainVault.CONFIRMED()
         );
         assertEq(unichainUsdc.balanceOf(RECIPIENT), 85e6);
+    }
+
+    function testAtomicAndSingleBlockSpikeBlockedWhileHistoricalRoundRecoversCrashTrailingStop()
+        public
+    {
+        bytes32 trailWf = keccak256("m3 crash trailing");
+        P.Program memory prog = _program(
+            P.UNICHAIN_MAINNET,
+            P.UNICHAIN_MAINNET,
+            P.PRICE,
+            _branch(P.TRAILING, 450, _action(P.SELL, 0.1 ether, address(0)))
+        );
+        prog.once = true;
+        _enable(trailWf, unichainVault, prog, 0, 1 ether);
+        unichainWeth.mint(address(unichainVault), 1 ether);
+
+        // 1. Atomic +4.8% spike within one block and 1-block +4.8% wick fail to trigger 4.5% stop.
+        uniEthUsd.setAnswer(2_096e18);
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(10, 0, _sqrtPriceFor(2_000e18)));
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(11, 0, _sqrtPriceFor(2_096e18)));
+        vm.prank(address(system));
+        agent.react(_uniSwapLog(12, 0, _sqrtPriceFor(2_000e18)));
+        assertEq(system.requestCount(), 0, "1-block +4.8% spike cannot false-trigger 4.5% stop");
+
+        // 2. Real rally to $2,300 recorded on Vault.memory_.peak.
+        uniEthUsd.setAnswer(2_300e18);
+        unichainPair.setPrice(_sqrtPriceFor(2_300e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(unichainVault, trailWf, _run(trailWf, 1_301, P.UNICHAIN_MAINNET, 2_300e18)),
+            unichainVault.SKIPPED()
+        );
+
+        // 3. Sharp -10% crash to $2,070: >5% below historical peak, yet getRoundData recovers it.
+        uniEthUsd.setAnswer(2_070e18);
+        unichainPair.setPrice(_sqrtPriceFor(2_070e18), V3_LIQUIDITY);
+        assertEq(
+            _deliver(unichainVault, trailWf, _run(trailWf, 1_302, P.UNICHAIN_MAINNET, 2_070e18)),
+            unichainVault.CONFIRMED()
+        );
+        assertEq(unichainRouter.swapCount(), 1);
+    }
+
+    function testGradualMultiSwapDipConfirmsOnMainnetCronWithoutOracleDeviation() public {
+        bytes32 dipWf = keccak256("mainnet gradual dip");
+        _enable(
+            dipWf,
+            unichainVault,
+            _program(
+                P.UNICHAIN_MAINNET,
+                P.UNICHAIN_MAINNET,
+                P.SCHEDULE,
+                _branch(P.DIP_BY, 500, _action(P.BUY, 100e6, address(0)))
+            ),
+            1_000e6,
+            0
+        );
+        unichainUsdc.mint(address(unichainVault), 1_000e6);
+
+        address realUniPool = ChainConfig.unichainMainnet().pair;
+        assertFalse(
+            system.isSubscribed(P.UNICHAIN_MAINNET, realUniPool, SWAP_V3),
+            "same-chain DIP_BY does not subscribe to Swap"
+        );
+
+        IReactive.LogRecord memory cronLog;
+        cronLog.chain_id = ChainConfig.REACTIVE_MAINNET;
+        cronLog._contract = ChainConfig.reactiveMainnet().cronSource;
+        cronLog.topic_0 = CRON;
+        cronLog.topic_1 = block.number + 1;
+        cronLog.block_number = block.number + 1;
+        cronLog.tx_hash = 1_401;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        _deliverRequest(0, address(unichainVault));
+        assertEq(unichainRouter.swapCount(), 0);
+
+        // ETH slides -7% to $1,860 across gradual swaps with oracle tracking $1,860 -> buys cleanly.
+        uniEthUsd.setAnswer(1_860e18);
+        unichainPair.setPrice(_sqrtPriceFor(1_860e18), V3_LIQUIDITY);
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        cronLog.topic_1 = block.number + 2;
+        cronLog.block_number = block.number + 2;
+        cronLog.tx_hash = 1_402;
+        vm.prank(address(system));
+        agent.react(cronLog);
+        _deliverRequest(1, address(unichainVault));
+        assertEq(unichainRouter.swapCount(), 1);
+    }
+
+    function testValidatorOracleAndHistoricalPeakEdgeCases() public {
+        MockAggregatorV3 feed =
+            new MockAggregatorV3(18, 2_000e18, block.timestamp - 10, block.timestamp - 10);
+        MockAggregatorV3 usdcFeed =
+            new MockAggregatorV3(18, 1e18, block.timestamp - 10, block.timestamp - 10);
+        MockAggregatorV3 seqFeed =
+            new MockAggregatorV3(0, 0, block.timestamp - 2 hours, block.timestamp);
+
+        // usdcUsdFeed == address(0) branch
+        (uint256 px, uint80 rId, uint256 usdcPx) =
+            validator.readOracle(address(feed), address(0), address(0), 3_600, 3_600, 1, 1);
+        assertEq(px, 2_000e18);
+        assertEq(rId, 1);
+        assertEq(usdcPx, 0);
+
+        // sequencer revert & down branches
+        seqFeed.setReverts(true);
+        vm.expectRevert(WorkflowProgramValidatorV2.SequencerUnavailable.selector);
+        validator.readOracle(address(feed), address(0), address(seqFeed), 3_600, 3_600, 1, 1);
+
+        seqFeed.setReverts(false);
+        seqFeed.setRound(2, 1, block.timestamp - 2 hours, block.timestamp, 2);
+        vm.expectRevert(WorkflowProgramValidatorV2.SequencerUnavailable.selector);
+        validator.readOracle(address(feed), address(0), address(seqFeed), 3_600, 3_600, 1, 1);
+
+        // feed revert, invalid round, and zero normalized price branches
+        feed.setReverts(true);
+        vm.expectRevert(WorkflowProgramValidatorV2.OracleUnavailable.selector);
+        validator.readOracle(address(feed), address(0), address(0), 3_600, 3_600, 1, 1);
+
+        feed.setReverts(false);
+        feed.setRound(2, 0, block.timestamp, block.timestamp, 2);
+        vm.expectRevert(WorkflowProgramValidatorV2.OracleUnavailable.selector);
+        validator.readOracle(address(feed), address(0), address(0), 3_600, 3_600, 1, 1);
+
+        feed.setRound(3, type(int256).max, block.timestamp, block.timestamp, 3);
+        vm.expectRevert(WorkflowProgramValidatorV2.OracleUnavailable.selector);
+        validator.readOracle(address(feed), address(0), address(0), 3_600, 3_600, 4, 1);
+
+        feed.setRound(4, 1, block.timestamp, block.timestamp, 4);
+        usdcFeed.setRound(2, int256(1e30), block.timestamp, block.timestamp, 2);
+        vm.expectRevert(WorkflowProgramValidatorV2.OracleUnavailable.selector);
+        validator.readOracle(address(feed), address(usdcFeed), address(0), 3_600, 3_600, 1, 1);
+
+        // verifyHistoricalPeak branches: roundId <= 1, missing round (catch), invalid round data, updatedAt < since, all-16 loop false
+        assertFalse(
+            validator.verifyHistoricalPeak(
+                address(feed), false, 1, 1, 0, 2_500e18, uint64(block.timestamp)
+            )
+        );
+        feed.setRound(6, 2_000e18, block.timestamp, block.timestamp, 6); // round 5 missing -> catch break
+        assertFalse(
+            validator.verifyHistoricalPeak(
+                address(feed), false, 1, 6, 0, 2_500e18, uint64(block.timestamp)
+            )
+        );
+        feed.setRound(7, 2_000e18, block.timestamp, block.timestamp, 6); // answeredInRound < rId -> break
+        assertFalse(
+            validator.verifyHistoricalPeak(
+                address(feed), false, 1, 8, 0, 2_500e18, uint64(block.timestamp)
+            )
+        );
+        feed.setRound(9, 1_900e18, block.timestamp - 50, block.timestamp - 50, 9);
+        assertFalse(
+            validator.verifyHistoricalPeak(
+                address(feed), false, 1, 10, 0, 2_500e18, uint64(block.timestamp - 10)
+            )
+        );
+        for (uint80 r = 11; r <= 30; ++r) {
+            feed.setRound(r, 1_900e18, block.timestamp, block.timestamp, r);
+        }
+        assertFalse(validator.verifyHistoricalPeak(address(feed), false, 1, 30, 0, 2_500e18, 0));
     }
 
     function _sqrtPriceFor(uint256 usdcPerWeth) private pure returns (uint160) {

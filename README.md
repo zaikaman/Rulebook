@@ -63,7 +63,7 @@ Open **Workflows → New workflow**, pick a recipe, and fill in the amounts. The
 | You want                              | Recipe               | What wakes it                                                   | What the Vault can do                          |
 | ------------------------------------- | -------------------- | --------------------------------------------------------------- | ---------------------------------------------- |
 | Buy a fixed amount on a timer         | Scheduled buy        | `Cron100`                                                       | Swap USDC for WETH                             |
-| Buy only after a drop                 | Buy more on a dip    | `Cron100`, using the latest `Sync`                              | Swap, or skip                                  |
+| Buy only after a drop                 | Buy more on a dip    | `Cron100` (same-chain live pool, or cross-chain `Sync`/`Swap`)  | Swap, or skip                                  |
 | Buy if the price reaches a limit      | Limit buy            | Pair `Sync`                                                     | One swap, then the workflow closes             |
 | Sell into strength                    | Take profit          | Pair `Sync`                                                     | One swap, then the workflow closes             |
 | Sell if the price falls from its high | Trailing stop        | Pair `Sync`                                                     | One swap off a fixed stop or a trail           |
@@ -76,7 +76,7 @@ Open **Workflows → New workflow**, pick a recipe, and fill in the amounts. The
 | Hear when a price leaves a range      | Price-range alert    | Pair `Sync`                                                     | Record an alert                                |
 | Hear about a large movement           | Large-transfer alert | `Transfer` of a token you name, from or to the wallet you watch | Record an alert                                |
 
-Price checks use the last `Sync` on the configured USDC/WETH pair, quoted as USDC per WETH. The Agent keeps that price, the previous price, and, for a trailing stop, the high since the workflow was enabled. A dip compares the two prices.
+Price checks use the last `Sync`/`Swap` on the configured USDC/WETH pair, quoted as USDC per WETH. The Agent keeps that price, the previous price, and, for a trailing stop, the sustained high since the workflow was enabled. For Buy more on a dip, the Vault compares the scheduled price against its recorded baseline price (updating the baseline when price rises and resetting it after a confirmed dip).
 
 An inactivity payout needs an explicit confirmation in the review, a fixed recipient and amount, and at least one day of silence. Silence means no USDC `Transfer` from the owner. When the grace period starts, the owner can check in. A check-in clears the pending payout. The payout can happen only once.
 

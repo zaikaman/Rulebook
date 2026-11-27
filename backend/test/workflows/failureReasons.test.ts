@@ -13,6 +13,18 @@ describe('workflow V2 failure reasons', () => {
       message: 'The Vault did not hold enough of the asset this run needed.',
       recovery: 'balances',
     });
+    expect(
+      workflowV2FailureReason(toFunctionSelector('InsufficientRefillAllowance(uint256,uint256)')),
+    ).toEqual({
+      message: 'The owner wallet had no USDC allowance approved for this refill.',
+      recovery: 'allowance',
+    });
+    expect(
+      workflowV2FailureReason(toFunctionSelector('InsufficientOwnerBalance(uint256,uint256)')),
+    ).toEqual({
+      message: 'The owner wallet did not hold enough USDC for this refill.',
+      recovery: 'balances',
+    });
   });
 
   it('keeps the generic token failure for a string revert', () => {

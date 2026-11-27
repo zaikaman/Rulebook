@@ -2,6 +2,7 @@
 pragma solidity 0.8.29;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {PriceMath} from "../../libraries/PriceMath.sol";
 
 /// @notice The ABI and limits shared by the V2 Agent and settlement Vaults.
 library WorkflowProgramV2 {
@@ -319,7 +320,7 @@ library WorkflowProgramV2 {
             uint8 check = program.nodes[index].check;
             if (check == 0) {
                 leafCount += 1;
-            } else if (check == DIP_BY) {
+            } else if (check == DIP_BY && program.originChain != program.chain) {
                 flags |= FLAG_DIP;
             } else if (check == INACTIVITY) {
                 flags |= FLAG_INACTIVITY;
@@ -461,6 +462,95 @@ library WorkflowProgramV2 {
         }
         return (yesReachable && _hasHigherPeakPath(nodes, node.yes, effectivePeak))
             || _hasHigherPeakPath(nodes, node.no, effectivePeak);
+    }
+
+    /// @notice Conservative pre-check for PAYMENT and TRANSFER workflows before parking or dispatching.
+    function canTriggerTransfer(bytes calldata encoded, uint256 observed, address actor)
+        internal
+        pure
+        returns (bool)
+    {
+        Program memory program = abi.decode(encoded, (Program));
+        if ((program.trigger != PAYMENT && program.trigger != TRANSFER) || observed == 0) {
+            return false;
+        }
+        return _canTriggerTransferNode(program, 0, observed, actor);
+    }
+
+    function _canTriggerTransferNode(
+        Program memory program,
+        uint8 cursor,
+        uint256 observed,
+        address actor
+    ) private pure returns (bool) {
+        Node memory node = program.nodes[cursor];
+        uint8 check = node.check;
+        if (check == 0) {
+            if (node.actions.length == 0) return false;
+            uint256 fixedUsdc;
+            for (uint256 i; i < node.actions.length; ++i) {
+                Action memory action = node.actions[i];
+                if (action.kind == ALERT) continue;
+                if (action.unit == PERCENT) {
+                    if (Math.mulDiv(observed, action.amount, BPS) == 0) return false;
+                } else if (action.kind == REFILL) {
+                    fixedUsdc += 1;
+                } else if (action.kind != SELL) {
+                    fixedUsdc += action.amount;
+                }
+            }
+            if (program.trigger == PAYMENT && fixedUsdc > observed) return false;
+            return true;
+        }
+        if (check == AMOUNT_AT_LEAST) {
+            return _canTriggerTransferNode(
+                program, observed >= node.value ? node.yes : node.no, observed, actor
+            );
+        }
+        if (check == AMOUNT_ABOVE) {
+            return _canTriggerTransferNode(
+                program, observed > node.value ? node.yes : node.no, observed, actor
+            );
+        }
+        if (check == PAYMENT_FROM) {
+            return _canTriggerTransferNode(
+                program, actor == program.subject ? node.yes : node.no, observed, actor
+            );
+        }
+        return _canTriggerTransferNode(program, node.yes, observed, actor)
+            || _canTriggerTransferNode(program, node.no, observed, actor);
+    }
+
+    /// @notice Decodes a Uniswap V2 Sync or V3 Swap log payload into a 1e18-scaled USDC-per-WETH price.
+    function decodePrice(uint24 poolFee, bool usdcIsToken0, bytes calldata data)
+        internal
+        pure
+        returns (uint128)
+    {
+        uint256 observed;
+        if (poolFee == 0) {
+            if (data.length != 64) return 0;
+            (uint256 first, uint256 second) = abi.decode(data, (uint256, uint256));
+            if (
+                first == 0 || second == 0 || first > type(uint112).max || second > type(uint112).max
+            ) {
+                return 0;
+            }
+            observed = usdcIsToken0
+                ? PriceMath.usdcPerWeth(uint112(first), uint112(second))
+                : PriceMath.usdcPerWeth(uint112(second), uint112(first));
+        } else {
+            if (data.length != 160) return 0;
+            (,, uint256 sqrtPriceRaw, uint256 liquidityRaw,) =
+                abi.decode(data, (int256, int256, uint256, uint256, int256));
+            if (
+                sqrtPriceRaw < PriceMath.MIN_SQRT_RATIO || sqrtPriceRaw >= PriceMath.MAX_SQRT_RATIO
+                    || liquidityRaw == 0 || liquidityRaw > type(uint128).max
+            ) return 0;
+            observed = PriceMath.usdcPerWethFromSqrtPriceX96(uint160(sqrtPriceRaw), usdcIsToken0);
+        }
+        if (observed == 0 || observed > type(uint128).max) return 0;
+        return uint128(observed);
     }
 
     function runId(address agent, bytes32 workflow, Run calldata run)

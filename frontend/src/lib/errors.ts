@@ -216,6 +216,14 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     message: 'The Vault does not hold enough balance for this action.',
   },
   {
+    signature: 'InsufficientRefillAllowance(uint256,uint256)',
+    message: 'The owner wallet has not approved enough USDC allowance for this refill.',
+  },
+  {
+    signature: 'InsufficientOwnerBalance(uint256,uint256)',
+    message: 'The owner wallet does not hold enough USDC for this refill.',
+  },
+  {
     signature: 'InvalidMarket()',
     message: 'The pool market configuration is invalid.',
   },

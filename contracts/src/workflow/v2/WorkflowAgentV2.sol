@@ -6,7 +6,6 @@ import {AbstractPayer} from "@reactive/abstract-base/AbstractPayer.sol";
 import {IPayable} from "@reactive/interfaces/IPayable.sol";
 import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {ChainConfig} from "../../chain/ChainConfig.sol";
-import {PriceMath} from "../../libraries/PriceMath.sol";
 import {CallbackConfiguration, IReactiveSystem} from "../../shared/ReactiveTypes.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
@@ -29,7 +28,10 @@ contract WorkflowAgentV2 is AbstractPayer {
         uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
     uint256 private constant REFERENCE_SYNCED =
         uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
+    uint256 private constant GRACE_STARTED =
+        uint256(keccak256("GraceStarted(bytes32,uint64,uint64)"));
     uint64 private constant LIFETIME = 10 minutes;
+    uint64 private constant GRACE_SKEW = 2 minutes;
     uint64 public constant PRICE_COOLDOWN = 60 seconds;
     uint64 private constant CALLBACK_GAS = 850_000;
     uint8 private constant FLAG_REF_PENDING = 32;
@@ -69,18 +71,17 @@ contract WorkflowAgentV2 is AbstractPayer {
     struct PriceState {
         uint128 price;
         uint128 previousPrice;
-        uint128 priorPrice;
         uint64 time;
         uint64 previousTime;
         bytes32 observation;
-        uint256 blockNumber;
-        uint256 logIndex;
-        uint256 previousBlockNumber;
+        uint64 blockNumber;
+        uint64 logIndex;
+        uint64 previousBlockNumber;
     }
 
     struct ActivityCursor {
-        uint256 blockNumber;
-        uint256 logIndex;
+        uint64 blockNumber;
+        uint64 logIndex;
     }
 
     struct PriceHigh {
@@ -114,6 +115,16 @@ contract WorkflowAgentV2 is AbstractPayer {
         uint64 weekStart;
         uint32 revision;
         bool known;
+    }
+
+    /// @notice Initial weekly budget snapshot seeded atomically at activation.
+    struct BudgetSeed {
+        uint96 usdcLimit;
+        uint96 wethLimit;
+        uint128 usdcSpent;
+        uint128 wethSpent;
+        uint64 weekStart;
+        uint32 revision;
     }
 
     /// @notice A budget-blocked payment or transfer run kept for a later dispatch.
@@ -162,6 +173,18 @@ contract WorkflowAgentV2 is AbstractPayer {
     address public immutable factory;
     WorkflowProgramValidatorV2 public immutable validator;
     uint32 public immutable automationChain;
+    address private immutable cronSource;
+    uint32 private immutable primaryChain;
+    uint32 private immutable secondaryChain;
+    address private immutable primaryUsdc;
+    address private immutable secondaryUsdc;
+    address private immutable primaryPair;
+    address private immutable secondaryPair;
+    uint24 private immutable primaryPoolFee;
+    uint24 private immutable secondaryPoolFee;
+    bool private immutable primaryUsdc0;
+    bool private immutable secondaryUsdc0;
+    uint256 private immutable blockMs;
     address public owner;
     mapping(uint32 => address) public vaults;
     mapping(bytes32 => Entry) public entries;
@@ -178,7 +201,6 @@ contract WorkflowAgentV2 is AbstractPayer {
     mapping(bytes32 => uint256) private subscriptions;
     bytes32[] private active;
     bytes32[] private known;
-    uint256 private pendingCount;
     mapping(bytes32 => bool) private retryWaiting;
     uint256 private retryWaitingCount;
     mapping(uint32 => mapping(address => PriceState)) private prices;
@@ -191,6 +213,33 @@ contract WorkflowAgentV2 is AbstractPayer {
         factory = factory_;
         validator = validator_;
         automationChain = uint32(block.chainid);
+        bool isMainnet = block.chainid == ChainConfig.REACTIVE_MAINNET;
+        cronSource = ChainConfig.get(block.chainid).cronSource;
+        ChainConfig.Config memory pCfg =
+            ChainConfig.get(isMainnet ? P.UNICHAIN_MAINNET : P.UNICHAIN_SEPOLIA);
+        ChainConfig.Config memory sCfg =
+            ChainConfig.get(isMainnet ? P.BASE_MAINNET : P.BASE_SEPOLIA);
+        primaryChain = uint32(pCfg.chainId);
+        secondaryChain = uint32(sCfg.chainId);
+        primaryUsdc = pCfg.usdc;
+        secondaryUsdc = sCfg.usdc;
+        primaryPair = pCfg.pair;
+        secondaryPair = sCfg.pair;
+        primaryPoolFee = pCfg.poolFee;
+        secondaryPoolFee = sCfg.poolFee;
+        primaryUsdc0 = pCfg.usdc < pCfg.weth;
+        secondaryUsdc0 = sCfg.usdc < sCfg.weth;
+        blockMs = isMainnet ? MAINNET_BLOCK_MS : LASNA_BLOCK_MS;
+    }
+
+    function _market(uint32 chainId)
+        private
+        view
+        returns (address usdc, address pair, uint24 poolFee, bool usdc0)
+    {
+        return chainId == primaryChain
+            ? (primaryUsdc, primaryPair, primaryPoolFee, primaryUsdc0)
+            : (secondaryUsdc, secondaryPair, secondaryPoolFee, secondaryUsdc0);
     }
 
     function initialize(address owner_) external {
@@ -209,7 +258,7 @@ contract WorkflowAgentV2 is AbstractPayer {
 
     function linkVault(uint32 chain, address vault) external onlyOwner {
         if (
-            !ChainConfig.isFundsChainFor(automationChain, chain) || vault == address(0)
+            (chain != primaryChain && chain != secondaryChain) || vault == address(0)
                 || vaults[chain] != address(0)
         ) {
             revert InvalidWorkflow();
@@ -229,14 +278,55 @@ contract WorkflowAgentV2 is AbstractPayer {
         string calldata title,
         uint64 originAfter
     ) external onlyOwner {
+        _enableCore(workflow, epoch, encoded, title, originAfter);
+    }
+
+    /// @notice Starts a new signed workflow epoch with an initial weekly budget snapshot.
+    function enableWithBudget(
+        bytes32 workflow,
+        uint64 epoch,
+        bytes calldata encoded,
+        string calldata title,
+        uint64 originAfter,
+        BudgetSeed calldata budgetSeed
+    ) external onlyOwner {
+        if (budgetSeed.usdcLimit != 0 || budgetSeed.wethLimit != 0) {
+            budgets[workflow] = Budget(
+                budgetSeed.usdcLimit,
+                budgetSeed.wethLimit,
+                budgetSeed.usdcSpent,
+                budgetSeed.wethSpent,
+                budgetSeed.weekStart,
+                budgetSeed.revision,
+                true
+            );
+        } else {
+            delete budgets[workflow];
+        }
+        _enableCore(workflow, epoch, encoded, title, originAfter);
+    }
+
+    function _enableCore(
+        bytes32 workflow,
+        uint64 epoch,
+        bytes calldata encoded,
+        string calldata title,
+        uint64 originAfter
+    ) private {
         P.AgentPlan memory plan = validator.inspectForAgent(encoded);
         Entry storage entry = entries[workflow];
         if (
             workflow == bytes32(0) || epoch <= entry.epoch || vaults[plan.chain] == address(0)
                 || originAfter == 0 || bytes(title).length == 0 || bytes(title).length > 80
+                || (plan.expires != 0 && plan.expires <= block.timestamp)
         ) revert InvalidWorkflow();
         if (entry.epoch == 0) known.push(workflow);
-        if (entry.trigger == 0 || entry.chain != plan.chain) delete budgets[workflow];
+        if (
+            msg.sig != this.enableWithBudget.selector
+                && (entry.trigger == 0 || entry.chain != plan.chain)
+        ) {
+            delete budgets[workflow];
+        }
         if (entry.trigger != 0) _stop(workflow, entry);
         if (active.length >= MAX_ACTIVE) revert InvalidWorkflow();
         bytes32 hash = keccak256(encoded);
@@ -255,13 +345,8 @@ contract WorkflowAgentV2 is AbstractPayer {
         entry.once = (plan.flags & P.FLAG_ONCE) != 0;
         entry.originAfter = originAfter;
         entry.originChain = plan.originChain;
-        meta[workflow] = WorkflowMeta({
-            referencePrice: 0,
-            referenceBlock: 0,
-            referenceLogIndex: 0,
-            cooldownUntil: 0,
-            flags: plan.flags
-        });
+        delete meta[workflow];
+        meta[workflow].flags = plan.flags;
         delete highs[workflow];
         programs[hash] = encoded;
         paths[workflow] = plan.paths;
@@ -274,7 +359,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         ) {
             _enterPause(workflow, entry);
         } else {
-            _triggerFilters(entry, true);
+            _triggerFilters(entry, !paused[workflow]);
         }
         emit Enabled(workflow, hash, plan.chain, epoch, title);
     }
@@ -311,19 +396,32 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// wake is ever missed while the Agent has no watching credit.
     function resumeWatching(bytes32 workflow) external {
         Entry storage entry = entries[workflow];
+        if (entry.trigger == 0) revert NotPaused();
         if (paused[workflow]) {
-            if (entry.trigger == 0) revert NotPaused();
-            if (_budgetBlocks(workflow, 0)) revert BudgetBlocked();
-            _resume(workflow, entry);
-            return;
+            if (!_budgetBlocks(workflow, 0)) {
+                _resume(workflow, entry);
+                return;
+            }
+            uint64 target = wakeAt[workflow];
+            if (target != 0 && block.number > target && !_budgetBlocksFresh(workflow, 0)) {
+                _pin(workflow, _resetAt(workflow));
+                emit WatchingPaused(workflow, entry.epoch, wakeAt[workflow]);
+                return;
+            }
+            revert BudgetBlocked();
         }
         uint256 count = pending[workflow].length;
-        if (entry.trigger == 0 || count == 0) revert NotPaused();
+        if (count == 0) revert NotPaused();
         for (uint256 index; index < count; ++index) {
             if (!_budgetBlocks(workflow, pending[workflow][index].observed)) {
                 _retryPending(workflow);
                 return;
             }
+        }
+        uint64 pendingTarget = wakeAt[workflow];
+        if (pendingTarget != 0 && block.number > pendingTarget) {
+            _syncPendingSchedule(workflow);
+            if (wakeAt[workflow] != pendingTarget) return;
         }
         revert BudgetBlocked();
     }
@@ -391,52 +489,30 @@ contract WorkflowAgentV2 is AbstractPayer {
                 enabled
             );
         }
+        if (entry.inactivity) {
+            _filter(Filter(primaryChain, primaryUsdc, TRANSFER, uint160(owner), ANY), enabled);
+            _filter(Filter(secondaryChain, secondaryUsdc, TRANSFER, uint160(owner), ANY), enabled);
+            _filter(
+                Filter(entry.chain, vault, GRACE_STARTED, uint256(workflow), uint256(entry.epoch)),
+                enabled
+            );
+        }
     }
 
     /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
     function _triggerFilters(Entry storage entry, bool enabled) private {
-        ChainConfig.Config memory originCfg = ChainConfig.get(entry.originChain);
-        uint256 priceTopic = originCfg.poolFee == 0 ? SYNC : SWAP_V3;
+        (address originUsdc, address originPair, uint24 originPoolFee,) = _market(entry.originChain);
+        uint256 priceTopic = originPoolFee == 0 ? SYNC : SWAP_V3;
         if (entry.trigger == P.SCHEDULE) {
             _filterCron(ANY, enabled);
             if (entry.dip) {
-                _filter(Filter(entry.originChain, originCfg.pair, priceTopic, ANY, ANY), enabled);
-            }
-            if (entry.inactivity) {
-                uint32 primaryChain = automationChain == ChainConfig.REACTIVE_MAINNET
-                    ? P.UNICHAIN_MAINNET
-                    : P.UNICHAIN_SEPOLIA;
-                uint32 secondaryChain = automationChain == ChainConfig.REACTIVE_MAINNET
-                    ? P.BASE_MAINNET
-                    : P.BASE_SEPOLIA;
-                _filter(
-                    Filter(
-                        primaryChain,
-                        ChainConfig.get(primaryChain).usdc,
-                        TRANSFER,
-                        uint160(owner),
-                        ANY
-                    ),
-                    enabled
-                );
-                _filter(
-                    Filter(
-                        secondaryChain,
-                        ChainConfig.get(secondaryChain).usdc,
-                        TRANSFER,
-                        uint160(owner),
-                        ANY
-                    ),
-                    enabled
-                );
+                _filter(Filter(entry.originChain, originPair, priceTopic, ANY, ANY), enabled);
             }
         } else if (entry.trigger == P.PRICE) {
-            _filter(Filter(entry.originChain, originCfg.pair, priceTopic, ANY, ANY), enabled);
+            _filter(Filter(entry.originChain, originPair, priceTopic, ANY, ANY), enabled);
         } else if (entry.trigger == P.PAYMENT) {
             _filter(
-                Filter(
-                    entry.originChain, originCfg.usdc, TRANSFER, ANY, uint160(vaults[entry.chain])
-                ),
+                Filter(entry.originChain, originUsdc, TRANSFER, ANY, uint160(vaults[entry.chain])),
                 enabled
             );
         } else if (entry.trigger == P.TRANSFER) {
@@ -474,45 +550,31 @@ contract WorkflowAgentV2 is AbstractPayer {
             _syncBudget(log);
             return;
         }
-        if (log.topic_0 == REFERENCE_SYNCED) {
-            _syncReference(log);
+        if (
+            log.topic_0 == REFERENCE_SYNCED || log.topic_0 == GRACE_STARTED || log.topic_0 == CLOSED
+        ) {
+            _syncVaultEvent(log);
             return;
         }
-        if (log.topic_0 == CLOSED) {
-            bytes32 workflow = bytes32(log.topic_1);
-            Entry storage entry = entries[workflow];
-            if (
-                entry.trigger != 0 && entry.once && log.chain_id == entry.chain
-                    && log._contract == vaults[entry.chain] && log.topic_2 == entry.epoch
-            ) {
-                _stop(workflow, entry);
-                emit Disabled(workflow, entry.epoch);
-            }
-            return;
-        }
-        ChainConfig.Config memory autoCfg = ChainConfig.get(automationChain);
         // A Reactive cron tick also drives the waiting list, which is how a run parked by an
         // exhausted week resumes as soon as the week rolls over.
         if (
-            log.chain_id == automationChain && log._contract == autoCfg.cronSource
-                && log.topic_0 == CRON
+            log.chain_id == automationChain && log._contract == cronSource && log.topic_0 == CRON
+                && log.topic_1 == log.block_number
         ) {
-            _retryFromCron();
+            _retryFromCron(log);
         }
         bool market;
-        if (
-            log.chain_id <= type(uint32).max
-                && ChainConfig.isFundsChainFor(automationChain, uint32(log.chain_id))
-        ) {
+        if (log.chain_id == primaryChain || log.chain_id == secondaryChain) {
             uint32 logChain = uint32(log.chain_id);
-            ChainConfig.Config memory logCfg = ChainConfig.get(logChain);
-            uint256 priceTopic = logCfg.poolFee == 0 ? SYNC : SWAP_V3;
-            market = log._contract == logCfg.pair && log.topic_0 == priceTopic
-                && _recordPrice(logCfg, log);
+            (address logUsdc, address logPair, uint24 logPoolFee, bool logUsdc0) = _market(logChain);
+            uint256 priceTopic = logPoolFee == 0 ? SYNC : SWAP_V3;
+            market = log._contract == logPair && log.topic_0 == priceTopic
+                && _recordPrice(logPoolFee, logUsdc0, log);
             ActivityCursor storage cursor = activityCursors[logChain];
             if (
-                log._contract == logCfg.usdc && log.topic_0 == TRANSFER
-                    && log.topic_1 == uint160(owner) && log.topic_2 != log.topic_1
+                log._contract == logUsdc && log.topic_0 == TRANSFER && log.topic_1 == uint160(owner)
+                    && log.topic_2 != log.topic_1
                     && (vaults[logChain] == address(0) || log.topic_2 != uint160(vaults[logChain]))
                     && log.data.length == 32
                     && (log.block_number > cursor.blockNumber
@@ -520,8 +582,8 @@ contract WorkflowAgentV2 is AbstractPayer {
                             && log.log_index > cursor.logIndex))
                     && abi.decode(log.data, (uint256)) != 0
             ) {
-                cursor.blockNumber = log.block_number;
-                cursor.logIndex = log.log_index;
+                cursor.blockNumber = uint64(log.block_number);
+                cursor.logIndex = uint64(log.log_index);
                 if (block.timestamp > lastActivity) lastActivity = uint64(block.timestamp);
             }
         }
@@ -535,12 +597,12 @@ contract WorkflowAgentV2 is AbstractPayer {
                 _retire(workflow, entry);
                 continue;
             }
-            _route(workflow, log, autoCfg.cronSource, market);
+            _route(workflow, log, market);
             ++index;
         }
     }
 
-    function _recordPrice(ChainConfig.Config memory cfg, IReactive.LogRecord calldata log)
+    function _recordPrice(uint24 poolFee, bool usdcIsToken0, IReactive.LogRecord calldata log)
         private
         returns (bool)
     {
@@ -548,54 +610,27 @@ contract WorkflowAgentV2 is AbstractPayer {
         if (
             log.block_number < state.blockNumber
                 || (log.block_number == state.blockNumber && log.log_index <= state.logIndex)
+                || log.block_number > type(uint64).max || log.log_index > type(uint64).max
         ) return false;
-        uint256 observed;
-        if (cfg.poolFee == 0) {
-            if (log.data.length != 64) return false;
-            (uint256 first, uint256 second) = abi.decode(log.data, (uint256, uint256));
-            if (
-                first == 0 || second == 0 || first > type(uint112).max || second > type(uint112).max
-            ) {
-                return false;
-            }
-            observed = cfg.usdc < cfg.weth
-                ? PriceMath.usdcPerWeth(uint112(first), uint112(second))
-                : PriceMath.usdcPerWeth(uint112(second), uint112(first));
-        } else {
-            if (log.data.length != 160) return false;
-            (,, uint256 sqrtPriceRaw, uint256 liquidityRaw,) =
-                abi.decode(log.data, (int256, int256, uint256, uint256, int256));
-            if (
-                sqrtPriceRaw < PriceMath.MIN_SQRT_RATIO || sqrtPriceRaw >= PriceMath.MAX_SQRT_RATIO
-                    || liquidityRaw == 0 || liquidityRaw > type(uint128).max
-            ) return false;
-            observed =
-                PriceMath.usdcPerWethFromSqrtPriceX96(uint160(sqrtPriceRaw), cfg.usdc < cfg.weth);
-        }
-        if (observed == 0 || observed > type(uint128).max) return false;
+        uint128 observed = validator.decodePrice(poolFee, usdcIsToken0, log.data);
+        if (observed == 0) return false;
         if (log.block_number > state.blockNumber) {
-            state.priorPrice = state.previousPrice;
             state.previousPrice = state.price;
             state.previousTime = state.time;
             state.previousBlockNumber = state.blockNumber;
         }
-        state.blockNumber = log.block_number;
-        state.logIndex = log.log_index;
+        state.blockNumber = uint64(log.block_number);
+        state.logIndex = uint64(log.log_index);
         state.time = uint64(block.timestamp);
         state.observation = keccak256(abi.encode(log.chain_id, log.tx_hash, log.log_index));
-        state.price = uint128(observed);
+        state.price = observed;
         return true;
     }
 
-    function _route(
-        bytes32 workflow,
-        IReactive.LogRecord calldata log,
-        address cronSource,
-        bool market
-    ) private {
+    function _route(bytes32 workflow, IReactive.LogRecord calldata log, bool market) private {
         Entry storage entry = entries[workflow];
         if (paused[workflow]) {
-            _wakeIfDue(workflow, entry, log, cronSource);
+            _wakeIfDue(workflow, entry, log);
             return;
         }
         P.Run memory run;
@@ -606,8 +641,8 @@ contract WorkflowAgentV2 is AbstractPayer {
                     || log.block_number <= entry.lasnaAfter || block.timestamp < entry.nextDue
             ) return;
             if (entry.dip) {
-                PriceState storage state =
-                    prices[entry.originChain][ChainConfig.get(entry.originChain).pair];
+                (, address dipPair,,) = _market(entry.originChain);
+                PriceState storage state = prices[entry.originChain][dipPair];
                 run.observed = state.price;
                 run.previous = state.previousPrice;
                 run.observationTime = state.time;
@@ -621,18 +656,15 @@ contract WorkflowAgentV2 is AbstractPayer {
                 if (!market) return;
                 PriceState storage state = prices[entry.originChain][log._contract];
                 PriceHigh storage high = highs[workflow];
-                uint128 closedPrice = state.previousPrice;
-                bool spikeWick = automationChain == ChainConfig.REACTIVE_MAINNET
-                    && state.priorPrice != 0
-                    && uint256(closedPrice) * 20 >= uint256(state.priorPrice) * 21
-                    && uint256(closedPrice) * 20 >= uint256(state.price) * 21;
+                uint128 sustained =
+                    state.previousPrice < state.price ? state.previousPrice : state.price;
                 if (
-                    closedPrice > high.value && !spikeWick && state.previousTime >= entry.nextDue
+                    sustained > high.value && state.previousTime >= entry.nextDue
                         && (entry.originChain != entry.chain
                             || state.previousBlockNumber > entry.originAfter)
                 ) {
-                    high.value = closedPrice;
-                    high.blockNumber = uint64(state.previousBlockNumber);
+                    high.value = sustained;
+                    high.blockNumber = state.previousBlockNumber;
                 }
                 WorkflowMeta storage info = meta[workflow];
                 uint256 refPrice = (info.flags & FLAG_REF_PENDING) != 0
@@ -652,15 +684,17 @@ contract WorkflowAgentV2 is AbstractPayer {
                 if (log.data.length != 32) return;
                 uint256 amount = abi.decode(log.data, (uint256));
                 if (amount == 0) return;
-                address sourceToken = entry.trigger == P.PAYMENT
-                    ? ChainConfig.get(entry.originChain).usdc
-                    : entry.source;
+                address sourceToken = entry.source;
+                if (entry.trigger == P.PAYMENT) {
+                    (sourceToken,,,) = _market(entry.originChain);
+                }
                 address watched = entry.trigger == P.PAYMENT ? address(0) : entry.subject;
-                if (log._contract != sourceToken || log.topic_0 != TRANSFER) return;
+                if (
+                    log._contract != sourceToken || log.topic_0 != TRANSFER
+                        || log.topic_1 == log.topic_2
+                ) return;
                 if (watched == address(0)) {
-                    if (log.topic_2 != uint160(vaults[entry.chain]) || log.topic_1 == log.topic_2) {
-                        return;
-                    }
+                    if (log.topic_2 != uint160(vaults[entry.chain])) return;
                 } else if (log.topic_1 != uint160(watched) && log.topic_2 != uint160(watched)) {
                     return;
                 }
@@ -671,6 +705,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                             : log.topic_1
                     )
                 );
+                if (!validator.canTriggerTransfer(programs[entry.hash], amount, run.actor)) return;
                 run.observed = amount;
                 run.observationTime = uint64(block.timestamp);
             }
@@ -753,7 +788,6 @@ contract WorkflowAgentV2 is AbstractPayer {
             emit QueueDropped(workflow, runId);
             return;
         }
-        pendingCount += 1;
         queue.push(
             Pending({
                 programHash: run.programHash,
@@ -769,14 +803,24 @@ contract WorkflowAgentV2 is AbstractPayer {
         emit Queued(workflow, runId, run.observed, run.actor);
     }
 
-    /// @notice Retries every active workflow's waiting list on a cron tick.
+    /// @notice Retries eligible active workflows' waiting lists on a cron tick.
     /// @dev Retrying an expired workflow retires it and shrinks `active`, so the index only moves
     /// when the workflow it pointed at is still present.
-    function _retryFromCron() private {
+    function _retryFromCron(IReactive.LogRecord calldata log) private {
         uint256 index;
         while (index < active.length) {
             bytes32 workflow = active[index];
-            _retryPending(workflow);
+            if (pending[workflow].length != 0) {
+                uint64 target = wakeAt[workflow];
+                if (
+                    retryWaiting[workflow]
+                        || (budgets[workflow].known && block.timestamp >= _resetAt(workflow))
+                ) {
+                    _retryPending(workflow);
+                } else if (target != 0 && (log.topic_1 == target || log.block_number >= target)) {
+                    _pin(workflow, _resetAt(workflow));
+                }
+            }
             if (index < active.length && active[index] == workflow) ++index;
         }
     }
@@ -832,21 +876,23 @@ contract WorkflowAgentV2 is AbstractPayer {
         _syncPendingSchedule(workflow);
     }
 
-    /// @notice Removes one parked run with a swap-and-pop.
+    /// @notice Removes one parked run while preserving FIFO order.
     function _removePending(bytes32 workflow, uint256 index) private {
         Pending[] storage queue = pending[workflow];
         uint256 last = queue.length - 1;
-        if (index != last) queue[index] = queue[last];
+        for (uint256 i = index; i < last;) {
+            queue[i] = queue[i + 1];
+            unchecked {
+                ++i;
+            }
+        }
         queue.pop();
-        pendingCount -= 1;
     }
 
     /// @notice Drops every parked run for a workflow whose epoch or trigger just changed.
     function _clearPending(bytes32 workflow) private {
-        uint256 count = pending[workflow].length;
-        if (count == 0) return;
+        if (pending[workflow].length == 0) return;
         delete pending[workflow];
-        pendingCount -= count;
         _setRetryWaiting(workflow, false);
     }
 
@@ -880,8 +926,12 @@ contract WorkflowAgentV2 is AbstractPayer {
         _setRetryWaiting(workflow, false);
         if (!paused[workflow]) {
             uint64 reset = _resetAt(workflow);
-            if (hasRecoverable && block.timestamp < reset) _pin(workflow, reset);
-            else _unpin(workflow);
+            if (hasRecoverable && block.timestamp < reset) {
+                uint64 current = wakeAt[workflow];
+                if (current == 0 || block.number >= current) _pin(workflow, reset);
+            } else {
+                _unpin(workflow);
+            }
         }
     }
 
@@ -907,7 +957,8 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// transfer triggers keep watching because their origin log is the only copy of the run.
     function _pause(bytes32 workflow, Entry storage entry) private {
         if (paused[workflow]) return;
-        _triggerFilters(entry, false);
+        paused[workflow] = true;
+        _triggerFilters(entry, !paused[workflow]);
         _enterPause(workflow, entry);
     }
 
@@ -925,7 +976,7 @@ contract WorkflowAgentV2 is AbstractPayer {
         paused[workflow] = false;
         meta[workflow].cooldownUntil = 0;
         _unpin(workflow);
-        _triggerFilters(entry, true);
+        _triggerFilters(entry, !paused[workflow]);
         emit WatchingResumed(workflow, entry.epoch);
     }
 
@@ -933,12 +984,9 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev Before the reset it only moves the pin forward; on or after the reset it restores the
     /// normal filters and lets the next cron tick dispatch. Lasna allows a reactive contract to
     /// replace its own subscription from inside react(), which is what makes the re-pin possible.
-    function _wakeIfDue(
-        bytes32 workflow,
-        Entry storage entry,
-        IReactive.LogRecord calldata log,
-        address cronSource
-    ) private {
+    function _wakeIfDue(bytes32 workflow, Entry storage entry, IReactive.LogRecord calldata log)
+        private
+    {
         uint64 target = wakeAt[workflow];
         if (
             target == 0 || log.chain_id != automationChain || log._contract != cronSource
@@ -976,10 +1024,7 @@ contract WorkflowAgentV2 is AbstractPayer {
     }
 
     function _filterCron(uint256 topic1, bool enabled) private {
-        _filter(
-            Filter(automationChain, ChainConfig.get(automationChain).cronSource, CRON, topic1, ANY),
-            enabled
-        );
+        _filter(Filter(automationChain, cronSource, CRON, topic1, ANY), enabled);
     }
 
     /// @notice First `Cron100` block expected at or after `reset`, or zero when it has passed.
@@ -987,12 +1032,12 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// the estimate lands shortly before reset and is corrected by another pin instead of resuming late.
     function _wakeBlock(uint64 reset) private view returns (uint64) {
         if (reset <= block.timestamp) return 0;
-        uint256 blockMs =
-            automationChain == ChainConfig.REACTIVE_MAINNET ? MAINNET_BLOCK_MS : LASNA_BLOCK_MS;
-        uint256 blocksLeft = (uint256(reset - block.timestamp) * 1_000 + blockMs - 1) / blockMs;
-        uint256 target = ((block.number + blocksLeft + 99) / 100) * 100;
-        if (target > type(uint64).max) return 0;
-        return uint64(target);
+        unchecked {
+            uint256 blocksLeft = (uint256(reset - block.timestamp) * 1_000 + blockMs - 1) / blockMs;
+            uint256 target = ((block.number + blocksLeft + 99) / 100) * 100;
+            if (target > type(uint64).max) return 0;
+            return uint64(target);
+        }
     }
 
     /// @notice The next reset the mirrored budget will apply.
@@ -1016,33 +1061,29 @@ contract WorkflowAgentV2 is AbstractPayer {
     /// @dev The mirrored budget is never larger than the Vault's own spend and never newer than the
     /// week the Vault would settle against, so this can only suppress runs the Vault would skip.
     function _budgetBlocks(bytes32 workflow, uint256 observed) private view returns (bool) {
-        Budget storage budget = budgets[workflow];
-        if (!budget.known) return false;
-        uint128 usdcSpent = budget.usdcSpent;
-        uint128 wethSpent = budget.wethSpent;
-        if (block.timestamp >= uint256(budget.weekStart) + WEEK + WEEK_SKEW) {
-            usdcSpent = 0;
-            wethSpent = 0;
-        }
-        return _budgetBlocksFrom(workflow, observed, budget, usdcSpent, wethSpent);
+        return _budgetBlocksAt(workflow, observed, uint64(block.timestamp));
     }
 
     /// @notice True when every leaf would be rejected even with the spend reset to zero.
     /// @dev A path above the configured limit can never run; such a workflow is paused without a
     /// reset wake, and only a budget edit that admits a path brings it back.
     function _budgetBlocksFresh(bytes32 workflow, uint256 observed) private view returns (bool) {
-        Budget storage budget = budgets[workflow];
-        if (!budget.known) return false;
-        return _budgetBlocksFrom(workflow, observed, budget, 0, 0);
+        return _budgetBlocksAt(workflow, observed, _resetAt(workflow));
     }
 
-    function _budgetBlocksFrom(
-        bytes32 workflow,
-        uint256 observed,
-        Budget storage budget,
-        uint128 usdcSpent,
-        uint128 wethSpent
-    ) private view returns (bool) {
+    function _budgetBlocksAt(bytes32 workflow, uint256 observed, uint64 asOf)
+        private
+        view
+        returns (bool)
+    {
+        Budget storage budget = budgets[workflow];
+        if (!budget.known) return false;
+        uint128 usdcSpent = budget.usdcSpent;
+        uint128 wethSpent = budget.wethSpent;
+        if (asOf >= uint256(budget.weekStart) + WEEK + WEEK_SKEW) {
+            usdcSpent = 0;
+            wethSpent = 0;
+        }
         uint256[] storage plan = paths[workflow];
         uint256 count = plan.length;
         if (count == 0) return false;
@@ -1105,6 +1146,7 @@ contract WorkflowAgentV2 is AbstractPayer {
                             || usdcSpent < budget.usdcSpent
                             || wethSpent < budget.wethSpent)))
         ) return;
+        uint64 prevWeek = budget.weekStart;
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
         if (entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE) {
@@ -1121,20 +1163,36 @@ contract WorkflowAgentV2 is AbstractPayer {
                 _pause(workflow, entry);
             }
         }
+        if (!paused[workflow] && prevWeek != weekStart) _unpin(workflow);
         _retryPending(workflow);
     }
 
-    /// @notice Keeps the mirrored reference price in step with the Vault's ReferenceSynced log.
-    function _syncReference(IReactive.LogRecord calldata log) private {
-        if (
-            log.data.length != 32 || log.block_number > type(uint48).max
-                || log.log_index > type(uint32).max
-        ) return;
+    function _syncVaultEvent(IReactive.LogRecord calldata log) private {
         bytes32 workflow = bytes32(log.topic_1);
         Entry storage entry = entries[workflow];
         if (
-            entry.trigger != P.PRICE || log.chain_id != entry.chain
+            entry.trigger == 0 || log.chain_id != entry.chain
                 || log._contract != vaults[entry.chain] || log.topic_2 != entry.epoch
+        ) return;
+        if (log.topic_0 == CLOSED) {
+            if (entry.once) {
+                _stop(workflow, entry);
+                emit Disabled(workflow, entry.epoch);
+            }
+            return;
+        }
+        if (log.data.length != 32) return;
+        if (log.topic_0 == GRACE_STARTED) {
+            if (entry.trigger != P.SCHEDULE || !entry.inactivity) return;
+            uint64 eligibleAt = abi.decode(log.data, (uint64));
+            if (eligibleAt == 0) return;
+            uint64 target = eligibleAt + GRACE_SKEW;
+            if (target < entry.nextDue) entry.nextDue = target;
+            return;
+        }
+        if (
+            entry.trigger != P.PRICE || log.block_number > type(uint48).max
+                || log.log_index > type(uint32).max
         ) return;
         uint128 nextReference = abi.decode(log.data, (uint128));
         if (nextReference == 0) return;

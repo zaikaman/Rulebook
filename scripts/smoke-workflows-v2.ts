@@ -1139,22 +1139,49 @@ async function main() {
             args,
           }),
         );
-        const confirmed = await fundsNet.public.readContract({
-          address: vault,
-          abi: workflowVaultV2Abi,
-          functionName: 'authorizations',
-          args: [id],
-        });
-        throwIfAborted();
-        await send(
-          automation,
-          agent,
-          encodeFunctionData({
-            abi: workflowAgentV2Abi,
-            functionName: 'enable',
-            args: [id, epoch, encoded, title, confirmed[2]],
+        const [confirmed, weekly] = await Promise.all([
+          fundsNet.public.readContract({
+            address: vault,
+            abi: workflowVaultV2Abi,
+            functionName: 'authorizations',
+            args: [id],
           }),
-        );
+          weeklyUsdc > 0n
+            ? fundsNet.public.readContract({
+                address: vault,
+                abi: workflowVaultV2Abi,
+                functionName: 'weeklyBudget',
+                args: [id],
+              })
+            : Promise.resolve(null),
+        ]);
+        throwIfAborted();
+        const enableData = weekly
+          ? encodeFunctionData({
+              abi: workflowAgentV2Abi,
+              functionName: 'enableWithBudget',
+              args: [
+                id,
+                epoch,
+                encoded,
+                title,
+                confirmed[2],
+                {
+                  usdcLimit: weekly[0],
+                  wethLimit: weekly[1],
+                  usdcSpent: weekly[2],
+                  wethSpent: weekly[3],
+                  weekStart: weekly[6] >= 604_800n ? weekly[6] - 604_800n : 0n,
+                  revision: weekly[7],
+                },
+              ],
+            })
+          : encodeFunctionData({
+              abi: workflowAgentV2Abi,
+              functionName: 'enable',
+              args: [id, epoch, encoded, title, confirmed[2]],
+            });
+        await send(automation, agent, enableData);
         const window = {
           automation: await automation.public.getBlockNumber(),
           funds: await fundsNet.public.getBlockNumber(),

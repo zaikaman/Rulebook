@@ -75,6 +75,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     error StaleObservation();
     error SettlementInterrupted();
     error InsufficientVaultBalance(address asset, uint256 required, uint256 available);
+    error InsufficientRefillAllowance(uint256 required, uint256 available);
+    error InsufficientOwnerBalance(uint256 required, uint256 available);
 
     event Authorized(bytes32 indexed workflow, bytes32 indexed programHash, uint64 epoch);
     event WeeklyBudgetSet(
@@ -92,6 +94,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     event Revoked(bytes32 indexed workflow, uint64 epoch);
     event CheckIn(bytes32 indexed workflow, uint64 timestamp);
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
+    event GraceStarted(bytes32 indexed workflow, uint64 indexed epoch, uint64 eligibleAt);
     event ReferenceSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 referencePrice);
     event Outcome(
         bytes32 indexed workflow,
@@ -114,7 +117,6 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     address public immutable factory;
     address public immutable callbackProxy;
     uint32 public immutable chain;
-    WorkflowProgramValidatorV2 public immutable validator;
     address public owner;
     address public agent;
     bytes32 public paymentWorkflow;
@@ -135,7 +137,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         uint32 chain_,
         Networks memory cfg,
         WorkflowProgramValidatorV2 validator_
-    ) AbstractCallback(proxy) WorkflowProtocolsV2(cfg) {
+    ) AbstractCallback(proxy) WorkflowProtocolsV2(cfg, validator_) {
         if (
             proxy == address(0) || (owner_ == address(0)) != (agent_ == address(0))
                 || !P.isFundsChain(chain_)
@@ -151,7 +153,6 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         factory = msg.sender;
         callbackProxy = proxy;
         chain = chain_;
-        validator = validator_;
         if (owner_ != address(0)) {
             owner = owner_;
             agent = agent_;
@@ -400,6 +401,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                 || reason == StaleObservation.selector || reason == DuplicateOrigin.selector
                 || reason == WeeklyBudgetExceeded.selector
                 || reason == InsufficientVaultBalance.selector
+                || reason == InsufficientRefillAllowance.selector
+                || reason == InsufficientOwnerBalance.selector
                 ? SKIPPED
                 : FAILED;
             _outcome(workflow, runId, run.epoch, status, NO_PATH, reason);
@@ -451,22 +454,26 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                 revert StaleObservation();
             }
             _guardOraclePrice(ctx.market, run.observed);
-            memory_.positionBlock = run.originBlock;
-            memory_.positionIndex = run.originLogIndex;
-            if (run.observed > memory_.peak) memory_.peak = uint128(run.observed);
+            ctx.price = program.originChain == chain ? _price(ctx.market) : run.observed;
             if (
-                run.high > memory_.peak && _isOracleConsistent(ctx.market, run.high)
+                ctx.price > memory_.peak
+                    && _isPeakOracleConsistent(ctx.market, ctx.price, memory_.lastCheckIn)
+            ) {
+                memory_.peak = _toUint128Price(ctx.price);
+            }
+            if (
+                run.high > memory_.peak
+                    && _isPeakOracleConsistent(ctx.market, run.high, memory_.lastCheckIn)
                     && (run.originChain != chain
                         || run.highBlock > authorizations[workflow].originAfter)
             ) {
                 memory_.peak = run.high;
             }
-            ctx.price = program.originChain == chain ? _price(ctx.market) : run.observed;
         }
 
         if (run.activityTime > memory_.activity) {
             memory_.activity = run.activityTime;
-            memory_.eligibleAt = 0;
+            if (run.activityTime > memory_.lastCheckIn) memory_.eligibleAt = 0;
         }
 
         uint8 cursor;
@@ -489,7 +496,10 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             if (memory_.eligibleAt == 0) {
                 memory_.eligibleAt = uint64(block.timestamp) + PAYOUT_GRACE;
             }
-            if (block.timestamp < memory_.eligibleAt) return (IN_GRACE_PERIOD, cursor);
+            if (block.timestamp < memory_.eligibleAt) {
+                emit GraceStarted(workflow, run.epoch, memory_.eligibleAt);
+                return (IN_GRACE_PERIOD, cursor);
+            }
         }
 
         bool spends = _spends(actions);
@@ -500,19 +510,29 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             consumedPayments[origin] = true;
         }
         _actions(_settlementBudget(workflow), program, run, runId, actions, ctx);
+        if (program.trigger == P.PRICE) {
+            memory_.positionBlock = run.originBlock;
+            memory_.positionIndex = run.originLogIndex;
+        }
         if (ctx.swapped) {
-            memory_.referencePrice = uint128(ctx.price);
+            uint128 refPrice = _toUint128Price(ctx.price);
+            memory_.referencePrice = refPrice;
             if (
                 !program.once
                     && (P.hasCheck(program, P.ABOVE_REFERENCE)
                         || P.hasCheck(program, P.BELOW_REFERENCE))
             ) {
-                emit ReferenceSynced(workflow, run.epoch, uint128(ctx.price));
+                emit ReferenceSynced(workflow, run.epoch, refPrice);
             }
         } else if (ctx.referenceSeeded && !program.once) {
             emit ReferenceSynced(workflow, run.epoch, memory_.referencePrice);
         }
-        if (ctx.dip) consumedDips[workflow][run.observationId] = true;
+        if (ctx.dip) {
+            memory_.referencePrice = _toUint128Price(ctx.price);
+            if (run.observationId != bytes32(0)) {
+                consumedDips[workflow][run.observationId] = true;
+            }
+        }
         if (program.once) {
             memory_.closed = true;
             authorizations[workflow].active = false;
@@ -557,9 +577,9 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
-        if (check == P.DIP_BY) {
+        if (check == P.DIP_BY && _usesOriginPrice(program)) {
             if (
-                run.observed == 0 || run.previous == 0 || !ctx.dipAvailable
+                run.observed == 0 || !ctx.dipAvailable
                     || uint256(run.observationTime) + Math.min(PRICE_MAX_AGE, program.interval)
                         < block.timestamp
             ) return false;
@@ -579,10 +599,18 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.PRICE_BELOW) return price < threshold;
         if (check == P.PRICE_OUTSIDE) return price < threshold || price > node.upper;
         if (check == P.DIP_BY) {
-            _guardOraclePrice(ctx.market, run.previous);
-            uint256 target = Math.mulDiv(run.previous, P.BPS - threshold, P.BPS);
-            bool dipped = run.observed <= target && price <= target;
-            ctx.dip = ctx.dip || dipped;
+            uint256 baseline = memory_.referencePrice;
+            if (baseline == 0) {
+                memory_.referencePrice = _toUint128Price(price);
+                return false;
+            }
+            uint256 target = Math.mulDiv(baseline, P.BPS - threshold, P.BPS);
+            bool dipped = price <= target;
+            if (dipped) {
+                ctx.dip = true;
+            } else if (price > baseline) {
+                memory_.referencePrice = _toUint128Price(price);
+            }
             return dipped;
         }
         if (check == P.PRICE_RISES_THROUGH) {
@@ -601,7 +629,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             referencePrice = memory_.peak;
         } else if (referencePrice == 0) {
             referencePrice = node.upper == 0 ? run.observed : node.upper;
-            memory_.referencePrice = uint128(referencePrice);
+            memory_.referencePrice = _toUint128Price(referencePrice);
             ctx.referenceSeeded = true;
         }
         if (check == P.ABOVE_REFERENCE) {
@@ -637,7 +665,12 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                 if (action.kind == P.REFILL) {
                     uint256 balance = IERC20(usdc).balanceOf(address(this));
                     if (balance >= ctx.refillThreshold) revert NoLongerEligible();
-                    amount = Math.min(amount, ctx.refillThreshold - balance);
+                    uint256 needed = Math.min(amount, ctx.refillThreshold - balance);
+                    uint256 allowed = IERC20(usdc).allowance(owner, address(this));
+                    if (allowed == 0) revert InsufficientRefillAllowance(needed, 0);
+                    uint256 ownerBalance = IERC20(usdc).balanceOf(owner);
+                    if (ownerBalance == 0) revert InsufficientOwnerBalance(needed, 0);
+                    amount = Math.min(needed, Math.min(allowed, ownerBalance));
                 }
                 usdcSpent += amount;
                 if (
@@ -713,6 +746,11 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         address account
     ) private {
         emit Step(runId, index, kind, amount, received, account);
+    }
+
+    function _toUint128Price(uint256 price) private pure returns (uint128) {
+        if (price == 0 || price > type(uint128).max) revert InvalidMarket();
+        return uint128(price);
     }
 
     function _settlementBudget(bytes32 workflow) private returns (WeeklyBudget storage budget) {

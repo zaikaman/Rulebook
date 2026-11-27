@@ -59,6 +59,20 @@ const reasons = new Map<string, FailureReason>([
     },
   ],
   [
+    toFunctionSelector('InsufficientRefillAllowance(uint256,uint256)'),
+    {
+      message: 'The owner wallet had no USDC allowance approved for this refill.',
+      recovery: 'allowance',
+    },
+  ],
+  [
+    toFunctionSelector('InsufficientOwnerBalance(uint256,uint256)'),
+    {
+      message: 'The owner wallet did not hold enough USDC for this refill.',
+      recovery: 'balances',
+    },
+  ],
+  [
     toFunctionSelector('ERC20InsufficientBalance(address,uint256,uint256)'),
     {
       message: 'The wallet or Vault had insufficient tokens.',

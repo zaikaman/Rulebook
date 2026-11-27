@@ -162,6 +162,76 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "enableWithBudget",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "title",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "originAfter",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "budgetSeed",
+        "type": "tuple",
+        "internalType": "struct WorkflowAgentV2.BudgetSeed",
+        "components": [
+          {
+            "name": "usdcLimit",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "wethLimit",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "usdcSpent",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "wethSpent",
+            "type": "uint128",
+            "internalType": "uint128"
+          },
+          {
+            "name": "weekStart",
+            "type": "uint64",
+            "internalType": "uint64"
+          },
+          {
+            "name": "revision",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ]
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "entries",
     "inputs": [
       {
@@ -878,11 +948,6 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "error",
-    "name": "InvalidAmount",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidWorkflow",
     "inputs": []
   },
@@ -1358,6 +1423,19 @@ export const workflowVaultV2Abi = [
         "name": "",
         "type": "uint8",
         "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_PEAK_DEVIATION_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint16",
+        "internalType": "uint16"
       }
     ],
     "stateMutability": "view"
@@ -2371,6 +2449,31 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "GraceStarted",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "eligibleAt",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Observation",
     "inputs": [
       {
@@ -2564,6 +2667,38 @@ export const workflowVaultV2Abi = [
     "type": "error",
     "name": "DuplicateOrigin",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InsufficientOwnerBalance",
+    "inputs": [
+      {
+        "name": "required",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InsufficientRefillAllowance",
+    "inputs": [
+      {
+        "name": "required",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -2903,6 +3038,64 @@ export const workflowProgramValidatorV2Abi = [
   },
   {
     "type": "function",
+    "name": "canTriggerTransfer",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "decodePrice",
+    "inputs": [
+      {
+        "name": "poolFee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "usdcIsToken0",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint128",
+        "internalType": "uint128"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "inspectForAgent",
     "inputs": [
       {
@@ -2966,6 +3159,65 @@ export const workflowProgramValidatorV2Abi = [
       }
     ],
     "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "readOracle",
+    "inputs": [
+      {
+        "name": "ethUsdFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdcUsdFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "sequencerFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "ethFeedMaxAge",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "usdcFeedMaxAge",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "ethFeedScale",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcFeedScale",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ethRoundId",
+        "type": "uint80",
+        "internalType": "uint80"
+      },
+      {
+        "name": "usdcUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3108,8 +3360,72 @@ export const workflowProgramValidatorV2Abi = [
     "stateMutability": "pure"
   },
   {
+    "type": "function",
+    "name": "verifyHistoricalPeak",
+    "inputs": [
+      {
+        "name": "ethUsdFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "hasUsdcFeed",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "ethFeedScale",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "latestRoundId",
+        "type": "uint80",
+        "internalType": "uint80"
+      },
+      {
+        "name": "usdcUsd",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "peak",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "since",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "error",
+    "name": "InvalidAmount",
+    "inputs": []
+  },
+  {
     "type": "error",
     "name": "InvalidProgram",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OracleUnavailable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SequencerUnavailable",
     "inputs": []
   }
 ] as const;

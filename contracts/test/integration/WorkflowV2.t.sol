@@ -22,6 +22,10 @@ contract WorkflowV2Test is Test {
 
     function testScheduleAcceptsBalanceBranch() public view {
         validator.validateProgram(abi.encode(_scheduledTopUp()));
+
+        P.Program memory payRefill = _scheduledTopUp();
+        payRefill.trigger = P.PAYMENT;
+        assertTrue(validator.canTriggerTransfer(abi.encode(payRefill), 100_000, address(0xBEEF)));
     }
 
     function testRejectsDisconnectedAndDuplicateBranchNodes() public {
@@ -509,8 +513,11 @@ contract WorkflowV2SettlementTest is Test {
         payment.data = abi.encode(3e6);
         vm.prank(address(system));
         agent.react(payment);
-        _deliverRequest(0);
-        assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.SKIPPED());
+        assertEq(system.requestCount(), 0, "wrong sender is filtered before callback");
+
+        P.Run memory wrongSenderRun = _run(101, P.PAYMENT, 3e6);
+        wrongSenderRun.actor = RECIPIENT;
+        assertEq(_deliver(wrongSenderRun), vault.SKIPPED());
 
         payment.topic_1 = uint160(OWNER);
         payment.block_number = 102;
@@ -518,7 +525,7 @@ contract WorkflowV2SettlementTest is Test {
         payment.data = abi.encode(8e6);
         vm.prank(address(system));
         agent.react(payment);
-        _deliverRequest(1);
+        _deliverRequest(0);
         assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.FAILED());
 
         payment.block_number = 103;
@@ -526,7 +533,7 @@ contract WorkflowV2SettlementTest is Test {
         payment.data = abi.encode(3e6);
         vm.prank(address(system));
         agent.react(payment);
-        _deliverRequest(2);
+        _deliverRequest(1);
         assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
         assertEq(usdc.balanceOf(RECIPIENT), 0.75e6);
     }
@@ -534,29 +541,20 @@ contract WorkflowV2SettlementTest is Test {
     function testDipSignalIsConsumedOnlyAfterOneTrade() public {
         _enable(_program(P.SCHEDULE, _branch(P.DIP_BY, 500, _action(P.BUY, 1e6, address(0)))));
         usdc.mint(address(vault), 3e6);
+        // First tick seeds reference baseline at $2,000 without buying.
+        _price(2_000_000);
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
+        // 5% dip to $1,900 triggers one buy and resets baseline to $1,900.
         _price(1_900_000);
-        P.Run memory run = _run(101, P.SCHEDULE, 1.9e18);
-        run.previous = 2e18;
-        run.observationId = keccak256("dip");
-        assertEq(_deliver(run), vault.CONFIRMED());
-        run.originTransaction = bytes32(uint256(102));
-        assertEq(_deliver(run), vault.SKIPPED());
-        bytes32 original = run.observationId;
-        P.Run memory rising = _run(106, P.SCHEDULE, 2.1e18);
-        rising.previous = 2e18;
-        rising.observationId = keccak256("rising price");
-        assertEq(_deliver(rising), vault.SKIPPED());
-        run.originTransaction = bytes32(uint256(103));
-        run.observationId = keccak256("another dip");
-        assertEq(_deliver(run), vault.CONFIRMED());
-        run.originTransaction = bytes32(uint256(104));
-        run.observationId = original;
-        assertEq(_deliver(run), vault.SKIPPED());
-        run.originTransaction = bytes32(uint256(105));
-        run.observationId = keccak256("stale dip");
-        vm.warp(vm.getBlockTimestamp() + 1 hours + 1);
-        run.expiresAt = uint64(vm.getBlockTimestamp() + 10 minutes);
-        assertEq(_deliver(run), vault.SKIPPED());
+        assertEq(_deliver(_run(102, P.SCHEDULE, 0)), vault.CONFIRMED());
+        // Repeating tick at $1,900 does not double-buy.
+        assertEq(_deliver(_run(103, P.SCHEDULE, 0)), vault.SKIPPED());
+        // Recovery to $2,100 raises the reference baseline cleanly.
+        _price(2_100_000);
+        assertEq(_deliver(_run(104, P.SCHEDULE, 0)), vault.SKIPPED());
+        // Next >=5% dip back to $1,900 buys again.
+        _price(1_900_000);
+        assertEq(_deliver(_run(105, P.SCHEDULE, 0)), vault.CONFIRMED());
         assertEq(router.swapCount(), 2);
     }
 
@@ -632,8 +630,9 @@ contract WorkflowV2SettlementTest is Test {
         _price(1_000_000);
         _sync(101, 1_000_000);
         _sync(102, 2_000_000);
+        _sync(103, 2_000_000);
         assertEq(system.requestCount(), 0, "rising prices do not waste callbacks");
-        _sync(103, 1_500_000);
+        _sync(104, 1_500_000);
         assertEq(system.requestCount(), 1, "drawdown dispatches once with the recorded peak");
         _price(1_500_000);
         _deliverRequest(0);
@@ -703,17 +702,17 @@ contract WorkflowV2SettlementTest is Test {
         transfer.tx_hash = 102;
         vm.prank(address(system));
         agent.react(transfer);
-        _deliverRequest(0);
-        assertEq(vault.outcomes(_runId(transfer.tx_hash)), vault.SKIPPED());
+        assertEq(system.requestCount(), 0, "equal-to-threshold transfer filtered pre-callback");
+        assertEq(_deliver(_run(102, P.TRANSFER, 2e6)), vault.SKIPPED());
         transfer.data = abi.encode(type(uint256).max);
         transfer.tx_hash = 103;
         vm.prank(address(system));
         agent.react(transfer);
-        _deliverRequest(1);
+        _deliverRequest(0);
         assertEq(vault.outcomes(_runId(transfer.tx_hash)), vault.CONFIRMED());
         vm.prank(address(system));
         agent.react(transfer);
-        assertEq(system.requestCount(), 2);
+        assertEq(system.requestCount(), 1);
     }
 
     function testRefillPullsOnlyTheDeficitAndRespectsAllowance() public {
@@ -722,7 +721,7 @@ contract WorkflowV2SettlementTest is Test {
         );
         usdc.mint(OWNER, 5e6);
         usdc.mint(address(vault), 1.8e6);
-        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.FAILED());
+        assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
         vm.prank(OWNER);
         usdc.approve(address(vault), 1e6);
         assertEq(_deliver(_run(102, P.SCHEDULE, 0)), vault.CONFIRMED());
@@ -960,18 +959,20 @@ contract WorkflowV2SettlementTest is Test {
         weth.mint(address(vault), 1 ether);
 
         _sync(101, 2_000_000);
-        _sync(102, 1_800_000);
+        _sync(102, 2_000_000);
+        _sync(103, 1_800_000);
         assertEq(system.requestCount(), 1);
 
-        // Inside cooldown: price rallies to 3_000 then drops to 2_500; cooldown throttles 2_500
-        // but highs[workflow] still records 3_000.
+        // Inside cooldown: price rallies to 3_000 across 2 blocks then drops to 2_500;
+        // cooldown throttles 2_500 but highs[workflow] still records sustained 3_000.
         vm.warp(vm.getBlockTimestamp() + 10);
-        _sync(103, 3_000_000);
-        _sync(104, 2_500_000);
+        _sync(104, 3_000_000);
+        _sync(105, 3_000_000);
+        _sync(106, 2_500_000);
         assertEq(system.requestCount(), 1);
 
         vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN());
-        _sync(105, 2_600_000);
+        _sync(107, 2_600_000);
         assertEq(system.requestCount(), 2);
         CallbackConfiguration memory req = system.requestAt(1);
         (,, P.Run memory decoded) = abi.decode(_slice(req.payload, 4), (address, bytes32, P.Run));
@@ -1175,6 +1176,336 @@ contract WorkflowV2SettlementTest is Test {
         _price(2_340_000);
         _sync(102, 2_340_000);
         assertEq(system.requestCount(), 2, "compound trailing with higher-peak branch dispatches");
+        _deliverRequest(1);
+        assertEq(router.swapCount(), 1);
+    }
+
+    function testInactivityPausedPreservesWatchAndValidatesCheckInOrdering() public {
+        P.Program memory inactProg = _program(
+            P.SCHEDULE, _branch(P.INACTIVITY, 1 days, _action(P.INACTIVITY_PAYOUT, 1e6, RECIPIENT))
+        );
+        inactProg.once = true;
+        _enable(inactProg);
+        usdc.mint(address(vault), 2e6);
+        uint256 start = vm.getBlockTimestamp();
+
+        // Pause inactivity workflow on budget exhaustion.
+        _syncBudget(1e6, 1e6, 1);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        // Real human activity (OWNER -> RECIPIENT USDC Transfer) while paused MUST still be recorded.
+        vm.warp(start + 12 hours);
+        IReactive.LogRecord memory transfer = _paymentLog(601, 10e6);
+        transfer.topic_1 = uint160(OWNER);
+        transfer.topic_2 = uint160(RECIPIENT);
+        vm.prank(address(system));
+        agent.react(transfer);
+
+        // Increase budget and resume, then reach grace period.
+        _syncBudget(2e6, 1e6, 2);
+        if (agent.watchingPaused(WORKFLOW)) agent.resumeWatching(WORKFLOW);
+        assertFalse(agent.watchingPaused(WORKFLOW));
+
+        // Stale run with older activityTime does NOT reset eligibleAt once grace starts.
+        vm.warp(start + 1 days + 12 hours + 1 minutes);
+        P.Run memory staleRun = _run(602, P.SCHEDULE, 0);
+        staleRun.activityTime = uint64(start);
+        assertEq(_deliver(staleRun), vault.IN_GRACE_PERIOD());
+        (,,,, uint64 eligibleBefore,,,) = vault.workflowMemory(WORKFLOW);
+        assertGt(eligibleBefore, 0);
+
+        vm.prank(OWNER);
+        vault.checkIn(WORKFLOW);
+        (,, uint64 checkInAt,, uint64 eligibleAfterCheckIn,,,) = vault.workflowMemory(WORKFLOW);
+        assertEq(eligibleAfterCheckIn, 0);
+        assertGt(checkInAt, start + 1 days);
+    }
+
+    function testOutOfOrderCrossingCallbacksDoNotTriggerStaleObservation() public {
+        P.Program memory fallProg = _program(
+            P.PRICE, _branch(P.PRICE_FALLS_THROUGH, 2e18, _action(P.SEND, 1e6, RECIPIENT))
+        );
+        fallProg.once = true;
+        _enable(fallProg);
+        usdc.mint(address(vault), 5e6);
+
+        // Newer non-crossing callback N+1 arrives FIRST (SKIPPED): must NOT lock out earlier crossing N.
+        _price(1_950_000);
+        P.Run memory runNPlus1 = _run(701, P.PRICE, 1.95e18);
+        runNPlus1.previous = 1.98e18;
+        runNPlus1.originBlock = 200;
+        runNPlus1.originLogIndex = 5;
+        assertEq(_deliver(runNPlus1), vault.SKIPPED());
+
+        // Earlier crossing callback N now arrives out-of-order: succeeds without StaleObservation!
+        _price(1_980_000);
+        P.Run memory runN = _run(702, P.PRICE, 1.98e18);
+        runN.previous = 2.02e18;
+        runN.originBlock = 199;
+        runN.originLogIndex = 1;
+        assertEq(_deliver(runN), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+
+        // Same guarantees for PRICE_RISES_THROUGH.
+        P.Program memory riseProg = _program(
+            P.PRICE, _branch(P.PRICE_RISES_THROUGH, 2e18, _action(P.SEND, 1e6, RECIPIENT))
+        );
+        riseProg.once = false;
+        bytes memory encoded = abi.encode(riseProg);
+        bytes32 riseId = keccak256("out of order rise");
+        vm.startPrank(OWNER);
+        vault.authorize(riseId, 1, encoded, "Rise OOO");
+        agent.enable(riseId, 1, encoded, "Rise OOO", uint64(block.number));
+        vm.stopPrank();
+
+        _price(2_050_000);
+        P.Run memory riseNPlus1 = _run(703, P.PRICE, 2.05e18);
+        riseNPlus1.programHash = keccak256(encoded);
+        riseNPlus1.previous = 2.02e18;
+        riseNPlus1.originBlock = 300;
+        riseNPlus1.originLogIndex = 5;
+        vm.prank(PROXY);
+        vault.execute(address(agent), riseId, riseNPlus1);
+        assertEq(
+            vault.outcomes(
+                keccak256(
+                    abi.encode(
+                        address(agent),
+                        riseId,
+                        riseNPlus1.originChain,
+                        riseNPlus1.originTransaction,
+                        uint64(5)
+                    )
+                )
+            ),
+            vault.SKIPPED()
+        );
+
+        _price(2_020_000);
+        P.Run memory riseN = _run(704, P.PRICE, 2.02e18);
+        riseN.programHash = keccak256(encoded);
+        riseN.previous = 1.98e18;
+        riseN.originBlock = 299;
+        riseN.originLogIndex = 1;
+        vm.prank(PROXY);
+        vault.execute(address(agent), riseId, riseN);
+        assertEq(
+            vault.outcomes(
+                keccak256(
+                    abi.encode(
+                        address(agent),
+                        riseId,
+                        riseN.originChain,
+                        riseN.originTransaction,
+                        uint64(1)
+                    )
+                )
+            ),
+            vault.CONFIRMED()
+        );
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+
+        // Truly older observation AFTER CONFIRMED still reverts StaleObservation in settle() -> SKIPPED(StaleObservation).
+        P.Run memory trulyStale = _run(705, P.PRICE, 2.02e18);
+        trulyStale.programHash = keccak256(encoded);
+        trulyStale.previous = 1.98e18;
+        trulyStale.originBlock = 298;
+        trulyStale.originLogIndex = 0;
+        bytes32 staleId = keccak256(
+            abi.encode(
+                address(agent),
+                riseId,
+                trulyStale.originChain,
+                trulyStale.originTransaction,
+                uint64(0)
+            )
+        );
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit WorkflowVaultV2.Outcome(
+            riseId,
+            staleId,
+            1,
+            vault.SKIPPED(),
+            type(uint8).max,
+            WorkflowVaultV2.StaleObservation.selector
+        );
+        vm.prank(PROXY);
+        vault.execute(address(agent), riseId, trulyStale);
+        assertEq(vault.outcomes(staleId), vault.SKIPPED());
+    }
+
+    function testRefillClampsToAllowanceAndBalanceAndSkipsOnZeroBalance() public {
+        _enable(
+            _program(P.SCHEDULE, _branch(P.USDC_BELOW, 2e6, _action(P.REFILL, 1e6, address(0))))
+        );
+        usdc.mint(address(vault), 1e6);
+
+        // 1. Owner balance == 0 even with approval -> SKIPPED(InsufficientOwnerBalance).
+        vm.prank(OWNER);
+        usdc.approve(address(vault), 5e6);
+        assertEq(_deliver(_run(801, P.SCHEDULE, 0)), vault.SKIPPED());
+
+        // 2. Owner balance > 0, allowance == 0 -> SKIPPED(InsufficientRefillAllowance).
+        usdc.mint(OWNER, 5e6);
+        vm.prank(OWNER);
+        usdc.approve(address(vault), 0);
+        assertEq(_deliver(_run(802, P.SCHEDULE, 0)), vault.SKIPPED());
+
+        // 3. Partial allowance clamps pull to 0.3e6 instead of reverting.
+        vm.prank(OWNER);
+        usdc.approve(address(vault), 0.3e6);
+        assertEq(_deliver(_run(803, P.SCHEDULE, 0)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(address(vault)), 1.3e6);
+
+        // 4. Partial owner balance clamps pull to owner's remaining 0.2e6 instead of reverting.
+        vm.prank(OWNER);
+        usdc.transfer(RECIPIENT, 4.5e6); // owner left with 0.2e6
+        vm.prank(OWNER);
+        usdc.approve(address(vault), 5e6);
+        assertEq(_deliver(_run(804, P.SCHEDULE, 0)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(address(vault)), 1.5e6);
+        assertEq(usdc.balanceOf(OWNER), 0);
+    }
+
+    function testInactivityLongIntervalEmitsGraceStartedAndPullsNextDueForward() public {
+        P.Program memory prog = _program(
+            P.SCHEDULE, _branch(P.INACTIVITY, 2 days, _action(P.INACTIVITY_PAYOUT, 1e6, RECIPIENT))
+        );
+        prog.once = true;
+        prog.interval = 30 days;
+        _enable(prog);
+        usdc.mint(address(vault), 2e6);
+
+        vm.warp(vm.getBlockTimestamp() + 2 days + 1 minutes);
+        vm.recordLogs();
+        _cron(1);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        (,,,, uint64 eligibleAt,,,) = vault.workflowMemory(WORKFLOW);
+        assertGt(eligibleAt, 0);
+
+        // Forward GraceStarted to Agent -> nextDue pulls forward to eligibleAt + GRACE_SKEW (2 min).
+        uint256 graceSig = uint256(keccak256("GraceStarted(bytes32,uint64,uint64)"));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == address(vault) && logs[i].topics[0] == bytes32(graceSig)) {
+                IReactive.LogRecord memory gLog;
+                gLog.chain_id = P.UNICHAIN_SEPOLIA;
+                gLog._contract = address(vault);
+                gLog.topic_0 = graceSig;
+                gLog.topic_1 = uint256(logs[i].topics[1]);
+                gLog.topic_2 = uint256(logs[i].topics[2]);
+                gLog.data = logs[i].data;
+                gLog.block_number = block.number;
+                gLog.tx_hash = 900 + i;
+                gLog.log_index = i;
+                vm.prank(address(system));
+                agent.react(gLog);
+            }
+        }
+
+        // Fires payout ~24h later without waiting 30 days.
+        vm.warp(eligibleAt + 2 minutes);
+        _cron(2);
+        assertEq(system.requestCount(), 2, "nextDue pulled forward past 24h grace");
+        _deliverRequest(1);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+    }
+
+    function testTransferWithSubjectRejectsSelfTransfers() public {
+        P.Program memory prog =
+            _program(P.TRANSFER, _branch(P.AMOUNT_ABOVE, 1e6, _action(P.ALERT, 0, address(0))));
+        prog.source = address(usdc);
+        prog.subject = OWNER;
+        _enable(prog);
+
+        IReactive.LogRecord memory selfTx = _paymentLog(951, 10e6);
+        selfTx._contract = address(usdc);
+        selfTx.topic_1 = uint160(OWNER);
+        selfTx.topic_2 = uint160(OWNER);
+        vm.prank(address(system));
+        agent.react(selfTx);
+        assertEq(system.requestCount(), 0, "self-transfer with subject != 0 rejected");
+
+        IReactive.LogRecord memory outTx = _paymentLog(952, 10e6);
+        outTx._contract = address(usdc);
+        outTx.topic_1 = uint160(OWNER);
+        outTx.topic_2 = uint160(RECIPIENT);
+        vm.prank(address(system));
+        agent.react(outTx);
+        assertEq(system.requestCount(), 1);
+    }
+
+    function testEnableRejectsAlreadyExpiredAndZeroOracleGuardsExtremeSpot() public {
+        P.Program memory expiredProg = _program(P.SCHEDULE, _path(_action(P.ALERT, 0, address(0))));
+        expiredProg.expires = uint64(block.timestamp + 10);
+        bytes memory encoded = abi.encode(expiredProg);
+        bytes32 expId = keccak256("already expired");
+        vm.startPrank(OWNER);
+        vault.authorize(expId, 1, encoded, "Expired");
+        vm.warp(block.timestamp + 10);
+        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        agent.enable(expId, 1, encoded, "Expired", uint64(block.number));
+        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        agent.enableWithBudget(
+            expId,
+            1,
+            encoded,
+            "Expired",
+            uint64(block.number),
+            WorkflowAgentV2.BudgetSeed(0, 0, 0, 0, 0, 0)
+        );
+        vm.stopPrank();
+
+        // Zero-oracle testnet cleanly rejects extreme reserve ratio spot > uint128.max with InvalidMarket.
+        _enable(_program(P.SCHEDULE, _branch(P.DIP_BY, 500, _action(P.BUY, 1e6, address(0)))));
+        pair.setReserves(type(uint112).max, 1);
+        P.Run memory run = _run(960, P.SCHEDULE, 0);
+        bytes32 expectedRunId = keccak256(
+            abi.encode(address(agent), WORKFLOW, LASNA, bytes32(uint256(960)), uint64(0))
+        );
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit WorkflowVaultV2.Outcome(
+            WORKFLOW,
+            expectedRunId,
+            1,
+            vault.FAILED(),
+            type(uint8).max,
+            WorkflowProtocolsV2.InvalidMarket.selector
+        );
+        assertEq(_deliver(run), vault.FAILED());
+    }
+
+    function testGradualMultiSwapDipConfirmsOnSameChainCronWithoutSyncSubscription() public {
+        P.Program memory prog =
+            _program(P.SCHEDULE, _branch(P.DIP_BY, 500, _action(P.BUY, 1e6, address(0))));
+        _enable(prog);
+        usdc.mint(address(vault), 2e6);
+
+        assertFalse(
+            system.isSubscribed(
+                P.UNICHAIN_SEPOLIA,
+                ChainConfig.unichainSepolia().pair,
+                uint256(keccak256("Sync(uint112,uint112)"))
+            ),
+            "same-chain DIP_BY does not subscribe to Sync"
+        );
+
+        _price(2_000_000);
+        _cron(1);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        assertEq(router.swapCount(), 0);
+
+        // 10 consecutive -0.6% swaps cumulating to -5.85% dip (~$1,883): next Cron triggers buy.
+        uint112 spot = 2_000_000;
+        for (uint256 i; i < 10; ++i) {
+            spot = uint112((uint256(spot) * 9_940) / 10_000);
+            _price(spot);
+        }
+        vm.warp(vm.getBlockTimestamp() + 1 hours);
+        _cron(2);
+        assertEq(system.requestCount(), 2);
         _deliverRequest(1);
         assertEq(router.swapCount(), 1);
     }

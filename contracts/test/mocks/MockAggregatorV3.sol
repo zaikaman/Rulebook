@@ -3,6 +3,14 @@ pragma solidity 0.8.29;
 
 /// @notice Configurable Chainlink AggregatorV3 test double for price and sequencer uptime feeds.
 contract MockAggregatorV3 {
+    struct RoundData {
+        int256 answer;
+        uint256 startedAt;
+        uint256 updatedAt;
+        uint80 answeredInRound;
+        bool exists;
+    }
+
     uint8 private _decimals;
     uint80 private _roundId;
     int256 private _answer;
@@ -11,6 +19,7 @@ contract MockAggregatorV3 {
     uint80 private _answeredInRound;
     bool private _reverts;
     bool private _decimalsReverts;
+    mapping(uint80 => RoundData) private _rounds;
 
     constructor(uint8 decimals_, int256 answer_, uint256 startedAt_, uint256 updatedAt_) {
         _decimals = decimals_;
@@ -19,6 +28,7 @@ contract MockAggregatorV3 {
         _startedAt = startedAt_;
         _updatedAt = updatedAt_;
         _answeredInRound = 1;
+        _rounds[1] = RoundData(answer_, startedAt_, updatedAt_, 1, true);
     }
 
     function setDecimals(uint8 decimals_) external {
@@ -31,6 +41,7 @@ contract MockAggregatorV3 {
         _startedAt = block.timestamp;
         _updatedAt = block.timestamp;
         _answeredInRound = _roundId;
+        _rounds[_roundId] = RoundData(answer_, _startedAt, _updatedAt, _answeredInRound, true);
     }
 
     function setRound(
@@ -45,6 +56,7 @@ contract MockAggregatorV3 {
         _startedAt = startedAt_;
         _updatedAt = updatedAt_;
         _answeredInRound = answeredInRound_;
+        _rounds[roundId_] = RoundData(answer_, startedAt_, updatedAt_, answeredInRound_, true);
     }
 
     function setReverts(bool reverts_) external {
@@ -58,6 +70,22 @@ contract MockAggregatorV3 {
     function decimals() external view returns (uint8) {
         if (_decimalsReverts) revert("decimals");
         return _decimals;
+    }
+
+    function getRoundData(uint80 roundId_)
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        )
+    {
+        RoundData memory r = _rounds[roundId_];
+        if (_reverts || !r.exists) revert("round");
+        return (roundId_, r.answer, r.startedAt, r.updatedAt, r.answeredInRound);
     }
 
     function latestRoundData()

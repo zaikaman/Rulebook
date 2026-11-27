@@ -724,27 +724,32 @@ contract WorkflowWeeklyBudgetTest is Test {
     function testLongSchedulePausesImmediatelyUponBudgetExhaustion() public {
         P.Program memory program =
             _program(P.SCHEDULE, _branch(P.DIP_BY, 500, _action(P.SEND, 1e6, RECIPIENT)));
-        program.interval = 7 days;
+        program.interval = 4 days;
         _enable(program, 1e6, 0);
         usdc.mint(address(vault), 3e6);
         vm.warp(MONDAY + 1 hours);
 
-        _syncPrice(1, 2_000_000);
-        _syncPrice(2, 1_800_000);
+        _price(2_000_000);
+        _cron(1);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 0, "first tick seeds reference baseline");
+
+        vm.warp(MONDAY + 4 days + 2 hours);
         _price(1_800_000);
         uint256 unsubscribesBefore = system.unsubscribeCount();
-        _cron(3);
-        assertEq(system.requestCount(), 1);
+        _cron(2);
+        assertEq(system.requestCount(), 2);
         vm.recordLogs();
-        _deliverRequest(0);
+        _deliverRequest(1);
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
         _forwardBudget();
 
-        // Must pause immediately in _syncBudget without waiting 7 days for nextDue.
+        // Must pause immediately in _syncBudget without waiting 4 days for nextDue.
         assertTrue(agent.watchingPaused(WORKFLOW), "long schedule pauses right on sync");
         uint64 wake = agent.wakeBlock(WORKFLOW);
         assertGt(wake, 0, "pinned wake is scheduled for Monday reset");
-        assertEq(system.unsubscribeCount(), unsubscribesBefore + 2, "cron and sync removed");
+        assertEq(system.unsubscribeCount(), unsubscribesBefore + 1, "cron removed");
         assertEq(system.lastSubscribedTopic1(), wake, "only the exact reset block is subscribed");
     }
 
@@ -880,6 +885,276 @@ contract WorkflowWeeklyBudgetTest is Test {
             matches += 1;
         }
         assertEq(matches, 1);
+    }
+
+    function testCronPinningDoesNotChurnWhenScheduleActiveAndPaymentParked() public {
+        bytes32 schedWf = keccak256("active schedule workflow");
+        P.Program memory schedProg = _program(P.SCHEDULE, _path(_action(P.ALERT, 0, address(0))));
+        schedProg.interval = 30 days;
+        bytes memory schedEncoded = abi.encode(schedProg);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(schedWf, 1, schedEncoded, "Active schedule", 0, 0);
+        agent.enable(schedWf, 1, schedEncoded, "Active schedule", uint64(block.number));
+        vm.stopPrank();
+
+        P.Program memory payProg = _program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        payProg.usdcCap = 5e6;
+        _enable(payProg, 1e6, 0);
+        usdc.mint(address(vault), 5e6);
+        vm.warp(MONDAY + 1 hours);
+
+        // Exhaust weekly limit on the payment workflow, then park an incoming payment.
+        vm.recordLogs();
+        assertEq(_deliver(_paymentRun(101, 5e6)), vault.CONFIRMED());
+        _forwardBudget();
+
+        IReactive.LogRecord memory blockedPay;
+        blockedPay.chain_id = P.UNICHAIN_SEPOLIA;
+        blockedPay._contract = ChainConfig.unichainSepolia().usdc;
+        blockedPay.topic_0 = uint256(keccak256("Transfer(address,address,uint256)"));
+        blockedPay.topic_1 = uint160(RECIPIENT);
+        blockedPay.topic_2 = uint160(address(vault));
+        blockedPay.block_number = 102;
+        blockedPay.tx_hash = 102;
+        blockedPay.data = abi.encode(5e6);
+        vm.prank(address(system));
+        agent.react(blockedPay);
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+
+        uint64 initialWake = agent.wakeBlock(WORKFLOW);
+        assertGt(initialWake, 0);
+        uint256 subsBefore = system.subscribeCount();
+        uint256 unsubsBefore = system.unsubscribeCount();
+
+        // 20 intermediate Cron ticks while schedule keeps wildcard CRON active must NOT re-pin wake.
+        for (uint256 i = 1; i <= 20; ++i) {
+            vm.warp(block.timestamp + 2 seconds);
+            _cron(i);
+        }
+        assertEq(agent.wakeBlock(WORKFLOW), initialWake);
+        assertEq(system.subscribeCount(), subsBefore, "no churn subscribes on intermediate ticks");
+        assertEq(
+            system.unsubscribeCount(), unsubsBefore, "no churn unsubscribes on intermediate ticks"
+        );
+    }
+
+    function testDustTransfersBlockedPreCallbackAndParkedPaymentsRetryFifo() public {
+        P.Node[] memory n1 = new P.Node[](5);
+        n1[0] = _check(P.PAYMENT_FROM, 0, 0, 1, 3);
+        n1[1] = _check(P.AMOUNT_AT_LEAST, 5e6, 0, 2, 4);
+        n1[2] = _leaf(P.Action(P.SEND, P.PERCENT, 1000, RECIPIENT));
+        P.Program memory program = _program(P.PAYMENT, n1);
+        program.subject = OWNER;
+        program.usdcCap = 10e6;
+        _enable(program, 5e6, 0);
+        usdc.mint(address(vault), 20e6);
+        vm.warp(MONDAY + 1 hours);
+
+        // First two valid 25e6 payments spend 5e6 (10% each), exhausting the 5e6 weekly budget.
+        vm.recordLogs();
+        for (uint64 k = 200; k < 202; ++k) {
+            P.Run memory firstRun = _paymentRun(k, 25e6);
+            firstRun.actor = OWNER;
+            assertEq(_deliver(firstRun), vault.CONFIRMED());
+        }
+        _forwardBudget();
+
+        // 10 dust / wrong-sender transfers while budget is blocked: zero callbacks and zero parked runs.
+        IReactive.LogRecord memory log;
+        log.chain_id = P.UNICHAIN_SEPOLIA;
+        log._contract = ChainConfig.unichainSepolia().usdc;
+        log.topic_0 = uint256(keccak256("Transfer(address,address,uint256)"));
+        log.topic_2 = uint160(address(vault));
+        uint256 reqsBefore = system.requestCount();
+        for (uint256 i = 1; i <= 10; ++i) {
+            log.topic_1 = i <= 5 ? uint160(address(0xD057)) : uint160(OWNER);
+            log.data = abi.encode(i <= 5 ? 10e6 : 4e6);
+            log.block_number = 300 + i;
+            log.tx_hash = 300 + i;
+            vm.prank(address(system));
+            agent.react(log);
+        }
+        assertEq(agent.pendingRuns(WORKFLOW), 0, "dust and unmatched transfers never fill pending");
+        assertEq(system.requestCount(), reqsBefore);
+
+        // 3 legitimate 6e6 / 7e6 / 8e6 payments from OWNER park in pending FIFO order.
+        log.topic_1 = uint160(OWNER);
+        for (uint256 i = 1; i <= 3; ++i) {
+            log.data = abi.encode((5 + i) * 1e6);
+            log.block_number = 400 + i;
+            log.tx_hash = 400 + i;
+            vm.prank(address(system));
+            agent.react(log);
+        }
+        assertEq(agent.pendingRuns(WORKFLOW), 3);
+
+        // Warp past Monday reset + skew: _retryPending must flush one per tick in strict FIFO order (6e6, 7e6, 8e6).
+        vm.warp(MONDAY + WEEK + WEEK_SKEW + 1);
+        uint64 wake = agent.wakeBlock(WORKFLOW);
+        _cronAt(wake);
+        assertEq(agent.pendingRuns(WORKFLOW), 2);
+        _cronAt(wake + 100);
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+        _cronAt(wake + 200);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        assertEq(system.requestCount(), reqsBefore + 3);
+        for (uint256 i; i < 3; ++i) {
+            CallbackConfiguration memory req = system.requestAt(reqsBefore + i);
+            bytes memory argsData = new bytes(req.payload.length - 4);
+            for (uint256 b; b < argsData.length; ++b) {
+                argsData[b] = req.payload[b + 4];
+            }
+            (,, P.Run memory decoded) = abi.decode(argsData, (address, bytes32, P.Run));
+            assertEq(decoded.observed, (6 + i) * 1e6, "parked payments must retry in FIFO order");
+        }
+    }
+
+    function testEnableWithBudgetPreventsInitialRaceAndPostDisableAmnesia() public {
+        bytes32 wf = keccak256("enable with budget race");
+        P.Program memory prog = _program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        prog.usdcCap = 2e6;
+        bytes memory encoded = abi.encode(prog);
+
+        // Authorize with 0.5e6 limit -> 1e6 SEND exceeds limit immediately.
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(wf, 1, encoded, "Budgeted payment", 0.5e6, 0);
+        agent.enableWithBudget(
+            wf,
+            1,
+            encoded,
+            "Budgeted payment",
+            uint64(block.number),
+            WorkflowAgentV2.BudgetSeed(0.5e6, 0, 0, 0, uint64(MONDAY), 1)
+        );
+        vm.stopPrank();
+        usdc.mint(address(vault), 5e6);
+
+        IReactive.LogRecord memory payment;
+        payment.chain_id = P.UNICHAIN_SEPOLIA;
+        payment._contract = ChainConfig.unichainSepolia().usdc;
+        payment.topic_0 = uint256(keccak256("Transfer(address,address,uint256)"));
+        payment.topic_1 = uint160(RECIPIENT);
+        payment.topic_2 = uint160(address(vault));
+        payment.block_number = 500;
+        payment.tx_hash = 500;
+        payment.data = abi.encode(2e6);
+        vm.prank(address(system));
+        agent.react(payment);
+        assertEq(system.requestCount(), 0, "initial over-budget payment parked instead of skipped");
+        assertEq(agent.pendingRuns(wf), 1);
+
+        // Disable then re-enable scheduled workflow with Vault's midweek spend (1e6 of 2e6):
+        // enableWithBudget retains spent = 1e6 so a 1.5e6 path enters paused immediately.
+        bytes32 schedWf = keccak256("post disable amnesia");
+        P.Program memory spendProg = _program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        spendProg.usdcCap = 2e6;
+        bytes memory spendEncoded = abi.encode(spendProg);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(schedWf, 1, spendEncoded, "Midweek spend", 2e6, 0);
+        agent.enableWithBudget(
+            schedWf,
+            1,
+            spendEncoded,
+            "Midweek spend",
+            uint64(block.number),
+            WorkflowAgentV2.BudgetSeed(2e6, 0, 0, 0, uint64(MONDAY), 1)
+        );
+        vm.stopPrank();
+
+        vm.warp(MONDAY + 1 hours);
+        P.Run memory spendRun;
+        spendRun.epoch = 1;
+        spendRun.programHash = keccak256(spendEncoded);
+        spendRun.originChain = LASNA;
+        spendRun.originTransaction = bytes32(uint256(501));
+        spendRun.originBlock = 501;
+        spendRun.expiresAt = uint64(block.timestamp + 10 minutes);
+        vm.prank(PROXY);
+        vault.execute(address(agent), schedWf, spendRun);
+
+        (uint96 uLim,, uint128 uSpent,,,, uint64 resetsAt, uint32 rev) = vault.weeklyBudget(schedWf);
+        assertEq(uSpent, 1e6);
+
+        P.Program memory biggerProg = _program(P.SCHEDULE, _path(_action(P.SEND, 1.5e6, RECIPIENT)));
+        biggerProg.usdcCap = 2e6;
+        bytes memory biggerEncoded = abi.encode(biggerProg);
+        vm.startPrank(OWNER);
+        agent.disable(schedWf, 1);
+        vault.revoke(schedWf, 1);
+        vault.authorizeWithWeeklyBudget(schedWf, 2, biggerEncoded, "Midweek spend v2", uLim, 0);
+        agent.enableWithBudget(
+            schedWf,
+            2,
+            biggerEncoded,
+            "Midweek spend v2",
+            uint64(block.number),
+            WorkflowAgentV2.BudgetSeed(
+                uLim, 0, uSpent, 0, resetsAt >= WEEK ? resetsAt - WEEK : 0, rev
+            )
+        );
+        vm.stopPrank();
+
+        assertTrue(agent.watchingPaused(schedWf), "re-enabled workflow honors midweek spend");
+    }
+
+    function testResumeWatchingRePinsMissedWakeBlockBeforeReset() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))), 1e6, 0);
+        usdc.mint(address(vault), 3e6);
+        vm.warp(MONDAY + 1 hours);
+
+        _cron(1);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _forwardBudget();
+        uint64 wake1 = agent.wakeBlock(WORKFLOW);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(wake1, 0);
+
+        // Advance block.number past wake1 BEFORE Monday reset + skew: resumeWatching re-pins cleanly.
+        vm.roll(wake1 + 50);
+        agent.resumeWatching(WORKFLOW);
+        uint64 wake2 = agent.wakeBlock(WORKFLOW);
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        assertGt(wake2, wake1);
+
+        // Before reaching wake2 and before reset, resumeWatching still reverts BudgetBlocked.
+        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        agent.resumeWatching(WORKFLOW);
+
+        // Same re-pin behavior for parked-pending PAYMENT workflows.
+        bytes32 payWf = keccak256("missed wake pending");
+        P.Program memory payProg = _program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        payProg.usdcCap = 2e6;
+        bytes memory payEncoded = abi.encode(payProg);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(payWf, 1, payEncoded, "Pay missed", 1e6, 0);
+        agent.enableWithBudget(
+            payWf,
+            1,
+            payEncoded,
+            "Pay missed",
+            uint64(block.number),
+            WorkflowAgentV2.BudgetSeed(1e6, 0, 1e6, 0, uint64(MONDAY), 1)
+        );
+        vm.stopPrank();
+
+        IReactive.LogRecord memory payment;
+        payment.chain_id = P.UNICHAIN_SEPOLIA;
+        payment._contract = ChainConfig.unichainSepolia().usdc;
+        payment.topic_0 = uint256(keccak256("Transfer(address,address,uint256)"));
+        payment.topic_1 = uint160(RECIPIENT);
+        payment.topic_2 = uint160(address(vault));
+        payment.block_number = block.number + 1;
+        payment.tx_hash = 700;
+        payment.data = abi.encode(2e6);
+        vm.prank(address(system));
+        agent.react(payment);
+        uint64 payWake1 = agent.wakeBlock(payWf);
+        assertGt(payWake1, 0);
+
+        vm.roll(payWake1 + 25);
+        agent.resumeWatching(payWf);
+        assertGt(agent.wakeBlock(payWf), payWake1);
     }
 
     function _injectBudget(uint96 usdcLimit, uint128 usdcSpent) private {

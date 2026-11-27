@@ -1006,14 +1006,41 @@ export function useWorkflowV2Wallet() {
           weekly.usdcLimit === budget.usdc &&
           weekly.wethLimit === budget.weth,
       );
+      const enableData =
+        confirmed.state[1] > 1n ||
+        confirmed.weekly.usdcLimit > 0n ||
+        confirmed.weekly.wethLimit > 0n
+          ? encodeFunctionData({
+              abi: workflowAgentV2Abi,
+              functionName: 'enableWithBudget',
+              args: [
+                id,
+                epoch,
+                encoded,
+                title,
+                confirmed.state[2],
+                {
+                  usdcLimit: confirmed.weekly.usdcLimit,
+                  wethLimit: confirmed.weekly.wethLimit,
+                  usdcSpent: confirmed.weekly.usdcSpent,
+                  wethSpent: confirmed.weekly.wethSpent,
+                  weekStart:
+                    confirmed.weekly.resetsAt >= 604_800n
+                      ? confirmed.weekly.resetsAt - 604_800n
+                      : 0n,
+                  revision: confirmed.weekly.revision,
+                },
+              ],
+            })
+          : encodeFunctionData({
+              abi: workflowAgentV2Abi,
+              functionName: 'enable',
+              args: [id, epoch, encoded, title, confirmed.state[2]],
+            });
       await send(
         automationChainId,
         agent,
-        encodeFunctionData({
-          abi: workflowAgentV2Abi,
-          functionName: 'enable',
-          args: [id, epoch, encoded, title, confirmed.state[2]],
-        }),
+        enableData,
         `Enable ${title} on ${automationName}.`,
         formatWorkflowCaps(program, budget),
       );
