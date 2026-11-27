@@ -1,6 +1,6 @@
 import { type Address, type FundsChainId } from '@rulebook/shared';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import { BaseError } from 'viem';
 import { useAccount } from 'wagmi';
@@ -10,6 +10,7 @@ import { useAccountSetup, type SetupWallet } from '../hooks/useAccountSetup.js';
 import { useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
 import { CreateAccount } from '../pages/CreateAccount.js';
+import { linkedAccountQueryKey } from '../workflows/useLinkedAccount.js';
 import { AppShell } from './AppShell.js';
 import { ErrorState } from './ErrorState.js';
 import { PageHeading } from './chrome/PageHeading.js';
@@ -37,6 +38,10 @@ export function WalletAccountSetupGate({
   findLinkedChain,
   fundingWallet,
   startWorkflow = false,
+  continueLabel,
+  exitHref,
+  exitLabel,
+  onLinked,
   workflowScope,
 }: GateProps & {
   wallet: SetupWallet;
@@ -46,6 +51,10 @@ export function WalletAccountSetupGate({
   findLinkedChain?: (owner: Address) => Promise<LinkedAccount | null>;
   fundingWallet?: SetupFundingWallet;
   startWorkflow?: boolean;
+  continueLabel?: string;
+  exitHref?: string;
+  exitLabel?: string;
+  onLinked?: (account: LinkedAccount) => void;
   workflowScope?: string;
 }) {
   const { mode, defaultFundsChainId } = useNetworkMode();
@@ -55,7 +64,7 @@ export function WalletAccountSetupGate({
   const owner = isReconnecting ? undefined : (address?.toLowerCase() as Address | undefined);
   const setup = useAccountSetup({ owner, wallet, scope: workflowScope, chainId: resolvedChainId });
   const existingLinked = useQuery({
-    queryKey: ['wallet-setup-linked-chain', mode, owner, workflowScope],
+    queryKey: linkedAccountQueryKey(mode, owner),
     enabled: Boolean(owner && findLinkedChain),
     queryFn: () => findLinkedChain!(owner!),
     retry: false,
@@ -67,6 +76,26 @@ export function WalletAccountSetupGate({
     Boolean(fundingWallet && owner && agent && vault && linked) &&
     (setup.resuming || setup.setupSucceeded) &&
     fundingDoneFor !== fundingKey;
+
+  useEffect(() => {
+    if (setup.setupSucceeded && owner && agent && vault && linked) {
+      const account: LinkedAccount = { agent, vault, chain: resolvedChainId };
+      const key = linkedAccountQueryKey(mode, owner);
+      void queryClient.cancelQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData(key, account);
+      onLinked?.(account);
+    }
+  }, [
+    agent,
+    linked,
+    mode,
+    onLinked,
+    owner,
+    queryClient,
+    resolvedChainId,
+    setup.setupSucceeded,
+    vault,
+  ]);
 
   if (
     isReconnecting ||
@@ -118,12 +147,23 @@ export function WalletAccountSetupGate({
           onChainChange={onChainChange}
           fundingWallet={fundingWallet}
           startWorkflow={startWorkflow}
+          continueLabel={continueLabel}
+          exitHref={exitHref}
+          exitLabel={exitLabel}
           onFundingComplete={
             fundingKey
               ? () => {
                   setFundingDoneFor(fundingKey);
+                  if (owner && agent && vault && linked) {
+                    const account: LinkedAccount = { agent, vault, chain: resolvedChainId };
+                    const key = linkedAccountQueryKey(mode, owner);
+                    void queryClient.cancelQueries({ queryKey: key, exact: true });
+                    queryClient.setQueryData(key, account);
+                    onLinked?.(account);
+                  }
                   void queryClient.invalidateQueries({
-                    queryKey: ['wallet-setup-linked-chain', mode, owner],
+                    predicate: (query) =>
+                      query.queryKey[0] === 'workflow-v2' && query.queryKey[1] !== 'linked-account',
                   });
                 }
               : undefined

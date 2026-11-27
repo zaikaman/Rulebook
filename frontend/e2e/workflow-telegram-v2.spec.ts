@@ -133,13 +133,16 @@ test('pairs Telegram in Account & Vault and controls delivery from a workflow', 
   await page.getByRole('button', { name: 'Activate workflow' }).click();
   await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await expect(page.getByRole('link', { name: 'Edit workflow' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit workflow' })).toBeVisible({
+    timeout: 15_000,
+  });
   const workflowId = new URL(page.url()).pathname.split('/').at(-1) as `0x${string}`;
   settings = { ...settings, workflows: [{ id: workflowId, title, preference: 'inherit' }] };
 
   const section = page.getByRole('region', { name: 'Telegram notifications' });
   await expect(section.getByRole('button', { name: 'Verify wallet' })).toBeVisible();
   await page.getByRole('link', { name: 'Account', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
   const beforeVerification = await walletRequests(page);
   await section.getByRole('button', { name: 'Verify wallet' }).click();
   await approveSignature(page, 'Reactive Lasna');

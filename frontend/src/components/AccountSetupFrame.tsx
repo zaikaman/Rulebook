@@ -30,6 +30,8 @@ export function AccountSetupFrame({
   workflow = false,
   manageAccount = false,
   manageAccountHref = appRoutes.accountFunds,
+  exitHref,
+  exitLabel,
   automationNetwork = 'Reactive Lasna',
   vaultNetwork = 'Unichain Sepolia',
   isMainnet = false,
@@ -44,6 +46,8 @@ export function AccountSetupFrame({
   workflow?: boolean;
   manageAccount?: boolean;
   manageAccountHref?: string;
+  exitHref?: string;
+  exitLabel?: string;
   automationNetwork?: string;
   vaultNetwork?: string;
   isMainnet?: boolean;
@@ -194,9 +198,15 @@ export function AccountSetupFrame({
         </div>
 
         <div className="account-setup__links">
-          <Link to={withNetworkQuery(appRoutes.workflows, mode)} className="account-setup__exit">
+          <Link
+            to={withNetworkQuery(
+              exitHref ?? (connected ? appRoutes.marketplace : appRoutes.workflows),
+              mode,
+            )}
+            className="account-setup__exit"
+          >
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
-            {workflow ? 'Back to workflows' : 'Back to workflows'}
+            {exitLabel ?? (connected ? 'Browse Marketplace' : 'Back to workflows')}
           </Link>
           {manageAccount && (
             <Link className="account-setup__exit" to={withNetworkQuery(manageAccountHref, mode)}>

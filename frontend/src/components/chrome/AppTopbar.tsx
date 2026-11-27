@@ -19,6 +19,7 @@ function pageLabel(pathname: string): string {
   if (pathname.startsWith(`${appRoutes.runs}/`)) return 'Workflow proof';
   if (/^\/marketplace\/[^/]+$/.test(pathname)) return 'Listing';
   if (pathname === appRoutes.marketplace) return 'Marketplace';
+  if (pathname === appRoutes.setup) return 'Account setup';
   if (pathname === appRoutes.account || pathname === appRoutes.accountFunds)
     return 'Account & Vault';
   if (pathname.startsWith(appRoutes.proof)) return 'Workflow proof';

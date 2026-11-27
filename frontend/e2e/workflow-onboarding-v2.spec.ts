@@ -9,12 +9,20 @@ import {
   walletActions,
 } from 'viem';
 
-import { ANVIL_LASNA_RPC_URL, ANVIL_RPC_URL, FIXTURE_FRONTEND_URL } from './fixtureConfig';
+import {
+  ANVIL_LASNA_RPC_URL,
+  ANVIL_RPC_URL,
+  FIXTURE_FRONTEND_URL,
+  USER_ADDRESS,
+} from './fixtureConfig';
 import { installWallet, walletRequests } from './wallet';
 
 const OWNER = '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC';
+const UNSETUP_VISITOR = '0x14dC79964da2C08b23698B3D3cc7Ca32193d9955';
 
-test('guides a new wallet from the landing page through V2 setup and funding', async ({ page }) => {
+test('supports draft-first workflow building, gates activation through /setup, and returns to review', async ({
+  page,
+}) => {
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 375, height: 760 });
   await installWallet(page, OWNER, UNICHAIN_SEPOLIA_CHAIN_ID, {
@@ -41,9 +49,18 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
 
   await page.goto(FIXTURE_FRONTEND_URL);
   await page.getByRole('link', { name: 'Build a workflow' }).first().click();
-  await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
-  await expect(page.getByText('Step 1 of 5')).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0);
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/workflows/new');
+  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.getByRole('button', { name: 'Recurring transfer', exact: false }).click();
+  await page.getByLabel('Interval in seconds').fill('3600');
+  await page.getByLabel('USDC to send').fill('0.02');
+  await page.getByLabel('Recipient address').fill(USER_ADDRESS);
+  await page.getByRole('button', { name: 'Open in builder' }).click();
+  await page.getByRole('button', { name: 'Review workflow' }).click();
+  await expect(page.getByRole('heading', { name: 'Program review' })).toBeVisible();
 
   await Promise.all([
     chain.setBalance({ address: OWNER, value: 0n }),
@@ -51,6 +68,12 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   ]);
   try {
     await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+    await expect(page.getByText('Set up your account before activating')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Activate workflow' })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Set up account to activate' }).click();
+    await expect(page).toHaveURL(/\/setup\?/);
+    await expect(page.getByRole('navigation', { name: 'Workspace' })).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Get test tokens' })).toBeFocused();
     await expect(page.getByRole('link', { name: 'Get Lasna lREACT' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Get Unichain Sepolia ETH' })).toBeVisible();
@@ -77,7 +100,7 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
 
   await page.getByRole('link', { name: 'Manage vault funds' }).click();
   await expect(page.getByRole('heading', { name: 'Move test funds' })).toBeVisible();
-  await page.getByRole('link', { name: 'Back to account', exact: true }).click();
+  await page.getByRole('link', { name: 'Back to setup', exact: true }).click();
   await expect(review.getByRole('listitem')).toHaveCount(1);
   await page.getByRole('button', { name: 'Continue account setup' }).click();
   await expect(page.getByRole('heading', { name: 'Fund your account' })).toBeFocused();
@@ -87,7 +110,7 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   await expect(page.getByLabel('Vault USDC (USDC)')).toHaveValue('10');
 
   await page.getByRole('button', { name: 'Deposit funds' }).click();
-  await expect(page.getByRole('button', { name: 'Open Account & Vault' })).toBeVisible({
+  await expect(page.getByRole('button', { name: 'Return to workflow' })).toBeVisible({
     timeout: 60_000,
   });
   expect(
@@ -104,7 +127,15 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
     UNICHAIN_SEPOLIA_CHAIN_ID,
   ]);
 
-  await page.getByRole('button', { name: 'Open Account & Vault' }).click();
+  await page.getByRole('button', { name: 'Return to workflow' }).click();
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/workflows/new');
+  await expect(page.getByRole('heading', { name: 'Program review' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole('button', { name: 'Activate workflow' })).toBeEnabled();
+  await expect(page.getByText(/Step \d of 5/)).toHaveCount(0);
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/account');
   await expect(page.getByRole('heading', { name: 'Account & Vault' })).toBeVisible();
   await expect(page.locator('.rb-balance').filter({ hasText: 'Vault USDC' })).toContainText(
     /10\s*USDC/,
@@ -115,11 +146,35 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   await expect(page.locator('.rb-credit-row').filter({ hasText: 'Watching credit' })).toContainText(
     /0\.1\s*lREACT/,
   );
+});
 
-  await page.getByRole('link', { name: 'New workflow' }).click();
-  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/workflows/new');
-  await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
-  await page.getByRole('button', { name: 'Start from scratch' }).click();
-  await expect(page.getByRole('region', { name: 'Workflow graph' })).toBeVisible();
-  await expect(page.getByText(/Step \d of 5/)).toHaveCount(0);
+test('redirects connected unsetup wallets to /setup on personal routes while keeping public routes open', async ({
+  page,
+}) => {
+  await installWallet(page, UNSETUP_VISITOR, UNICHAIN_SEPOLIA_CHAIN_ID);
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows');
+  await expect(page.getByText('Connect a wallet to load your workflows')).toBeVisible({
+    timeout: 15_000,
+  });
+
+  await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await expect(page).toHaveURL(/\/setup\?next=%2Fworkflows/);
+  await expect(page.getByRole('heading', { name: 'Create your account' })).toBeVisible();
+
+  await page.getByRole('link', { name: 'Browse Marketplace' }).click();
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/marketplace');
+  await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible({ timeout: 15_000 });
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/proof');
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/proof');
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/cost');
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/cost');
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/activity');
+  await expect(page).toHaveURL(/\/setup\?next=%2Factivity/);
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/account');
+  await expect(page).toHaveURL(/\/setup\?next=%2Faccount/);
 });

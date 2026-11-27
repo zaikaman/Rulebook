@@ -41,7 +41,7 @@ export function LandingPage() {
 
             <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
               <Link
-                to={withNetworkQuery(appRoutes.create, mode)}
+                to={withNetworkQuery(appRoutes.newWorkflow, mode)}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
               >
                 <span>Build a workflow</span>

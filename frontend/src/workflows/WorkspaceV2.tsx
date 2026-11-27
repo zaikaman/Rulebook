@@ -52,6 +52,7 @@ import { z } from 'zod';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { WalletAccountSetupGate } from '@/components/AccountSetupGate';
+import { AccountSetupFrame } from '@/components/AccountSetupFrame';
 import { AppShell } from '@/components/AppShell';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
@@ -70,20 +71,18 @@ import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { Badge, Button, Callout, Select } from '@/ui';
-import { appRoutes } from '@/lib/routes';
+import { appRoutes, safeNextPath, setupHref } from '@/lib/routes';
+import { RequireAccountSetup, findLinkedWorkflowChain } from './useLinkedAccount';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
   configuredFundsChains,
-  readAgent,
   readFundsV2,
-  readVault,
   readWorkflowsV2,
   readWorkflowV2,
   settlementFactory,
   useWorkflowV2Wallet,
   v2Explorer,
   v2Network,
-  workflowActivationEnabled,
   workflowClient,
   type SettlementChain,
 } from './chainV2';
@@ -210,7 +209,7 @@ export function WorkflowsV2() {
         </p>
       )}
 
-      {workflows.length > 0 && <WorkflowCreditNotice owner={owner} />}
+      {owner && <WorkflowCreditNotice owner={owner} />}
 
       {!!owner && !!rows.data && (
         <div className="rb-metrics">
@@ -1405,47 +1404,68 @@ function exactUnits(value: bigint, decimals: number) {
   return trimmed ? `${whole}.${trimmed}` : whole;
 }
 
-async function findLinkedWorkflowChain(owner: Address, mode: NetworkMode = 'testnet') {
-  const agent = await readAgent(owner, undefined, mode);
-  if (agent === zeroAddress) return null;
-  const autoChain = automationChainFor(mode);
-  let lastError: unknown;
-  let checkedAny = false;
-  for (const chain of configuredFundsChains(mode)) {
-    try {
-      const vault = await readVault(owner, chain);
-      checkedAny = true;
-      if (vault === zeroAddress) continue;
-      const [linkedVault, linkedAgent] = await Promise.all([
-        workflowClient(autoChain).readContract({
-          address: agent,
-          abi: workflowAgentV2Abi,
-          functionName: 'vaults',
-          args: [chain],
-        }),
-        workflowClient(chain).readContract({
-          address: vault,
-          abi: workflowVaultV2Abi,
-          functionName: 'agent',
-        }),
-      ]);
-      if (isAddressEqual(linkedVault, vault) && isAddressEqual(linkedAgent, agent)) {
-        return { agent, vault, chain };
-      }
-    } catch (cause) {
-      lastError = cause;
-    }
-  }
-  if (!checkedAny && lastError) throw lastError;
-  return null;
+export function WorkflowsRouteV2() {
+  return <RequireAccountSetup title="Workflows">{() => <WorkflowsV2 />}</RequireAccountSetup>;
 }
 
-export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflow?: boolean }) {
-  const { setupWalletForChain, fundingWalletForChain } = useWorkflowV2Wallet();
-  const { mode, isMainnet, defaultFundsChainId, deployment } = useNetworkMode();
+export function WorkflowDetailRouteV2() {
+  return <RequireAccountSetup title="Workflow">{() => <WorkflowDetailV2 />}</RequireAccountSetup>;
+}
+
+export function WorkflowActivityRouteV2() {
+  return <RequireAccountSetup title="Activity">{() => <WorkflowActivityV2 />}</RequireAccountSetup>;
+}
+
+export function WorkflowAccountGuardedRoute() {
+  const { mode } = useNetworkMode();
   const [params] = useSearchParams();
   const credit = params.get('credit');
   const funding = credit === 'watching' || credit === 'execution' ? credit : undefined;
+  const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
+  const initialChain =
+    parsedChain.success && configuredFundsChains(mode).includes(parsedChain.data)
+      ? parsedChain.data
+      : undefined;
+
+  return (
+    <RequireAccountSetup title="Account & Vault">
+      {(linked) => (
+        <WorkflowAccountV2
+          key={`${mode}:${funding ?? 'default'}:${initialChain ?? linked?.chain ?? 'default'}`}
+          funding={funding}
+          initialChain={initialChain ?? linked?.chain}
+        />
+      )}
+    </RequireAccountSetup>
+  );
+}
+
+export function WorkflowSetupRouteV2() {
+  const { owner, setupWalletForChain, fundingWalletForChain } = useWorkflowV2Wallet();
+  const { mode, isMainnet, automationName, defaultFundsChainId, deployment } = useNetworkMode();
+  const [params] = useSearchParams();
+  const nextPath = safeNextPath(params.get('next'), appRoutes.workflows);
+  const nextUrl = new URL(nextPath, 'https://rulebook.local');
+  const isNewWorkflowNext = nextUrl.pathname.startsWith(appRoutes.newWorkflow);
+  const continueLabel =
+    nextUrl.pathname === appRoutes.newWorkflow && nextUrl.searchParams.get('review') === '1'
+      ? 'Return to workflow'
+      : isNewWorkflowNext
+        ? 'Start building'
+        : nextUrl.pathname.startsWith(appRoutes.account)
+          ? 'Open Account & Vault'
+          : nextUrl.pathname.startsWith(appRoutes.activity)
+            ? 'Open Activity'
+            : 'Open Workflows';
+  const exitHref = isNewWorkflowNext
+    ? (() => {
+        const draftParams = new URLSearchParams(nextUrl.searchParams);
+        draftParams.delete('review');
+        const query = draftParams.toString();
+        return query ? `${nextUrl.pathname}?${query}` : nextUrl.pathname;
+      })()
+    : undefined;
+  const exitLabel = isNewWorkflowNext ? 'Back to workflow draft' : undefined;
   const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
   const initialChain =
     parsedChain.success && configuredFundsChains(mode).includes(parsedChain.data)
@@ -1463,43 +1483,49 @@ export function WorkflowAccountRouteV2({ startWorkflow = false }: { startWorkflo
     chains.includes(selectedSetup.chain)
       ? selectedSetup.chain
       : (initialChain ?? defaultFundsChainId);
-  const builder = <Navigate to={withNetworkQuery(appRoutes.newWorkflow, mode)} replace />;
-  const accountFor = (chain: SettlementChain) => (
-    <AppShell>
-      <WorkflowAccountV2
-        key={`${mode}:${funding ?? 'default'}:${initialChain ?? chain}`}
-        funding={funding}
-        initialChain={initialChain ?? chain}
-      />
-    </AppShell>
-  );
+  const targetHref = withNetworkQuery(nextPath, mode);
   if (!deployment) {
-    if (startWorkflow) {
-      return isMainnet ? (
-        <AppShell>
-          <MainnetUnavailableCallout context="Account & Vault" />
+    if (isMainnet) {
+      return (
+        <AppShell focused>
+          <AccountSetupFrame
+            title="Account setup"
+            workflow
+            manageAccount={false}
+            manageAccountHref={appRoutes.accountFunds}
+            exitHref={exitHref}
+            exitLabel={exitLabel}
+            automationNetwork={automationName}
+            vaultNetwork={getChain(setupChain).name}
+            isMainnet
+            description={`Rulebook uses ${automationName} for automation and ${getChain(setupChain).name} for your vault.`}
+            step={1}
+            connected={Boolean(owner)}
+          >
+            <MainnetUnavailableCallout context="Account setup" />
+          </AccountSetupFrame>
         </AppShell>
-      ) : (
-        builder
       );
     }
-    return accountFor(setupChain);
+    return <Navigate to={targetHref} replace />;
   }
-  if (startWorkflow && !workflowActivationEnabled) return builder;
 
   return (
     <WalletAccountSetupGate
-      title="Account & Vault"
+      title="Account setup"
       chainId={setupChain}
       availableChains={chains}
       onChainChange={(nextChain) => setSelectedSetup({ mode, initialChain, chain: nextChain })}
-      findLinkedChain={(owner) => findLinkedWorkflowChain(owner, mode)}
+      findLinkedChain={(candidate) => findLinkedWorkflowChain(candidate, mode)}
       wallet={setupWalletForChain(setupChain)}
       fundingWallet={fundingWalletForChain(setupChain)}
-      startWorkflow={startWorkflow}
+      startWorkflow={isNewWorkflowNext}
+      continueLabel={continueLabel}
+      exitHref={exitHref}
+      exitLabel={exitLabel}
       workflowScope={`workflow-v2:${mode}:${deployment.automationFactory}:${deployment.unichain.factory}${deployment.base ? `:${deployment.base.factory}` : ''}`}
     >
-      {({ chain }) => (startWorkflow ? builder : accountFor(chain))}
+      {() => <Navigate to={targetHref} replace />}
     </WalletAccountSetupGate>
   );
 }
@@ -1731,15 +1757,23 @@ export function WorkflowAccountV2({
             )}
             {manage && (
               <Link
-                to={withNetworkQuery(
-                  chain === defaultFundsChainId
-                    ? appRoutes.account
-                    : `${appRoutes.account}?chain=${chain}`,
-                  mode,
-                )}
+                to={
+                  params.get('next')
+                    ? setupHref({
+                        next: params.get('next') ?? undefined,
+                        chain,
+                        mode,
+                      })
+                    : withNetworkQuery(
+                        chain === defaultFundsChainId
+                          ? appRoutes.account
+                          : `${appRoutes.account}?chain=${chain}`,
+                        mode,
+                      )
+                }
                 className="app-button"
               >
-                Back to account
+                {params.get('next') ? 'Back to setup' : 'Back to account'}
               </Link>
             )}
           </div>

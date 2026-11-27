@@ -110,7 +110,11 @@ export function useAccountSetup({
         queryClient.invalidateQueries({ queryKey: ['balance'] }),
         queryClient.invalidateQueries({ queryKey: ['readContract'] }),
         queryClient.invalidateQueries({ queryKey: ['mirror-account', owner] }),
-        scope && queryClient.invalidateQueries({ queryKey: ['workflow-v2'] }),
+        scope &&
+          queryClient.invalidateQueries({
+            predicate: (query) =>
+              query.queryKey[0] === 'workflow-v2' && query.queryKey[1] !== 'linked-account',
+          }),
       ]);
     },
   });

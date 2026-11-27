@@ -1,10 +1,17 @@
+import { fundsChainIdSchema } from '@rulebook/shared';
 import { Suspense, lazy, useEffect, useRef, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router';
 
 import { AppShell } from '../components/AppShell.js';
 import { LoadingRegion, PanelSkeleton } from '../components/chrome/Skeleton.js';
 import { OfflineState } from '../components/OfflineState.js';
-import { getUrlNetworkMode, useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
+import {
+  buildNetworkModeState,
+  getUrlNetworkMode,
+  useNetworkMode,
+  withNetworkQuery,
+} from '../lib/networkMode.js';
+import { appRoutes, setupHref } from '../lib/routes.js';
 import { LandingPage } from '../pages/LandingPage.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import '../styles/workflows.css';
@@ -17,6 +24,9 @@ import '../styles/app.css';
 const WorkflowBuilderV2 = lazy(async () => ({
   default: (await import('../workflows/BuilderV2.js')).WorkflowBuilderV2,
 }));
+const WorkflowEditRouteV2 = lazy(async () => ({
+  default: (await import('../workflows/BuilderV2.js')).WorkflowEditRouteV2,
+}));
 const WorkflowProof = lazy(async () => ({
   default: (await import('../workflows/WorkflowProof.js')).WorkflowProof,
 }));
@@ -26,17 +36,20 @@ const WorkflowProofLookup = lazy(async () => ({
 const WorkflowCost = lazy(async () => ({
   default: (await import('../workflows/WorkflowCost.js')).WorkflowCost,
 }));
-const WorkflowsV2 = lazy(async () => ({
-  default: (await import('../workflows/WorkspaceV2.js')).WorkflowsV2,
+const WorkflowsRouteV2 = lazy(async () => ({
+  default: (await import('../workflows/WorkspaceV2.js')).WorkflowsRouteV2,
 }));
-const WorkflowDetailV2 = lazy(async () => ({
-  default: (await import('../workflows/WorkspaceV2.js')).WorkflowDetailV2,
+const WorkflowDetailRouteV2 = lazy(async () => ({
+  default: (await import('../workflows/WorkspaceV2.js')).WorkflowDetailRouteV2,
 }));
-const WorkflowActivityV2 = lazy(async () => ({
-  default: (await import('../workflows/WorkspaceV2.js')).WorkflowActivityV2,
+const WorkflowActivityRouteV2 = lazy(async () => ({
+  default: (await import('../workflows/WorkspaceV2.js')).WorkflowActivityRouteV2,
 }));
-const WorkflowAccountRouteV2 = lazy(async () => ({
-  default: (await import('../workflows/WorkspaceV2.js')).WorkflowAccountRouteV2,
+const WorkflowSetupRouteV2 = lazy(async () => ({
+  default: (await import('../workflows/WorkspaceV2.js')).WorkflowSetupRouteV2,
+}));
+const WorkflowAccountGuardedRoute = lazy(async () => ({
+  default: (await import('../workflows/WorkspaceV2.js')).WorkflowAccountGuardedRoute,
 }));
 const WorkflowAccountV2 = lazy(async () => ({
   default: (await import('../workflows/WorkspaceV2.js')).WorkflowAccountV2,
@@ -75,6 +88,21 @@ function WorkspaceLayout() {
 function WorkflowAccountFundsRoute() {
   const { mode } = useNetworkMode();
   return <WorkflowAccountV2 key={mode} manage />;
+}
+
+function CreateRouteRedirect() {
+  const { mode } = useNetworkMode();
+  const [params] = useSearchParams();
+  const effectiveMode = getUrlNetworkMode(`?${params.toString()}`) ?? mode;
+  const effectiveChains = buildNetworkModeState(effectiveMode).configuredFundsChains;
+  const parsedChain = fundsChainIdSchema.safeParse(Number(params.get('chain')));
+  const chain =
+    parsedChain.success && effectiveChains.includes(parsedChain.data)
+      ? parsedChain.data
+      : undefined;
+  return (
+    <Navigate to={setupHref({ next: appRoutes.newWorkflow, chain, mode: effectiveMode })} replace />
+  );
 }
 
 function NetworkNavigate({ to }: { readonly to: string }) {
@@ -133,28 +161,22 @@ export function AppRouter() {
           />
 
           <Route
-            path="create"
+            path="setup"
             element={
               <PageBoundary>
-                <WorkflowAccountRouteV2 startWorkflow />
+                <WorkflowSetupRouteV2 />
               </PageBoundary>
             }
           />
-          <Route
-            path="account"
-            element={
-              <PageBoundary>
-                <WorkflowAccountRouteV2 />
-              </PageBoundary>
-            }
-          />
+          <Route path="create" element={<CreateRouteRedirect />} />
           <Route element={<WorkspaceLayout />}>
+            <Route path="account" element={<WorkflowAccountGuardedRoute />} />
             <Route path="account/funds" element={<WorkflowAccountFundsRoute />} />
-            <Route path="workflows" element={<WorkflowsV2 />} />
+            <Route path="workflows" element={<WorkflowsRouteV2 />} />
             <Route path="workflows/new" element={<WorkflowBuilderV2 />} />
-            <Route path="workflows/:id" element={<WorkflowDetailV2 />} />
-            <Route path="workflows/:id/edit" element={<WorkflowBuilderV2 />} />
-            <Route path="activity" element={<WorkflowActivityV2 />} />
+            <Route path="workflows/:id" element={<WorkflowDetailRouteV2 />} />
+            <Route path="workflows/:id/edit" element={<WorkflowEditRouteV2 />} />
+            <Route path="activity" element={<WorkflowActivityRouteV2 />} />
             <Route path="runs/:id" element={<WorkflowProof />} />
             <Route path="rules" element={<NetworkNavigate to="/workflows" />} />
             <Route path="rules/:agent/:ruleId" element={<NetworkNavigate to="/workflows" />} />

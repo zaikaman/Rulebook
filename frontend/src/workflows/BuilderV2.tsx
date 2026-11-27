@@ -63,20 +63,22 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { bytesToHex, formatUnits, parseUnits, zeroAddress, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
-import { Callout, Field, Select } from '@/ui';
+import { Button, Callout, Field, Select } from '@/ui';
 import { formatContractError } from '@/lib/errors';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
+import { setupHref } from '@/lib/routes';
+import { RequireAccountSetup, useLinkedAccount } from './useLinkedAccount';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
 import { useWorkflowFunding, WorkflowFundingNotice } from './WorkflowFunding';
@@ -772,10 +774,23 @@ export function WorkflowProgramSummary({
   );
 }
 
+export function WorkflowEditRouteV2() {
+  return (
+    <RequireAccountSetup title="Edit workflow">{() => <WorkflowBuilderV2 />}</RequireAccountSetup>
+  );
+}
+
 export function WorkflowBuilderV2() {
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const { address } = useAccount();
-  const [params] = useSearchParams();
+  const [params, setSearchParams] = useSearchParams();
+  const startReview = params.get('review') === '1';
+  const consumeReview = () => {
+    if (!params.has('review')) return;
+    const next = new URLSearchParams(params);
+    next.delete('review');
+    setSearchParams(next, { replace: true });
+  };
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const rawChain = params.get('chain');
@@ -853,7 +868,13 @@ export function WorkflowBuilderV2() {
   const recipe = workflowV2Recipes.find((item) => item.id === params.get('recipe'))?.id;
   if (!raw && copyId.success)
     return (
-      <WorkflowCopyV2 key={`${mode}:${copyId.data}`} listingId={copyId.data} recipe={recipe} />
+      <WorkflowCopyV2
+        key={`${mode}:${copyId.data}`}
+        listingId={copyId.data}
+        recipe={recipe}
+        startReview={startReview}
+        onConsumeReview={consumeReview}
+      />
     );
 
   const editChain = raw ? (query.data?.chain ?? preferredChain ?? '') : '';
@@ -876,12 +897,24 @@ export function WorkflowBuilderV2() {
       }
       recipe={recipe}
       startBlank={params.get('template') === 'blank'}
+      startReview={startReview}
+      onConsumeReview={consumeReview}
       active={query.data?.active}
     />
   );
 }
 
-function WorkflowCopyV2({ listingId, recipe }: { listingId: string; recipe?: WorkflowV2RecipeId }) {
+function WorkflowCopyV2({
+  listingId,
+  recipe,
+  startReview = false,
+  onConsumeReview,
+}: {
+  listingId: string;
+  recipe?: WorkflowV2RecipeId;
+  startReview?: boolean;
+  onConsumeReview?: () => void;
+}) {
   const { mode } = useNetworkMode();
   const storageKey = `rulebook-v2-draft:${mode}:${listingId}`;
   const [original, setOriginal] = useState(() => loadDraft(storageKey)?.draft);
@@ -897,7 +930,16 @@ function WorkflowCopyV2({ listingId, recipe }: { listingId: string; recipe?: Wor
     listing.isSuccess,
     original,
   ]);
-  if (original) return <Editor storageKey={storageKey} original={original} recipe={recipe} />;
+  if (original)
+    return (
+      <Editor
+        storageKey={storageKey}
+        original={original}
+        recipe={recipe}
+        startReview={startReview}
+        onConsumeReview={onConsumeReview}
+      />
+    );
   return <ListingStatusV2 query={listing} copying />;
 }
 
@@ -925,6 +967,8 @@ function Editor({
   original,
   recipe,
   startBlank = false,
+  startReview = false,
+  onConsumeReview,
   storageKey,
   active = false,
 }: {
@@ -932,14 +976,18 @@ function Editor({
   original?: V2Draft;
   recipe?: WorkflowV2RecipeId;
   startBlank?: boolean;
+  startReview?: boolean;
+  onConsumeReview?: () => void;
   storageKey: string;
   active?: boolean;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const linkedAccount = useLinkedAccount();
   const { mode, automationName, defaultFundsChainId, isDeploymentConfigured, isMainnet } =
     useNetworkMode();
   const chains = configuredFundsChains(mode);
   const { address } = useAccount();
+  const location = useLocation();
   const navigate = useNavigate();
   const [saved] = useState(() => loadDraft(storageKey));
   const [draft, setDraft] = useState<V2Draft>(
@@ -1014,6 +1062,23 @@ function Editor({
   const [consent, setConsent] = useState(false);
   const [validating, setValidating] = useState(false);
   const revision = useRef(0);
+  const autoReviewed = useRef(false);
+  useEffect(() => {
+    if (
+      !startReview ||
+      autoReviewed.current ||
+      recipes ||
+      program ||
+      (address &&
+        isFundsChain(draft.chain) &&
+        (vaultQuery.isPending || (vaultQuery.isFetching && !vault)))
+    ) {
+      return;
+    }
+    autoReviewed.current = true;
+    onConsumeReview?.();
+    void prepare();
+  });
   useEffect(() => {
     if (
       rulewrightSession.current?.owner !== address ||
@@ -2172,57 +2237,130 @@ function Editor({
                     : `${isMainnet ? 'Mainnet' : 'Testnet'} activation is disabled.`}
                 </p>
               )}
-              {workflowActivationEnabled && (
-                <WorkflowCreditNotice
-                  owner={wallet.owner}
-                  review
-                  chain={draft.chain as SettlementChain}
-                />
-              )}
-              {workflowActivationEnabled && (
-                <WorkflowFundingNotice
-                  owner={wallet.owner}
-                  funding={funding}
-                  onEdit={() => review(undefined)}
-                />
-              )}
-              {wallet.owner ? (
-                <button
-                  className="app-button app-button--primary rb-full"
-                  type="button"
-                  disabled={
-                    wallet.busy ||
-                    !workflowActivationEnabled ||
-                    !settlementFactory(draft.chain as SettlementChain) ||
-                    !budget ||
-                    funding.blocked ||
-                    capReached ||
-                    Boolean(paymentConflict) ||
-                    (hasPayout && !consent)
-                  }
-                  onClick={async () => {
-                    if (!budget) return;
-                    if (await wallet.activate(workflowId, draft.title.trim(), program, budget)) {
-                      try {
-                        localStorage.removeItem(storageKey);
-                      } catch {
-                        /* The chain transaction is confirmed. */
-                      }
-                      navigate(
-                        withNetworkQuery(`/workflows/${workflowId}?chain=${draft.chain}`, mode),
-                      );
-                    }
-                  }}
-                >
-                  Activate workflow
-                </button>
-              ) : (
-                <WalletControl setup />
-              )}
-              <p className="rb-activation-note">
-                Your wallet approves vault authorization on {v2Network(draft.chain).name} and
-                activation on {automationName}. First-time setup can require additional approvals.
-              </p>
+              {(() => {
+                const checkingAccount = Boolean(
+                  wallet.owner && isDeploymentConfigured && linkedAccount.isPending,
+                );
+                const accountCheckError = Boolean(
+                  wallet.owner && isDeploymentConfigured && linkedAccount.isError,
+                );
+                const needsInitialSetup = Boolean(
+                  wallet.owner &&
+                  isDeploymentConfigured &&
+                  !linkedAccount.isPending &&
+                  !linkedAccount.isError &&
+                  linkedAccount.linked === null,
+                );
+                const returnParams = new URLSearchParams(location.search);
+                returnParams.delete('network');
+                returnParams.set('review', '1');
+                const setupLink = setupHref({
+                  next: `${location.pathname}?${returnParams.toString()}`,
+                  chain: draft.chain as FundsChainId,
+                  mode,
+                });
+
+                return (
+                  <>
+                    {workflowActivationEnabled && checkingAccount && (
+                      <Spinner label="Checking your account…" />
+                    )}
+                    {workflowActivationEnabled && accountCheckError && (
+                      <Callout
+                        title="Could not check your account"
+                        action={
+                          <Button
+                            disabled={linkedAccount.isFetching}
+                            onClick={() => void linkedAccount.refetch()}
+                          >
+                            {linkedAccount.isFetching ? 'Checking…' : 'Check again'}
+                          </Button>
+                        }
+                      >
+                        <p>Activation is paused until your account status can be read.</p>
+                      </Callout>
+                    )}
+                    {workflowActivationEnabled && needsInitialSetup && (
+                      <Callout title="Set up your account before activating">
+                        <p>
+                          Create your {automationName} automation account and{' '}
+                          {v2Network(draft.chain).name} Vault first. Your workflow draft is saved
+                          and will be ready to activate when you return.
+                        </p>
+                      </Callout>
+                    )}
+                    {workflowActivationEnabled &&
+                      !checkingAccount &&
+                      !accountCheckError &&
+                      !needsInitialSetup && (
+                        <WorkflowCreditNotice
+                          owner={wallet.owner}
+                          review
+                          chain={draft.chain as SettlementChain}
+                        />
+                      )}
+                    {workflowActivationEnabled &&
+                      !checkingAccount &&
+                      !accountCheckError &&
+                      !needsInitialSetup && (
+                        <WorkflowFundingNotice
+                          owner={wallet.owner}
+                          funding={funding}
+                          onEdit={() => review(undefined)}
+                        />
+                      )}
+                    {!wallet.owner ? (
+                      <WalletControl setup />
+                    ) : needsInitialSetup && workflowActivationEnabled ? (
+                      <Link className="app-button app-button--primary rb-full" to={setupLink}>
+                        Set up account to activate
+                      </Link>
+                    ) : (
+                      <button
+                        className="app-button app-button--primary rb-full"
+                        type="button"
+                        disabled={
+                          wallet.busy ||
+                          checkingAccount ||
+                          accountCheckError ||
+                          !workflowActivationEnabled ||
+                          !settlementFactory(draft.chain as SettlementChain) ||
+                          !budget ||
+                          funding.blocked ||
+                          capReached ||
+                          Boolean(paymentConflict) ||
+                          (hasPayout && !consent)
+                        }
+                        onClick={async () => {
+                          if (!budget) return;
+                          if (
+                            await wallet.activate(workflowId, draft.title.trim(), program, budget)
+                          ) {
+                            try {
+                              localStorage.removeItem(storageKey);
+                            } catch {
+                              /* The chain transaction is confirmed. */
+                            }
+                            navigate(
+                              withNetworkQuery(
+                                `/workflows/${workflowId}?chain=${draft.chain}`,
+                                mode,
+                              ),
+                            );
+                          }
+                        }}
+                      >
+                        Activate workflow
+                      </button>
+                    )}
+                    <p className="rb-activation-note">
+                      {needsInitialSetup
+                        ? `Account setup adds the required networks, creates your ${automationName} agent and ${v2Network(draft.chain).name} vault, and lets you fund them before activating.`
+                        : `Your wallet approves vault authorization on ${v2Network(draft.chain).name} and activation on ${automationName}.`}
+                    </p>
+                  </>
+                );
+              })()}
               <V2Feedback wallet={wallet} />
             </div>
           </aside>

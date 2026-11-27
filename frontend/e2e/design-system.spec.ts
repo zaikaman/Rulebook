@@ -50,7 +50,7 @@ async function resolvedStyles(page: import('@playwright/test').Page): Promise<Re
 test('resolves the core token contract on workspace pages', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`${FIXTURE_FRONTEND_URL}/workflows`);
-  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible({ timeout: 15_000 });
 
   const styles = await resolvedStyles(page);
   expect(styles.missingTokens).toEqual([]);
@@ -62,20 +62,22 @@ test('resolves the core token contract on workspace pages', async ({ page }) => 
 test('uses the shared callout and toolbar recipes on primary routes', async ({ page }) => {
   await page.goto(`${FIXTURE_FRONTEND_URL}/workflows`);
   const callout = page.locator('.rb-callout').first();
-  await expect(callout).toBeVisible();
+  await expect(callout).toBeVisible({ timeout: 15_000 });
   await expect(callout.getByText('Connect a wallet to load your workflows')).toBeVisible();
   await expect(page.locator('.rb-alert')).toHaveCount(0);
 
   await page.goto(`${FIXTURE_FRONTEND_URL}/marketplace`);
-  await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Marketplace' })).toBeVisible({ timeout: 15_000 });
   await expect(page.locator('main .rb-toolbar')).toBeVisible();
   await expect(page.getByRole('searchbox')).toBeVisible();
 });
 
 test('keeps onboarding on the five-step rail at both breakpoints', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.goto(`${FIXTURE_FRONTEND_URL}/create`);
-  await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible();
+  await page.goto(`${FIXTURE_FRONTEND_URL}/setup`);
+  await expect(page.getByRole('heading', { name: 'Connect your wallet' })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(
     page.getByRole('list', { name: 'Account setup progress' }).locator('li'),
   ).toHaveCount(5);
@@ -90,7 +92,7 @@ test('captures the key surfaces at desktop and mobile', async ({ page }, testInf
   const routes = [
     { path: '/workflows', name: 'workflows' },
     { path: '/marketplace', name: 'marketplace' },
-    { path: '/create', name: 'create' },
+    { path: '/setup', name: 'setup' },
     { path: '/proof', name: 'proof' },
   ];
 

@@ -44,13 +44,15 @@ export function AccountFundingStep({
   owner,
   chainId,
   fundingWallet,
-  startWorkflow,
+  startWorkflow = false,
+  continueLabel: customContinueLabel,
   onComplete,
 }: {
   owner: Address;
   chainId: FundsChainId;
   fundingWallet: SetupFundingWallet;
-  startWorkflow: boolean;
+  startWorkflow?: boolean;
+  continueLabel?: string;
   onComplete: () => void;
 }) {
   const { connector } = useAccount();
@@ -159,7 +161,8 @@ export function AccountFundingStep({
     setAmounts((current) => ({ ...current, [id]: value }));
   }
 
-  const continueLabel = startWorkflow ? 'Start building' : 'Open Account & Vault';
+  const continueLabel =
+    customContinueLabel ?? (startWorkflow ? 'Start building' : 'Open Account & Vault');
   const watchingThreshold = feeCreditWarningThreshold(autoChainId);
   const executionThreshold = feeCreditWarningThreshold(chainId);
 

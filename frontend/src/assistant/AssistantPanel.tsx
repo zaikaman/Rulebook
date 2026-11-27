@@ -50,6 +50,12 @@ function id() {
 }
 
 export function suggestionsFor(pathname: string | undefined) {
+  if (pathname?.startsWith('/setup'))
+    return [
+      'What does account setup create?',
+      'Which networks does Rulebook use?',
+      'How much credit or gas do I need?',
+    ];
   if (pathname?.startsWith('/account'))
     return [
       'How much execution and watching credit is left?',

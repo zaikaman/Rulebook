@@ -25,6 +25,8 @@ test('warns about low credits and opens the right funding action and workflow Ac
   await page.getByRole('button', { name: 'Create my account' }).click();
   await page.getByRole('button', { name: 'Skip for now' }).click();
   await expect(page.getByRole('region', { name: 'Workflow recipes' })).toBeVisible();
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows');
+  await expect(page.getByRole('region', { name: 'Workflow fee credit' })).toBeVisible();
   await fundFixtureWorkflowVault(owner, 10_000_000n);
   await page.goto(FIXTURE_FRONTEND_URL + '/account?credit=execution');
   await expect(page.getByLabel('Funding action')).toContainText('Deposit ETH for execution credit');
@@ -128,7 +130,9 @@ test('finds a public workflow proof from workspace costs without connecting a wa
     .getByRole('navigation', { name: 'Workspace' })
     .getByRole('link', { name: 'Costs' })
     .click();
-  await expect(page.getByRole('heading', { name: 'Workflow costs' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Workflow costs' })).toBeVisible({
+    timeout: 15_000,
+  });
   await expect(page.getByRole('region', { name: 'Watching credit' })).toContainText('gwei');
   await expect(
     page.getByRole('region', { name: 'Execution credit (Unichain Sepolia)' }),

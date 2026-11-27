@@ -27,7 +27,7 @@ export function ClosingCta() {
           Set up your account on Mainnet or Testnet and create your first automation.
         </p>
         <Link
-          to={withNetworkQuery(appRoutes.create, mode)}
+          to={withNetworkQuery(appRoutes.newWorkflow, mode)}
           className="animate-on-scroll [animation:fadeInUp_0.6s_ease-out_0.2s_both] group inline-flex items-center gap-2 rounded-full bg-white px-8 py-3 text-sm font-medium text-black transition-all hover:bg-neutral-200"
         >
           <span>Build a workflow</span>

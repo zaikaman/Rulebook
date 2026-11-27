@@ -133,14 +133,22 @@ test('resumes activation after the wallet declines the Lasna signature', async (
   await page.getByRole('button', { name: 'Open in builder' }).click();
   await expectReview(page, 'Recurring transfer');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await page.getByRole('link', { name: 'Set up account to activate' }).click();
+  await page.getByRole('button', { name: 'Create my account' }).click();
+  await expect(page.getByRole('button', { name: 'Skip for now' })).toBeVisible({ timeout: 60_000 });
+  await fundFixtureWorkflowVault(USER_ADDRESS, 10_000_000n);
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(page.getByRole('heading', { name: 'Program review' })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(page.getByRole('button', { name: 'Activate workflow' })).toBeEnabled({
+    timeout: 30_000,
+  });
+
   await page.getByRole('button', { name: 'Activate workflow' }).click();
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('alert')).toContainText(/declined|rejected/i);
-  await fundFixtureWorkflowVault(USER_ADDRESS, 10_000_000n);
 
   await page.getByRole('button', { name: 'Activate workflow' }).click();
   await approveSignature(page, 'Reactive Lasna');
@@ -175,10 +183,15 @@ test('blocks activating a second payment workflow while allowing other triggers 
   await page.getByRole('button', { name: 'Open in builder' }).click();
   await expectReview(page, 'Income sweep');
   await page.getByRole('button', { name: 'Connect wallet to start' }).click();
+  await page.getByRole('link', { name: 'Set up account to activate' }).click();
+  await page.getByRole('button', { name: 'Create my account' }).click();
+  await expect(page.getByRole('button', { name: 'Skip for now' })).toBeVisible({ timeout: 60_000 });
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(page.getByRole('heading', { name: 'Program review' })).toBeVisible({
+    timeout: 30_000,
+  });
+
   await page.getByRole('button', { name: 'Activate workflow' }).click();
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
-  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
-  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();

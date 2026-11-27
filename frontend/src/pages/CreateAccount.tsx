@@ -25,6 +25,7 @@ import {
 } from '@rulebook/shared';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import {
   BaseError,
   erc20Abi,
@@ -59,7 +60,7 @@ import {
 } from '../lib/errors.js';
 import { shortAddress } from '../lib/listings.js';
 import { useNetworkMode } from '../lib/networkMode.js';
-import { appRoutes } from '../lib/routes.js';
+import { appRoutes, safeNextPath } from '../lib/routes.js';
 import { roundUpFee } from '../lib/setupFees.js';
 import {
   allowSetupNetwork,
@@ -309,6 +310,9 @@ export function CreateAccount({
   onChainChange,
   fundingWallet,
   startWorkflow = false,
+  continueLabel,
+  exitHref,
+  exitLabel,
   onFundingComplete,
 }: {
   setup: ReturnType<typeof useAccountSetup>;
@@ -317,6 +321,9 @@ export function CreateAccount({
   onChainChange?: (chain: FundsChainId) => void;
   fundingWallet?: SetupFundingWallet;
   startWorkflow?: boolean;
+  continueLabel?: string;
+  exitHref?: string;
+  exitLabel?: string;
   onFundingComplete?: () => void;
 }) {
   const { isDeploymentConfigured } = useNetworkMode();
@@ -350,6 +357,11 @@ export function CreateAccount({
   const setupStages = setupStagesFor(isMainnet, autoNetwork.name);
   const requiredChainIds: readonly number[] = [fundsChain.id, automationChainId];
   const { address, connector, isReconnecting } = useAccount();
+  const [searchParams] = useSearchParams();
+  const setupNext = safeNextPath(searchParams.get('next'), '');
+  const manageParams = new URLSearchParams({ chain: String(chainId) });
+  if (setupNext) manageParams.set('next', setupNext);
+  const manageAccountHref = `${appRoutes.accountFunds}?${manageParams.toString()}`;
   const config = useConfig();
   const [tokenReview, setTokenReview] = useState<{
     walletKey: string;
@@ -639,7 +651,9 @@ export function CreateAccount({
       title={current.title}
       workflow
       manageAccount={hasVault}
-      manageAccountHref={`${appRoutes.accountFunds}?chain=${chainId}`}
+      manageAccountHref={manageAccountHref}
+      exitHref={exitHref}
+      exitLabel={exitLabel}
       automationNetwork={autoNetwork.name}
       vaultNetwork={fundsChain.name}
       isMainnet={isMainnet}
@@ -1024,6 +1038,7 @@ export function CreateAccount({
             chainId={chainId}
             fundingWallet={fundingWallet}
             startWorkflow={startWorkflow}
+            continueLabel={continueLabel}
             onComplete={onFundingComplete ?? (() => {})}
           />
         )}

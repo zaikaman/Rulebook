@@ -1002,6 +1002,10 @@ export function useWorkflowV2Wallet() {
           throw new Error(paymentWorkflowConflictMessage(activePayment.title));
         }
       }
+      const existingAgent = await readAgent(signer, undefined, mode);
+      if (existingAgent === zeroAddress) {
+        throw new Error('Complete account setup before activating a workflow.');
+      }
       const { agent, vault } = await ensure(signer, chain);
       validateWorkflowV2Program(program, { vault });
       // The first activation creates the Vault, so its empty balance cannot block this call.
