@@ -13,6 +13,7 @@ import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.so
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
 import {WorkflowVaultV2} from "../../src/workflow/v2/WorkflowVaultV2.sol";
+import {WorkflowVaultStorageV2} from "../../src/workflow/v2/WorkflowVaultStorageV2.sol";
 import {WorkflowVaultFactoryV2} from "../../src/workflow/v2/WorkflowVaultFactoryV2.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
@@ -303,7 +304,7 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(agent.pendingRuns(WORKFLOW), 1, "the blocked origin is parked once");
         uint64 wake = agent.wakeBlock(WORKFLOW);
         assertGt(wake, 0, "a recoverable parked run pins only the reset block");
-        assertEq(system.subscribeCount(), 3);
+        assertEq(system.subscribeCount(), 4);
         assertEq(system.lastSubscribedTopic1(), wake);
 
         _syncBudget(3e6, 1e6, 2);
@@ -318,6 +319,231 @@ contract WorkflowV2SettlementTest is Test {
         vm.prank(address(system));
         agent.react(payment);
         assertEq(system.requestCount(), 1, "a dispatched origin stays deduplicated");
+    }
+
+    function testBranchingPaymentParksOnlyTheMatchingOverBudgetBranch() public {
+        P.Node[] memory nodes = _branch(P.AMOUNT_AT_LEAST, 1e6, _action(P.SEND, 200_000, RECIPIENT));
+        nodes[2] = _leaf(_action(P.SEND, 50_000, RECIPIENT));
+        _enable(_program(P.PAYMENT, nodes));
+        usdc.mint(address(vault), 2e6);
+        _syncBudget(100_000, 0, 1);
+
+        vm.prank(address(system));
+        agent.react(_paymentLog(101, 1e6));
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+        assertEq(system.requestCount(), 0);
+        vm.prank(address(system));
+        agent.react(_paymentLog(102, 500_000));
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 50_000);
+
+        _syncBudget(250_000, 50_000, 2);
+        _deliverRequest(1);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        assertEq(usdc.balanceOf(RECIPIENT), 250_000);
+    }
+
+    function testBudgetRaceRetriesWithNewAttemptAndSettlesOriginOnlyOnce() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 4e6);
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 0, 1e6, 0);
+        vm.prank(address(system));
+        agent.react(_paymentLog(101, 1e6));
+        vm.prank(address(system));
+        agent.react(_paymentLog(102, 1e6));
+        _deliverRequest(0);
+        vm.recordLogs();
+        _deliverRequest(1);
+        Vm.Log[] memory rejection = vm.getRecordedLogs();
+        _relayVaultLogs(rejection);
+        assertEq(vault.outcomes(_runId(102)), vault.SKIPPED());
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+        assertEq(system.requestCount(), 2);
+
+        vm.recordLogs();
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 1, 2e6, 0);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertEq(system.requestCount(), 3);
+        _relayVaultLogs(rejection);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+
+        CallbackConfiguration memory initial = system.requestAt(1);
+        (,, P.Run memory original) =
+            abi.decode(_slice(initial.payload, 4), (address, bytes32, P.Run));
+        bytes32 retry = P.retryRunId(_runId(102), original.expiresAt);
+        _deliverRequest(2);
+        _deliverRequest(2);
+        _deliverRequest(1);
+        assertEq(vault.outcomes(retry), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testBudgetRaceRetriesAfterWeeklyReset() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 4e6);
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 0, 1e6, 0);
+        vm.prank(address(system));
+        agent.react(_paymentLog(101, 1e6));
+        vm.prank(address(system));
+        agent.react(_paymentLog(102, 1e6));
+        _deliverRequest(0);
+        vm.recordLogs();
+        _deliverRequest(1);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertEq(vault.outcomes(_runId(102)), vault.SKIPPED());
+        assertEq(agent.pendingRuns(WORKFLOW), 1);
+
+        vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
+        _cron(1);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
+        assertEq(system.requestCount(), 3);
+        _deliverRequest(2);
+        assertEq(usdc.balanceOf(RECIPIENT), 2e6);
+    }
+
+    function testPriceWorkflowBudgetExceededDoesNotEmitBudgetRetry() public {
+        _enable(
+            _program(P.PRICE, _branch(P.PRICE_AT_MOST, 2_000e18, _action(P.SEND, 1e6, RECIPIENT)))
+        );
+        usdc.mint(address(vault), 2e6);
+        vm.prank(OWNER);
+        vault.setWeeklyBudget(WORKFLOW, 1, 0, 1e6, 0);
+        _price(1_900_000);
+        _sync(101, 1_900_000);
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+
+        P.Run memory blocked = _run(102, P.PRICE, 1_900e18);
+        vm.recordLogs();
+        assertEq(_deliver(blocked), vault.SKIPPED());
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 budgetRetryTopic = keccak256(
+            "BudgetRetry(bytes32,uint64,bytes32,uint64,uint32,uint64,bytes32,uint64,uint64,uint256,address)"
+        );
+        for (uint256 i; i < logs.length; ++i) {
+            assertTrue(logs[i].topics[0] != budgetRetryTopic, "PRICE must not emit BudgetRetry");
+        }
+    }
+
+    function testFundingPauseTransitionsToBudgetPauseOnResumeWhenBudgetExhausted() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        _syncBudget(1e6, 0, 1);
+        _cron(100);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertTrue(agent.fundingPaused(WORKFLOW));
+        assertTrue(agent.watchingPaused(WORKFLOW));
+
+        usdc.mint(address(vault), 1e6);
+        _syncBudget(1e6, 1e6, 2);
+        vm.expectEmit(true, false, false, false, address(agent));
+        emit WorkflowAgentStorageV2.WatchingPaused(WORKFLOW, 1, 0);
+        vm.prank(OWNER);
+        agent.resumeWatching(WORKFLOW);
+        assertFalse(agent.fundingPaused(WORKFLOW));
+        assertTrue(agent.watchingPaused(WORKFLOW));
+    }
+
+    function testVaultAdminAndGuardPaths() public {
+        bytes memory paymentEncoded =
+            abi.encode(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        vm.deal(address(vault), 1 ether);
+        uint256 ownerBefore = OWNER.balance;
+        vm.startPrank(OWNER);
+        vault.syncCallbackProxy();
+        vault.withdraw(address(0), 0.25 ether);
+        assertEq(OWNER.balance, ownerBefore + 0.25 ether);
+
+        vault.authorize(WORKFLOW, 1, paymentEncoded, "First payment");
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.authorize(keccak256("second payment"), 1, paymentEncoded, "Second payment");
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.revoke(WORKFLOW, 2);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.checkIn(keccak256("unknown"));
+        vm.stopPrank();
+
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        vault.recordActivity(address(agent), WORKFLOW, 1, uint64(block.timestamp));
+        vm.prank(PROXY);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        vault.recordActivity(RECIPIENT, WORKFLOW, 1, uint64(block.timestamp));
+
+        P.Run memory emptyRun;
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        vault.settle(WORKFLOW, emptyRun, bytes32(0));
+
+        P.Run memory run = _run(901, P.PAYMENT, 1e6);
+        run.programHash = keccak256(paymentEncoded);
+        vm.prank(PROXY);
+        vm.expectRevert(WorkflowVaultStorageV2.SettlementInterrupted.selector);
+        vault.execute{gas: 120_000}(address(agent), WORKFLOW, run);
+    }
+
+    function testFundingPauseRequiresOwnerToResumeAfterTopUp() public {
+        _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        _cron(100);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertTrue(agent.fundingPaused(WORKFLOW));
+        assertTrue(agent.watchingPaused(WORKFLOW));
+        vm.warp(block.timestamp + 1 days);
+        _cron(200);
+        assertEq(system.requestCount(), 1);
+
+        vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
+        agent.resumeWatching(WORKFLOW);
+        usdc.mint(address(vault), 1e6);
+        vm.prank(OWNER);
+        agent.resumeWatching(WORKFLOW);
+        assertFalse(agent.watchingPaused(WORKFLOW));
+        assertFalse(agent.fundingPaused(WORKFLOW));
+        _cron(300);
+        _deliverRequest(1);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+    }
+
+    function testVaultRebindInvalidatesOldAuthorizationAndRequiresANewEpoch() public {
+        P.Program memory program = _program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT)));
+        _enable(program);
+        usdc.mint(address(vault), 1e6);
+        address replacement = makeAddr("replacement agent");
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        vault.rebindAgent(replacement);
+        vm.startPrank(OWNER);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.rebindAgent(address(0));
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.rebindAgent(address(agent));
+        vault.rebindAgent(replacement);
+        vm.stopPrank();
+        (,,, bool active) = vault.authorizations(WORKFLOW);
+        assertFalse(active);
+        assertEq(vault.paymentWorkflow(), bytes32(0));
+
+        P.Run memory old = _run(101, P.PAYMENT, 1e6);
+        vm.prank(PROXY);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        vault.execute(address(agent), WORKFLOW, old);
+        vm.prank(PROXY);
+        vault.execute(replacement, WORKFLOW, old);
+        assertEq(usdc.balanceOf(RECIPIENT), 0);
+        vm.startPrank(OWNER);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.authorize(WORKFLOW, 1, abi.encode(program), "Same epoch");
+        vault.authorize(WORKFLOW, 2, abi.encode(program), "Recovered");
+        vm.stopPrank();
+
+        P.Run memory current = _run(102, P.PAYMENT, 1e6);
+        current.epoch = 2;
+        vm.prank(PROXY);
+        vault.execute(replacement, WORKFLOW, current);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
     }
 
     function testParkedTransferIsRetriedWhenTheLimitRises() public {
@@ -662,7 +888,7 @@ contract WorkflowV2SettlementTest is Test {
         closed.topic_2 = 1;
         vm.prank(address(system));
         agent.react(closed);
-        assertEq(system.unsubscribeCount(), 4);
+        assertEq(system.unsubscribeCount(), 5);
     }
 
     function testCompetingExitBranchesSettleOnlyOnce() public {
@@ -799,13 +1025,13 @@ contract WorkflowV2SettlementTest is Test {
             abi.encode(address(agent), WORKFLOW, LASNA, bytes32(uint256(101)), uint64(0))
         );
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             WORKFLOW,
             runId,
             1,
             vault.SKIPPED(),
             type(uint8).max,
-            WorkflowVaultV2.InsufficientVaultBalance.selector
+            WorkflowVaultStorageV2.InsufficientVaultBalance.selector
         );
         assertEq(_deliver(_run(101, P.SCHEDULE, 0)), vault.SKIPPED());
         assertEq(usdc.balanceOf(RECIPIENT), 0);
@@ -895,10 +1121,10 @@ contract WorkflowV2SettlementTest is Test {
         _enable(_program(P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))));
         usdc.mint(address(vault), 3e6);
         P.Run memory run = _run(101, P.SCHEDULE, 0);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         vault.execute(address(agent), WORKFLOW, run);
         vm.prank(PROXY);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         vault.execute(OWNER, WORKFLOW, run);
         run.expiresAt = uint64(vm.getBlockTimestamp() - 1);
         assertEq(_deliver(run), vault.EXPIRED());
@@ -1037,6 +1263,55 @@ contract WorkflowV2SettlementTest is Test {
         _sync(105, 1_950_000);
         vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN());
         _sync(106, 1_950_000);
+        assertEq(system.requestCount(), 2);
+    }
+
+    function testCrossingRetriesAfterTemporaryIneligibilityWithoutAnotherCrossing() public {
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = _check(P.PRICE_FALLS_THROUGH, 2e18, 0, 1, 2);
+        nodes[1] = _leaf(_action(P.SEND, 1e6, RECIPIENT));
+        nodes[2] = _check(P.PRICE_BELOW, 1.99e18, 0, 3, 4);
+        nodes[3] = _leaf(_action(P.ALERT, 0, address(0)));
+        _enable(_program(P.PRICE, nodes));
+        usdc.mint(address(vault), 1e6);
+        _sync(101, 2_100_000);
+        _sync(102, 1_950_000);
+        _price(2_100_000);
+        vm.recordLogs();
+        _deliverRequest(0);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertEq(vault.outcomes(_runId(102)), vault.SKIPPED());
+
+        _sync(103, 1_960_000);
+        assertEq(system.requestCount(), 1, "failed crossings respect the cooldown");
+        vm.warp(block.timestamp + agent.PRICE_COOLDOWN());
+        _sync(104, 1_970_000);
+        _price(1_970_000);
+        _deliverRequest(1);
+        assertEq(vault.outcomes(_runId(104)), vault.CONFIRMED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6, "recovery takes precedence over the fallback");
+    }
+
+    function testCrossingWithMissingFeedbackCannotSpendTwice() public {
+        _enable(
+            _program(P.PRICE, _branch(P.PRICE_FALLS_THROUGH, 2e18, _action(P.SEND, 1e6, RECIPIENT)))
+        );
+        usdc.mint(address(vault), 2e6);
+        _sync(101, 2_100_000);
+        _price(1_950_000);
+        _sync(102, 1_950_000);
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+
+        vm.warp(block.timestamp + 10 minutes + 1);
+        _sync(103, 1_950_000);
+        assertEq(system.requestCount(), 2);
+        vm.recordLogs();
+        _deliverRequest(1);
+        _relayVaultLogs(vm.getRecordedLogs());
+        assertEq(vault.outcomes(_runId(103)), vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6, "same crossing cannot spend twice");
+        _sync(104, 1_950_000);
         assertEq(system.requestCount(), 2);
     }
 
@@ -1428,13 +1703,13 @@ contract WorkflowV2SettlementTest is Test {
             )
         );
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             riseId,
             staleId,
             1,
             vault.SKIPPED(),
             type(uint8).max,
-            WorkflowVaultV2.StaleObservation.selector
+            WorkflowVaultStorageV2.StaleObservation.selector
         );
         vm.prank(PROXY);
         vault.execute(address(agent), riseId, trulyStale);
@@ -1587,7 +1862,7 @@ contract WorkflowV2SettlementTest is Test {
             abi.encode(address(agent), WORKFLOW, LASNA, bytes32(uint256(960)), uint64(0))
         );
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             WORKFLOW,
             expectedRunId,
             1,
@@ -1754,6 +2029,25 @@ contract WorkflowV2SettlementTest is Test {
         vm.prank(PROXY);
         (bool success,) = address(vault).call{gas: request.gasLimit}(payload);
         assertTrue(success);
+    }
+
+    function _relayVaultLogs(Vm.Log[] memory logs) private {
+        for (uint256 i; i < logs.length; ++i) {
+            Vm.Log memory item = logs[i];
+            if (item.emitter != address(vault)) continue;
+            IReactive.LogRecord memory log;
+            log.chain_id = P.UNICHAIN_SEPOLIA;
+            log._contract = item.emitter;
+            log.block_number = block.number;
+            log.log_index = i;
+            log.topic_0 = uint256(item.topics[0]);
+            if (item.topics.length > 1) log.topic_1 = uint256(item.topics[1]);
+            if (item.topics.length > 2) log.topic_2 = uint256(item.topics[2]);
+            if (item.topics.length > 3) log.topic_3 = uint256(item.topics[3]);
+            log.data = item.data;
+            vm.prank(address(system));
+            agent.react(log);
+        }
     }
 
     function _price(uint112 quotePerWeth) private {

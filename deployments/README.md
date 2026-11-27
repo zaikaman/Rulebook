@@ -49,3 +49,28 @@ upgradeable release. The legacy addresses remain accessible on-chain.
    desired workflows again. Review lifetime, spending limits and beneficiaries when signing.
    Marketplace listings and run history remain associated with their original deployment.
 5. Enable activations once the new app and indexer use the verified record.
+
+The strict staged check reads the React module's feedback module and the Vault
+implementation's settlement module from their deployed contracts. It verifies
+their runtime bytecode and configuration alongside the implementation and
+factory. Keep the live record on the verified legacy deployment until the staged
+Agent and Vaults pass the same clean-commit build and smoke test.
+
+## Upgrading an existing proxy release
+
+Review the storage layout of the Agent, its delegatecall modules, and both
+Vault contracts before approving new implementations. Upgrade the settlement
+Vaults before enabling Agent features that use their feedback events. Existing
+subscriptions are removed using the exact filters that were installed. If an
+upgrade changes the desired filters, call `refreshWorkflowFilters(workflow)`
+as the Agent owner after upgrading each active workflow. This preserves its
+authorization epoch, waiting payments, and budget. For a proxy from a build
+before filter snapshots, refresh while the original factory's validator can
+still reconstruct the installed filters.
+
+If a Vault was created with the wrong Agent, its owner can call
+`rebindAgent(correctAgent)` on the settlement chain. Confirm the address against
+the active Agent factory before signing. Rebinding keeps the Vault address,
+balances, and prepaid credits and invalidates its existing workflow
+authorizations. Disable any old Agent workflows you control and authorize the
+desired workflows again with higher epochs before enabling them.

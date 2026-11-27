@@ -12,6 +12,10 @@
       "minimumLinePercent": 85,
       "minimumBranchPercent": 45
     },
+    "src/workflow/v2/WorkflowAgentFeedbackV2.sol": {
+      "minimumLinePercent": 85,
+      "minimumBranchPercent": 45
+    },
     "src/workflow/v2/WorkflowAgentStorageV2.sol": {
       "minimumLinePercent": 85,
       "minimumBranchPercent": 45
@@ -31,6 +35,14 @@
       "minimumBranchPercent": 40
     },
     "src/workflow/v2/WorkflowVaultV2.sol": {
+      "minimumLinePercent": 90,
+      "minimumBranchPercent": 70
+    },
+    "src/workflow/v2/WorkflowVaultSettlementV2.sol": {
+      "minimumLinePercent": 90,
+      "minimumBranchPercent": 70
+    },
+    "src/workflow/v2/WorkflowVaultStorageV2.sol": {
       "minimumLinePercent": 90,
       "minimumBranchPercent": 70
     }

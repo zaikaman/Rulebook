@@ -24,6 +24,7 @@ import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramV
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
 import {WorkflowVaultFactoryV2} from "../../src/workflow/v2/WorkflowVaultFactoryV2.sol";
 import {WorkflowVaultV2} from "../../src/workflow/v2/WorkflowVaultV2.sol";
+import {WorkflowVaultStorageV2} from "../../src/workflow/v2/WorkflowVaultStorageV2.sol";
 import {MockAggregatorV3} from "../mocks/MockAggregatorV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
@@ -287,16 +288,16 @@ contract WorkflowMainnetV2Test is Test {
         // Clone cannot be re-initialized, implementation cannot be initialized by non-factory,
         // and cloned vault recognizes callbackProxy as an authorized sender.
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         uniDeployed.initialize(OWNER, address(agent));
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         WorkflowVaultV2(payable(uniFactory.implementation())).initialize(OWNER, address(agent));
         P.Run memory probeRun;
         probeRun.originChain = P.UNICHAIN_MAINNET;
         probeRun.originTransaction = bytes32(uint256(1));
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         uniDeployed.execute(address(agent), keccak256("probe"), probeRun);
         vm.prank(uni.callbackProxy);
         uniDeployed.execute(address(agent), keccak256("probe"), probeRun);
@@ -2002,13 +2003,13 @@ contract WorkflowMainnetV2Test is Test {
         staleDip.observationId = keccak256("stale dip obs");
 
         vm.expectEmit(true, true, false, true, address(unichainVault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             dipWf,
             _runId(dipWf, staleDip),
             1,
             unichainVault.SKIPPED(),
             type(uint8).max,
-            WorkflowVaultV2.StaleObservation.selector
+            WorkflowVaultStorageV2.StaleObservation.selector
         );
         assertEq(_deliver(unichainVault, dipWf, staleDip), unichainVault.SKIPPED());
         assertEq(unichainRouter.swapCount(), 0);
@@ -2379,7 +2380,7 @@ contract WorkflowMainnetV2Test is Test {
     ) private returns (uint8) {
         bytes4 selector = bytes4(encodedRevert);
         vm.expectEmit(true, true, false, true, address(targetVault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             id, _runId(id, run), run.epoch, expectedStatus, type(uint8).max, selector
         );
         return _deliver(targetVault, id, run);

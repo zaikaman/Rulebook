@@ -41,7 +41,7 @@ it('has a human message for every Solidity custom error in Errors.sol and V2 con
   const files = [
     '../../contracts/src/shared/Errors.sol',
     '../../contracts/src/workflow/v2/WorkflowProgramV2.sol',
-    '../../contracts/src/workflow/v2/WorkflowVaultV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowVaultStorageV2.sol',
     '../../contracts/src/workflow/v2/WorkflowProtocolsV2.sol',
     '../../contracts/src/workflow/v2/WorkflowVaultFactoryV2.sol',
     '../../contracts/src/workflow/v2/WorkflowAgentFactoryV2.sol',

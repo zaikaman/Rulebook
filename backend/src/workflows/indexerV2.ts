@@ -52,8 +52,8 @@ const VAULT_CREATED = workflowVaultFactoryV2Abi.filter(
 const AGENT_EVENTS = workflowAgentV2Abi.filter(
   (item) => item.type === 'event' && (item.name === 'Enabled' || item.name === 'Dispatched'),
 );
-const OUTCOME = workflowVaultV2Abi.filter(
-  (item) => item.type === 'event' && item.name === 'Outcome',
+const VAULT_EVENTS = workflowVaultV2Abi.filter(
+  (item) => item.type === 'event' && (item.name === 'Outcome' || item.name === 'AgentRebound'),
 );
 const telegramOutcomes = new Set([1, 3, 4, 6]);
 
@@ -333,7 +333,7 @@ export class WorkflowV2Indexer {
     const rawEvents = await this.fetchKnownLogs(
       source,
       known,
-      lasna ? AGENT_EVENTS : OUTCOME,
+      lasna ? AGENT_EVENTS : VAULT_EVENTS,
       fromBlock,
       toBlock,
     );
@@ -374,6 +374,14 @@ export class WorkflowV2Indexer {
     for (const log of events) {
       const address = log.address.toLowerCase();
       if (!trusted.has(address)) continue;
+      if (log.eventName === 'AgentRebound') {
+        const result = await this.db
+          .from('workflow_v2_accounts')
+          .update({ agent: log.args.nextAgent.toLowerCase() })
+          .match({ deployment: this.deployment, chain, address });
+        if (result.error) throw result.error;
+        continue;
+      }
       const row = {
         deployment: this.deployment,
         workflow_id: log.args.workflow,
@@ -482,7 +490,7 @@ export class WorkflowV2Indexer {
   private async fetchKnownLogs(
     source: ChainSource,
     known: readonly Address[],
-    events: typeof AGENT_EVENTS | typeof OUTCOME,
+    events: typeof AGENT_EVENTS | typeof VAULT_EVENTS,
     fromBlock: bigint,
     toBlock: bigint,
   ) {

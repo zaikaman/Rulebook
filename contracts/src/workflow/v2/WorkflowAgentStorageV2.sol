@@ -7,6 +7,10 @@ import {IReactiveSystem} from "../../shared/ReactiveTypes.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
+interface IAgentFactoryValidatorV2 {
+    function validator() external view returns (WorkflowProgramValidatorV2);
+}
+
 /// @notice Shared storage layout, immutables, and subscription/budget helpers for WorkflowAgentV2.
 abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     uint256 internal constant ANY =
@@ -23,8 +27,23 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
         uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
     uint256 internal constant GRACE_STARTED =
         uint256(keccak256("GraceStarted(bytes32,uint64,uint64)"));
-    uint256 internal constant PEAK_SYNCED =
-        uint256(keccak256("PeakSynced(bytes32,uint64,uint128)"));
+    uint256 internal constant OUTCOME =
+        uint256(keccak256("Outcome(bytes32,bytes32,uint64,uint8,uint8,bytes4)"));
+    uint256 internal constant PEAK_CORRECTED =
+        uint256(keccak256("PeakCorrected(bytes32,uint64,uint128,uint128,uint64,uint64)"));
+    uint256 internal constant BUDGET_RETRY = uint256(
+        keccak256(
+            "BudgetRetry(bytes32,uint64,bytes32,uint64,uint32,uint64,bytes32,uint64,uint64,uint256,address)"
+        )
+    );
+    bytes4 internal constant INSUFFICIENT_VAULT =
+        bytes4(keccak256("InsufficientVaultBalance(address,uint256,uint256)"));
+    bytes4 internal constant INSUFFICIENT_ALLOWANCE =
+        bytes4(keccak256("InsufficientRefillAllowance(uint256,uint256)"));
+    bytes4 internal constant INSUFFICIENT_OWNER =
+        bytes4(keccak256("InsufficientOwnerBalance(uint256,uint256)"));
+    bytes4 internal constant CROSSING_SETTLED = bytes4(keccak256("CrossingAlreadySettled()"));
+    bytes4 internal constant INVALID_AUTHORIZATION = bytes4(keccak256("InvalidAuthorization()"));
     uint64 internal constant LIFETIME = 10 minutes;
     uint64 internal constant GRACE_SKEW = 2 minutes;
     uint64 public constant PRICE_COOLDOWN = 60 seconds;
@@ -34,6 +53,8 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     // Bounds the per-workflow waiting list so a burst of blocked triggers can never make a cron
     // retry or a later budget sync unbounded. Oldest runs are kept; the newest is reported dropped.
     uint256 internal constant MAX_PENDING = 8;
+    uint256 internal constant MAX_CROSSING_IN_FLIGHT = 8;
+    uint8 internal constant MAX_CROSSING_BACKOFF = 6;
     uint64 internal constant WEEK = 7 days;
     // Reactive and destination chains can differ by seconds. The mirror only rolls a week forward
     // after the boundary has certainly passed on both chains, so the Agent never suppresses a run
@@ -88,6 +109,30 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
         uint128 low;
         uint128 high;
         uint64 blockNumber;
+    }
+
+    struct CrossingAttempt {
+        uint128 low;
+        uint128 high;
+        uint128 position;
+        uint64 expiresAt;
+        uint64 sequence;
+        uint8 backoff;
+    }
+
+    struct CrossingRecovery {
+        uint128 low;
+        uint128 high;
+        uint128 position;
+        uint64 sequence;
+        uint64 retryAt;
+        uint8 backoff;
+    }
+
+    struct BudgetRejection {
+        uint64 weekStart;
+        uint32 revision;
+        uint64 deadline;
     }
 
     struct Filter {
@@ -159,6 +204,7 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     event Expired(bytes32 indexed workflow, uint64 epoch);
     event WatchingPaused(bytes32 indexed workflow, uint64 epoch, uint64 wakeBlock);
     event WatchingResumed(bytes32 indexed workflow, uint64 epoch);
+    event FundingPaused(bytes32 indexed workflow, uint64 indexed epoch, bytes4 reason);
     event Dispatched(
         bytes32 indexed workflow,
         bytes32 indexed runId,
@@ -212,7 +258,18 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     mapping(bytes32 => CrossingRange) internal crossings;
     mapping(bytes32 => uint64) internal payoutGraceUntil;
     mapping(bytes32 => mapping(address => uint32)) internal budgetRevisions;
-    uint256[47] private __gap;
+    mapping(bytes32 => Filter[]) internal installedSettlementFilters;
+    mapping(bytes32 => Filter[]) internal installedTriggerFilters;
+    mapping(bytes32 => uint8) internal filterSnapshots;
+    mapping(bytes32 => BudgetRejection) internal budgetRejections;
+    mapping(bytes32 => bool) public fundingPaused;
+    mapping(bytes32 => uint128) internal fundingOutcomePosition;
+    mapping(bytes32 => CrossingAttempt) internal crossingAttempts;
+    mapping(bytes32 => bytes32[]) internal crossingInFlight;
+    mapping(bytes32 => CrossingRecovery) internal crossingRecoveries;
+    mapping(bytes32 => uint128) internal confirmedCrossingPosition;
+    uint64 internal nextCrossingSequence;
+    uint256[36] private __gap;
 
     constructor(IReactiveSystem system_, WorkflowProgramValidatorV2 validator_) {
         if (!ChainConfig.isAutomationChain(block.chainid)) revert InvalidWorkflow();
@@ -253,12 +310,23 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
             paused[workflow] = false;
             _settlementFilters(workflow, entry, false);
         } else {
-            _filters(workflow, entry, false);
+            _settlementFilters(workflow, entry, false);
+            _triggerFilters(workflow, entry, false);
         }
         _clearPending(workflow);
         _unpin(workflow);
         delete meta[workflow];
         delete crossings[workflow];
+        delete crossingRecoveries[workflow];
+        bytes32[] storage inFlight = crossingInFlight[workflow];
+        for (uint256 i; i < inFlight.length; ++i) {
+            delete crossingAttempts[inFlight[i]];
+        }
+        delete crossingInFlight[workflow];
+        delete confirmedCrossingPosition[workflow];
+        delete fundingPaused[workflow];
+        delete fundingOutcomePosition[workflow];
+        delete filterSnapshots[workflow];
         delete payoutGraceUntil[workflow];
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
@@ -269,60 +337,113 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
         }
     }
 
-    function _filters(bytes32 workflow, Entry storage entry, bool enabled) internal {
-        _settlementFilters(workflow, entry, enabled);
-        _triggerFilters(entry, enabled);
-    }
-
     /// @notice Filters that stay installed while a workflow is paused for its weekly budget.
     function _settlementFilters(bytes32 workflow, Entry storage entry, bool enabled) internal {
-        _applyFilters(
-            validator.settlementFilters(
-                entry.chain,
-                vaults[entry.chain],
-                owner,
-                meta[workflow].flags,
-                entry.epoch,
-                workflow,
-                primaryChain,
-                primaryUsdc,
-                secondaryChain,
-                secondaryUsdc
-            ),
+        Filter[] storage installed = installedSettlementFilters[workflow];
+        if (!enabled && (filterSnapshots[workflow] & 1) != 0) {
+            _removeFilters(installed);
+            return;
+        }
+        _applyWorkflowFilters(
+            installed,
+            _filterValidator(enabled)
+                .settlementFilters(
+                    entry.chain,
+                    vaults[entry.chain],
+                    owner,
+                    meta[workflow].flags,
+                    entry.epoch,
+                    workflow,
+                    primaryChain,
+                    primaryUsdc,
+                    secondaryChain,
+                    secondaryUsdc
+                ),
             enabled
         );
+        if (!enabled) return;
+        filterSnapshots[workflow] |= 1;
+        uint8 flags = meta[workflow].flags;
+        address vault = vaults[entry.chain];
+        if (
+            ((entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE)
+                    && (flags & P.FLAG_SPENDS) != 0) || (flags & P.FLAG_CROSSING) != 0
+        ) _installFilter(installed, Filter(entry.chain, vault, OUTCOME, uint256(workflow), ANY));
+        if ((flags & P.FLAG_TRAILING) != 0) {
+            _installFilter(
+                installed,
+                Filter(entry.chain, vault, PEAK_CORRECTED, uint256(workflow), entry.epoch)
+            );
+        }
+        if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) {
+            if ((flags & P.FLAG_SPENDS) != 0) {
+                _installFilter(
+                    installed,
+                    Filter(entry.chain, vault, BUDGET_RETRY, uint256(workflow), entry.epoch)
+                );
+            }
+        }
     }
 
     /// @notice Filters that only exist to trigger a run, and are removed while watching is paused.
-    function _triggerFilters(Entry storage entry, bool enabled) internal {
+    function _triggerFilters(bytes32 workflow, Entry storage entry, bool enabled) internal {
+        Filter[] storage installed = installedTriggerFilters[workflow];
+        if (!enabled && (filterSnapshots[workflow] & 2) != 0) {
+            _removeFilters(installed);
+            return;
+        }
         (address originUsdc, address originPair, uint24 originPoolFee,) = _market(entry.originChain);
-        _applyFilters(
-            validator.triggerFilters(
-                WorkflowProgramValidatorV2.TriggerFilterParams({
-                    trigger: entry.trigger,
-                    chain: entry.chain,
-                    originChain: entry.originChain,
-                    automationChain: automationChain,
-                    cronSource: cronSource,
-                    vault: vaults[entry.chain],
-                    originUsdc: originUsdc,
-                    originPair: originPair,
-                    originPoolFee: originPoolFee,
-                    source: entry.source,
-                    subject: entry.subject,
-                    dip: entry.dip
-                })
-            ),
+        _applyWorkflowFilters(
+            installed,
+            _filterValidator(enabled)
+                .triggerFilters(
+                    WorkflowProgramValidatorV2.TriggerFilterParams({
+                        trigger: entry.trigger,
+                        chain: entry.chain,
+                        originChain: entry.originChain,
+                        automationChain: automationChain,
+                        cronSource: cronSource,
+                        vault: vaults[entry.chain],
+                        originUsdc: originUsdc,
+                        originPair: originPair,
+                        originPoolFee: originPoolFee,
+                        source: entry.source,
+                        subject: entry.subject,
+                        dip: entry.dip
+                    })
+                ),
             enabled
         );
+        if (enabled) filterSnapshots[workflow] |= 2;
     }
 
-    function _applyFilters(WorkflowProgramValidatorV2.Filter[] memory list, bool enabled) internal {
+    function _filterValidator(bool installing) private view returns (WorkflowProgramValidatorV2) {
+        return installing ? validator : IAgentFactoryValidatorV2(factory).validator();
+    }
+
+    function _applyWorkflowFilters(
+        Filter[] storage installed,
+        WorkflowProgramValidatorV2.Filter[] memory list,
+        bool enabled
+    ) private {
         for (uint256 index; index < list.length; ++index) {
             WorkflowProgramValidatorV2.Filter memory item = list[index];
-            _filter(
-                Filter(item.chain, item.source, item.signature, item.topic1, item.topic2), enabled
-            );
+            Filter memory filter =
+                Filter(item.chain, item.source, item.signature, item.topic1, item.topic2);
+            if (enabled) _installFilter(installed, filter);
+            else _filter(filter, false);
+        }
+    }
+
+    function _installFilter(Filter[] storage installed, Filter memory filter) private {
+        _filter(filter, true);
+        installed.push(filter);
+    }
+
+    function _removeFilters(Filter[] storage installed) private {
+        while (installed.length != 0) {
+            _filter(installed[installed.length - 1], false);
+            installed.pop();
         }
     }
 
@@ -444,5 +565,60 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
             observed,
             asOf
         );
+    }
+
+    function _transferBudgetBlocks(bytes32 workflow, uint256 observed, address actor, bool fresh)
+        internal
+        view
+        returns (bool)
+    {
+        Budget storage budget = budgets[workflow];
+        if (!budget.known || (budget.usdcLimit == 0 && budget.wethLimit == 0)) return false;
+        bool reset = fresh || block.timestamp >= _resetAt(workflow);
+        return !validator.canTriggerTransferWithinBudget(
+            programs[entries[workflow].hash],
+            observed,
+            actor,
+            _available(budget.usdcLimit, reset ? 0 : budget.usdcSpent),
+            _available(budget.wethLimit, reset ? 0 : budget.wethSpent)
+        );
+    }
+
+    function _available(uint96 limit, uint128 spent) private pure returns (uint256) {
+        if (limit == 0) return type(uint256).max;
+        return limit > spent ? limit - spent : 0;
+    }
+
+    function _completeCrossing(bytes32 workflow, bytes32 runId, bool confirmed) internal {
+        CrossingAttempt memory attempt = crossingAttempts[runId];
+        if (attempt.expiresAt == 0) return;
+        delete crossingAttempts[runId];
+        bytes32[] storage inFlight = crossingInFlight[workflow];
+        for (uint256 i; i < inFlight.length; ++i) {
+            if (inFlight[i] == runId) {
+                inFlight[i] = inFlight[inFlight.length - 1];
+                inFlight.pop();
+                break;
+            }
+        }
+        if (attempt.position <= confirmedCrossingPosition[workflow]) return;
+        CrossingRecovery storage recovery = crossingRecoveries[workflow];
+        if (confirmed) {
+            confirmedCrossingPosition[workflow] = attempt.position;
+            if (recovery.position <= attempt.position) delete crossingRecoveries[workflow];
+        } else if (attempt.position >= recovery.position) {
+            crossingRecoveries[workflow] = CrossingRecovery(
+                attempt.low,
+                attempt.high,
+                attempt.position,
+                attempt.sequence,
+                attempt.expiresAt - LIFETIME + (PRICE_COOLDOWN << attempt.backoff),
+                attempt.backoff < MAX_CROSSING_BACKOFF ? attempt.backoff + 1 : attempt.backoff
+            );
+        }
+    }
+
+    function _position(uint64 blockNumber, uint64 logIndex) internal pure returns (uint128) {
+        return (uint128(blockNumber) << 64) | logIndex;
     }
 }

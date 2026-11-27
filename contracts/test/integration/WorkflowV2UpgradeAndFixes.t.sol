@@ -7,6 +7,7 @@ import {IReactive} from "@reactive/interfaces/IReactive.sol";
 import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {CallbackConfiguration, IReactiveSystem} from "../../src/shared/ReactiveTypes.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentFeedbackV2} from "../../src/workflow/v2/WorkflowAgentFeedbackV2.sol";
 import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
 import {WorkflowAgentStorageV2} from "../../src/workflow/v2/WorkflowAgentStorageV2.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
@@ -14,7 +15,9 @@ import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.so
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
 import {WorkflowVaultFactoryV2} from "../../src/workflow/v2/WorkflowVaultFactoryV2.sol";
+import {WorkflowVaultSettlementV2} from "../../src/workflow/v2/WorkflowVaultSettlementV2.sol";
 import {WorkflowVaultV2} from "../../src/workflow/v2/WorkflowVaultV2.sol";
+import {WorkflowVaultStorageV2} from "../../src/workflow/v2/WorkflowVaultStorageV2.sol";
 import {MockAggregatorV3} from "../mocks/MockAggregatorV3.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
@@ -71,7 +74,8 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
     uint256 private constant SYNC = uint256(keccak256("Sync(uint112,uint112)"));
     uint256 private constant BUDGET_SYNCED =
         uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
-    uint256 private constant PEAK_SYNCED = uint256(keccak256("PeakSynced(bytes32,uint64,uint128)"));
+    uint256 private constant PEAK_CORRECTED =
+        uint256(keccak256("PeakCorrected(bytes32,uint64,uint128,uint128,uint64,uint64)"));
 
     MockERC20 private usdc;
     MockERC20 private weth;
@@ -210,10 +214,10 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
 
         // Unapproved upgrade & non-owner upgrade revert.
         vm.prank(OTHER);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         vault.upgradeToAndCall(address(v21), "");
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         vault.upgradeToAndCall(address(v21), "");
 
         // Direct implementation call reverts (not via proxy).
@@ -238,7 +242,7 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         // The old relay loses settlement and payment authority atomically.
         P.Run memory run2 = _run(wf, 2, P.BASE_MAINNET, 0);
         vm.prank(PROXY);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         vault.execute(address(agent), wf, run2);
         vm.prank(PROXY);
         vm.expectRevert(bytes("Authorized sender only"));
@@ -279,6 +283,17 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         reactModule.react(emptyLog);
         vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
         reactModule.resumeWatching(wf);
+        WorkflowAgentFeedbackV2 feedbackModule =
+            WorkflowAgentFeedbackV2(payable(reactModule.feedbackModule()));
+        vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
+        feedbackModule.handleSettlement(emptyLog);
+        vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
+        feedbackModule.priceRun(wf, address(pair));
+        WorkflowVaultSettlementV2 settlementModule =
+            WorkflowVaultSettlementV2(payable(vault.settlementModule()));
+        P.Run memory emptyRun;
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
+        settlementModule.settle(wf, emptyRun, bytes32(0));
 
         // Direct impl initialization is locked.
         vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
@@ -359,11 +374,11 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
 
         // checkIn rejects non-inactivity workflows (B-1 secondary fix).
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         vault.checkIn(wf);
 
         // Populate 70 Chainlink rounds: round 10 at $3,500, rounds 11..70 declining to $3,100.
-        uint256 ts = block.timestamp;
+        uint256 ts = MONDAY + 1 hours;
         ethUsd.setRound(10, 3_500e8, ts, ts, 10);
         for (uint80 r = 11; r <= 70; ++r) {
             int256 px = int256(3_500e8 - ((uint256(r) - 10) * 400e8) / 60);
@@ -410,7 +425,7 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
             mstore(add(payload, 36), sender)
         }
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.PeakSynced(wf2, 1, 2_950e18);
+        emit WorkflowVaultStorageV2.PeakCorrected(wf2, 1, 2_950e18, 3_500e18, 10, uint64(ts));
         vm.prank(PROXY);
         (bool ok,) = address(vault).call{gas: req.gasLimit}(payload);
         assertTrue(ok);
@@ -419,12 +434,12 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         IReactive.LogRecord memory peakLog;
         peakLog.chain_id = P.BASE_MAINNET;
         peakLog._contract = address(vault);
-        peakLog.topic_0 = PEAK_SYNCED;
+        peakLog.topic_0 = PEAK_CORRECTED;
         peakLog.topic_1 = uint256(wf2);
         peakLog.topic_2 = 1;
         peakLog.block_number = 200;
         peakLog.tx_hash = 200;
-        peakLog.data = abi.encode(uint128(2_950e18));
+        peakLog.data = abi.encode(uint128(2_950e18), uint128(3_500e18), uint64(10), uint64(ts));
         vm.prank(address(system));
         agent.react(peakLog);
 
@@ -432,10 +447,56 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         vm.warp(ts + 240);
         _sync(P.BASE_MAINNET, 13, 2_900e6);
         assertEq(system.requestCount(), 1, "PeakSynced prevents callback spam loop");
+
+        _sync(P.BASE_MAINNET, 14, 3_700e6);
+        _sync(P.BASE_MAINNET, 15, 3_700e6);
+        vm.prank(address(system));
+        agent.react(peakLog);
+        _sync(P.BASE_MAINNET, 16, 3_000e6);
+        assertEq(system.requestCount(), 2, "stale correction must preserve the newer high");
+    }
+
+    function testAgentUpgradeRemovesTheFiltersThatWereActuallyInstalled() public {
+        bytes32 wf = keccak256("subscription snapshots");
+        P.Program memory prog = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.SCHEDULE, _path(_action(P.SEND, 1e6, RECIPIENT))
+        );
+        vm.prank(OWNER);
+        agent.enable(wf, 1, abi.encode(prog), "Filter snapshots", 1);
+
+        vm.chainId(P.REACTIVE_MAINNET);
+        WorkflowProgramValidatorV2 nextValidator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 nextModule = new WorkflowAgentReactV2(system, nextValidator);
+        WorkflowAgentV2 next = new WorkflowAgentV2(system, nextValidator, address(nextModule));
+        agentFactory.approveImplementation(address(next), true);
+        vm.prank(OWNER);
+        agent.upgradeToAndCall(address(next), "");
+        vm.prank(OWNER);
+        agent.refreshWorkflowFilters(wf);
+
+        vm.mockCallRevert(
+            address(nextValidator),
+            abi.encodePacked(WorkflowProgramValidatorV2.settlementFilters.selector),
+            hex""
+        );
+        vm.mockCallRevert(
+            address(nextValidator),
+            abi.encodePacked(WorkflowProgramValidatorV2.triggerFilters.selector),
+            hex""
+        );
+        vm.prank(OWNER);
+        agent.disable(wf, 1);
+        assertFalse(
+            system.isSubscribed(
+                P.REACTIVE_MAINNET,
+                ChainConfig.reactiveMainnet().cronSource,
+                uint256(keccak256("Cron100(uint256)"))
+            )
+        );
     }
 
     function testHistoricalPeakUsesObservationTimeAcrossOraclePhases() public {
-        uint64 since = uint64(block.timestamp);
+        uint64 since = uint64(MONDAY + 1 hours);
         uint64 observedAt = since + 2;
         uint80 firstPhase = uint80(1) << 64;
         uint80 secondPhase = uint80(2) << 64;
@@ -617,7 +678,7 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         vault.withdraw(address(usdc), 30e6); // Vault = 70e6
         P.Run memory r2 = _run(wf, 2, P.REACTIVE_MAINNET, 0);
         vm.expectEmit(true, false, false, true, address(vault));
-        emit WorkflowVaultV2.BudgetSynced(wf, 50e6, 0, 50e6, 0, uint64(MONDAY), 1);
+        emit WorkflowVaultStorageV2.BudgetSynced(wf, 50e6, 0, 50e6, 0, uint64(MONDAY), 1);
         vm.prank(PROXY);
         vault.execute(address(agent), wf, r2);
         assertEq(
@@ -642,13 +703,13 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         // Another Vault attempt while remaining == 0 skips with WeeklyBudgetExceeded.
         P.Run memory r3 = _run(wf, 3, P.REACTIVE_MAINNET, 0);
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             wf,
             _runId(wf, P.REACTIVE_MAINNET, bytes32(uint256(3)), 0),
             1,
             vault.SKIPPED(),
             type(uint8).max,
-            WorkflowVaultV2.WeeklyBudgetExceeded.selector
+            WorkflowVaultStorageV2.WeeklyBudgetExceeded.selector
         );
         vm.prank(PROXY);
         vault.execute(address(agent), wf, r3);

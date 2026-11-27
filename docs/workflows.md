@@ -18,6 +18,17 @@ Fund vault principal and network credit per settlement chain from **Account & Va
 
 A run the Vault cannot fund is skipped, not failed. Before every USDC transfer or swap, the Vault compares the amount it is about to move with its own live token balance; if it is short, the run reverts with `InsufficientVaultBalance` and records **skipped** with the reason **The Vault did not hold enough of the asset this run needed**. Nothing is spent, the weekly budget and any consumed payment are left untouched, and the workflow stays active. The check runs per step, so a path that sells WETH and then sends the USDC it just filled still settles. Because it runs at settlement, it also covers balances that change after dispatch. Health reports **Vault short of funds** with the amount to add and links to Account & Vault; the activation check still catches fixed shortfalls before activation, while the Vault is the authority once a workflow is live. Both the Agent and settlement Vault run behind ERC-1967 proxies with owner-only opt-in UUPS upgrades to factory-approved implementations, so owners can adopt fixes without losing their addresses or prepaid Reactive credit.
 
+On the proxy release, a funding shortfall pauses watching for scheduled and
+price workflows once the Agent receives the Vault's outcome. Top up the Vault
+or restore the owner's refill allowance or balance, then call
+`resumeWatching(workflow)` on the Agent from the owner wallet. Weekly budget
+restrictions still apply. When a payment or transfer callback loses a race
+for the weekly budget, the Agent can requeue its original event. Activity
+shows a separate dispatch for the retry, and an origin can settle only once.
+A failed price crossing keeps its evidence for a retry on a fresh pool log
+after the cooldown. The Vault rechecks the price and rejects duplicate
+settlement of that crossing.
+
 Workflow review and the workspace flag low reserves and outstanding network fees. Follow the top-up link to the corresponding credit deposit. **Workflow costs** shows suggested reserves and live network gas quotes. Public proofs show execution gas from the available transaction receipts.
 
 Each workflow card and its detail page show one health status: **Watching for the next trigger**, **Waiting for a payment**, **Callback pending**, **Inactivity payout in grace period**, **Blocked by low execution credit**, **Blocked by low watching credit**, **Vault short of funds**, **Budget reached**, **Last run failed**, **Last run unconfirmed**, **Paused**, **Ready to activate**, or **Completed**. A grace-period status means the Vault already recorded the run and is holding its inactivity payout during the grace or final confirmation window; checking in cancels that payout, and the hold is not reported as a missing callback. Health reads the live Lasna subscription, Vault authorization, credit reserves, weekly budget, and the newest indexed run. The last successful run links to its public proof. A blocked state links to the matching fix: the credit deposit, the weekly budget editor, Account & Vault, or the workflow editor. Run history and status use the same reserve thresholds as Telegram funding and action alerts, so the app and a Telegram warning agree.

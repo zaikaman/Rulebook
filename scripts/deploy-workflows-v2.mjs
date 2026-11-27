@@ -438,6 +438,8 @@ const deploymentComponentsAbi = parseAbi([
   'function implementation() view returns (address)',
   'function validator() view returns (address)',
   'function reactModule() view returns (address)',
+  'function feedbackModule() view returns (address)',
+  'function settlementModule() view returns (address)',
   'function system() view returns (address)',
   'function chain() view returns (uint32)',
   'function callbackProxy() view returns (address)',
@@ -481,28 +483,49 @@ async function verifyCurrentComponents(rpc, chain, item, contractsDir, isAgent, 
     }
     if (isAgent) {
       const reactModule = await read(implementation, 'reactModule');
-      const [agentSystem, moduleSystem, moduleValidator] = await Promise.all([
+      const [agentSystem, moduleSystem, moduleValidator, feedbackModule] = await Promise.all([
         read(implementation, 'system'),
         read(reactModule, 'system'),
         read(reactModule, 'validator'),
+        read(reactModule, 'feedbackModule'),
+      ]);
+      const [feedbackSystem, feedbackValidator] = await Promise.all([
+        read(feedbackModule, 'system'),
+        read(feedbackModule, 'validator'),
       ]);
       if (
         !isAddressEqual(agentSystem, REACTIVE_SYSTEM_CONTRACT) ||
         !isAddressEqual(moduleSystem, agentSystem) ||
-        !isAddressEqual(moduleValidator, validator)
+        !isAddressEqual(moduleValidator, validator) ||
+        !isAddressEqual(feedbackSystem, agentSystem) ||
+        !isAddressEqual(feedbackValidator, validator)
       ) {
         problems.push(`${chain.name} Agent and React module have inconsistent configuration`);
       }
       components.push(['WorkflowAgentReactV2', reactModule]);
+      components.push(['WorkflowAgentFeedbackV2', feedbackModule]);
     } else {
-      const [vaultChain, factoryProxy, implementationProxy] = await Promise.all([
+      const [vaultChain, factoryProxy, implementationProxy, settlementModule] = await Promise.all([
         read(implementation, 'chain'),
         read(item.address, 'callbackProxy'),
         read(implementation, 'callbackProxy'),
+        read(implementation, 'settlementModule'),
       ]);
-      if (vaultChain !== chain.id || !isAddressEqual(factoryProxy, implementationProxy)) {
+      const [moduleChain, moduleProxy, moduleValidator] = await Promise.all([
+        read(settlementModule, 'chain'),
+        read(settlementModule, 'callbackProxy'),
+        read(settlementModule, 'validator'),
+      ]);
+      if (
+        vaultChain !== chain.id ||
+        moduleChain !== chain.id ||
+        !isAddressEqual(factoryProxy, implementationProxy) ||
+        !isAddressEqual(moduleProxy, implementationProxy) ||
+        !isAddressEqual(moduleValidator, validator)
+      ) {
         problems.push(`${chain.name} vault and factory have inconsistent callback configuration`);
       }
+      components.push(['WorkflowVaultSettlementV2', settlementModule]);
     }
     await Promise.all(
       components.map(async ([name, address]) => {

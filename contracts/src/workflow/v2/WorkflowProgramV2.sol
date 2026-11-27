@@ -17,6 +17,7 @@ library WorkflowProgramV2 {
     uint8 internal constant MAX_DEPTH = 3;
     uint8 internal constant MAX_STEPS = 3;
     uint16 internal constant BPS = 10_000;
+    uint256 private constant BUDGET_RETRY_FLAG = uint256(1) << 254;
 
     uint8 internal constant SCHEDULE = 1;
     uint8 internal constant PAYMENT = 2;
@@ -94,6 +95,7 @@ library WorkflowProgramV2 {
         uint128 high;
         uint64 highBlock;
         uint64 observationTime;
+        // Wallet activity for schedules and a settlement sequence for price crossings.
         uint64 activityTime;
         bytes32 observationId;
         address actor;
@@ -498,7 +500,7 @@ library WorkflowProgramV2 {
         );
     }
 
-    function requiresCrossing(Run calldata run) internal pure returns (bool) {
+    function requiresCrossing(Run memory run) internal pure returns (bool) {
         return uint256(run.observationId) >> 255 != 0;
     }
 
@@ -546,24 +548,39 @@ library WorkflowProgramV2 {
         pure
         returns (bool)
     {
+        return canTriggerTransferWithinBudget(
+            encoded, observed, actor, type(uint256).max, type(uint256).max
+        );
+    }
+
+    function canTriggerTransferWithinBudget(
+        bytes calldata encoded,
+        uint256 observed,
+        address actor,
+        uint256 maxUsdc,
+        uint256 maxWeth
+    ) internal pure returns (bool) {
         Program memory program = abi.decode(encoded, (Program));
         if ((program.trigger != PAYMENT && program.trigger != TRANSFER) || observed == 0) {
             return false;
         }
-        return _canTriggerTransferNode(program, 0, observed, actor);
+        return _canTriggerTransferNode(program, 0, observed, actor, maxUsdc, maxWeth);
     }
 
     function _canTriggerTransferNode(
         Program memory program,
         uint8 cursor,
         uint256 observed,
-        address actor
+        address actor,
+        uint256 maxUsdc,
+        uint256 maxWeth
     ) private pure returns (bool) {
         Node memory node = program.nodes[cursor];
         uint8 check = node.check;
         if (check == 0) {
             if (node.actions.length == 0) return false;
             uint256 totalUsdc;
+            uint256 totalWeth;
             for (uint256 i; i < node.actions.length; ++i) {
                 Action memory action = node.actions[i];
                 if (action.kind == ALERT) continue;
@@ -573,36 +590,55 @@ library WorkflowProgramV2 {
                     if (addition == 0) return false;
                 } else if (action.kind == REFILL) {
                     addition = 1;
-                } else if (action.kind != SELL) {
+                } else if (action.kind == SELL) {
+                    totalWeth += action.amount;
+                } else {
                     addition = action.amount;
                 }
                 totalUsdc = addition > type(uint256).max - totalUsdc
                     ? type(uint256).max
                     : totalUsdc + addition;
             }
-            if (totalUsdc > program.usdcCap || (program.trigger == PAYMENT && totalUsdc > observed))
-            {
+            if (
+                totalUsdc > program.usdcCap || (program.trigger == PAYMENT && totalUsdc > observed)
+                    || totalUsdc > maxUsdc || totalWeth > maxWeth
+            ) {
                 return false;
             }
             return true;
         }
         if (check == AMOUNT_AT_LEAST) {
             return _canTriggerTransferNode(
-                program, observed >= node.value ? node.yes : node.no, observed, actor
+                program,
+                observed >= node.value ? node.yes : node.no,
+                observed,
+                actor,
+                maxUsdc,
+                maxWeth
             );
         }
         if (check == AMOUNT_ABOVE) {
             return _canTriggerTransferNode(
-                program, observed > node.value ? node.yes : node.no, observed, actor
+                program,
+                observed > node.value ? node.yes : node.no,
+                observed,
+                actor,
+                maxUsdc,
+                maxWeth
             );
         }
         if (check == PAYMENT_FROM) {
             return _canTriggerTransferNode(
-                program, actor == program.subject ? node.yes : node.no, observed, actor
+                program,
+                actor == program.subject ? node.yes : node.no,
+                observed,
+                actor,
+                maxUsdc,
+                maxWeth
             );
         }
-        return _canTriggerTransferNode(program, node.yes, observed, actor)
-            || _canTriggerTransferNode(program, node.no, observed, actor);
+        return _canTriggerTransferNode(program, node.yes, observed, actor, maxUsdc, maxWeth)
+            || _canTriggerTransferNode(program, node.no, observed, actor, maxUsdc, maxWeth);
     }
 
     /// @notice Decodes a Uniswap V2 Sync or V3 Swap log payload into a 1e18-scaled USDC-per-WETH price.
@@ -645,5 +681,20 @@ library WorkflowProgramV2 {
         return keccak256(
             abi.encode(agent, workflow, run.originChain, run.originTransaction, run.originLogIndex)
         );
+    }
+
+    function retryEvidence(uint64 deadline) internal pure returns (bytes32) {
+        return bytes32(BUDGET_RETRY_FLAG | deadline);
+    }
+
+    function retryNonce(Run calldata run) internal pure returns (uint64) {
+        uint256 evidence = uint256(run.observationId);
+        return isFundsChain(run.originChain) && evidence >> 64 == BUDGET_RETRY_FLAG >> 64
+            ? uint64(evidence)
+            : 0;
+    }
+
+    function retryRunId(bytes32 originId, uint64 nonce) internal pure returns (bytes32) {
+        return keccak256(abi.encode(originId, nonce));
     }
 }

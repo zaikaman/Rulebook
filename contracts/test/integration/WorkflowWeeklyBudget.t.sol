@@ -13,6 +13,7 @@ import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.so
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
 import {WorkflowVaultV2} from "../../src/workflow/v2/WorkflowVaultV2.sol";
+import {WorkflowVaultStorageV2} from "../../src/workflow/v2/WorkflowVaultStorageV2.sol";
 import {MockERC20} from "../mocks/MockERC20.sol";
 import {MockPair} from "../mocks/MockPair.sol";
 import {MockRouter} from "../mocks/MockRouter.sol";
@@ -124,13 +125,13 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
 
         vm.expectEmit(true, true, false, true, address(vault));
-        emit WorkflowVaultV2.Outcome(
+        emit WorkflowVaultStorageV2.Outcome(
             WORKFLOW,
             _runId(_run(102, P.SCHEDULE)),
             1,
             vault.SKIPPED(),
             type(uint8).max,
-            WorkflowVaultV2.WeeklyBudgetExceeded.selector
+            WorkflowVaultStorageV2.WeeklyBudgetExceeded.selector
         );
         assertEq(_deliver(_run(102, P.SCHEDULE)), vault.SKIPPED());
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
@@ -288,7 +289,7 @@ contract WorkflowWeeklyBudgetTest is Test {
 
         vm.startPrank(OWNER);
         vault.setWeeklyBudget(WORKFLOW, 2, 3, 2e6, 0);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         vault.checkIn(WORKFLOW);
         vm.stopPrank();
         _assertBudget(ExpectedBudget(2e6, 0, 0.6e6, 0, 1.4e6, 4));
@@ -306,15 +307,15 @@ contract WorkflowWeeklyBudgetTest is Test {
         _enable(program, 1e6, 0);
 
         vm.prank(RECIPIENT);
-        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.Unauthorized.selector);
         vault.setWeeklyBudget(WORKFLOW, 1, 1, 2e6, 0);
 
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.StaleBudget.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.StaleBudget.selector);
         vault.setWeeklyBudget(WORKFLOW, 1, 0, 2e6, 0);
 
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         vault.setWeeklyBudget(WORKFLOW, 0, 1, 2e6, 0);
 
         vm.prank(OWNER);
@@ -322,7 +323,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         vm.prank(OWNER);
         vault.authorize(WORKFLOW, 2, encoded, "Weekly workflow");
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
         vault.setWeeklyBudget(WORKFLOW, 1, 2, 3e6, 0);
     }
 

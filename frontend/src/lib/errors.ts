@@ -208,6 +208,10 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     message: 'This observation is older than the latest recorded run.',
   },
   {
+    signature: 'CrossingAlreadySettled()',
+    message: 'This price crossing was already settled by an earlier run.',
+  },
+  {
     signature: 'SettlementInterrupted()',
     message: 'Settlement was interrupted and could not complete.',
   },

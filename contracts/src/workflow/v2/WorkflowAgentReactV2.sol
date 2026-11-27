@@ -7,6 +7,8 @@ import {WorkflowAgentStorageV2} from "./WorkflowAgentStorageV2.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
+import {WorkflowAgentFeedbackV2} from "./WorkflowAgentFeedbackV2.sol";
+
 interface IWorkflowSettlementV2 {
     function execute(address sender, bytes32 workflow, P.Run calldata run) external;
     function recordActivity(address sender, bytes32 workflow, uint64 epoch, uint64 activityTime)
@@ -16,6 +18,7 @@ interface IWorkflowSettlementV2 {
 /// @notice Delegatecall module executing `react` and `resumeWatching` for `WorkflowAgentV2`.
 contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
     address private immutable __self = address(this);
+    address public immutable feedbackModule;
 
     modifier onlyDelegateCall() {
         if (address(this) == __self) revert Unauthorized();
@@ -24,7 +27,9 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
 
     constructor(IReactiveSystem system_, WorkflowProgramValidatorV2 validator_)
         WorkflowAgentStorageV2(system_, validator_)
-    {}
+    {
+        feedbackModule = address(new WorkflowAgentFeedbackV2(system_, validator_));
+    }
 
     /// @notice Re-arms a paused workflow without waiting for its pinned wake.
     /// @dev Permissionless: the mirrored budget still has to admit a path, so this can only
@@ -38,6 +43,14 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             return;
         }
         if (paused[workflow]) {
+            if (fundingPaused[workflow]) {
+                if (msg.sender != owner) revert Unauthorized();
+                delete fundingPaused[workflow];
+                if (_budgetBlocks(workflow, 0)) {
+                    _enterPause(workflow, entry);
+                    return;
+                }
+            }
             if (!_budgetBlocks(workflow, 0)) {
                 _resume(workflow, entry);
                 return;
@@ -53,7 +66,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         uint256 count = pending[workflow].length;
         if (count == 0) revert NotPaused();
         for (uint256 index; index < count; ++index) {
-            if (!_budgetBlocks(workflow, pending[workflow][index].observed)) {
+            if (!_pendingBlocked(workflow, pending[workflow][index], false)) {
                 _retryPending(workflow);
                 return;
             }
@@ -74,11 +87,16 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             _syncBudget(log);
             return;
         }
+        if (log.topic_0 == BUDGET_RETRY) {
+            _syncBudgetRetryLog(log);
+            return;
+        }
         if (
-            log.topic_0 == REFERENCE_SYNCED || log.topic_0 == GRACE_STARTED || log.topic_0 == CLOSED
-                || log.topic_0 == PEAK_SYNCED
+            log.topic_0 == OUTCOME || log.topic_0 == REFERENCE_SYNCED
+                || log.topic_0 == GRACE_STARTED || log.topic_0 == CLOSED
+                || log.topic_0 == PEAK_CORRECTED
         ) {
-            _syncVaultEvent(log);
+            _feedback(abi.encodeCall(WorkflowAgentFeedbackV2.handleSettlement, (log)));
             return;
         }
         // A Reactive cron tick also drives the waiting list, which is how a run parked by an
@@ -215,44 +233,13 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             if (entry.originChain == entry.chain && log.block_number <= entry.originAfter) return;
             if (entry.trigger == P.PRICE) {
                 if (!market) return;
-                PriceState storage state = prices[entry.originChain][log._contract];
-                PriceHigh storage high = highs[workflow];
-                uint128 sustained =
-                    state.previousPrice < state.price ? state.previousPrice : state.price;
-                if (
-                    sustained > high.value && state.previousTime >= entry.nextDue
-                        && (entry.originChain != entry.chain
-                            || state.previousBlockNumber > entry.originAfter)
-                ) {
-                    high.value = sustained;
-                    high.blockNumber = state.previousBlockNumber;
-                    high.observedAt = state.previousTime;
-                }
-                WorkflowMeta storage info = meta[workflow];
-                (uint128 previousLow, uint128 previousHigh) = _crossingRange(workflow, info, state);
-                bool cooling = block.timestamp < info.cooldownUntil;
-                if (cooling && (info.flags & P.FLAG_CROSSING) == 0) return;
-                uint256 refPrice = (info.flags & FLAG_REF_PENDING) != 0
-                    && block.timestamp < uint256(info.cooldownUntil) + LIFETIME
-                    ? type(uint256).max
-                    : info.referencePrice;
-                if (!validator.canTriggerPriceRange(
-                        programs[entry.hash],
-                        state.price,
-                        previousLow,
-                        previousHigh,
-                        high.value,
-                        refPrice,
-                        cooling
-                    )) return;
-                run.observed = state.price;
-                run.previous = state.previousPrice;
-                run.high = high.value;
-                run.highBlock = high.blockNumber;
-                run.observationTime = state.time;
-                run.observationId = P.priceEvidence(previousHigh, high.observedAt, cooling);
-                // A price log has no payer. Preserve the immediate previous price for old Vaults.
-                run.actor = address(uint160(previousLow));
+                run = abi.decode(
+                    _feedback(
+                        abi.encodeCall(WorkflowAgentFeedbackV2.priceRun, (workflow, log._contract))
+                    ),
+                    (P.Run)
+                );
+                if (run.observed == 0) return;
             } else {
                 if (log.data.length != 32) return;
                 uint256 amount = abi.decode(log.data, (uint256));
@@ -293,30 +280,17 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         run.expiresAt = uint64(block.timestamp) + LIFETIME;
         bytes32 runId = _runId(workflow, run.originChain, run.originTransaction, run.originLogIndex);
         if (seen[runId]) return;
-        if (_budgetBlocks(workflow, run.observed)) {
-            if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) _park(workflow, run);
-            else _pause(workflow, entry);
+        if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) {
+            if (_transferBudgetBlocks(workflow, run.observed, run.actor, false)) {
+                _park(workflow, run, runId);
+                return;
+            }
+        } else if (_budgetBlocks(workflow, run.observed)) {
+            _pause(workflow, entry);
             return;
         }
         seen[runId] = true;
         _dispatch(workflow, entry, run, runId);
-    }
-
-    function _crossingRange(bytes32 workflow, WorkflowMeta storage info, PriceState storage state)
-        private
-        returns (uint128 low, uint128 high)
-    {
-        low = state.previousPrice;
-        high = low;
-        if ((info.flags & P.FLAG_CROSSING) == 0) return (low, high);
-        CrossingRange storage range = crossings[workflow];
-        if (range.blockNumber == 0) return (low, high);
-        // Add completed blocks only. Intra-block pool wicks must not become crossing evidence.
-        if (state.previousBlockNumber >= range.blockNumber && low != 0) {
-            if (range.low == 0 || low < range.low) range.low = low;
-            if (high > range.high) range.high = high;
-        }
-        return (range.low, range.high);
     }
 
     function _dispatch(bytes32 workflow, Entry storage entry, P.Run memory run, bytes32 runId)
@@ -333,7 +307,23 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             info.cooldownUntil =
                 nextCooldown > type(uint40).max ? type(uint40).max : uint40(nextCooldown);
             if ((info.flags & P.FLAG_USES_REFERENCE) != 0) info.flags |= FLAG_REF_PENDING;
-            if ((info.flags & P.FLAG_CROSSING) != 0) {
+            if (P.requiresCrossing(run)) {
+                uint8 backoff;
+                if (run.activityTime == 0) {
+                    run.activityTime = ++nextCrossingSequence;
+                } else {
+                    backoff = crossingRecoveries[workflow].backoff;
+                    delete crossingRecoveries[workflow];
+                }
+                crossingAttempts[runId] = CrossingAttempt(
+                    uint128(uint160(run.actor)),
+                    uint128(uint256(run.observationId) >> 64),
+                    _position(run.originBlock, run.originLogIndex),
+                    run.expiresAt,
+                    run.activityTime,
+                    backoff
+                );
+                crossingInFlight[workflow].push(runId);
                 crossings[workflow] = CrossingRange(0, 0, run.originBlock);
             }
         }
@@ -358,7 +348,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         );
     }
 
-    function _park(bytes32 workflow, P.Run memory run) private {
+    function _park(bytes32 workflow, P.Run memory run, bytes32 runId) private {
         Pending[] storage queue = pending[workflow];
         uint256 count = queue.length;
         for (uint256 index; index < count; ++index) {
@@ -367,7 +357,6 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
                     && queue[index].originLogIndex == run.originLogIndex
             ) return;
         }
-        bytes32 runId = _runId(workflow, run.originChain, run.originTransaction, run.originLogIndex);
         if (count >= MAX_PENDING) {
             emit QueueDropped(workflow, runId);
             return;
@@ -394,12 +383,10 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             if (pending[workflow].length != 0) {
                 uint64 target = wakeAt[workflow];
                 if (
-                    retryWaiting[workflow]
+                    retryWaiting[workflow] || (target != 0 && log.block_number >= target)
                         || (budgets[workflow].known && block.timestamp >= _resetAt(workflow))
                 ) {
                     _retryPending(workflow);
-                } else if (target != 0 && (log.topic_1 == target || log.block_number >= target)) {
-                    _pin(workflow, _resetAt(workflow));
                 }
             }
             if (index < active.length && active[index] == workflow) ++index;
@@ -427,11 +414,12 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             Pending memory item = queue[index];
             bytes32 runId =
                 _runId(workflow, entry.originChain, item.originTransaction, item.originLogIndex);
-            if (seen[runId]) {
+            uint64 priorDeadline = budgetRejections[runId].deadline;
+            if (seen[runId] && priorDeadline == 0) {
                 _removePending(workflow, index);
                 continue;
             }
-            if (_budgetBlocks(workflow, item.observed)) {
+            if (_pendingBlocked(workflow, item, false)) {
                 ++index;
                 continue;
             }
@@ -445,6 +433,11 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             run.originLogIndex = item.originLogIndex;
             run.originBlock = item.originBlock;
             run.expiresAt = uint64(block.timestamp) + LIFETIME;
+            if (priorDeadline != 0) {
+                if (run.expiresAt <= priorDeadline) run.expiresAt = priorDeadline + 1;
+                run.observationId = P.retryEvidence(priorDeadline);
+                runId = P.retryRunId(runId, priorDeadline);
+            }
             run.observed = item.observed;
             run.actor = item.actor;
             _dispatch(workflow, entry, run, runId);
@@ -476,15 +469,20 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             return;
         }
         bool hasUnblocked;
-        bool hasRecoverable;
+        uint64 nextReset;
         for (uint256 index; index < count; ++index) {
-            uint256 observed = queue[index].observed;
-            if (!_budgetBlocks(workflow, observed)) {
+            Pending storage item = queue[index];
+            if (!_pendingBlocked(workflow, item, false)) {
                 hasUnblocked = true;
                 break;
             }
-            if (!_budgetBlocksFresh(workflow, observed)) {
-                hasRecoverable = true;
+            if (!_pendingBlocked(workflow, item, true)) {
+                uint64 reset = _resetAt(workflow);
+                uint64 rejectionReset = _rejectionReset(workflow, item);
+                if (rejectionReset > reset) reset = rejectionReset;
+                if (reset > block.timestamp && (nextReset == 0 || reset < nextReset)) {
+                    nextReset = reset;
+                }
             }
         }
         if (hasUnblocked) {
@@ -494,10 +492,9 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         }
         _setRetryWaiting(workflow, false);
         if (!paused[workflow]) {
-            uint64 reset = _resetAt(workflow);
-            if (hasRecoverable && block.timestamp < reset) {
+            if (nextReset != 0) {
                 uint64 current = wakeAt[workflow];
-                if (current == 0 || block.number >= current) _pin(workflow, reset);
+                if (current == 0 || block.number >= current) _pin(workflow, nextReset);
             } else {
                 _unpin(workflow);
             }
@@ -507,7 +504,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
     function _pause(bytes32 workflow, Entry storage entry) private {
         if (paused[workflow]) return;
         paused[workflow] = true;
-        _triggerFilters(entry, !paused[workflow]);
+        _triggerFilters(workflow, entry, false);
         _enterPause(workflow, entry);
     }
 
@@ -516,7 +513,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         paused[workflow] = false;
         meta[workflow].cooldownUntil = 0;
         _unpin(workflow);
-        _triggerFilters(entry, !paused[workflow]);
+        _triggerFilters(workflow, entry, true);
         emit WatchingResumed(workflow, entry.epoch);
     }
 
@@ -525,8 +522,8 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
     {
         uint64 target = wakeAt[workflow];
         if (
-            target == 0 || log.chain_id != automationChain || log._contract != cronSource
-                || log.topic_0 != CRON || log.topic_1 != target
+            fundingPaused[workflow] || target == 0 || log.chain_id != automationChain
+                || log._contract != cronSource || log.topic_0 != CRON || log.topic_1 != target
         ) return;
         uint64 reset = _resetAt(workflow);
         if (block.timestamp < reset) {
@@ -582,7 +579,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             _retire(workflow, entry);
             return;
         }
-        if (entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE) {
+        if (!fundingPaused[workflow] && (entry.trigger == P.SCHEDULE || entry.trigger == P.PRICE)) {
             bool blocked = _budgetBlocks(workflow, 0);
             if (paused[workflow]) {
                 if (!blocked) {
@@ -600,53 +597,92 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         _retryPending(workflow);
     }
 
-    function _syncVaultEvent(IReactive.LogRecord calldata log) private {
+    function _syncBudgetRetryLog(IReactive.LogRecord calldata log) private {
         bytes32 workflow = bytes32(log.topic_1);
         Entry storage entry = entries[workflow];
         if (
             entry.trigger == 0 || log.chain_id != entry.chain
                 || log._contract != vaults[entry.chain] || log.topic_2 != entry.epoch
         ) return;
-        if (log.topic_0 == CLOSED) {
-            if (entry.once) {
-                _stop(workflow, entry);
-                emit Disabled(workflow, entry.epoch);
+        if (entry.trigger == P.PAYMENT || entry.trigger == P.TRANSFER) {
+            _syncBudgetRetry(workflow, entry, bytes32(log.topic_3), log.data);
+        }
+    }
+
+    function _syncBudgetRetry(
+        bytes32 workflow,
+        Entry storage entry,
+        bytes32 runId,
+        bytes calldata data
+    ) private {
+        if (data.length != 256 || !seen[runId]) return;
+        (BudgetRejection memory rejection, Pending memory item) = _decodeBudgetRetry(data);
+        if (
+            rejection.deadline <= budgetRejections[runId].deadline
+                || runId
+                    != _runId(
+                        workflow, entry.originChain, item.originTransaction, item.originLogIndex
+                    )
+        ) return;
+        budgetRejections[runId] = rejection;
+        P.Run memory run;
+        run.epoch = entry.epoch;
+        run.programHash = entry.hash;
+        run.originChain = entry.originChain;
+        run.originTransaction = item.originTransaction;
+        run.originLogIndex = item.originLogIndex;
+        run.originBlock = item.originBlock;
+        run.observed = item.observed;
+        run.actor = item.actor;
+        _park(workflow, run, runId);
+    }
+
+    function _decodeBudgetRetry(bytes calldata data)
+        private
+        pure
+        returns (BudgetRejection memory rejection, Pending memory item)
+    {
+        (
+            rejection.weekStart,
+            rejection.revision,
+            rejection.deadline,
+            item.originTransaction,
+            item.originLogIndex,
+            item.originBlock,
+            item.observed,
+            item.actor
+        ) = abi.decode(data, (uint64, uint32, uint64, bytes32, uint64, uint64, uint256, address));
+    }
+
+    function _pendingBlocked(bytes32 workflow, Pending memory item, bool fresh)
+        private
+        view
+        returns (bool)
+    {
+        if (_transferBudgetBlocks(workflow, item.observed, item.actor, fresh)) return true;
+        return !fresh && block.timestamp < _rejectionReset(workflow, item);
+    }
+
+    function _rejectionReset(bytes32 workflow, Pending memory item) private view returns (uint64) {
+        BudgetRejection storage rejection = budgetRejections[
+            _runId(
+                workflow, entries[workflow].originChain, item.originTransaction, item.originLogIndex
+            )
+        ];
+        if (rejection.deadline == 0) return 0;
+        Budget storage budget = budgets[workflow];
+        return budget.revision <= rejection.revision && budget.weekStart <= rejection.weekStart
+            ? rejection.weekStart + WEEK + WEEK_SKEW
+            : 0;
+    }
+
+    function _feedback(bytes memory payload) private returns (bytes memory result) {
+        bool ok;
+        (ok, result) = feedbackModule.delegatecall(payload);
+        if (!ok) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
             }
-            return;
         }
-        if (log.data.length != 32) return;
-        if (log.topic_0 == GRACE_STARTED) {
-            if (entry.trigger != P.SCHEDULE || !entry.inactivity) return;
-            uint64 eligibleAt = abi.decode(log.data, (uint64));
-            if (eligibleAt == 0) return;
-            if (eligibleAt > payoutGraceUntil[workflow]) payoutGraceUntil[workflow] = eligibleAt;
-            uint64 target = eligibleAt + GRACE_SKEW;
-            if (target < entry.nextDue) entry.nextDue = target;
-            return;
-        }
-        if (log.topic_0 == PEAK_SYNCED) {
-            if (entry.trigger != P.PRICE) return;
-            uint128 syncedPeak = abi.decode(log.data, (uint128));
-            highs[workflow].value = syncedPeak;
-            highs[workflow].blockNumber = syncedPeak == 0 ? 0 : uint64(log.block_number);
-            highs[workflow].observedAt = 0;
-            return;
-        }
-        if (
-            entry.trigger != P.PRICE || log.block_number > type(uint48).max
-                || log.log_index > type(uint32).max
-        ) return;
-        uint128 nextReference = abi.decode(log.data, (uint128));
-        if (nextReference == 0) return;
-        WorkflowMeta storage info = meta[workflow];
-        if (
-            log.block_number < info.referenceBlock
-                || (log.block_number == info.referenceBlock
-                    && log.log_index <= info.referenceLogIndex)
-        ) return;
-        info.referencePrice = nextReference;
-        info.referenceBlock = uint48(log.block_number);
-        info.referenceLogIndex = uint32(log.log_index);
-        info.flags &= ~FLAG_REF_PENDING;
     }
 }

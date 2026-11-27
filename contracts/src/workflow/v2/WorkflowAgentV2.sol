@@ -26,6 +26,10 @@ contract WorkflowAgentV2 is WorkflowAgentStorageV2, UUPSUpgradeable {
         if (reactModule_ == address(0) || reactModule_.code.length == 0) {
             revert InvalidWorkflow();
         }
+        WorkflowAgentStorageV2 module = WorkflowAgentStorageV2(payable(reactModule_));
+        if (module.system() != system_ || module.validator() != validator_) {
+            revert InvalidWorkflow();
+        }
         reactModule = reactModule_;
         // Lock the implementation contract so it can never be initialized directly.
         owner = address(1);
@@ -49,6 +53,14 @@ contract WorkflowAgentV2 is WorkflowAgentStorageV2, UUPSUpgradeable {
         ) {
             revert InvalidWorkflow();
         }
+        WorkflowAgentV2 next = WorkflowAgentV2(payable(newImplementation));
+        if (next.system() != system || next.subscriptionStorageVersion() == 0) {
+            revert InvalidWorkflow();
+        }
+    }
+
+    function subscriptionStorageVersion() external pure returns (uint256) {
+        return 1;
     }
 
     modifier onlyOwner() {
@@ -168,7 +180,7 @@ contract WorkflowAgentV2 is WorkflowAgentStorageV2, UUPSUpgradeable {
         ) {
             _enterPause(workflow, entry);
         } else {
-            _triggerFilters(entry, !paused[workflow]);
+            _triggerFilters(workflow, entry, true);
         }
         emit Enabled(workflow, hash, plan.chain, epoch, title);
     }
@@ -178,6 +190,16 @@ contract WorkflowAgentV2 is WorkflowAgentStorageV2, UUPSUpgradeable {
         if (entry.trigger == 0 || epoch != entry.epoch) revert InvalidWorkflow();
         _stop(workflow, entry);
         emit Disabled(workflow, epoch);
+    }
+
+    /// @notice Reinstalls the filters under the current implementation without changing the epoch.
+    function refreshWorkflowFilters(bytes32 workflow) external onlyOwner {
+        Entry storage entry = entries[workflow];
+        if (entry.trigger == 0) revert InvalidWorkflow();
+        _settlementFilters(workflow, entry, false);
+        if (!paused[workflow]) _triggerFilters(workflow, entry, false);
+        _settlementFilters(workflow, entry, true);
+        if (!paused[workflow]) _triggerFilters(workflow, entry, true);
     }
 
     function workflowIds() external view returns (bytes32[] memory) {

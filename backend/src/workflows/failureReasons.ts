@@ -18,6 +18,10 @@ const reasons = new Map<string, FailureReason>([
     toFunctionSelector('StaleObservation()'),
     { message: 'The workflow received a stale price observation.' },
   ],
+  [
+    toFunctionSelector('CrossingAlreadySettled()'),
+    { message: 'This price crossing was already settled by an earlier run.' },
+  ],
   [toFunctionSelector('DuplicateOrigin()'), { message: 'This payment has already been used.' }],
   [
     toFunctionSelector('CapExceeded()'),

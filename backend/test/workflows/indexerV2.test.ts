@@ -52,6 +52,11 @@ interface FakeDbOptions {
 
 function createFakeDb(options: FakeDbOptions = {}) {
   const upserts: Array<{ table: string; rows: unknown[] }> = [];
+  const updates: Array<{
+    table: string;
+    body: Record<string, unknown>;
+    filters: Record<string, string>;
+  }> = [];
   const accountPages: Array<{ chain: number; offset: number; limit: number }> = [];
 
   const db = createClient('https://database.example', 'fixture-key', {
@@ -67,6 +72,17 @@ function createFakeDb(options: FakeDbOptions = {}) {
           const rows = Array.isArray(parsed) ? parsed : [parsed];
           upserts.push({ table, rows });
           return Response.json(rows, { status: 201 });
+        }
+
+        if (method === 'PATCH') {
+          const rawBody = typeof init?.body === 'string' ? init.body : '{}';
+          const body = JSON.parse(rawBody) as Record<string, unknown>;
+          const filters: Record<string, string> = {};
+          url.searchParams.forEach((value, key) => {
+            filters[key] = value;
+          });
+          updates.push({ table, body, filters });
+          return Response.json([]);
         }
 
         if (table === 'workflow_v2_cursors') {
@@ -92,7 +108,7 @@ function createFakeDb(options: FakeDbOptions = {}) {
     },
   });
 
-  return { db, upserts, accountPages };
+  return { db, upserts, updates, accountPages };
 }
 
 interface GetLogsCall {
@@ -599,5 +615,65 @@ describe('WorkflowV2Indexer', () => {
       trigger: 1,
       title: 'Dip buyer',
     });
+  });
+
+  it('updates workflow_v2_accounts.agent when a known Vault emits AgentRebound', async () => {
+    const vault = addr(55);
+    const oldAgent = addr(56);
+    const nextAgent = addr(57);
+    const { db, upserts, updates } = createFakeDb({
+      cursors: {
+        [LASNA_CHAIN_ID]: 100,
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: 205,
+        [BASE_SEPOLIA_CHAIN_ID]: 350,
+      },
+      accounts: {
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: [vault],
+      },
+    });
+    const unichain = makeClient(250n, (call) => {
+      if (Array.isArray(call.address) && call.address.includes(vault)) {
+        return [
+          {
+            eventName: 'AgentRebound',
+            address: vault,
+            blockNumber: 206n,
+            logIndex: 0,
+            transactionHash: hash('e'),
+            args: {
+              previousAgent: oldAgent,
+              nextAgent,
+            },
+          },
+        ];
+      }
+      return [];
+    });
+
+    const indexer = new WorkflowV2Indexer(
+      db,
+      {
+        lasna: makeClient(100n, () => []).client,
+        unichain: unichain.client,
+        base: makeClient(350n, () => []).client,
+      },
+      DEPLOYMENT,
+      silentLogger,
+    );
+
+    await indexer.syncOnce();
+
+    expect(updates).toEqual([
+      {
+        table: 'workflow_v2_accounts',
+        body: { agent: nextAgent.toLowerCase() },
+        filters: {
+          deployment: `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, LASNA_FACTORY)}`,
+          chain: `eq.${UNICHAIN_SEPOLIA_CHAIN_ID}`,
+          address: `eq.${vault.toLowerCase()}`,
+        },
+      },
+    ]);
+    expect(upserts.filter((item) => item.table === 'workflow_v2_outcomes')).toHaveLength(0);
   });
 });

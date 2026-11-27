@@ -31,7 +31,6 @@ contract WorkflowProgramValidatorV2 {
         uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
     uint256 private constant GRACE_STARTED =
         uint256(keccak256("GraceStarted(bytes32,uint64,uint64)"));
-    uint256 private constant PEAK_SYNCED = uint256(keccak256("PeakSynced(bytes32,uint64,uint128)"));
 
     struct Filter {
         uint32 chain;
@@ -116,6 +115,16 @@ contract WorkflowProgramValidatorV2 {
         returns (bool)
     {
         return P.canTriggerTransfer(encoded, observed, actor);
+    }
+
+    function canTriggerTransferWithinBudget(
+        bytes calldata encoded,
+        uint256 observed,
+        address actor,
+        uint256 maxUsdc,
+        uint256 maxWeth
+    ) external pure returns (bool) {
+        return P.canTriggerTransferWithinBudget(encoded, observed, actor, maxUsdc, maxWeth);
     }
 
     function decodePrice(uint24 poolFee, bool usdcIsToken0, bytes calldata data)
@@ -483,7 +492,7 @@ contract WorkflowProgramValidatorV2 {
         uint32 secondaryChain,
         address secondaryUsdc
     ) external pure returns (Filter[] memory list) {
-        Filter[] memory raw = new Filter[](7);
+        Filter[] memory raw = new Filter[](6);
         uint256 count;
         if ((flags & P.FLAG_SPENDS) != 0) {
             raw[count++] = Filter(chain, vault, BUDGET_SYNCED, uint256(workflow), ANY);
@@ -493,9 +502,6 @@ contract WorkflowProgramValidatorV2 {
         }
         if ((flags & P.FLAG_USES_REFERENCE) != 0) {
             raw[count++] = Filter(chain, vault, REFERENCE_SYNCED, uint256(workflow), uint256(epoch));
-        }
-        if ((flags & P.FLAG_TRAILING) != 0) {
-            raw[count++] = Filter(chain, vault, PEAK_SYNCED, uint256(workflow), uint256(epoch));
         }
         if ((flags & P.FLAG_INACTIVITY) != 0) {
             raw[count++] = Filter(primaryChain, primaryUsdc, TRANSFER, uint160(owner), ANY);

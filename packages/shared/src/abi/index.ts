@@ -347,6 +347,25 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "fundingPaused",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -611,6 +630,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "refreshWorkflowFilters",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "resumeWatching",
     "inputs": [
       {
@@ -621,6 +653,19 @@ export const workflowAgentV2Abi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "subscriptionStorageVersion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -918,6 +963,31 @@ export const workflowAgentV2Abi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "FundingPaused",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "reason",
+        "type": "bytes4",
+        "indexed": false,
+        "internalType": "bytes4"
       }
     ],
     "anonymous": false
@@ -1756,10 +1826,23 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "authorizationStorageVersion",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "authorizations",
     "inputs": [
       {
-        "name": "",
+        "name": "workflow",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -2207,6 +2290,19 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "rebindAgent",
+    "inputs": [
+      {
+        "name": "nextAgent",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "recordActivity",
     "inputs": [
       {
@@ -2315,12 +2411,12 @@ export const workflowVaultV2Abi = [
     "name": "settle",
     "inputs": [
       {
-        "name": "workflow",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       },
       {
-        "name": "run",
+        "name": "",
         "type": "tuple",
         "internalType": "struct WorkflowProgramV2.Run",
         "components": [
@@ -2402,7 +2498,7 @@ export const workflowVaultV2Abi = [
         ]
       },
       {
-        "name": "runId",
+        "name": "",
         "type": "bytes32",
         "internalType": "bytes32"
       }
@@ -2420,6 +2516,19 @@ export const workflowVaultV2Abi = [
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "settlementModule",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2671,6 +2780,25 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "AgentRebound",
+    "inputs": [
+      {
+        "name": "previousAgent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "nextAgent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Authorized",
     "inputs": [
       {
@@ -2690,6 +2818,79 @@ export const workflowVaultV2Abi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "BudgetRetry",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "runId",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "weekStart",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "revision",
+        "type": "uint32",
+        "indexed": false,
+        "internalType": "uint32"
+      },
+      {
+        "name": "deadline",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "originTransaction",
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "originLogIndex",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "originBlock",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -2876,6 +3077,49 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "PeakCorrected",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "peak",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "rejectedPeak",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "rejectedBlock",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "rejectedTime",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PeakSynced",
     "inputs": [
       {
@@ -3044,6 +3288,11 @@ export const workflowVaultV2Abi = [
   {
     "type": "error",
     "name": "CapExceeded",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "CrossingAlreadySettled",
     "inputs": []
   },
   {
@@ -3668,6 +3917,45 @@ export const workflowProgramValidatorV2Abi = [
         "name": "actor",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "canTriggerTransferWithinBudget",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actor",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "maxUsdc",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxWeth",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "outputs": [
