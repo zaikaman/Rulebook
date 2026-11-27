@@ -30,6 +30,7 @@ export type WorkflowHealthItem = Pick<
   | 'staged'
   | 'partiallyPaused'
   | 'closed'
+  | 'eligibleAt'
   | 'program'
   | 'budget'
   | 'auth'
@@ -115,6 +116,7 @@ export function useWorkflowHealth(
         readyToActivate: !item.active && item.staged && Boolean(item.auth[3]),
         partiallyPaused: item.partiallyPaused,
         closed: item.closed,
+        eligibleAt: item.eligibleAt,
         program,
         executionCredit,
         watchingCredit: credits.readings.watching,

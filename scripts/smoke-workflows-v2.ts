@@ -1181,10 +1181,10 @@ async function main() {
               functionName: 'enable',
               args: [id, epoch, encoded, title, confirmed[2]],
             });
-        await send(automation, agent, enableData);
+        const enabled = await send(automation, agent, enableData);
         const window = {
-          automation: await automation.public.getBlockNumber(),
-          funds: await fundsNet.public.getBlockNumber(),
+          automation: enabled.blockNumber,
+          funds: authorized.blockNumber,
         };
         return { id, hash, authorized, title, window };
       }

@@ -82,7 +82,7 @@ function NetworkNavigate({ to }: { readonly to: string }) {
   return <Navigate to={withNetworkQuery(to, mode)} replace />;
 }
 
-function NetworkModeQuerySync() {
+export function NetworkModeQuerySync() {
   const { mode, setMode } = useNetworkMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const urlMode = getUrlNetworkMode(`?${searchParams.toString()}`);
@@ -99,10 +99,13 @@ function NetworkModeQuerySync() {
       setMode(urlMode, { persist: false });
       return;
     }
-    if (modeChanged && urlMode && urlMode !== mode) {
+    if (modeChanged) {
       const next = new URLSearchParams(searchParams);
-      next.set('network', mode);
-      setSearchParams(next, { replace: true });
+      if (mode === 'mainnet') next.set('network', 'mainnet');
+      else next.delete('network');
+      if (next.toString() !== searchParams.toString()) {
+        setSearchParams(next, { replace: true });
+      }
       return;
     }
     if (urlMode && urlMode !== mode) {

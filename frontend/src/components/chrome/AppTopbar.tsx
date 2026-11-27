@@ -29,7 +29,7 @@ function pageLabel(pathname: string): string {
 export function AppTopbar() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
-  const { mode, automationName } = useNetworkMode();
+  const { mode, automationName, isDeploymentConfigured } = useNetworkMode();
 
   return (
     <header className="app-topbar">
@@ -54,7 +54,7 @@ export function AppTopbar() {
           <span className="app-assistant-topbar-label">Ask Bookkeeper</span>
         </Button>
         <Badge plain data-testid="active-automation-network">
-          <span className="app-live-dot" aria-hidden="true" />
+          {isDeploymentConfigured && <span className="app-live-dot" aria-hidden="true" />}
           {automationName}
         </Badge>
         <WalletControl />

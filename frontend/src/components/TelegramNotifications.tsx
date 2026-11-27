@@ -186,6 +186,7 @@ function TelegramSettingsPanel(props: NotificationProps) {
         targetLabel: 'Automation account',
         effect: 'Trust this browser to manage Telegram notifications for this account.',
         amount: 'Off-chain signature. No gas or funds required.',
+        offChain: true,
       },
       owner,
       (connector) =>

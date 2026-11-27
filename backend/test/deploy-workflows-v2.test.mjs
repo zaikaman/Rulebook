@@ -1,5 +1,8 @@
-import { describe, expect, it } from 'vitest';
-import { parseEther, parseGwei } from 'viem';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
+import { keccak256, parseEther, parseGwei } from 'viem';
 
 import {
   DEFAULT_GAS_ESTIMATE_MULTIPLIER,
@@ -10,6 +13,7 @@ import {
   computeAutomationGasPlan,
   resolveFeeCap,
   resolveGasEstimateMultiplier,
+  verifyDeploymentRecord,
 } from '../../scripts/deploy-workflows-v2.mjs';
 
 const LIVE_MAINNET_ESTIMATED_GAS = 8_543_324n;
@@ -166,5 +170,150 @@ describe('deploy-workflows-v2 gas planning', () => {
       expect(plan.broadcastGas).toBe(12_814_986n);
       expect(plan.requiredBalance).toBe(2_562_997_200_000_000_000n);
     });
+  });
+});
+
+const tempDirs = [];
+
+async function makeTempRoot() {
+  const dir = await mkdtemp(join(tmpdir(), 'rulebook-deploy-v2-'));
+  tempDirs.push(dir);
+  await mkdir(join(dir, 'contracts', 'out', 'WorkflowAgentFactoryV2.sol'), { recursive: true });
+  await mkdir(join(dir, 'contracts', 'out', 'WorkflowVaultFactoryV2.sol'), { recursive: true });
+  await mkdir(join(dir, 'deployments'), { recursive: true });
+  return dir;
+}
+
+afterEach(async () => {
+  while (tempDirs.length) {
+    const dir = tempDirs.pop();
+    if (dir) await rm(dir, { recursive: true, force: true });
+  }
+});
+
+describe('verifyDeploymentRecord', () => {
+  it('passes offline with --allow-contract-drift and warns on creationInputHash mismatch', async () => {
+    const rootDir = await makeTempRoot();
+    const recordPath = join(rootDir, 'deployments', 'workflows-v2.json');
+    await writeFile(
+      join(
+        rootDir,
+        'contracts',
+        'out',
+        'WorkflowAgentFactoryV2.sol',
+        'WorkflowAgentFactoryV2.json',
+      ),
+      JSON.stringify({ bytecode: { object: '0x60016000' } }),
+    );
+    await writeFile(
+      join(
+        rootDir,
+        'contracts',
+        'out',
+        'WorkflowVaultFactoryV2.sol',
+        'WorkflowVaultFactoryV2.json',
+      ),
+      JSON.stringify({ bytecode: { object: '0x60026000' } }),
+    );
+    await writeFile(
+      recordPath,
+      JSON.stringify([
+        {
+          name: 'Reactive Lasna',
+          chainId: TESTNET_CHAINS.lasna.id,
+          contract: 'WorkflowAgentFactoryV2',
+          address: '0x1111111111111111111111111111111111111111',
+          blockNumber: 100,
+          source: 'commit',
+          commit: 'a'.repeat(40),
+          dirty: false,
+          creationInputHash: keccak256('0xdead'),
+          runtimeCodeHash: keccak256('0xbeef'),
+        },
+        {
+          name: 'Unichain Sepolia',
+          chainId: TESTNET_CHAINS.unichain.id,
+          contract: 'WorkflowVaultFactoryV2',
+          address: '0x2222222222222222222222222222222222222222',
+          blockNumber: 200,
+          source: 'commit',
+          commit: 'a'.repeat(40),
+          dirty: false,
+          creationInputHash: keccak256('0x60026000'),
+          runtimeCodeHash: keccak256('0xbeef'),
+        },
+      ]),
+    );
+
+    const warnings = [];
+    const result = await verifyDeploymentRecord({
+      recordPath,
+      rootDir,
+      contractsDir: join(rootDir, 'contracts'),
+      offline: true,
+      allowContractDrift: true,
+      isMainnet: false,
+      chains: TESTNET_CHAINS,
+      automationKey: 'lasna',
+      warn: (msg) => warnings.push(msg),
+    });
+    expect(result.warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('creationInputHash');
+
+    await expect(
+      verifyDeploymentRecord({
+        recordPath,
+        rootDir,
+        contractsDir: join(rootDir, 'contracts'),
+        offline: true,
+        allowContractDrift: false,
+        isMainnet: false,
+        chains: TESTNET_CHAINS,
+        automationKey: 'lasna',
+      }),
+    ).rejects.toThrow(/creationInputHash/);
+  });
+
+  it('rejects dirty or non-commit records even when offline and allowContractDrift are set', async () => {
+    const rootDir = await makeTempRoot();
+    const recordPath = join(rootDir, 'deployments', 'workflows-v2.json');
+    await writeFile(
+      recordPath,
+      JSON.stringify([
+        {
+          name: 'Reactive Lasna',
+          chainId: TESTNET_CHAINS.lasna.id,
+          contract: 'WorkflowAgentFactoryV2',
+          address: '0x1111111111111111111111111111111111111111',
+          blockNumber: 100,
+          source: 'working-tree',
+          commit: 'a'.repeat(40),
+          dirty: true,
+        },
+        {
+          name: 'Unichain Sepolia',
+          chainId: TESTNET_CHAINS.unichain.id,
+          contract: 'WorkflowVaultFactoryV2',
+          address: '0x2222222222222222222222222222222222222222',
+          blockNumber: 200,
+          source: 'commit',
+          commit: 'a'.repeat(40),
+          dirty: false,
+        },
+      ]),
+    );
+
+    await expect(
+      verifyDeploymentRecord({
+        recordPath,
+        rootDir,
+        contractsDir: join(rootDir, 'contracts'),
+        offline: true,
+        allowContractDrift: true,
+        isMainnet: false,
+        chains: TESTNET_CHAINS,
+        automationKey: 'lasna',
+      }),
+    ).rejects.toThrow(/must record a clean 40-character commit/);
   });
 });

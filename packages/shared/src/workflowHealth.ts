@@ -4,13 +4,17 @@ import { z } from 'zod';
 import {
   automationChainFor,
   CHAIN_CONFIGS,
-  networkModeForChain,
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
 } from './chains.js';
 import { fundsChainIdSchema } from './schemas.js';
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
-import { workflowV2Action, workflowV2Trigger, type WorkflowV2Program } from './workflowsV2.js';
+import {
+  workflowV2Action,
+  workflowV2Trigger,
+  workflowV2Unit,
+  type WorkflowV2Program,
+} from './workflowsV2.js';
 
 /**
  * The health contract is deliberately read-only and derived from facts the app already has:
@@ -98,6 +102,8 @@ export interface WorkflowHealthInput {
   readonly budget: WorkflowBudgetState | null;
   /** Null while the Vault balances are unknown, so an unread balance never blocks a status. */
   readonly funding: WorkflowFundingShortfall | null;
+  /** On-chain `memory_.eligibleAt` timestamp (0 when cleared by check-in or inactive). */
+  readonly eligibleAt?: bigint | number | null;
   readonly lastRun: WorkflowHealthRun | null;
 }
 
@@ -184,25 +190,58 @@ function resetLabel(resetsAt: bigint) {
   }).format(new Date(Number(resetsAt) * 1000))}`;
 }
 
-/** A check, payment, or transfer that consumes no asset still needs no budget. */
-function spendAssets(program: Pick<WorkflowV2Program, 'nodes'>) {
-  let usdc = false;
-  let weth = false;
-  for (const node of program.nodes) {
-    for (const action of node.actions) {
-      if (action.kind === workflowV2Action.sell) weth = true;
-      else if (action.kind !== workflowV2Action.alert) usdc = true;
-    }
-  }
-  return { usdc, weth };
+interface BudgetBlockResult {
+  readonly assets: ('USDC' | 'WETH')[];
+  readonly zeroRemaining: boolean;
 }
 
-function exhaustedBudget(program: Pick<WorkflowV2Program, 'nodes'>, budget: WorkflowBudgetState) {
-  const assets = spendAssets(program);
-  const exhausted: string[] = [];
-  if (assets.usdc && budget.usdcLimit > 0n && budget.usdcRemaining === 0n) exhausted.push('USDC');
-  if (assets.weth && budget.wethLimit > 0n && budget.wethRemaining === 0n) exhausted.push('WETH');
-  return exhausted;
+function exhaustedBudget(
+  program: Pick<WorkflowV2Program, 'nodes'>,
+  budget: WorkflowBudgetState,
+): BudgetBlockResult {
+  const leaves = program.nodes.filter((node) => node.check === 0 && node.actions.length > 0);
+  if (leaves.length === 0) return { assets: [], zeroRemaining: false };
+
+  let anyUsdcBlocked = false;
+  let anyWethBlocked = false;
+  let allBlocked = true;
+
+  for (const leaf of leaves) {
+    let usdcMin = 0n;
+    let wethMin = 0n;
+    for (const action of leaf.actions) {
+      if (action.kind === workflowV2Action.alert) continue;
+      if (action.kind === workflowV2Action.sell) {
+        wethMin += action.amount;
+      } else if (
+        action.unit === workflowV2Unit.percent ||
+        action.kind === workflowV2Action.refill
+      ) {
+        // Percent payments and refills can settle with as little as 1 base unit.
+        if (usdcMin === 0n) usdcMin = 1n;
+      } else {
+        usdcMin += action.amount;
+      }
+    }
+    const usdcBlocked = budget.usdcLimit > 0n && usdcMin > budget.usdcRemaining;
+    const wethBlocked = budget.wethLimit > 0n && wethMin > budget.wethRemaining;
+    if (usdcBlocked) anyUsdcBlocked = true;
+    if (wethBlocked) anyWethBlocked = true;
+    if (!usdcBlocked && !wethBlocked) {
+      allBlocked = false;
+    }
+  }
+
+  if (!allBlocked) return { assets: [], zeroRemaining: false };
+  const assets: ('USDC' | 'WETH')[] = [];
+  if (anyUsdcBlocked) assets.push('USDC');
+  if (anyWethBlocked) assets.push('WETH');
+  const zeroRemaining =
+    assets.length > 0 &&
+    assets.every((asset) =>
+      asset === 'USDC' ? budget.usdcRemaining === 0n : budget.wethRemaining === 0n,
+    );
+  return { assets, zeroRemaining };
 }
 
 function fundingBlock(funding: WorkflowFundingShortfall | null): WorkflowHealth | null {
@@ -295,8 +334,9 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
   }
 
   const settlementChainId = input.program.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
-  const settlementName = CHAIN_CONFIGS.get(settlementChainId)?.name ?? 'Unichain Sepolia';
-  const automationChainId = automationChainFor(networkModeForChain(settlementChainId));
+  const settlementConfig = CHAIN_CONFIGS.get(settlementChainId);
+  const settlementName = settlementConfig?.name ?? 'Unichain Sepolia';
+  const automationChainId = automationChainFor(settlementConfig?.network ?? 'testnet');
   const automationName = CHAIN_CONFIGS.get(automationChainId)?.name ?? 'Reactive Lasna';
   const isMainnet = automationChainId === REACTIVE_MAINNET_CHAIN_ID;
 
@@ -367,6 +407,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
   // A shortfall recorded on chain also counts when the live balances cannot be read yet, and it
   // keeps the skipped run from being reported as a failure.
   if (
+    input.funding === null &&
     input.lastRun?.status === 'skipped' &&
     input.lastRun.reasonCode === insufficientVaultBalanceSelector
   ) {
@@ -383,14 +424,16 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
   }
 
   if (input.budget) {
-    const assets = exhaustedBudget(input.program, input.budget);
+    const { assets, zeroRemaining } = exhaustedBudget(input.program, input.budget);
     if (assets.length > 0) {
       const names = assets.length === 2 ? `${assets[0]} and ${assets[1]}` : assets[0]!;
       return {
         code: 'budget',
         label: 'Budget reached',
         tone: 'paused',
-        summary: `The weekly ${names} budget is used up${resetLabel(input.budget.resetsAt)}. Raise the limit or wait for the reset.`,
+        summary: zeroRemaining
+          ? `The weekly ${names} budget is used up${resetLabel(input.budget.resetsAt)}. Raise the limit or wait for the reset.`
+          : `The remaining weekly ${names} budget is below what one run needs${resetLabel(input.budget.resetsAt)}. Raise the limit or wait for the reset.`,
         fix: 'weekly-budget',
         fixLabel: 'Edit weekly budget',
         attention: true,
@@ -398,7 +441,13 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
     }
   }
 
-  if (input.lastRun?.status === 'in grace period') {
+  const eligibleAtSec =
+    input.eligibleAt !== undefined && input.eligibleAt !== null
+      ? Number(input.eligibleAt)
+      : undefined;
+  const inGrace =
+    eligibleAtSec !== undefined ? eligibleAtSec > 0 : input.lastRun?.status === 'in grace period';
+  if (inGrace) {
     return {
       code: 'grace-period',
       label: 'Inactivity payout in grace period',
@@ -407,7 +456,7 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
         'This run matched an inactivity payout. The Vault holds the payout for 24 hours so you can cancel it by checking in, then releases it on the next run after the grace period ends.',
       fix: 'run',
       fixLabel: 'Open run',
-      attention: false,
+      attention: true,
     };
   }
 
@@ -466,8 +515,9 @@ export function deriveWorkflowHealth(input: WorkflowHealthInput): WorkflowHealth
       code: 'waiting-payment',
       label: 'Waiting for a payment',
       tone: 'active',
-      summary:
-        'This workflow runs when the Vault receives a matching USDC payment. No payment has triggered it yet.',
+      summary: input.lastRun
+        ? 'This workflow is active and waiting for the next matching USDC payment.'
+        : 'This workflow runs when the Vault receives a matching USDC payment. No payment has triggered it yet.',
       fix: 'activity',
       fixLabel: 'View activity',
       attention: false,

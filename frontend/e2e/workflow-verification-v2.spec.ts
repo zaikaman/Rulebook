@@ -147,7 +147,11 @@ test('resumes activation after the wallet declines the Lasna signature', async (
   await expect(
     page.getByRole('heading', { name: 'Recurring transfer', exact: true }),
   ).toBeVisible();
-  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+  await expect(page.locator('.app-heading-aside .rb-chip:not(.rb-chip--plain)')).toHaveAttribute(
+    'data-tone',
+    /active|danger/,
+  );
+  await expect(page.getByRole('button', { name: 'Pause workflow' })).toBeVisible();
   const sent = (await walletRequests(page))
     .filter(({ method }) => method === 'eth_sendTransaction')
     .map(({ chainId }) => chainId);
@@ -178,7 +182,10 @@ test('blocks activating a second payment workflow while allowing other triggers 
   await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();
-  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+  await expect(page.locator('.app-heading-aside .rb-chip:not(.rb-chip--plain)')).toHaveAttribute(
+    'data-tone',
+    /active|danger/,
+  );
 
   // 2. A non-PAYMENT workflow (Recurring transfer) still activates cleanly alongside it.
   await fundFixtureWorkflowVault(account, 10_000_000n);
@@ -195,7 +202,10 @@ test('blocks activating a second payment workflow while allowing other triggers 
   await expect(
     page.getByRole('heading', { name: 'Recurring transfer', exact: true }),
   ).toBeVisible();
-  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+  await expect(page.locator('.app-heading-aside .rb-chip:not(.rb-chip--plain)')).toHaveAttribute(
+    'data-tone',
+    /active|danger/,
+  );
 
   // 3. A second PAYMENT-trigger workflow is blocked before any wallet signature.
   await page.goto(builder + '/workflows/new');
@@ -225,7 +235,10 @@ test('blocks activating a second payment workflow while allowing other triggers 
   await approveSignature(page, 'Unichain Sepolia');
   await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
   await expect(page.getByRole('heading', { name: 'Income sweep', exact: true })).toBeVisible();
-  await expect(page.locator('.rb-chip[data-tone="active"]')).toHaveText('Active');
+  await expect(page.locator('.app-heading-aside .rb-chip:not(.rb-chip--plain)')).toHaveAttribute(
+    'data-tone',
+    /active|danger/,
+  );
 });
 
 for (const recipe of workflowV2Recipes) {

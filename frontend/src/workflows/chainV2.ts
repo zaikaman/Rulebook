@@ -310,21 +310,40 @@ async function readWorkflowVersionDetails(item: Awaited<ReturnType<typeof workfl
     }),
     readWorkflowWeeklyBudget(item.chain, item.vault, item.id),
   ]);
-  return { ...item, program, budget, closed: memory[7] };
+  return { ...item, program, budget, closed: memory[7], eligibleAt: memory[4] };
 }
 
-export async function readWorkflowsV2(owner: Address, mode: NetworkMode = 'testnet') {
+export interface WorkflowListResultV2 {
+  readonly workflows: Awaited<ReturnType<typeof readWorkflowVersionDetails>>[];
+  readonly failedChains: SettlementChain[];
+}
+
+export async function readWorkflowsV2(
+  owner: Address,
+  mode: NetworkMode = 'testnet',
+): Promise<WorkflowListResultV2> {
   const chains = configuredFundsChains(mode);
-  const [agent, ...vaultList] = await Promise.all([
+  const [agent, vaultResults] = await Promise.all([
     readAgent(owner, undefined, mode),
-    ...chains.map((chain) => readVault(owner, chain)),
+    Promise.allSettled(chains.map((chain) => readVault(owner, chain))),
   ]);
-  if (agent === zeroAddress) return [];
-  const deployed = chains
-    .map((chain, index) => ({ chain, vault: vaultList[index] ?? zeroAddress }))
-    .filter((item) => item.vault !== zeroAddress);
-  if (!deployed.length) return [];
-  const perChain = await Promise.all(
+  if (agent === zeroAddress) return { workflows: [], failedChains: [] };
+  const failedSet = new Set<SettlementChain>();
+  const deployed: Array<{ chain: SettlementChain; vault: Address }> = [];
+  chains.forEach((chain, index) => {
+    const result = vaultResults[index];
+    if (!result || result.status === 'rejected') {
+      failedSet.add(chain);
+      return;
+    }
+    if (result.value !== zeroAddress) {
+      deployed.push({ chain, vault: result.value });
+    }
+  });
+  if (!deployed.length) {
+    return { workflows: [], failedChains: chains.filter((chain) => failedSet.has(chain)) };
+  }
+  const perChainResults = await Promise.allSettled(
     deployed.map(async ({ chain, vault }) => ({
       chain,
       vault,
@@ -335,12 +354,17 @@ export async function readWorkflowsV2(owner: Address, mode: NetworkMode = 'testn
       }),
     })),
   );
-  const items = perChain.flatMap(({ chain, vault, ids }) =>
-    ids
-      .slice()
-      .reverse()
-      .map((id) => ({ chain, vault, id })),
-  );
+  const items: Array<{ chain: SettlementChain; vault: Address; id: Hex }> = [];
+  perChainResults.forEach((result, index) => {
+    const chain = deployed[index]!.chain;
+    if (result.status === 'rejected') {
+      failedSet.add(chain);
+      return;
+    }
+    for (const id of result.value.ids.slice().reverse()) {
+      items.push({ chain: result.value.chain, vault: result.value.vault, id });
+    }
+  });
   const seen = new Set<string>();
   const unique = items.filter(({ chain, id }) => {
     const key = workflowHealthKey(chain, id);
@@ -348,11 +372,23 @@ export async function readWorkflowsV2(owner: Address, mode: NetworkMode = 'testn
     seen.add(key);
     return true;
   });
-  return Promise.all(
+  const detailResults = await Promise.allSettled(
     unique.map(async ({ chain, vault, id }) =>
       readWorkflowVersionDetails(await workflowVersion(agent, vault, id, chain)),
     ),
   );
+  const workflows: Awaited<ReturnType<typeof readWorkflowVersionDetails>>[] = [];
+  detailResults.forEach((result, index) => {
+    if (result.status === 'fulfilled') {
+      workflows.push(result.value);
+    } else {
+      failedSet.add(unique[index]!.chain);
+    }
+  });
+  return {
+    workflows,
+    failedChains: chains.filter((chain) => failedSet.has(chain)),
+  };
 }
 
 /** Number of workflows currently enabled on the wallet's Agent, the array `MAX_ACTIVE` bounds. */
@@ -420,28 +456,57 @@ export async function readWorkflowV2(
   preferredChain?: SettlementChain,
 ) {
   const chains = configuredFundsChains(mode);
-  const [agent, ...vaultList] = await Promise.all([
+  const [agent, vaultResults] = await Promise.all([
     readAgent(owner, undefined, mode),
-    ...chains.map((chain) => readVault(owner, chain)),
+    Promise.allSettled(chains.map((chain) => readVault(owner, chain))),
   ]);
-  const deployed = chains
-    .map((chain, index) => ({ chain, vault: vaultList[index] ?? zeroAddress }))
-    .filter((item) => item.vault !== zeroAddress);
-  if (agent === zeroAddress || !deployed.length)
+  if (agent === zeroAddress) throw new Error('This wallet has no workflow account.');
+  const failedChains: SettlementChain[] = [];
+  const deployed: Array<{ chain: SettlementChain; vault: Address }> = [];
+  chains.forEach((chain, index) => {
+    const result = vaultResults[index];
+    if (!result || result.status === 'rejected') {
+      failedChains.push(chain);
+      return;
+    }
+    if (result.value !== zeroAddress) {
+      deployed.push({ chain, vault: result.value });
+    }
+  });
+  if (!deployed.length) {
+    if (failedChains.length > 0) {
+      throw new Error(
+        `Could not reach ${failedChains.map((chain) => v2Network(chain).name).join(' or ')} to load this workflow.`,
+      );
+    }
     throw new Error('This wallet has no workflow account.');
+  }
   const entry = await v2Entry(agent, id, mode);
   if (preferredChain) {
+    if (failedChains.includes(preferredChain)) {
+      throw new Error(`Could not reach ${v2Network(preferredChain).name} to load this workflow.`);
+    }
     const explicit = deployed.find((item) => item.chain === preferredChain);
     if (explicit) {
-      const auth = await v2Authorization(explicit.chain, explicit.vault, id);
-      if (auth[1] !== 0n || auth[3] || entry[5] === explicit.chain) {
-        return readWorkflowVersionDetails(
-          await workflowVersion(agent, explicit.vault, id, explicit.chain, entry),
+      try {
+        const auth = await v2Authorization(explicit.chain, explicit.vault, id);
+        if (auth[1] !== 0n || auth[3] || entry[5] === explicit.chain) {
+          return await readWorkflowVersionDetails(
+            await workflowVersion(agent, explicit.vault, id, explicit.chain, entry),
+          );
+        }
+      } catch (cause) {
+        throw new Error(
+          `Could not reach ${v2Network(explicit.chain).name} to load this workflow.`,
+          { cause },
         );
       }
     }
   }
   const entryChain = isFundsChain(entry[5]) ? entry[5] : undefined;
+  if (entryChain && failedChains.includes(entryChain)) {
+    throw new Error(`Could not reach ${v2Network(entryChain).name} to load this workflow.`);
+  }
   const preferred = entryChain ? deployed.find((item) => item.chain === entryChain) : undefined;
   if (preferred) {
     return readWorkflowVersionDetails(
@@ -449,12 +514,23 @@ export async function readWorkflowV2(
     );
   }
   for (const item of deployed) {
-    const auth = await v2Authorization(item.chain, item.vault, id);
-    if (auth[1] !== 0n || auth[3]) {
-      return readWorkflowVersionDetails(
-        await workflowVersion(agent, item.vault, id, item.chain, entry),
-      );
+    try {
+      const auth = await v2Authorization(item.chain, item.vault, id);
+      if (auth[1] !== 0n || auth[3]) {
+        return await readWorkflowVersionDetails(
+          await workflowVersion(agent, item.vault, id, item.chain, entry),
+        );
+      }
+    } catch {
+      failedChains.push(item.chain);
     }
+  }
+  if (failedChains.length > 0) {
+    const failedNames = chains
+      .filter((chain) => failedChains.includes(chain))
+      .map((chain) => v2Network(chain).name)
+      .join(' or ');
+    throw new Error(`Could not reach ${failedNames} to load this workflow.`);
   }
   throw new Error('This workflow was not found for the connected wallet.');
 }
@@ -477,35 +553,63 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
         functionName: 'callbackProxy',
       })
     : undefined;
-  const [usdc, weth, watch, execution, native, agentNative, walletNative, walletWatch] =
-    await Promise.all([
-      vault === zeroAddress
-        ? zeroAddress
-        : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'usdc' }),
-      vault === zeroAddress
-        ? zeroAddress
-        : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'weth' }),
-      agent === zeroAddress
-        ? 0n
-        : autoClient.readContract({
-            address: lasnaSystem,
-            abi: executionCreditAbi,
-            functionName: 'reserves',
-            args: [agent],
-          }),
-      vault === zeroAddress || !proxy
-        ? 0n
-        : client.readContract({
-            address: proxy,
-            abi: executionCreditAbi,
-            functionName: 'reserves',
-            args: [vault],
-          }),
-      vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
-      agent === zeroAddress ? 0n : autoClient.getBalance({ address: agent }),
-      client.getBalance({ address: owner }),
-      autoClient.getBalance({ address: owner }),
-    ]);
+  const [
+    usdc,
+    weth,
+    watch,
+    execution,
+    native,
+    agentNative,
+    walletNative,
+    walletWatch,
+    linkedVault,
+    vaultAgent,
+  ] = await Promise.all([
+    vault === zeroAddress
+      ? zeroAddress
+      : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'usdc' }),
+    vault === zeroAddress
+      ? zeroAddress
+      : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'weth' }),
+    agent === zeroAddress
+      ? 0n
+      : autoClient.readContract({
+          address: lasnaSystem,
+          abi: executionCreditAbi,
+          functionName: 'reserves',
+          args: [agent],
+        }),
+    vault === zeroAddress || !proxy
+      ? 0n
+      : client.readContract({
+          address: proxy,
+          abi: executionCreditAbi,
+          functionName: 'reserves',
+          args: [vault],
+        }),
+    vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
+    agent === zeroAddress ? 0n : autoClient.getBalance({ address: agent }),
+    client.getBalance({ address: owner }),
+    autoClient.getBalance({ address: owner }),
+    agent === zeroAddress
+      ? zeroAddress
+      : autoClient.readContract({
+          address: agent,
+          abi: workflowAgentV2Abi,
+          functionName: 'vaults',
+          args: [chain],
+        }),
+    vault === zeroAddress
+      ? zeroAddress
+      : client.readContract({ address: vault, abi: workflowVaultV2Abi, functionName: 'agent' }),
+  ]);
+  const vaultLinked =
+    agent !== zeroAddress &&
+    vault !== zeroAddress &&
+    linkedVault !== zeroAddress &&
+    isAddressEqual(linkedVault, vault) &&
+    vaultAgent !== zeroAddress &&
+    isAddressEqual(vaultAgent, agent);
   const tokenBalance = (token: Address, account: Address) =>
     token === zeroAddress
       ? 0n
@@ -547,6 +651,9 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
     walletWrapped,
     walletNative,
     walletWatch,
+    linkedVault,
+    vaultAgent,
+    vaultLinked,
   };
 }
 
@@ -896,6 +1003,7 @@ export function useWorkflowV2Wallet() {
         }
       }
       const { agent, vault } = await ensure(signer, chain);
+      validateWorkflowV2Program(program, { vault });
       // The first activation creates the Vault, so its empty balance cannot block this call.
       // Once a Vault exists, an underfunded balance stops activation before any signatures.
       if (existingVault !== zeroAddress) {

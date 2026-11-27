@@ -43,6 +43,7 @@ import {
   formatUnits,
   isAddressEqual,
   zeroAddress,
+  zeroHash,
   type Address,
   type Hex,
 } from 'viem';
@@ -104,8 +105,9 @@ export function WorkflowsV2() {
     queryFn: () => readWorkflowsV2(owner!, mode),
     refetchInterval: 12_000,
   });
-  const workflows = rows.data ?? [];
-  const health = useWorkflowHealth(owner, rows.data);
+  const workflows = rows.data?.workflows ?? [];
+  const failedChains = rows.data?.failedChains ?? [];
+  const health = useWorkflowHealth(owner, workflows);
   const activeCount = workflows.filter((row) => row.active).length;
   const attention = workflows.filter(
     (row) => health.rows.get(workflowHealthKey(row.chain, row.id))?.health.attention ?? !row.active,
@@ -189,6 +191,19 @@ export function WorkflowsV2() {
         </div>
       )}
 
+      {failedChains.length > 0 && (
+        <div className="app-alert" data-tone="warning" role="status">
+          <span>
+            Could not load workflows from{' '}
+            {failedChains.map((chain) => v2Network(chain).name).join(' or ')}. Showing available
+            networks.
+          </span>
+          <button type="button" className="app-link" onClick={() => void rows.refetch()}>
+            Try again
+          </button>
+        </div>
+      )}
+
       {health.runsUnavailable && (
         <p className="app-alert" data-tone="warning" role="status">
           Run history could not be loaded. Statuses still reflect the workflow and credit state.
@@ -228,7 +243,7 @@ export function WorkflowsV2() {
         </LoadingRegion>
       )}
 
-      {!!owner && rows.data?.length === 0 && (
+      {!!owner && rows.data && rows.data.workflows.length === 0 && failedChains.length === 0 && (
         <EmptyState
           icon={Book02Icon}
           title="No workflows yet"
@@ -378,6 +393,7 @@ export function WorkflowDetailV2() {
     queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode, preferredChain),
     refetchInterval: 12_000,
   });
+  const detailHealthQuery = useWorkflowHealth(wallet.owner, data.data ? [data.data] : undefined);
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
   if (!isDeploymentConfigured) {
     return isMainnet ? (
@@ -423,7 +439,8 @@ export function WorkflowDetailV2() {
     node.actions.some((step) => step.kind === workflowV2Action.inactivityPayout),
   );
   const active = item.active;
-  const status = item.closed
+  const detailHealth = detailHealthQuery.rows.get(workflowHealthKey(item.chain, item.id))?.health;
+  const fallbackStatus = item.closed
     ? 'Closed after a confirmed run'
     : active
       ? 'Active'
@@ -432,6 +449,17 @@ export function WorkflowDetailV2() {
         : item.auth[3]
           ? 'Finish activation'
           : 'Paused';
+  const fallbackTone = item.closed
+    ? 'info'
+    : active
+      ? 'active'
+      : item.partiallyPaused
+        ? 'danger'
+        : item.auth[3]
+          ? 'info'
+          : 'paused';
+  const status = detailHealth?.label ?? fallbackStatus;
+  const statusTone = item.closed ? 'info' : (detailHealth?.tone ?? fallbackTone);
   return (
     <section className="app-page">
       <PageHeading
@@ -441,18 +469,7 @@ export function WorkflowDetailV2() {
         aside={
           <div className="rb-inline">
             <NetworkBadge chainId={item.chain} />
-            <span
-              className="rb-chip"
-              data-tone={
-                item.closed || active
-                  ? 'active'
-                  : item.partiallyPaused
-                    ? 'danger'
-                    : item.auth[3]
-                      ? 'info'
-                      : 'paused'
-              }
-            >
+            <span className="rb-chip" data-tone={statusTone}>
               {status}
             </span>
           </div>
@@ -547,7 +564,7 @@ function Publication({
   const factory = deployment?.automationFactory;
   const reader = workflowClient(automationChainId);
   const listing = useQuery({
-    queryKey: ['workflow-v2', 'publication', mode, item.id, item.entry[0]],
+    queryKey: ['workflow-v2', 'publication', mode, item.agent, item.id, item.entry[0]],
     enabled: Boolean(factory),
     queryFn: async () => {
       const id = await reader.readContract({
@@ -814,7 +831,7 @@ function TransactionLink({
   hash: Hex | null;
   label: string;
 }) {
-  const href = hash && v2Explorer(chain, hash);
+  const href = hash && hash !== zeroHash && v2Explorer(chain, hash);
   return href ? (
     <a className="app-link" href={href} target="_blank" rel="noreferrer">
       {label}
@@ -965,7 +982,7 @@ export function WorkflowActivityV2() {
         ) : (
           <p className="rb-note">
             <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
-            Activity opens when the V2 testnet deployment is configured.
+            Activity opens when the testnet deployment is configured.
           </p>
         ))}
 
@@ -1819,6 +1836,47 @@ export function WorkflowAccountV2({
             </p>
           </Callout>
         ))}
+      {funds &&
+        funds.vault !== zeroAddress &&
+        !funds.vaultLinked &&
+        (() => {
+          const vaultMatchesAgent =
+            funds.agent !== zeroAddress &&
+            funds.vaultAgent !== zeroAddress &&
+            isAddressEqual(funds.vaultAgent, funds.agent);
+          const agentUnlinkedOrMatching =
+            funds.agent !== zeroAddress &&
+            (funds.linkedVault === zeroAddress || isAddressEqual(funds.linkedVault, funds.vault));
+          const canLink = vaultMatchesAgent && agentUnlinkedOrMatching;
+          return canLink ? (
+            <Callout
+              tone="recovery"
+              title={`Link your ${v2Network(chain).name} Vault to ${automationName}`}
+              action={
+                <Button
+                  variant="primary"
+                  disabled={wallet.busy}
+                  onClick={() => void wallet.ensureVault(chain)}
+                >
+                  {wallet.busy ? 'Linking Vault…' : `Link ${v2Network(chain).name} Vault`}
+                </Button>
+              }
+            >
+              <p>
+                Your {v2Network(chain).name} Vault is deployed, but it is not linked to your{' '}
+                {automationName} Agent yet. Link it before funding or activating workflows on{' '}
+                {v2Network(chain).name}.
+              </p>
+            </Callout>
+          ) : (
+            <Callout tone="recovery" title={`${v2Network(chain).name} Vault link needs attention`}>
+              <p>
+                This {v2Network(chain).name} Vault does not match your {automationName} Agent link
+                on-chain. Workflows settled through a mismatched Vault cannot run automatically.
+              </p>
+            </Callout>
+          );
+        })()}
       {funds && funds.vault !== zeroAddress && (
         <>
           <WorkflowCreditNotice owner={wallet.owner} chain={chain} />

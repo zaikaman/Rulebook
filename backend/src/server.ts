@@ -4,16 +4,19 @@ import { fileURLToPath } from 'node:url';
 import {
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
+  getChain,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowDeploymentKey,
   type Address,
   type FundsChainId,
   type WorkflowV2Deployment,
   type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import {
@@ -27,9 +30,10 @@ import {
   unichainSepoliaChain,
   type ChainClients,
 } from './chain/clients.js';
+import { createLasnaCallbackReader } from './chain/lasnaCallbacks.js';
 import { loadConfig } from './config.js';
 import { createServiceClient, probeDatabase } from './db/client.js';
-import type { ServerDeps } from './deps.js';
+import type { IndexerHealthSnapshot, ServerDeps } from './deps.js';
 import { registerRoutes } from './api/routes/index.js';
 import { TelegramDatabase, TelegramService, telegramOwnership } from './telegram/service.js';
 import { TelegramPoller } from './telegram/poller.js';
@@ -89,7 +93,7 @@ export function buildServer(
     reply.status(status).send({
       error: {
         code: status >= 500 ? 'internal_error' : 'invalid_query',
-        message: errorMessage(error),
+        message: status >= 500 ? 'Internal server error' : errorMessage(error),
         detail: null,
       },
     });
@@ -127,6 +131,67 @@ export async function buildRpcHealthChecks(
   return Promise.all(
     targets.map(async ({ chain_id, client }) => ({ chain_id, rpc_ok: await ping(client) })),
   );
+}
+
+/** Reads persisted indexer cursors and computes maximum cursor age in seconds. */
+export async function buildIndexerHealth(
+  supabase: ReturnType<typeof createServiceClient>,
+  v2?: WorkflowV2Deployment,
+  v2Mainnet?: WorkflowV2MainnetDeployment,
+): Promise<IndexerHealthSnapshot> {
+  const scopes: Array<{ deployment: string; chain: number }> = [];
+  if (v2) {
+    const dep = workflowDeploymentKey(LASNA_CHAIN_ID, v2.lasna.factory);
+    scopes.push(
+      { deployment: dep, chain: LASNA_CHAIN_ID },
+      { deployment: dep, chain: UNICHAIN_SEPOLIA_CHAIN_ID },
+    );
+    if (v2.base) scopes.push({ deployment: dep, chain: BASE_SEPOLIA_CHAIN_ID });
+  }
+  if (v2Mainnet) {
+    const dep = workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, v2Mainnet.reactive.factory);
+    scopes.push(
+      { deployment: dep, chain: REACTIVE_MAINNET_CHAIN_ID },
+      { deployment: dep, chain: UNICHAIN_MAINNET_CHAIN_ID },
+    );
+    if (v2Mainnet.base) scopes.push({ deployment: dep, chain: BASE_MAINNET_CHAIN_ID });
+  }
+  if (scopes.length === 0) return { lag_seconds: 0, cursors: [], expected_chains: 0 };
+  const deployments = [...new Set(scopes.map((s) => s.deployment))];
+  const { data, error } = await supabase
+    .from('workflow_v2_cursors')
+    .select('deployment,chain,block_number,updated_at,block_time')
+    .in('deployment', deployments)
+    .abortSignal(AbortSignal.timeout(5_000));
+  if (error) throw error;
+  const rows = (data ?? []) as Array<{
+    deployment: string;
+    chain: number;
+    block_number: number;
+    updated_at?: string | null;
+    block_time?: string | null;
+  }>;
+  const now = Date.now();
+  let maxLag = 0;
+  const cursors: Array<{ chain_id: number; last_block: number; updated_at: string }> = [];
+  for (const scope of scopes) {
+    const row = rows.find((r) => r.deployment === scope.deployment && r.chain === scope.chain);
+    if (!row) continue;
+    const stamp = row.updated_at ?? row.block_time ?? new Date(0).toISOString();
+    const ageMs = Math.max(0, now - Date.parse(stamp));
+    const ageSeconds = Number.isFinite(ageMs) ? Math.floor(ageMs / 1000) : 0;
+    if (ageSeconds > maxLag) maxLag = ageSeconds;
+    cursors.push({
+      chain_id: row.chain,
+      last_block: Number(row.block_number),
+      updated_at: stamp,
+    });
+  }
+  return {
+    lag_seconds: maxLag,
+    cursors,
+    expected_chains: scopes.length,
+  };
 }
 
 /** Boots the service: database, RPC clients, HTTP listener, and the optional indexer loop. */
@@ -240,12 +305,39 @@ export async function startServer(): Promise<void> {
     assistant,
     databaseReachable: () => probeDatabase(supabase),
     rpcHealth: () => buildRpcHealthChecks(clients, v2, v2Mainnet),
+    indexerHealth: () => buildIndexerHealth(supabase, v2, v2Mainnet),
   });
 
   if (v2 || v2Mainnet) {
-    registerWorkflowV2Routes(app, supabase, {
-      testnet: v2?.lasna.factory,
-      mainnet: v2Mainnet?.reactive.factory,
+    const callbackReaders = {
+      ...(v2
+        ? {
+            testnet: createLasnaCallbackReader(
+              clients.lasna,
+              getChain(LASNA_CHAIN_ID).systemContract,
+            ),
+          }
+        : {}),
+      ...(v2Mainnet && clients.reactiveMainnet
+        ? {
+            mainnet: createLasnaCallbackReader(
+              clients.reactiveMainnet,
+              getChain(REACTIVE_MAINNET_CHAIN_ID).systemContract,
+            ),
+          }
+        : {}),
+    };
+    void app.register(async (v2Scope) => {
+      await v2Scope.register(rateLimit, { global: false });
+      registerWorkflowV2Routes(
+        v2Scope,
+        supabase,
+        {
+          testnet: v2?.lasna.factory,
+          mainnet: v2Mainnet?.reactive.factory,
+        },
+        callbackReaders,
+      );
     });
   }
   const workflowV2Indexer =
@@ -259,8 +351,8 @@ export async function startServer(): Promise<void> {
   await app.listen({ port: config.PORT, host: '0.0.0.0' });
   const rulewrightRun = rulewright?.run(app.log, rulewrightShutdown.signal);
   const assistantRun = assistant?.run(app.log, rulewrightShutdown.signal);
-  void workflowV2Indexer?.run();
-  void workflowV2MainnetIndexer?.run();
+  const workflowV2IndexerRun = workflowV2Indexer?.run();
+  const workflowV2MainnetIndexerRun = workflowV2MainnetIndexer?.run();
 
   const worker =
     telegram && telegramDb
@@ -278,9 +370,20 @@ export async function startServer(): Promise<void> {
       workflowV2MainnetIndexer?.stop();
       worker?.stop();
       telegramPoller?.stop();
-      void Promise.all([app.close(), workerRun, telegramPolling, rulewrightRun, assistantRun]).then(
-        () => process.exit(0),
-      );
+      const timeout = setTimeout(() => process.exit(1), 15_000);
+      timeout.unref();
+      void Promise.allSettled([
+        app.close(),
+        workflowV2IndexerRun,
+        workflowV2MainnetIndexerRun,
+        workerRun,
+        telegramPolling,
+        rulewrightRun,
+        assistantRun,
+      ]).then(() => {
+        clearTimeout(timeout);
+        process.exit(0);
+      });
     });
   }
 }

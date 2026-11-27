@@ -34,6 +34,7 @@ import {
 import { AssistantToolExecutor, assistantToolDefinitions } from './tools.js';
 
 const challengeSeconds = 5 * 60;
+const sessionSeconds = 7 * 24 * 60 * 60;
 const timestamp = () => Math.floor(Date.now() / 1000);
 const date = (seconds: number) => new Date(seconds * 1000).toISOString();
 const hash = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -48,6 +49,7 @@ const admissionSchema = z.discriminatedUnion('status', [
     status: z.literal('ok'),
     owner: addressSchema,
     conversation: assistantConversationIdSchema,
+    message_id: z.coerce.number().int().positive().optional(),
     history: z.array(historyMessageSchema).max(assistantHistoryLimit),
   }),
   z.object({ status: z.literal('unauthorized') }),
@@ -101,7 +103,9 @@ function instructions(owner: Address, page: AssistantPage | undefined, network: 
     '',
     `Network environment: ${network}`,
     `Connected wallet: ${owner}`,
-    `Current page: ${page?.path ?? 'the workspace'}`,
+    `Current page: ${
+      page?.path && /^\/[A-Za-z0-9/_-]{0,200}$/.test(page.path) ? page.path : 'the workspace'
+    }`,
     page?.workflowId ? `Workflow in view: ${page.workflowId}` : '',
     `Current time: ${new Date().toISOString()}`,
   ]
@@ -194,9 +198,10 @@ export class AssistantService {
     if (!verified) return null;
 
     const token = randomBytes(32).toString('base64url');
+    const sessionExpiresAt = date(timestamp() + sessionSeconds);
     const consumed = await this.db
       .from('assistant_sessions')
-      .update({ token_hash: hash(token), expires_at: null })
+      .update({ token_hash: hash(token), expires_at: sessionExpiresAt })
       .eq('nonce', nonce)
       .eq('origin', origin)
       .is('token_hash', null)
@@ -279,6 +284,27 @@ export class AssistantService {
       })
       .abortSignal(databaseTimeout());
     if (error) throw new Error('Bookkeeper could not save this answer.');
+  }
+
+  async rollback(conversation: string, owner: string, messageId: number) {
+    await this.db
+      .rpc('assistant_rollback', {
+        p_conversation: conversation,
+        p_owner: owner,
+        p_message_id: messageId,
+      })
+      .abortSignal(databaseTimeout());
+  }
+
+  async revoke(token: string, origin: string): Promise<boolean> {
+    const { data, error } = await this.db
+      .rpc('assistant_revoke', {
+        p_session: hash(token),
+        p_origin: origin,
+      })
+      .abortSignal(databaseTimeout());
+    if (error) throw new Error('Bookkeeper could not end this session.');
+    return Boolean(data);
   }
 
   async run(log: FastifyBaseLogger, signal: AbortSignal) {

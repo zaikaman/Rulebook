@@ -9,7 +9,10 @@ import { registerTelegramRoutes } from './telegram.js';
 
 /** Registers the operational and assistant routes; workflow routes live in `workflows/`. */
 export function registerRoutes(app: FastifyInstance, deps: ServerDeps): void {
-  registerHealthRoutes(app, deps);
+  void app.register(async (health) => {
+    await health.register(rateLimit, { global: false });
+    registerHealthRoutes(health, deps);
+  });
   void app.register(async (telegram) => {
     await telegram.register(rateLimit, { global: false });
     registerTelegramRoutes(telegram, deps);

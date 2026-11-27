@@ -401,8 +401,14 @@ export const workflowGuardrailFields = {
 } as const satisfies Record<string, NumberFieldSpec>;
 
 /** Return the first issue for a field, or undefined when the value is acceptable. */
-export function fieldIssue(spec: WorkflowFieldSpec, value: string | undefined) {
-  if (spec.kind === 'address') return addressIssue(value, spec);
+export function fieldIssue(
+  spec: WorkflowFieldSpec,
+  value: string | undefined,
+  addressOverrides?: Partial<Pick<AddressFieldRules, 'disallowed' | 'disallowedMessage'>>,
+) {
+  if (spec.kind === 'address') {
+    return addressIssue(value, addressOverrides ? { ...spec, ...addressOverrides } : spec);
+  }
   if (spec.kind === 'direction') {
     return value === 'rising' || value === 'falling'
       ? undefined

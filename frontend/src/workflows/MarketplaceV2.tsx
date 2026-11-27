@@ -77,7 +77,7 @@ export function WorkflowMarketplaceV2() {
           <MainnetUnavailableCallout context="Marketplace" />
         ) : (
           <p className="rb-note">
-            The Marketplace opens when the V2 testnet deployment is configured.
+            The Marketplace opens when the testnet deployment is configured.
           </p>
         ))}
 

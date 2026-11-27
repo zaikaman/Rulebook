@@ -17,6 +17,7 @@ export function WalletPrompt({
   title,
   eyebrow,
   chainId,
+  offChain = false,
   children,
   confirmLabel,
   onCancel,
@@ -26,6 +27,7 @@ export function WalletPrompt({
   readonly title: string;
   readonly eyebrow: string;
   readonly chainId: number;
+  readonly offChain?: boolean;
   readonly children: ReactNode;
   readonly confirmLabel: string;
 }) {
@@ -57,7 +59,11 @@ export function WalletPrompt({
           <h2 id={titleId}>{title}</h2>
         </div>
         <div className="rb-wallet-prompt__badges">
-          {isMainnet && <Badge tone="paused">Mainnet · Real funds</Badge>}
+          {isMainnet && (
+            <Badge tone={offChain ? 'info' : 'paused'}>
+              {offChain ? 'Mainnet · Off-chain' : 'Mainnet · Real funds'}
+            </Badge>
+          )}
           <NetworkBadge chainId={chainId} />
         </div>
       </header>

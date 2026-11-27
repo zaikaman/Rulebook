@@ -251,13 +251,21 @@ export class RulewrightService {
           } else {
             try {
               const scopedPayload: RulewrightRequest = { ...job.payload, network: targetNetwork };
+              const availableChains = fundsChainsFor(targetNetwork).filter((chain) =>
+                Boolean(this.factories[chain]),
+              );
               result = await generateRulewrightDraft(
                 this.provider,
                 scopedPayload,
                 (encoded, abort) => this.validate(encoded, targetNetwork, abort),
                 signal,
+                availableChains,
               );
-            } catch {
+            } catch (err) {
+              log.warn(
+                { err: err instanceof Error ? err.name : 'unknown' },
+                'Rulewright draft validation failed',
+              );
               result = {
                 type: 'error',
                 message: 'Rulewright could not validate the draft. Try again shortly.',
@@ -275,8 +283,11 @@ export class RulewrightService {
           if (finished.error) throw new Error('finish');
           continue;
         }
-      } catch {
-        log.warn('Rulewright could not process its queue');
+      } catch (err) {
+        log.warn(
+          { err: err instanceof Error ? err.name : 'unknown' },
+          'Rulewright could not process its queue',
+        );
       }
       await pause(10_000, undefined, { signal: wake }).catch(() => undefined);
     }

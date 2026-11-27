@@ -2,6 +2,7 @@ import { formatUnits, zeroAddress, type Address } from 'viem';
 
 import { UNICHAIN_SEPOLIA_CHAIN_ID, type FundsChainId } from './chains.js';
 import { readField, workflowFieldSpecs, type WorkflowFieldName } from './workflowFields.js';
+import { readAddressField } from './workflowValidation.js';
 import {
   workflowV2Action as action,
   workflowV2Check as check,
@@ -20,6 +21,7 @@ interface RecipeOptions {
   inactivityPayout?: boolean;
   chain?: FundsChainId;
   originChain?: FundsChainId;
+  vault?: Address;
 }
 
 interface Recipe {
@@ -55,6 +57,7 @@ const alert = { actions: [fixed(action.alert)] };
 
 class RecipeBuilder {
   readonly program: Omit<WorkflowV2Program, 'nodes'>;
+  private readonly vault?: Address;
 
   constructor(
     recipe: Recipe,
@@ -62,6 +65,7 @@ class RecipeBuilder {
     options: RecipeOptions = {},
   ) {
     const chain = options.chain ?? UNICHAIN_SEPOLIA_CHAIN_ID;
+    this.vault = options.vault;
     this.program = {
       chain,
       originChain: options.originChain ?? chain,
@@ -86,7 +90,16 @@ class RecipeBuilder {
   address(name: WorkflowFieldName): Address {
     const spec = workflowFieldSpecs[name];
     if (spec.kind !== 'address') throw new Error(`${spec.label} is not an address setting.`);
-    return readField(spec, this.values[name]);
+    return readAddressField(
+      this.values[name],
+      name === 'recipient' && this.vault
+        ? {
+            ...spec,
+            disallowed: this.vault,
+            disallowedMessage: 'Recipient address cannot be your Vault address.',
+          }
+        : spec,
+    );
   }
 
   expiry() {

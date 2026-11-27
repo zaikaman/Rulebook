@@ -24,7 +24,9 @@ import { workflowV2FailureReason } from '../workflows/failureReasons.js';
 import type { TelegramDatabase } from './service.js';
 
 const events = workflowVaultV2Abi.filter(
-  (item) => item.type === 'event' && (item.name === 'Step' || item.name === 'Observation'),
+  (item) =>
+    item.type === 'event' &&
+    (item.name === 'Step' || item.name === 'Observation' || item.name === 'GraceStarted'),
 );
 const epochSchema = z.string().regex(/^\d+$/);
 const unixTime = z.number().int().positive().safe();
@@ -64,9 +66,14 @@ async function payoutDeadline(
   vault: Address,
   workflow: z.infer<typeof workflowIdSchema>,
   epoch: string,
-  blockNumber: bigint,
+  blockNumber?: bigint,
 ) {
-  const call = { address: vault, abi: workflowVaultV2Abi, args: [workflow], blockNumber } as const;
+  const call = {
+    address: vault,
+    abi: workflowVaultV2Abi,
+    args: [workflow],
+    ...(blockNumber !== undefined ? { blockNumber } : {}),
+  } as const;
   const [auth, memory] = await Promise.all([
     client.readContract({ ...call, functionName: 'authorizations' }),
     client.readContract({ ...call, functionName: 'workflowMemory' }),
@@ -120,17 +127,21 @@ export class WorkflowTelegramAlerts {
   async process() {
     let failed = false;
     for (const chain of this.chains) {
-      const rows = await this.db.rpc(
-        'telegram_workflow_candidates',
-        { p_deployment: this.deployment, p_chain: chain },
-        candidates,
-      );
-      // Bound RPC concurrency while a backlog is draining.
-      for (let offset = 0; offset < rows.length; offset += 5) {
-        const results = await Promise.allSettled(
-          rows.slice(offset, offset + 5).map((row) => this.stage(chain, row)),
+      try {
+        const rows = await this.db.rpc(
+          'telegram_workflow_candidates',
+          { p_deployment: this.deployment, p_chain: chain },
+          candidates,
         );
-        if (results.some(({ status }) => status === 'rejected')) failed = true;
+        // Bound RPC concurrency while a backlog is draining.
+        for (let offset = 0; offset < rows.length; offset += 5) {
+          const results = await Promise.allSettled(
+            rows.slice(offset, offset + 5).map((row) => this.stage(chain, row)),
+          );
+          if (results.some(({ status }) => status === 'rejected')) failed = true;
+        }
+      } catch {
+        failed = true;
       }
     }
     await this.db.rpc(
@@ -142,13 +153,19 @@ export class WorkflowTelegramAlerts {
   }
 
   async processUnfinished() {
+    let failed = false;
     for (const chain of this.chains) {
-      await this.db.rpc(
-        'telegram_process_unfinished',
-        { p_deployment: this.deployment, p_chain: chain, p_origin: this.origin },
-        z.null(),
-      );
+      try {
+        await this.db.rpc(
+          'telegram_process_unfinished',
+          { p_deployment: this.deployment, p_chain: chain, p_origin: this.origin },
+          z.null(),
+        );
+      } catch {
+        failed = true;
+      }
     }
+    if (failed) throw new Error('Some unfinished workflow checks failed');
   }
 
   async stillInGrace(input: z.infer<typeof payoutPreflight>) {
@@ -177,13 +194,7 @@ export class WorkflowTelegramAlerts {
     try {
       const deadline =
         row.eligible && row.status === 6
-          ? await payoutDeadline(
-              client,
-              row.vault,
-              row.workflow_id,
-              row.epoch,
-              BigInt(row.block_number),
-            )
+          ? await payoutDeadline(client, row.vault, row.workflow_id, row.epoch)
           : 0;
       const message = row.eligible ? await this.message(chain, row, deadline) : null;
       await this.db.rpc(
@@ -199,9 +210,11 @@ export class WorkflowTelegramAlerts {
 
   private async message(chain: FundsChainId, row: Candidate, deadline: number) {
     const title = row.title.replace(/[\p{C}\s]+/gu, ' ').trim();
-    const networkQuery = networkModeForChain(chain) === 'mainnet' ? '?network=mainnet' : '';
+    const isMainnet = networkModeForChain(chain) === 'mainnet';
+    const networkQuery = isMainnet ? '?network=mainnet' : '';
+    const chainQuery = `?chain=${chain}${isMainnet ? '&network=mainnet' : ''}`;
     const run = `${this.origin}/runs/${row.run_id}${networkQuery}`;
-    const workflow = `${this.origin}/workflows/${row.workflow_id}${networkQuery}`;
+    const workflow = `${this.origin}/workflows/${row.workflow_id}${chainQuery}`;
     const tx = `${getChain(chain).explorerUrl}/tx/${row.transaction_hash}`;
     if (row.status === 6) {
       if (deadline * 1000 <= Date.now()) return null;
@@ -215,7 +228,7 @@ export class WorkflowTelegramAlerts {
     }
     if (row.status === 4) {
       const { message, recovery } = workflowV2FailureReason(row.reason);
-      const account = `${this.origin}/account${networkQuery}`;
+      const account = `${this.origin}/account${chainQuery}`;
       const next = {
         balances: ['Check your wallet and Vault balances in Account & Vault.', account],
         allowance: ['Review the Vault’s USDC allowance in Account & Vault.', account],
@@ -257,7 +270,7 @@ export class WorkflowTelegramAlerts {
     const logs = parseEventLogs({
       abi: events,
       logs: receipt.logs.filter((log) => log.address.toLowerCase() === row.vault),
-    }).filter((log) => log.args.runId === row.run_id);
+    }).filter((log) => log.eventName !== 'GraceStarted' && log.args.runId === row.run_id);
     const observation = logs.find((log) => log.eventName === 'Observation');
     const steps = logs
       .filter((log) => log.eventName === 'Step')
@@ -295,14 +308,12 @@ export class WorkflowTelegramAlerts {
   private async observedValue(chain: FundsChainId, row: Candidate, observed: bigint | undefined) {
     if (observed === undefined) return 'The alert condition was met.';
     const client = clientFor(this.clients, chain);
-    const blockNumber = BigInt(row.block_number);
     const program = decodeWorkflowV2(
       await client.readContract({
         address: row.vault,
         abi: workflowVaultV2Abi,
         functionName: 'programs',
         args: [row.program_hash],
-        blockNumber,
       }),
     );
     if (program.trigger === workflowV2Trigger.price)

@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import {
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
+  healthSchema,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
@@ -11,7 +12,9 @@ import {
 } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import Fastify from 'fastify';
+import { toFunctionSelector, zeroHash } from 'viem';
 import { expect, it } from 'vitest';
+import { buildServer } from '../src/server.js';
 import { registerWorkflowV2Routes } from '../src/workflows/routesV2.js';
 
 it('reads the confirmed branch only from the matching deployment, owner, workflow and epoch', async () => {
@@ -268,6 +271,129 @@ it('filters /v3/marketplace and /v3/marketplace/:id by network chains and namesp
     expect(requests[3]?.searchParams.get('chain')).toBe(
       `in.(${UNICHAIN_MAINNET_CHAIN_ID},${BASE_MAINNET_CHAIN_ID})`,
     );
+  } finally {
+    await app.close();
+  }
+});
+
+it('enriches pending/expired runs with getCallbacks fallback, searches title and description in marketplace, returns healthSchema on /health, and sanitizes 500 errors', async () => {
+  const factory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const agent = '0xcccccccccccccccccccccccccccccccccccccccc';
+  const runId = `0x${'7'.repeat(64)}`;
+  const hash = `0x${'8'.repeat(64)}`;
+  const marketRequests: URL[] = [];
+  const db = createClient('https://database.example', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        marketRequests.push(url);
+        if (url.pathname.endsWith('/workflow_v2_activity')) {
+          return Response.json({
+            id: runId,
+            agent,
+            chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            program_hash: hash,
+            origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            origin_transaction: hash,
+            origin_log_index: '1',
+            lasna_transaction: hash,
+            destination_transaction: null,
+            expires_at: 200,
+            status: 'pending',
+            path: null,
+            reason: null,
+          });
+        }
+        return Response.json([]);
+      },
+    },
+  });
+
+  const { app } = buildServer(
+    {
+      config: {
+        PORT: 8787,
+        NODE_ENV: 'test',
+        SUPABASE_URL: 'https://example.supabase.co',
+        SUPABASE_SERVICE_ROLE_KEY: 'unused',
+        LASNA_RPC_URL: 'https://lasna-rpc.rnk.dev/',
+        UNICHAIN_RPC_URL: 'https://sepolia.unichain.org',
+        INDEXER_ENABLED: true,
+        corsOrigins: [],
+      },
+      databaseReachable: async () => true,
+      rpcHealth: async () => [{ chain_id: LASNA_CHAIN_ID, rpc_ok: true }],
+      indexerHealth: async () => ({
+        lag_seconds: 12,
+        cursors: [
+          {
+            chain_id: LASNA_CHAIN_ID,
+            last_block: 100,
+            updated_at: new Date().toISOString(),
+          },
+        ],
+        expected_chains: 1,
+      }),
+    },
+    { logger: false },
+  );
+
+  app.get('/boom', async () => {
+    throw new Error('https://secret-rpc.example/v2/my-secret-key failed');
+  });
+
+  registerWorkflowV2Routes(
+    app,
+    db,
+    { testnet: factory },
+    {
+      testnet: {
+        readCallbacks: async () => [
+          {
+            block_number: 50,
+            reacting_contract: agent,
+            callback_index: 0,
+            destination_chain_id: UNICHAIN_SEPOLIA_CHAIN_ID,
+            destination_tx_hash: zeroHash,
+            error_data: toFunctionSelector('CapExceeded()'),
+          },
+        ],
+      },
+    },
+  );
+
+  try {
+    const proof = await app.inject({ url: `/v3/runs/${runId}` });
+    expect(proof.statusCode).toBe(200);
+    expect(proof.json()).toMatchObject({
+      status: 'failed',
+      destinationTransaction: null,
+      reason: 'The run exceeded the approved spending limit.',
+    });
+
+    await app.inject({ url: '/v3/marketplace?q=sweep' });
+    const marketUrl = marketRequests.find((u) =>
+      u.pathname.endsWith('/workflow_v2_market_listings'),
+    );
+    expect(marketUrl?.searchParams.get('or')).toContain('title.ilike');
+    expect(marketUrl?.searchParams.get('or')).toContain('description.ilike');
+
+    const healthRes = await app.inject({ url: '/health' });
+    expect(healthRes.statusCode).toBe(200);
+    expect(healthSchema.parse(healthRes.json())).toMatchObject({
+      status: 'ok',
+      indexer: { enabled: true, lag_seconds: 12 },
+    });
+
+    const boom = await app.inject({ url: '/boom' });
+    expect(boom.statusCode).toBe(500);
+    expect(boom.json()).toEqual({
+      error: {
+        code: 'internal_error',
+        message: 'Internal server error',
+        detail: null,
+      },
+    });
   } finally {
     await app.close();
   }

@@ -785,4 +785,66 @@ describe('assistant data tools', () => {
       ]),
     );
   });
+
+  it('handles split CRLF and trailing EOF SSE frames, partiallyPaused status, debt reads, and rollback/revocation', async () => {
+    const frame1 = 'data: {"choices":[{"delta":{"content":"Hello "}}]}\r\n';
+    const frame2 = '\r\ndata: {"choices":[{"delta":{"content":"world"}}]}';
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              const enc = new TextEncoder();
+              controller.enqueue(enc.encode(frame1.slice(0, -1)));
+              controller.enqueue(enc.encode('\n' + frame2));
+              controller.close();
+            },
+          }),
+          { headers: { 'content-type': 'text/event-stream' } },
+        ),
+    );
+    const deltas: string[] = [];
+    const turn = await runAssistantTurn({
+      provider,
+      messages: [{ role: 'user', content: 'Hi' }],
+      tools: [],
+      execute: async () => ({ content: '{}', detail: '', references: [] }),
+      onDelta: (d) => deltas.push(d),
+      onTool: () => undefined,
+      signal: new AbortController().signal,
+    });
+    expect(turn.text).toBe('Hello world');
+    expect(deltas).toEqual(['Hello ', 'world']);
+
+    // Verify assistant_admit returns message_id, assistant_rollback cleans up failed turn, and assistant_revoke removes session.
+    await db.exec(
+      'truncate assistant_sessions, assistant_conversations, assistant_messages restart identity cascade',
+    );
+    await db.query(
+      "insert into assistant_sessions (nonce, owner, origin, token_hash, expires_at, network) values ('n1', $1, $2, 'tok1', now() + interval '1 day', 'testnet')",
+      [wallet, origin],
+    );
+    const admitted = (await admit('tok1', origin, null, 'Orphaned question')) as Admission & {
+      message_id?: number;
+    };
+    expect(admitted.message_id).toBeTypeOf('number');
+    const rolled = await db.query<{ ok: boolean }>('select assistant_rollback($1, $2, $3) as ok', [
+      admitted.conversation,
+      wallet,
+      admitted.message_id,
+    ]);
+    expect(rolled.rows[0]?.ok).toBe(true);
+    const msgs = await db.query('select id from assistant_messages where conversation_id = $1', [
+      admitted.conversation,
+    ]);
+    expect(msgs.rows).toHaveLength(0);
+
+    const revoked = await db.query<{ ok: boolean }>('select assistant_revoke($1, $2) as ok', [
+      'tok1',
+      origin,
+    ]);
+    expect(revoked.rows[0]?.ok).toBe(true);
+    expect(await admit('tok1')).toEqual({ status: 'unauthorized' });
+  });
 });

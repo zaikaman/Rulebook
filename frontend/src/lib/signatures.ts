@@ -7,4 +7,5 @@ export interface SignatureDetails {
   readonly effect: string;
   readonly amount: string;
   readonly amountLabel?: string;
+  readonly offChain?: boolean;
 }

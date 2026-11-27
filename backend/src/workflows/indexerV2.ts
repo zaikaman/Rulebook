@@ -1,3 +1,5 @@
+import { setTimeout as pause } from 'node:timers/promises';
+
 import {
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
@@ -21,6 +23,7 @@ import { keccak256, type Address, type PublicClient } from 'viem';
 
 const ADDRESS_BATCH_SIZE = 50;
 const ACCOUNT_PAGE_SIZE = 1000;
+const IDLE_POLL_MS = 5_000;
 
 type OriginChain =
   | typeof LASNA_CHAIN_ID
@@ -47,10 +50,16 @@ const OUTCOME = workflowVaultV2Abi.filter(
 );
 const telegramOutcomes = new Set([1, 3, 4, 6]);
 
+function defaultMaxRange(chain: OriginChain): bigint {
+  return isAutomationChain(chain) ? 500n : 2_000n;
+}
+
 export class WorkflowV2Indexer {
   private stopped = false;
+  private readonly abort = new AbortController();
   private readonly deployment: string;
   private readonly sources: ChainSource[];
+  private readonly rangeByChain = new Map<OriginChain, bigint>();
 
   constructor(
     private readonly db: SupabaseClient,
@@ -117,6 +126,7 @@ export class WorkflowV2Indexer {
 
   stop() {
     this.stopped = true;
+    this.abort.abort();
   }
 
   async syncOnce(): Promise<void> {
@@ -135,33 +145,119 @@ export class WorkflowV2Indexer {
   }
 
   async run() {
+    await Promise.all(this.sources.map((source) => this.runSource(source)));
+  }
+
+  private async runSource(source: ChainSource) {
     while (!this.stopped) {
-      await this.syncOnce();
-      if (!this.stopped) await new Promise((resolve) => setTimeout(resolve, 5_000));
+      let caughtUp = true;
+      try {
+        ({ caughtUp } = await this.poll(source));
+      } catch (err) {
+        this.logger.error(
+          { err, chain: source.chain, deployment: this.deployment },
+          'Workflow V2 indexing failed',
+        );
+      }
+      if (!this.stopped && caughtUp) {
+        await pause(IDLE_POLL_MS, undefined, { signal: this.abort.signal }).catch(() => undefined);
+      }
     }
   }
 
-  private async poll(source: ChainSource) {
+  private async rewindAfterReorg(source: ChainSource, previousBlock: bigint): Promise<void> {
+    const floor = BigInt(source.startBlock) - 1n;
+    const candidate = previousBlock - source.confirmations * 2n;
+    const rewindTo = candidate > floor ? candidate : floor;
+    const scope = { deployment: this.deployment, chain: source.chain };
+
+    const deleteResults = await Promise.all([
+      ...(!isAutomationChain(source.chain)
+        ? [
+            this.db
+              .from('workflow_v2_outcomes')
+              .delete()
+              .match(scope)
+              .gt('block_number', Number(rewindTo)),
+          ]
+        : [
+            this.db
+              .from('workflow_v2_market_listings')
+              .delete()
+              .eq('deployment', this.deployment)
+              .gt('block_number', Number(rewindTo)),
+            this.db
+              .from('workflow_v2_runs')
+              .delete()
+              .eq('deployment', this.deployment)
+              .gt('lasna_block', Number(rewindTo)),
+          ]),
+    ]);
+    for (const result of deleteResults) {
+      if (result.error) throw result.error;
+    }
+
+    await this.upsert('workflow_v2_cursors', [
+      {
+        ...scope,
+        block_number: Number(rewindTo),
+        block_hash: null,
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+  }
+
+  private async poll(source: ChainSource): Promise<{ caughtUp: boolean }> {
     const { chain, client, confirmations, factory, startBlock } = source;
     const scope = { deployment: this.deployment, chain };
     const { data, error } = await this.db
       .from('workflow_v2_cursors')
-      .select('block_number')
+      .select('block_number,block_hash')
       .match(scope)
       .maybeSingle();
     if (error) throw error;
-    const fromBlock = BigInt(data?.block_number ?? startBlock - 1) + 1n;
+
+    const cursorBlock =
+      data?.block_number !== undefined && data?.block_number !== null
+        ? BigInt(data.block_number)
+        : undefined;
+    if (cursorBlock !== undefined && data?.block_hash && typeof client.getBlock === 'function') {
+      const currentBlock = await client.getBlock({ blockNumber: cursorBlock }).catch(() => null);
+      if (
+        currentBlock?.hash &&
+        currentBlock.hash.toLowerCase() !== String(data.block_hash).toLowerCase()
+      ) {
+        this.logger.warn(
+          {
+            chain,
+            deployment: this.deployment,
+            blockNumber: Number(cursorBlock),
+            expectedHash: data.block_hash,
+            actualHash: currentBlock.hash,
+          },
+          'Workflow V2 reorg detected; rewinding cursor',
+        );
+        await this.rewindAfterReorg(source, cursorBlock);
+        return { caughtUp: false };
+      }
+    }
+
+    const fromBlock = (cursorBlock ?? BigInt(startBlock - 1)) + 1n;
     const head = (await client.getBlockNumber({ cacheTime: 0 })) - confirmations;
-    if (fromBlock > head) return;
-    const toBlock = fromBlock + 199n < head ? fromBlock + 199n : head;
+    if (fromBlock > head) return { caughtUp: true };
+
+    const maxSpan = this.rangeByChain.get(chain) ?? defaultMaxRange(chain);
+    const initialToBlock = fromBlock + maxSpan - 1n < head ? fromBlock + maxSpan - 1n : head;
     const lasna = isAutomationChain(chain);
-    const created = await client.getLogs({
-      address: factory,
-      events: lasna ? AGENT_FACTORY : VAULT_CREATED,
+
+    const { toBlock, created } = await this.fetchFactoryLogsAdaptive(
+      source,
+      factory,
+      lasna ? AGENT_FACTORY : VAULT_CREATED,
       fromBlock,
-      toBlock,
-      strict: true,
-    });
+      initialToBlock,
+    );
+
     const accounts: Array<{
       deployment: string;
       chain: OriginChain;
@@ -224,37 +320,36 @@ export class WorkflowV2Indexer {
       chain,
       accounts.map((row) => row.address),
     );
-    const fetchBatch = (address: Address[]) =>
-      client.getLogs({
-        address,
-        events: lasna ? AGENT_EVENTS : OUTCOME,
-        fromBlock,
-        toBlock,
-        strict: true,
-      });
-    const batches: Array<Awaited<ReturnType<typeof fetchBatch>>> = [];
-    for (let start = 0; start < known.length; start += ADDRESS_BATCH_SIZE) {
-      batches.push(await fetchBatch(known.slice(start, start + ADDRESS_BATCH_SIZE)));
-    }
-    const events = batches
-      .flat()
-      .sort(
-        (first, second) =>
-          Number(first.blockNumber - second.blockNumber) || first.logIndex - second.logIndex,
-      );
+    const rawEvents = await this.fetchKnownLogs(
+      source,
+      known,
+      lasna ? AGENT_EVENTS : OUTCOME,
+      fromBlock,
+      toBlock,
+    );
+    const events = rawEvents.sort(
+      (first, second) =>
+        Number(first.blockNumber - second.blockNumber) || first.logIndex - second.logIndex,
+    );
     const trusted = new Set<string>(known);
     const activations = [];
     const runs = [];
     const outcomes = [];
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    const blockTimes = new Map<bigint, number>();
-    async function timeAt(blockNumber: bigint) {
-      const cached = blockTimes.get(blockNumber);
+    const blockHeaders = new Map<bigint, { time: number; hash: string | null }>();
+    async function headerAt(blockNumber: bigint) {
+      const cached = blockHeaders.get(blockNumber);
       if (cached !== undefined) return cached;
       const block = await client.getBlock({ blockNumber });
-      const time = Number(block.timestamp) * 1000;
-      blockTimes.set(blockNumber, time);
-      return time;
+      const entry = {
+        time: Number(block.timestamp) * 1000,
+        hash: typeof block.hash === 'string' ? block.hash.toLowerCase() : null,
+      };
+      blockHeaders.set(blockNumber, entry);
+      return entry;
+    }
+    async function timeAt(blockNumber: bigint) {
+      return (await headerAt(blockNumber)).time;
     }
     // A backfill range entirely outside the delivery window needs no per-event header reads.
     const stageTelegram =
@@ -322,15 +417,110 @@ export class WorkflowV2Indexer {
       this.upsert('workflow_v2_runs', runs),
       this.upsert('workflow_v2_outcomes', outcomes),
     ]);
+
+    const cursorHeader =
+      typeof client.getBlock === 'function' ? await headerAt(toBlock).catch(() => null) : null;
     await this.upsert('workflow_v2_cursors', [
       {
         ...scope,
         block_number: Number(toBlock),
-        ...(this.stageTelegram
-          ? { block_time: new Date(await timeAt(toBlock)).toISOString() }
+        ...(cursorHeader?.hash ? { block_hash: cursorHeader.hash } : {}),
+        updated_at: new Date().toISOString(),
+        ...(this.stageTelegram && cursorHeader
+          ? { block_time: new Date(cursorHeader.time).toISOString() }
           : {}),
       },
     ]);
+    return { caughtUp: toBlock >= head };
+  }
+
+  private async fetchFactoryLogsAdaptive(
+    source: ChainSource,
+    factory: Address,
+    events: typeof AGENT_FACTORY | typeof VAULT_CREATED,
+    fromBlock: bigint,
+    initialToBlock: bigint,
+  ) {
+    let toBlock = initialToBlock;
+    while (true) {
+      try {
+        const created = await source.client.getLogs({
+          address: factory,
+          events,
+          fromBlock,
+          toBlock,
+          strict: true,
+        });
+        const span = toBlock - fromBlock + 1n;
+        const limit = this.rangeByChain.get(source.chain) ?? defaultMaxRange(source.chain);
+        if (toBlock === initialToBlock && span === limit && limit < defaultMaxRange(source.chain)) {
+          const grown = limit * 2n;
+          const cap = defaultMaxRange(source.chain);
+          this.rangeByChain.set(source.chain, grown < cap ? grown : cap);
+        }
+        return { toBlock, created };
+      } catch (err) {
+        if (toBlock <= fromBlock) throw err;
+        const half = (toBlock - fromBlock + 1n) / 2n;
+        const nextSpan = half > 0n ? half : 1n;
+        toBlock = fromBlock + nextSpan - 1n;
+        this.rangeByChain.set(source.chain, nextSpan);
+      }
+    }
+  }
+
+  private async fetchKnownLogs(
+    source: ChainSource,
+    known: readonly Address[],
+    events: typeof AGENT_EVENTS | typeof OUTCOME,
+    fromBlock: bigint,
+    toBlock: bigint,
+  ) {
+    const readLogs = (addresses: Address[], startBlock: bigint, endBlock: bigint) =>
+      source.client.getLogs({
+        address: addresses,
+        events,
+        fromBlock: startBlock,
+        toBlock: endBlock,
+        strict: true,
+      });
+    type KnownLogs = Awaited<ReturnType<typeof readLogs>>;
+
+    const fetchChunk = async (
+      addresses: readonly Address[],
+      startBlock: bigint,
+      endBlock: bigint,
+    ): Promise<KnownLogs> => {
+      if (addresses.length === 0) return [];
+      try {
+        return await readLogs([...addresses], startBlock, endBlock);
+      } catch (err) {
+        if (addresses.length > 1) {
+          const mid = Math.ceil(addresses.length / 2);
+          const left = await fetchChunk(addresses.slice(0, mid), startBlock, endBlock);
+          const right = await fetchChunk(addresses.slice(mid), startBlock, endBlock);
+          return [...left, ...right] as KnownLogs;
+        }
+        if (endBlock > startBlock) {
+          const mid = startBlock + (endBlock - startBlock) / 2n;
+          const left = await fetchChunk(addresses, startBlock, mid);
+          const right = await fetchChunk(addresses, mid + 1n, endBlock);
+          return [...left, ...right] as KnownLogs;
+        }
+        throw err;
+      }
+    };
+
+    const collected: KnownLogs[number][] = [];
+    for (let start = 0; start < known.length; start += ADDRESS_BATCH_SIZE) {
+      const batch = await fetchChunk(
+        known.slice(start, start + ADDRESS_BATCH_SIZE),
+        fromBlock,
+        toBlock,
+      );
+      collected.push(...batch);
+    }
+    return collected;
   }
 
   private async knownAddresses(chain: OriginChain, extraAddresses: readonly Address[]) {

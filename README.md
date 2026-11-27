@@ -80,7 +80,7 @@ Price checks use the last `Sync`/`Swap` on the configured USDC/WETH pair, quoted
 
 An inactivity payout needs an explicit confirmation in the review, a fixed recipient and amount, and at least one day of silence. Silence means no USDC `Transfer` from the owner. When the grace period starts, the owner can check in. A check-in clears the pending payout. The payout can happen only once.
 
-A weekly spending budget is optional and per asset. It sits on top of the per-run caps. A run that would cross either weekly limit is skipped whole, the workflow stays active, and the reason is **Run would exceed the weekly spending budget**. The counter resets Monday at 00:00 UTC from the Unichain block timestamp. Editing the budget leaves the schedule and the inactivity window where they are.
+A weekly spending budget is optional and per asset. It sits on top of the per-run caps. A run that would cross either weekly limit is skipped whole, the workflow stays active, and the reason is **Run would exceed the weekly spending budget**. The counter resets Monday at 00:00 UTC from the settlement Vault's block timestamp. Editing the budget leaves the schedule and the inactivity window where they are.
 
 The Marketplace lists a workflow you choose to publish. The factory reads the program hash from your Agent, so the listing matches the program you enabled. Someone else can copy it. The copy keeps the listed trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the recipients so the copier chooses where their own funds go. They sign it onto their own Agent and fund their own Vault. Publishing, or unpublishing, leaves your workflow running.
 
@@ -111,7 +111,7 @@ sequenceDiagram
 2. After that authorization is mined, the owner signs `enable` on the Agent. The Agent checks the same bytes, stores them, and subscribes through the system contract at `0x8888888888888888888888888888888888888888`.
 3. A schedule subscribes to `Cron100` on Lasna. A dip or a price workflow also subscribes to `Sync` on the pair. A payment workflow subscribes to USDC transfers into that Vault. A watched-wallet workflow subscribes to transfers of the named token. An inactivity workflow also watches USDC leaving the owner. A one-shot workflow subscribes to the Vault's own `Closed` event and removes its subscriptions after it finishes.
 4. `react` accepts only the system contract. It ignores logs the program did not subscribe to. For a schedule it waits until `nextDue`, then carries the cached price or the last activity time. For a price log it updates the cached price and the trailing high. For a transfer it carries the amount and the counterparty. It builds a `Run` that names the origin chain, transaction, log index, and block.
-5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets chain 1301, this owner's Vault, and an 850,000 gas limit. The payload expires ten minutes after the Lasna block. The same origin log cannot dispatch twice.
+5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets the configured settlement Vault chain (`1301` Unichain Sepolia or `84532` Base Sepolia), this owner's Vault, and an 850,000 gas limit. The payload expires ten minutes after the Lasna block. The same origin log cannot dispatch twice.
 6. The callback proxy injects the Agent address as the first argument. `execute` requires that caller to be the proxy and that injected address to be the Vault's immutable Agent. A mismatched program hash, epoch, or stale origin is recorded as a skip. An expired payload is recorded as expired.
 7. The Vault walks the tree. Caps, slippage, the weekly budget, a one-hour price age, and the inactivity grace period are enforced in that call. A failing step rolls the whole run back, and the Vault still records the outcome. Statuses are confirmed, skipped, expired, failed, and in grace period.
 
@@ -163,10 +163,10 @@ Lasna RPC: `https://lasna-rpc.rnk.dev/`. Unichain Sepolia RPC: `https://sepolia.
 
 ## Using the app
 
-Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the frontend locally (see [Run the tests](#run-the-tests)). Connect a wallet that can sign on the chosen networks. Add Reactive Lasna if the wallet asks: chain id `5318007`, the RPC above, and symbol `REACT`.
+Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the frontend locally (see [Run the tests](#run-the-tests)). Connect a wallet that can sign on the chosen networks. Add Reactive Lasna if the wallet asks: chain id `5318007`, the RPC above, and symbol `lREACT`.
 
 1. Open **Account & Vault**. Create the Agent on Lasna, create a Vault on Unichain Sepolia and/or Base Sepolia, and link each Vault. Each step is a transaction from your wallet. If one of them is already deployed, setup continues from the missing step.
-2. Fund three balances per chain, shown separately. Vault USDC pays for buys, transfers, and refunds. Vault WETH is used by workflows that sell WETH. Execution credit is testnet ETH deposited to that chain's callback proxy for your Vault. Watching credit is testnet REACT deposited to the Lasna system contract for your Agent.
+2. Fund three balances per chain, shown separately. Vault USDC pays for buys, transfers, and refunds. Vault WETH is used by workflows that sell WETH. Execution credit is testnet ETH deposited to that chain's callback proxy for your Vault. Watching credit is testnet lREACT deposited to the Lasna system contract for your Agent.
 3. Build a workflow, selecting its settlement chain and (for price or transfer triggers) its origin chain. A balance refill also asks you to approve the target Vault to pull USDC from your wallet, up to the per-run cap.
 4. Sign the settlement-chain authorization on the chosen Vault, then sign `enable` on Lasna. The review shows the settlement chain and caps before either signature.
 5. Open **Activity** for the path and the receipts. Open **Public proof** for a link you can share. **Workflow costs** shows the credits and a live gas quote.
@@ -177,7 +177,7 @@ The app reads chain state through its API. The API has no key that can move Vaul
 
 Leaving a workflow on is only half the promise. The other half is being able to tell, months later and without reading a contract or an explorer, whether it is still funded and what it actually did. Bookkeeper is the assistant inside the app that answers that in plain language: what is funded, which workflows are on, why a run was skipped, what a listing promises, and where a notification is going.
 
-The wallet proves who it is before the first answer. The backend issues a short challenge, the wallet signs a message with no gas and no transaction, and the backend verifies the signature against the wallet and the frontend origin. The session token stays in memory and never expires on the server, so a reload asks for a signature again. The owner comes from that session; the request cannot name another wallet.
+The wallet proves who it is before the first answer. The backend issues a short challenge, the wallet signs a message with no gas and no transaction, and the backend verifies the signature against the wallet and the frontend origin. The session token stays in memory for the page lifetime (so a reload clears the browser token and asks for a signature again) and expires after seven days on the server unless revoked earlier via `DELETE /v2/assistant/session`. The owner comes from that session; the request cannot name another wallet.
 
 It is read-only by construction. The model starts with no account data: only the wallet address, the current page, the last twelve messages, and the question. When the question needs a fact, it calls one of seven read-only tools scoped to the session owner.
 

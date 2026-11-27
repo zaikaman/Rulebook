@@ -145,44 +145,64 @@ async function streamRound(
   let buffer = '';
   let content = '';
 
+  const processFrame = (frame: string) => {
+    for (const line of frame.split('\n')) {
+      if (!line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        throw new AssistantProviderError('invalid');
+      }
+      const chunk = chunkSchema.safeParse(parsed);
+      if (!chunk.success) throw new AssistantProviderError('invalid');
+      for (const choice of chunk.data.choices ?? []) {
+        const delta = choice.delta;
+        if (delta?.content) {
+          content += delta.content;
+          onDelta(delta.content);
+        }
+        for (const call of delta?.tool_calls ?? []) {
+          const current = calls.get(call.index) ?? { id: '', name: '', arguments: '' };
+          if (call.id) current.id = call.id;
+          if (call.function?.name) current.name += call.function.name;
+          if (call.function?.arguments) current.arguments += call.function.arguments;
+          calls.set(call.index, current);
+        }
+      }
+    }
+  };
+
+  const drainBuffer = (flush: boolean) => {
+    const carry = !flush && buffer.endsWith('\r') ? '\r' : '';
+    buffer = (carry ? buffer.slice(0, -1) : buffer).replaceAll('\r\n', '\n').replaceAll('\r', '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary !== -1) {
+      const frame = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      processFrame(frame);
+      boundary = buffer.indexOf('\n\n');
+    }
+    if (flush && buffer.trim()) {
+      processFrame(buffer);
+      buffer = '';
+    } else if (carry) {
+      buffer += carry;
+    }
+  };
+
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true }).replaceAll('\r\n', '\n');
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const frame = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        for (const line of frame.split('\n')) {
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          let parsed: unknown;
-          try {
-            parsed = JSON.parse(payload);
-          } catch {
-            throw new AssistantProviderError('invalid');
-          }
-          const chunk = chunkSchema.safeParse(parsed);
-          if (!chunk.success) throw new AssistantProviderError('invalid');
-          for (const choice of chunk.data.choices ?? []) {
-            const delta = choice.delta;
-            if (delta?.content) {
-              content += delta.content;
-              onDelta(delta.content);
-            }
-            for (const call of delta?.tool_calls ?? []) {
-              const current = calls.get(call.index) ?? { id: '', name: '', arguments: '' };
-              if (call.id) current.id = call.id;
-              if (call.function?.name) current.name += call.function.name;
-              if (call.function?.arguments) current.arguments += call.function.arguments;
-              calls.set(call.index, current);
-            }
-          }
-        }
-        boundary = buffer.indexOf('\n\n');
+      if (done) {
+        buffer += decoder.decode();
+        drainBuffer(true);
+        break;
       }
+      buffer += decoder.decode(value, { stream: true });
+      drainBuffer(false);
     }
   } catch (error) {
     if (error instanceof AssistantProviderError) throw error;

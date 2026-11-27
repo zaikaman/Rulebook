@@ -14,8 +14,10 @@ import {
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyInstance } from 'fastify';
+import { zeroHash } from 'viem';
 import { z } from 'zod';
 
+import type { CallbackReader } from '../chain/lasnaCallbacks.js';
 import { workflowV2FailureReason } from './failureReasons.js';
 const settlementChain = fundsChainIdSchema;
 const cursor = z.object({
@@ -85,21 +87,26 @@ const healthRow = z.object({
   pending_run_id: workflowIdSchema.nullable(),
   pending_expires_at: z.number().int().nonnegative().safe().nullable(),
 });
-const proofRow = run.pick({
-  id: true,
-  chain: true,
-  program_hash: true,
-  origin_chain: true,
-  origin_transaction: true,
-  origin_log_index: true,
-  lasna_transaction: true,
-  destination_transaction: true,
-  expires_at: true,
-  status: true,
-  path: true,
-  reason: true,
-});
+const proofRow = run
+  .pick({
+    id: true,
+    chain: true,
+    program_hash: true,
+    origin_chain: true,
+    origin_transaction: true,
+    origin_log_index: true,
+    lasna_transaction: true,
+    destination_transaction: true,
+    expires_at: true,
+    status: true,
+    path: true,
+    reason: true,
+  })
+  .extend({
+    agent: addressSchema.optional(),
+  });
 const proofColumns = Object.keys(proofRow.shape).join(',');
+const routeRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } } as const;
 
 function readCursor(value: string | undefined) {
   if (!value) return undefined;
@@ -131,6 +138,7 @@ export function registerWorkflowV2Routes(
   app: FastifyInstance,
   db: SupabaseClient,
   factoryOrDeployments: Address | { testnet?: Address; mainnet?: Address },
+  callbackReaders?: Partial<Record<NetworkMode, CallbackReader>>,
 ) {
   function resolveDeployment(network: NetworkMode) {
     const address =
@@ -147,7 +155,7 @@ export function registerWorkflowV2Routes(
     };
   }
 
-  app.get('/v3/marketplace', async (request, reply) => {
+  app.get('/v3/marketplace', routeRateLimit, async (request, reply) => {
     const params = z
       .object({
         q: z.string().max(160).default(''),
@@ -173,8 +181,8 @@ export function registerWorkflowV2Routes(
       .select('*')
       .match({ deployment, visible: true })
       .in('chain', [...chains]);
-    const search = params.data.q.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
-    if (search) page = page.ilike('title', `%${search}%`);
+    const search = params.data.q.trim().replace(/[%_\\*"]/g, (character) => `\\${character}`);
+    if (search) page = page.or(`title.ilike."%${search}%",description.ilike."%${search}%"`);
     if (before)
       page = page.or(
         `block_number.lt.${before.block},and(block_number.eq.${before.block},log_index.lt.${before.index})`,
@@ -198,7 +206,7 @@ export function registerWorkflowV2Routes(
     };
   });
 
-  app.get('/v3/marketplace/:id', async (request, reply) => {
+  app.get('/v3/marketplace/:id', routeRateLimit, async (request, reply) => {
     const params = z.object({ id: listingId }).safeParse(request.params);
     const networkQuery = z
       .object({ network: networkModeSchema.default('testnet') })
@@ -219,7 +227,7 @@ export function registerWorkflowV2Routes(
       : reply.code(404).send({ message: 'This listing is unavailable.' });
   });
 
-  app.get('/v3/health', async (request, reply) => {
+  app.get('/v3/health', routeRateLimit, async (request, reply) => {
     const input = z
       .object({ owner: addressSchema, network: networkModeSchema.default('testnet') })
       .safeParse(request.query);
@@ -271,7 +279,7 @@ export function registerWorkflowV2Routes(
     });
   });
 
-  app.get('/v3/activity', async (request, reply) => {
+  app.get('/v3/activity', routeRateLimit, async (request, reply) => {
     const input = query.safeParse(request.query);
     if (!input.success) return reply.code(400).send({ message: 'Check the activity filters.' });
     const { deployment } = resolveDeployment(input.data.network);
@@ -317,7 +325,7 @@ export function registerWorkflowV2Routes(
     };
   });
 
-  app.get('/v3/runs/:id', async (request, reply) => {
+  app.get('/v3/runs/:id', routeRateLimit, async (request, reply) => {
     const params = z.object({ id: workflowIdSchema }).safeParse(request.params);
     const networkQuery = z
       .object({ network: networkModeSchema.optional() })
@@ -328,6 +336,7 @@ export function registerWorkflowV2Routes(
       ? [networkQuery.data.network]
       : ['testnet', 'mainnet'];
     let found: z.infer<typeof proofRow> | null = null;
+    let foundMode: NetworkMode | undefined;
     for (const candidateMode of modesToCheck) {
       const { deployment, chains } = resolveDeployment(candidateMode);
       if (!deployment) continue;
@@ -343,11 +352,59 @@ export function registerWorkflowV2Routes(
       if (error) throw error;
       if (data) {
         found = proofRow.parse(data);
+        foundMode = candidateMode;
         break;
       }
     }
     if (!found) return reply.code(404).send({ message: 'This run has not been indexed.' });
     const proof = runProof(found);
+    if (
+      foundMode &&
+      proof.destinationTransaction === null &&
+      (proof.status === 'pending' || proof.status === 'expired')
+    ) {
+      const reader = callbackReaders?.[foundMode];
+      if (reader) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const callbacks = await Promise.race([
+            reader.readCallbacks(found.lasna_transaction),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('Callback lookup timed out')), 4_000);
+            }),
+          ]);
+          const matched = callbacks.find(
+            (record) =>
+              record.destination_chain_id === found.chain &&
+              (!found.agent ||
+                record.reacting_contract.toLowerCase() === found.agent.toLowerCase()),
+          );
+          if (matched) {
+            const hasTx = matched.destination_tx_hash !== zeroHash;
+            const hasError = Boolean(matched.error_data && matched.error_data !== '0x');
+            if (hasTx || hasError) {
+              const enriched = workflowV2RunProofSchema.parse({
+                ...proof,
+                destinationTransaction: hasTx ? matched.destination_tx_hash : null,
+                status: hasError ? 'failed' : proof.status,
+                reason: hasError
+                  ? workflowV2FailureReason(matched.error_data.slice(0, 10)).message
+                  : proof.reason,
+              });
+              reply.header(
+                'cache-control',
+                enriched.status === 'confirmed' ? 'public, max-age=60' : 'no-cache',
+              );
+              return enriched;
+            }
+          }
+        } catch {
+          // Non-fatal fallback: return the indexed run state if Reactive RPC is unavailable.
+        } finally {
+          if (timer !== undefined) clearTimeout(timer);
+        }
+      }
+    }
     reply.header('cache-control', proof.status === 'confirmed' ? 'public, max-age=60' : 'no-cache');
     return proof;
   });

@@ -12,6 +12,7 @@ export interface DialogProps {
   readonly onCancel?: () => void;
   readonly busy?: boolean;
   readonly className?: string;
+  readonly 'data-network-mode'?: 'testnet' | 'mainnet';
   readonly children: ReactNode;
 }
 
@@ -25,6 +26,7 @@ export function Dialog({
   onCancel,
   busy = false,
   className,
+  'data-network-mode': networkMode,
   children,
 }: DialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -81,6 +83,7 @@ export function Dialog({
       aria-labelledby={labelledBy}
       aria-describedby={describedBy}
       aria-modal="true"
+      data-network-mode={networkMode}
       onKeyDown={handleKey}
       onCancel={(event) => {
         event.preventDefault();

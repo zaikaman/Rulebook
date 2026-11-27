@@ -5,6 +5,8 @@ import {
   emptyDraft,
   emptyPath,
   encodeWorkflowV2,
+  fundsChainsFor,
+  getChain,
   isSameNetworkMode,
   networkModeForChain,
   resolveRulewrightNetwork,
@@ -16,6 +18,7 @@ import {
   workflowV2Check,
   workflowV2Unit,
   type DraftPath,
+  type FundsChainId,
   type NetworkMode,
   type RulewrightRequest,
   type RulewrightResult,
@@ -140,14 +143,14 @@ export async function generateRulewrightDraft(
   request: RulewrightRequest,
   validate: Validator,
   signal: AbortSignal,
+  availableChains?: readonly FundsChainId[],
 ): Promise<RulewrightResult> {
   const deadline = AbortSignal.timeout(geminiTimeoutMs);
   const targetNetwork = resolveRulewrightNetwork(request);
-  const networkGuidance = `\nTarget network mode: ${targetNetwork}. Only use ${
-    targetNetwork === 'mainnet'
-      ? 'Unichain (130) or Base (8453)'
-      : 'Unichain Sepolia (1301) or Base Sepolia (84532)'
-  } for chain and originChain.`;
+  const allowedChains =
+    availableChains && availableChains.length > 0 ? availableChains : fundsChainsFor(targetNetwork);
+  const chainDescriptions = allowedChains.map((id) => `${getChain(id).name} (${id})`).join(' or ');
+  const networkGuidance = `\nTarget network mode: ${targetNetwork}. Only use ${chainDescriptions} for chain and originChain.`;
   let patch: Patch;
   try {
     const response = await fetch(config.endpoint, {
@@ -310,7 +313,7 @@ function mergePatch(request: RulewrightRequest, patch: Patch, targetNetwork: Net
 
 function confirmGuardrails(request: RulewrightRequest, baseline: V2Draft, draft: V2Draft) {
   const spendingLimit =
-    /\b(?:cap(?:ped)?|limit(?:ed)?|budget|at most|no more than|up to|per[ -]run|max(?:imum)? spend(?:ing)?)\b/i;
+    /\b(?:cap(?:ped)?|limit(?:ed)?|at most|no more than|up to|per[ -]run|max(?:imum)? spend(?:ing)?)\b/i;
   const guardrails = [
     { field: 'usdcCap', label: 'per-run USDC cap', context: spendingLimit, asset: 'USDC' },
     { field: 'wethCap', label: 'per-run WETH cap', context: spendingLimit, asset: 'WETH' },
@@ -354,9 +357,15 @@ function confirmGuardrails(request: RulewrightRequest, baseline: V2Draft, draft:
         const clause = `${before} ${after}`;
         if (asset) {
           if (/^\s*(?:%|(?:seconds?|minutes?|hours?|days?|weeks?)\b)/i.test(after)) return false;
+          if (
+            /\b(?:weekly|per\s+week|monthly|daily)\b/i.test(clause) ||
+            (/\bbudget\b/i.test(clause) && !/\bper[ -]run\b/i.test(clause))
+          ) {
+            return false;
+          }
           const suppliedAsset =
             /^\s*(USDC|WETH)\b/i.exec(after)?.[1] ??
-            /\b(USDC|WETH)\s+(?:(?:per[ -]run|spending)\s+)*(?:cap|limit|budget)\b/i.exec(
+            /\b(USDC|WETH)\s+(?:(?:per[ -]run|spending)\s+)*(?:cap|limit)\b/i.exec(
               `${question} ${clause}`,
             )?.[1];
           if (suppliedAsset && suppliedAsset.toUpperCase() !== asset) return false;

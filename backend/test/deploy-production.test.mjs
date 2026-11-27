@@ -305,7 +305,7 @@ describe('deploy-production', () => {
           server: 'https://api.example.com',
           settings: withMainnet,
           envMap: {
-            VITE_UNICHAIN_MAINNET_RPC_URL: 'https://rpc.example.com/v2/abc',
+            VITE_UNICHAIN_MAINNET_RPC_URL: 'https://rpc.example.com/public',
             LASNA_RPC_URL: 'https://lasna-secret.example.com/key',
             REACTIVE_MAINNET_RPC_URL: 'https://reactive-secret.example.com/key',
             UNICHAIN_MAINNET_RPC_URL: 'https://fallback.example.com/secret',
@@ -318,13 +318,13 @@ describe('deploy-production', () => {
         'VITE_API_BASE_URL=https://api.example.com',
         'VITE_WORKFLOW_V2_DEPLOYMENT={"lasna":{"factory":"0x1","startBlock":1}}',
         'VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT={"reactive":{"factory":"0x2","startBlock":2}}',
-        'VITE_UNICHAIN_MAINNET_RPC_URL=https://rpc.example.com/v2/abc',
+        'VITE_UNICHAIN_MAINNET_RPC_URL=https://rpc.example.com/public',
         'VITE_REACTIVE_MAINNET_WALLET_RPC_URL=https://wallet.example.com/',
         'VITE_WORKFLOW_V2_ACTIVATION=true',
       ]);
     });
 
-    it('rejects non-HTTPS or credentialed RPC overrides and invalid activation flags', () => {
+    it('rejects non-HTTPS, credentialed, or keyed RPC overrides and invalid activation flags', () => {
       const settings = { WORKFLOW_V2_DEPLOYMENT: '{}' };
       expect(() =>
         buildFrontendEnvLines({
@@ -341,6 +341,22 @@ describe('deploy-production', () => {
           envMap: { VITE_BASE_MAINNET_RPC_URL: 'https://user:pass@rpc.example.com' },
         }),
       ).toThrow(/VITE_BASE_MAINNET_RPC_URL must be a public HTTPS URL/);
+
+      expect(() =>
+        buildFrontendEnvLines({
+          server: 'https://api.example.com',
+          settings,
+          envMap: { VITE_UNICHAIN_MAINNET_RPC_URL: 'https://rpc.example.com/v2/secret-key' },
+        }),
+      ).toThrow(/VITE_UNICHAIN_MAINNET_RPC_URL must be a public HTTPS URL/);
+
+      expect(() =>
+        buildFrontendEnvLines({
+          server: 'https://api.example.com',
+          settings,
+          envMap: { VITE_UNICHAIN_RPC_URL: 'https://rpc.example.com/?apikey=secret' },
+        }),
+      ).toThrow(/VITE_UNICHAIN_RPC_URL must be a public HTTPS URL/);
 
       expect(() =>
         buildFrontendEnvLines({

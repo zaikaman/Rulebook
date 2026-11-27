@@ -17,12 +17,15 @@ export function ChainSwitchPrompt({
       title={label}
       confirmLabel={label}
       chainId={network.chainId}
+      offChain={details.offChain}
     >
       <div className="rb-wallet-prompt__copy">
         <p>
           This action needs {network.name} because it targets your{' '}
           {details.targetLabel.toLowerCase()}
-          {network.role === 'automation' ? ', where you manage rules.' : ', where your funds live.'}
+          {network.role === 'automation'
+            ? ', where you manage workflows.'
+            : ', where your funds live.'}
         </p>
         <p>{details.effect}</p>
       </div>

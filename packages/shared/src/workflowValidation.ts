@@ -87,6 +87,8 @@ export interface AddressFieldRules {
   /** Lowercase noun with its article, for example "a recipient address". */
   readonly noun: string;
   readonly optional?: boolean;
+  readonly disallowed?: Address;
+  readonly disallowedMessage?: string;
 }
 
 export function addressIssue(value: string | undefined, rules: AddressFieldRules) {
@@ -97,6 +99,9 @@ export function addressIssue(value: string | undefined, rules: AddressFieldRules
   }
   if (text.toLowerCase() === zeroAddress) {
     return `Enter ${rules.noun} other than the zero address.`;
+  }
+  if (rules.disallowed && text.toLowerCase() === rules.disallowed.toLowerCase()) {
+    return rules.disallowedMessage ?? `Enter ${rules.noun} other than your Vault address.`;
   }
   return undefined;
 }

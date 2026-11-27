@@ -64,7 +64,7 @@ import {
   type ReactNode,
 } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { bytesToHex, formatUnits, parseUnits, type Hex } from 'viem';
+import { bytesToHex, formatUnits, parseUnits, zeroAddress, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
@@ -96,6 +96,7 @@ import {
   workflowActivationEnabled,
   readActiveWorkflowCount,
   readPaymentWorkflow,
+  readVault,
   readWorkflowV2,
   readWorkflowWeeklyBudget,
   settlementFactory,
@@ -292,6 +293,7 @@ function RecipePicker({
   open: (draft: V2Draft) => void;
   close: () => void;
 }) {
+  const { address } = useAccount();
   const { mode, defaultFundsChainId } = useNetworkMode();
   const chains = configuredFundsChains(mode);
   const fallbackChain = chains[0] ?? defaultFundsChainId;
@@ -299,6 +301,16 @@ function RecipePicker({
   useEffect(() => {
     if (!chains.includes(recipeChain)) setRecipeChain(fallbackChain);
   }, [chains, fallbackChain, recipeChain]);
+  const recipeVaultQuery = useQuery({
+    queryKey: ['workflow-v2', 'vault', mode, address?.toLowerCase(), recipeChain],
+    enabled: Boolean(address),
+    queryFn: () => readVault(address!, recipeChain),
+    staleTime: 30_000,
+  });
+  const recipeVault =
+    recipeVaultQuery.data && recipeVaultQuery.data !== zeroAddress
+      ? recipeVaultQuery.data
+      : undefined;
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<(typeof recipeCategories)[number]>('All categories');
   const [selected, select] = useState<WorkflowV2RecipeId | undefined>(
@@ -333,7 +345,14 @@ function RecipePicker({
 
   function recipeFieldIssue(field: string) {
     const spec = workflowFieldSpecs[field as WorkflowFieldName];
-    return spec ? fieldIssue(spec, values[field]) : undefined;
+    if (!spec) return undefined;
+    if ((field === 'recipient' || field === 'heir') && recipeVault) {
+      return fieldIssue(spec, values[field], {
+        disallowed: recipeVault,
+        disallowedMessage: 'Choose a wallet other than your vault.',
+      });
+    }
+    return fieldIssue(spec, values[field]);
   }
 
   function shownIssue(field: string) {
@@ -359,6 +378,7 @@ function RecipePicker({
         inactivityPayout: consent,
         chain: recipeChain,
         originChain: recipeChain,
+        vault: recipeVault,
       });
       open(toDraft(program, recipe.title));
     } catch (cause) {
@@ -866,10 +886,18 @@ function WorkflowCopyV2({ listingId, recipe }: { listingId: string; recipe?: Wor
   const storageKey = `rulebook-v2-draft:${mode}:${listingId}`;
   const [original, setOriginal] = useState(() => loadDraft(storageKey)?.draft);
   const listing = useQuery(v2ListingQuery(original ? undefined : listingId, mode));
+  useEffect(() => {
+    if (!original && listing.isFetchedAfterMount && listing.isSuccess && !listing.failureReason) {
+      setOriginal(toCopyDraft(decodeWorkflowV2(listing.data.program), listing.data.title));
+    }
+  }, [
+    listing.data,
+    listing.failureReason,
+    listing.isFetchedAfterMount,
+    listing.isSuccess,
+    original,
+  ]);
   if (original) return <Editor storageKey={storageKey} original={original} recipe={recipe} />;
-  // Once seeded, the private draft can be edited independently of the source listing.
-  if (listing.isFetchedAfterMount && listing.isSuccess && !listing.failureReason)
-    setOriginal(toCopyDraft(decodeWorkflowV2(listing.data.program), listing.data.title));
   return <ListingStatusV2 query={listing} copying />;
 }
 
@@ -917,6 +945,13 @@ function Editor({
   const [draft, setDraft] = useState<V2Draft>(
     () => saved?.draft ?? original ?? emptyDraft(defaultFundsChainId),
   );
+  const vaultQuery = useQuery({
+    queryKey: ['workflow-v2', 'vault', mode, address?.toLowerCase(), draft.chain],
+    enabled: Boolean(address && isFundsChain(draft.chain)),
+    queryFn: () => readVault(address!, draft.chain as SettlementChain),
+    staleTime: 30_000,
+  });
+  const vault = vaultQuery.data && vaultQuery.data !== zeroAddress ? vaultQuery.data : undefined;
   useEffect(() => {
     if (!id && networkModeForChain(draft.chain) !== mode) {
       setDraft((current) => ({
@@ -1003,9 +1038,8 @@ function Editor({
     setDraft((current) => {
       const next = { ...current, ...fields };
       if (
-        next.trigger === T.schedule &&
-        next.originChain !== next.chain &&
-        !draftHasCheck(next, C.dipBy)
+        !supportsCrossChain(next.trigger, draftHasCheck(next, C.dipBy)) &&
+        next.originChain !== next.chain
       ) {
         return { ...next, originChain: next.chain };
       }
@@ -1182,7 +1216,7 @@ function Editor({
     const current = revision.current;
     setValidating(true);
     try {
-      const next = toProgram(draft);
+      const next = toProgram(draft, { vault });
       const nextBudget = weeklyBudgetFromDraft(draft);
       await validateV2Program(encodeWorkflowV2(next), next);
       if (current !== revision.current) return;
@@ -1507,30 +1541,42 @@ function Editor({
                   text
                 />
               )}
-              <details className="rb-advanced">
-                <summary>Live check settings</summary>
-                <div className="rb-inspector-fields">
+              {(() => {
+                const subjectRequired =
+                  (hasPaymentFrom && draft.trigger === T.payment) ||
+                  (draft.trigger === T.transfer && draft.originChain !== draft.chain);
+                const subjectInput = (
                   <Input
                     name="Watched wallet address"
                     value={draft.subject}
                     hint={
                       hasPaymentFrom && draft.trigger === T.payment
                         ? 'Required for the Payment is from the specified wallet check.'
-                        : 'Optional. Limits the live check to activity from this wallet.'
+                        : draft.trigger === T.transfer && draft.originChain !== draft.chain
+                          ? `Required when watching a transfer on ${v2Network(draft.originChain).name}.`
+                          : 'Optional. Limits the live check to activity from this wallet.'
                     }
                     placeholder="0x…"
                     error={
                       draft.subject.trim()
                         ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
-                        : hasPaymentFrom && draft.trigger === T.payment
+                        : subjectRequired
                           ? 'Enter a watched wallet address.'
                           : undefined
                     }
                     change={(subject) => update({ subject })}
                     text
                   />
-                </div>
-              </details>
+                );
+                return subjectRequired ? (
+                  subjectInput
+                ) : (
+                  <details className="rb-advanced">
+                    <summary>Live check settings</summary>
+                    <div className="rb-inspector-fields">{subjectInput}</div>
+                  </details>
+                );
+              })()}
             </div>
           </div>
         </>
@@ -1756,7 +1802,15 @@ function Editor({
                       placeholder="0x…"
                       error={
                         step.recipient.trim()
-                          ? addressIssue(step.recipient, { noun: 'a recipient address' })
+                          ? addressIssue(step.recipient, {
+                              noun: 'a recipient address',
+                              ...(vault
+                                ? {
+                                    disallowed: vault,
+                                    disallowedMessage: 'Choose a wallet other than your vault.',
+                                  }
+                                : {}),
+                            })
                           : undefined
                       }
                       change={(recipient) => updateStep({ ...step, recipient })}
@@ -2019,6 +2073,9 @@ function Editor({
         }
         aside={headingAside}
       />
+      {isMainnet && !isDeploymentConfigured && (
+        <MainnetUnavailableCallout context="Workflow creation" />
+      )}
       {recipes ? (
         <RecipePicker
           initialRecipe={recipe}
@@ -2255,15 +2312,31 @@ function Editor({
         <RulewrightDialog
           key={`${mode}:${address ?? 'disconnected'}`}
           draft={id || hasRulewrightBaseline(draft, mode) ? draft : undefined}
+          lockChain={Boolean(id)}
           session={rulewrightSession}
           close={() => setRulewrightOpen(false)}
           summary={(next) => <WorkflowProgramSummary draft={next} />}
           apply={(next) => {
+            const normalizedNext =
+              id && next.chain !== draft.chain
+                ? {
+                    ...next,
+                    chain: draft.chain,
+                    originChain:
+                      supportsCrossChain(next.trigger, draftHasCheck(next, C.dipBy)) &&
+                      networkModeForChain(next.originChain) === networkModeForChain(draft.chain)
+                        ? next.originChain
+                        : draft.chain,
+                  }
+                : next;
             const pathShape = ({ paths }: ReturnType<typeof diagramV2>) =>
               paths.map(({ path, anchor }) => [anchor, 'steps' in path ? path.steps.length : null]);
-            if (JSON.stringify(pathShape(diagram)) !== JSON.stringify(pathShape(diagramV2(next))))
+            if (
+              JSON.stringify(pathShape(diagram)) !==
+              JSON.stringify(pathShape(diagramV2(normalizedNext)))
+            )
               setPositions({});
-            update(next);
+            update(normalizedNext);
             setRecipes(false);
             setRulewrightOpen(false);
             pick(undefined);

@@ -2,12 +2,16 @@ import {
   actions,
   checks,
   defaultFundsChainFor,
+  draftHasCheck,
   emptyDraft,
   getChain,
+  networkModeForChain,
   rulewrightFollowUpLimit,
   rulewrightPromptLimit,
   rulewrightSignIn,
   triggers,
+  workflowV2Check,
+  workflowV2Trigger,
   workflowV2Unit,
   type DraftPath,
   type NetworkMode,
@@ -77,6 +81,29 @@ async function waitForDraft(id: string, token: string, signal: AbortSignal) {
 
 type Change = { field: string; before: string; after: string };
 
+function normalizeCandidateDraft(
+  candidate: V2Draft,
+  baseline: V2Draft | undefined,
+  lockChain: boolean,
+): V2Draft {
+  if (!lockChain || !baseline || candidate.chain === baseline.chain) return candidate;
+  const crossChainAllowed =
+    candidate.trigger === workflowV2Trigger.price ||
+    candidate.trigger === workflowV2Trigger.transfer ||
+    (candidate.trigger === workflowV2Trigger.schedule &&
+      draftHasCheck(candidate, workflowV2Check.dipBy));
+  const originChain =
+    crossChainAllowed &&
+    networkModeForChain(candidate.originChain) === networkModeForChain(baseline.chain)
+      ? candidate.originChain
+      : baseline.chain;
+  return {
+    ...candidate,
+    chain: baseline.chain,
+    originChain,
+  };
+}
+
 function diffDraft(previous: V2Draft, next: V2Draft) {
   const fields = {
     title: 'Workflow name',
@@ -89,6 +116,8 @@ function diffDraft(previous: V2Draft, next: V2Draft) {
     subject: 'Watched account',
     usdcCap: 'USDC per run',
     wethCap: 'WETH per run',
+    usdcWeeklyBudget: 'Weekly USDC budget',
+    wethWeeklyBudget: 'Weekly WETH budget',
     slippage: 'Maximum slippage',
     once: 'Run frequency',
   } as const;
@@ -106,6 +135,10 @@ function diffDraft(previous: V2Draft, next: V2Draft) {
         return draft.interval ? `${draft.interval} seconds` : 'Unset';
       case 'slippage':
         return draft.slippage ? `${draft.slippage}%` : 'Unset';
+      case 'usdcWeeklyBudget':
+        return draft[field] ? `${draft[field]} USDC` : 'Unlimited';
+      case 'wethWeeklyBudget':
+        return draft[field] ? `${draft[field]} WETH` : 'Unlimited';
       default:
         return draft[field] || 'Unset';
     }
@@ -158,12 +191,14 @@ function diffDraft(previous: V2Draft, next: V2Draft) {
 
 export function RulewrightDialog({
   draft,
+  lockChain = false,
   session,
   close,
   apply,
   summary,
 }: {
   draft?: V2Draft;
+  lockChain?: boolean;
   session: RefObject<RulewrightSession | undefined>;
   close: () => void;
   apply: (next: V2Draft) => void;
@@ -198,10 +233,12 @@ export function RulewrightDialog({
       ? verified
       : undefined;
   const result = preview?.result;
+  const candidateDraft =
+    result?.type === 'draft' ? normalizeCandidateDraft(result.draft, draft, lockChain) : undefined;
   const question = result?.type === 'question' ? result.message : undefined;
   const stale = preview && preview.baseline !== draft;
-  const changes = result?.type === 'draft' && draft ? diffDraft(draft, result.draft) : undefined;
-  const step = result?.type === 'draft' ? 3 : question ? 2 : 1;
+  const changes = candidateDraft && draft ? diffDraft(draft, candidateDraft) : undefined;
+  const step = candidateDraft ? 3 : question ? 2 : 1;
 
   useEffect(() => {
     if (prevModeRef.current === mode) return;
@@ -468,7 +505,9 @@ export function RulewrightDialog({
               <p className="rb-rulewright__notice">This draft has no changes to apply.</p>
             )
           ) : (
-            <div className="rb-rulewright__summary">{summary(result.draft)}</div>
+            <div className="rb-rulewright__summary">
+              {candidateDraft ? summary(candidateDraft) : null}
+            </div>
           )}
           <div className="rb-rulewright__foot">
             <button type="button" className="app-button" onClick={editDescription}>
@@ -478,8 +517,8 @@ export function RulewrightDialog({
             <button
               type="button"
               className="app-button app-button--primary"
-              disabled={changes?.length === 0}
-              onClick={() => apply(result.draft)}
+              disabled={!candidateDraft || changes?.length === 0}
+              onClick={() => candidateDraft && apply(candidateDraft)}
             >
               Apply to canvas
             </button>

@@ -211,6 +211,12 @@ const staticTasks = [
     taskArgs: ['scripts/design-check.mjs'],
   },
   {
+    id: 'deployments',
+    deps: [],
+    command: node,
+    taskArgs: ['scripts/deploy-workflows-v2.mjs', '--check', '--offline', '--allow-contract-drift'],
+  },
+  {
     id: 'lint',
     deps: ['generated-artifacts'],
     command: node,

@@ -221,8 +221,9 @@ interface WorkflowSnapshot {
   readonly originChainName: string;
   readonly crossChain: boolean;
   readonly title: string;
-  readonly status: 'active' | 'ready to activate' | 'paused' | 'completed';
+  readonly status: 'active' | 'still watching' | 'ready to activate' | 'paused' | 'completed';
   readonly active: boolean;
+  readonly partiallyPaused: boolean;
   readonly readyToActivate: boolean;
   readonly closed: boolean;
   readonly trigger: string;
@@ -309,6 +310,7 @@ export class AssistantToolExecutor {
   private addressesCache?: Promise<{
     agent: Address;
     vaults: Partial<Record<FundsChainId, Address>>;
+    failedChains: FundsChainId[];
   }>;
 
   constructor(
@@ -427,32 +429,46 @@ export class AssistantToolExecutor {
   }
 
   private addresses() {
-    this.addressesCache ??= (async () => {
-      const chains = this.configuredFundsChains();
-      const [agent, ...vaultList] = await Promise.all([
-        this.automationClient().readContract({
-          address: this.automationFactory,
-          abi: workflowAgentFactoryV2Abi,
-          functionName: 'agentOf',
-          args: [this.owner],
-        }),
-        ...chains.map((chain) => {
-          const factory = this.factoryFor(chain);
-          if (!factory) return Promise.resolve(zeroAddress);
-          return clientFor(this.clients, chain).readContract({
-            address: factory,
-            abi: workflowVaultFactoryV2Abi,
-            functionName: 'vaultOf',
+    if (!this.addressesCache) {
+      const pending = (async () => {
+        const chains = this.configuredFundsChains();
+        const [agent, vaultResults] = await Promise.all([
+          this.automationClient().readContract({
+            address: this.automationFactory,
+            abi: workflowAgentFactoryV2Abi,
+            functionName: 'agentOf',
             args: [this.owner],
-          });
-        }),
-      ]);
-      const vaults: Partial<Record<FundsChainId, Address>> = {};
-      chains.forEach((chain, index) => {
-        vaults[chain] = vaultList[index] ?? zeroAddress;
+          }),
+          Promise.allSettled(
+            chains.map((chain) => {
+              const factory = this.factoryFor(chain);
+              if (!factory) return Promise.resolve(zeroAddress);
+              return clientFor(this.clients, chain).readContract({
+                address: factory,
+                abi: workflowVaultFactoryV2Abi,
+                functionName: 'vaultOf',
+                args: [this.owner],
+              });
+            }),
+          ),
+        ]);
+        const vaults: Partial<Record<FundsChainId, Address>> = {};
+        const failedChains: FundsChainId[] = [];
+        chains.forEach((chain, index) => {
+          const outcome = vaultResults[index];
+          if (outcome?.status === 'fulfilled') {
+            vaults[chain] = outcome.value;
+          } else {
+            failedChains.push(chain);
+          }
+        });
+        return { agent, vaults, failedChains };
+      })().catch((error) => {
+        if (this.addressesCache === pending) this.addressesCache = undefined;
+        throw error;
       });
-      return { agent, vaults };
-    })();
+      this.addressesCache = pending;
+    }
     return this.addressesCache;
   }
 
@@ -488,6 +504,7 @@ export class AssistantToolExecutor {
       vaultEth,
       walletEth,
       execution,
+      executionDebt,
     ] = await Promise.all([
       readOrNull(() => tokenBalance(usdc, vault)),
       readOrNull(() => tokenBalance(weth, vault)),
@@ -517,12 +534,23 @@ export class AssistantToolExecutor {
               args: [vault],
             }),
       ),
+      readOrNull(() =>
+        vault === zeroAddress || !proxy
+          ? Promise.resolve(null)
+          : client.readContract({
+              address: proxy,
+              abi: executionCreditAbi,
+              functionName: 'debt',
+              args: [vault],
+            }),
+      ),
     ]);
     return {
       chain,
       name: chainMeta.name,
       vault,
       executionCreditEth: amount(execution, 18),
+      executionDebtEth: amount(executionDebt, 18),
       walletEth: amount(walletEth, 18),
       vaultEth: amount(vaultEth, 18),
       vaultUsdc: amount(vaultUsdc, 6),
@@ -534,10 +562,10 @@ export class AssistantToolExecutor {
   }
 
   private async accountOverview(): Promise<AssistantToolResult> {
-    const { agent, vaults } = await this.addresses();
+    const { agent, vaults, failedChains } = await this.addresses();
     const chains = this.configuredFundsChains();
     const anyVault = chains.some((chain) => vaults[chain] && vaults[chain] !== zeroAddress);
-    if (agent === zeroAddress && !anyVault) {
+    if (agent === zeroAddress && !anyVault && failedChains.length === 0) {
       return this.result(
         {
           owner: this.owner,
@@ -552,7 +580,7 @@ export class AssistantToolExecutor {
 
     const system = getChain(this.automationChain).systemContract;
     const autoClient = this.automationClient();
-    const [walletReact, watching, perChain] = await Promise.all([
+    const [walletReact, watching, watchingDebt, perChain] = await Promise.all([
       readOrNull(() => autoClient.getBalance({ address: this.owner })),
       readOrNull(() =>
         agent === zeroAddress
@@ -564,9 +592,19 @@ export class AssistantToolExecutor {
               args: [agent],
             }),
       ),
+      readOrNull(() =>
+        agent === zeroAddress
+          ? Promise.resolve(null)
+          : autoClient.readContract({
+              address: system,
+              abi: executionCreditAbi,
+              functionName: 'debt',
+              args: [agent],
+            }),
+      ),
       Promise.all(chains.map((chain) => this.fundsOverview(chain, vaults[chain] ?? zeroAddress))),
     ]);
-    const primary = perChain[0]!;
+    const primary = perChain.find((entry) => entry.vault !== zeroAddress) ?? perChain[0]!;
     const vaultsByChain = Object.fromEntries(perChain.map((entry) => [entry.chain, entry]));
 
     const data = {
@@ -579,24 +617,17 @@ export class AssistantToolExecutor {
         automation: {
           name: this.automationName,
           watchingCreditReact: amount(watching, 18),
+          watchingDebtReact: amount(watchingDebt, 18),
           walletReact: amount(walletReact, 18),
         },
         funds: {
           name: primary.name,
           executionCreditEth: primary.executionCreditEth,
+          executionDebtEth: primary.executionDebtEth,
           walletEth: primary.walletEth,
           vaultEth: primary.vaultEth,
         },
-        allFundsChains: perChain.map(
-          ({ chain, name, vault, executionCreditEth, walletEth, vaultEth }) => ({
-            chain,
-            name,
-            vault,
-            executionCreditEth,
-            walletEth,
-            vaultEth,
-          }),
-        ),
+        allFundsChains: perChain,
       },
       balances: {
         vaultUsdc: primary.vaultUsdc,
@@ -605,24 +636,28 @@ export class AssistantToolExecutor {
         walletWeth: primary.walletWeth,
         refillAllowanceUsdc: primary.refillAllowanceUsdc,
       },
+      ...(failedChains.length > 0
+        ? { unavailableChains: failedChains.map((chain) => getChain(chain).name) }
+        : {}),
       note: 'A null value means the balance is unavailable because the contract does not exist yet or the read failed. Do not report it as zero.',
     };
     return this.result(data, 'Account balances', [this.accountReference()]);
   }
 
   private async listWorkflows(): Promise<AssistantToolResult> {
-    const { agent, vaults } = await this.addresses();
+    const { agent, vaults, failedChains } = await this.addresses();
     const deployedChains = this.configuredFundsChains().filter(
       (chain) => vaults[chain] && vaults[chain] !== zeroAddress,
     );
-    if (agent === zeroAddress || deployedChains.length === 0) {
+    if (agent === zeroAddress || (deployedChains.length === 0 && failedChains.length === 0)) {
       return this.result(
         { workflows: [], message: 'This wallet has no workflow account yet.' },
         'No workflows',
         [this.accountReference()],
       );
     }
-    const perChainIds = await Promise.all(
+    const chainErrors = new Set<FundsChainId>(failedChains);
+    const idResults = await Promise.allSettled(
       deployedChains.map(async (chain) => ({
         chain,
         ids: await clientFor(this.clients, chain).readContract({
@@ -632,17 +667,31 @@ export class AssistantToolExecutor {
         }),
       })),
     );
-    const allIds = perChainIds.flatMap(({ chain, ids }) => ids.map((id) => ({ id, chain })));
+    const perChainIds: Array<{ chain: FundsChainId; ids: readonly Hex[] }> = [];
+    deployedChains.forEach((chain, index) => {
+      const outcome = idResults[index];
+      if (outcome?.status === 'fulfilled') perChainIds.push(outcome.value);
+      else chainErrors.add(chain);
+    });
+    const reversedByChain = perChainIds.map(({ chain, ids }) => ({
+      chain,
+      ids: ids.slice().reverse(),
+    }));
+    const interleaved: Array<{ id: Hex; chain: FundsChainId }> = [];
+    const maxLen = Math.max(0, ...reversedByChain.map((entry) => entry.ids.length));
+    for (let idx = 0; idx < maxLen; idx += 1) {
+      for (const entry of reversedByChain) {
+        const id = entry.ids[idx];
+        if (id) interleaved.push({ id, chain: entry.chain });
+      }
+    }
     const seen = new Set<string>();
-    const uniqueReverse = allIds
-      .slice()
-      .reverse()
-      .filter(({ id, chain }) => {
-        const key = workflowHealthKey(chain, id);
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
+    const uniqueReverse = interleaved.filter(({ id, chain }) => {
+      const key = workflowHealthKey(chain, id);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
     const chainCounts = new Map<string, number>();
     for (const { id } of uniqueReverse) {
       const normalized = id.toLowerCase();
@@ -681,10 +730,12 @@ export class AssistantToolExecutor {
             },
           ],
     );
+    const unavailableChains = [...chainErrors].map((chain) => getChain(chain).name);
     return this.result(
       {
         count: workflows.length,
         totalSaved: uniqueReverse.length,
+        ...(unavailableChains.length > 0 ? { unavailableChains } : {}),
         note:
           uniqueReverse.length > selected.length
             ? `Only the ${selected.length} newest saved workflows are listed.`
@@ -701,7 +752,10 @@ export class AssistantToolExecutor {
     const key = hintChain ? workflowHealthKey(hintChain, normalized) : normalized;
     const cached = this.workflows.get(key);
     if (cached) return cached;
-    const pending = this.readWorkflow(id, hintChain);
+    const pending = this.readWorkflow(id, hintChain).catch((error) => {
+      if (this.workflows.get(key) === pending) this.workflows.delete(key);
+      throw error;
+    });
     this.workflows.set(key, pending);
     return pending;
   }
@@ -767,6 +821,7 @@ export class AssistantToolExecutor {
       auth[3] &&
       entry[1] === auth[1] &&
       entry[0] === auth[0];
+    const partiallyPaused = !active && entryMatchesChain && entry[4] !== 0 && !auth[3];
     const readFromVault = staged || !entryMatchesChain;
     const version = readFromVault ? auth[0] : entry[0];
     const [title, encoded, memory, budget] = await Promise.all([
@@ -816,9 +871,11 @@ export class AssistantToolExecutor {
       ? 'completed'
       : active
         ? 'active'
-        : !active && staged && auth[3]
-          ? 'ready to activate'
-          : 'paused';
+        : partiallyPaused
+          ? 'still watching'
+          : !active && staged && auth[3]
+            ? 'ready to activate'
+            : 'paused';
     const originChain = isFundsChain(program.originChain) ? program.originChain : targetChain;
     return {
       id,
@@ -830,6 +887,7 @@ export class AssistantToolExecutor {
       title,
       status,
       active,
+      partiallyPaused,
       readyToActivate: status === 'ready to activate',
       closed,
       trigger: triggers[draft.trigger],
@@ -849,9 +907,10 @@ export class AssistantToolExecutor {
         resetsAt: Number(budget[6]),
       },
       paths: readablePaths(draft.root),
-      href: hintChain
-        ? this.withNetwork(`/workflows/${id}?chain=${targetChain}`)
-        : this.withNetwork(`/workflows/${id}`),
+      href:
+        hintChain || targetChain !== this.fundsChainIds[0]
+          ? this.withNetwork(`/workflows/${id}?chain=${targetChain}`)
+          : this.withNetwork(`/workflows/${id}`),
     };
   }
 
@@ -943,8 +1002,8 @@ export class AssistantToolExecutor {
       .select('id,title,description,owner,workflow_id,block_number')
       .match({ deployment: this.deploymentId, visible: true })
       .in('chain', [...this.fundsChainIds]);
-    const search = input.query?.trim().replace(/[%_\\*]/g, (character) => `\\${character}`);
-    if (search) query = query.ilike('title', `%${search}%`);
+    const search = input.query?.trim().replace(/[%_\\*"]/g, (character) => `\\${character}`);
+    if (search) query = query.or(`title.ilike."%${search}%",description.ilike."%${search}%"`);
     const { data, error } = await query.order('block_number', { ascending: false }).limit(limit);
     if (error) throw new Error('The Marketplace could not be read.');
     const listings = z

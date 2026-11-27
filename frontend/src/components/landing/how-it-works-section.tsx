@@ -31,7 +31,7 @@ const steps = [
     icon: Coins01Icon,
     image: landingImages.custody,
     title: 'Check your runs',
-    body: 'See which path ran and follow its transaction receipts. You can pause, edit, or cancel a workflow from your account.',
+    body: 'See which path ran and follow its transaction receipts. You can pause or edit a workflow from your account.',
   },
 ] as const;
 

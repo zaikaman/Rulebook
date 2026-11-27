@@ -362,4 +362,163 @@ describe('WorkflowV2Indexer', () => {
       }
     }
   });
+
+  it('halves block ranges on RPC log errors and rewinds cursor when a reorg is detected', async () => {
+    const deletes: string[] = [];
+    const upserts: Array<{ table: string; rows: unknown[] }> = [];
+    const staleHash = hash('a');
+    const canonicalHash = hash('b');
+    const db = createClient('https://database.example', 'fixture-key', {
+      global: {
+        fetch: async (input, init) => {
+          const url = new URL(String(input));
+          const table = url.pathname.split('/').pop() ?? '';
+          const method = (init?.method ?? 'GET').toUpperCase();
+          if (method === 'DELETE') {
+            deletes.push(table);
+            return Response.json([]);
+          }
+          if (method === 'POST') {
+            const parsed = JSON.parse(typeof init?.body === 'string' ? init.body : '[]');
+            const rows = Array.isArray(parsed) ? parsed : [parsed];
+            upserts.push({ table, rows });
+            return Response.json(rows, { status: 201 });
+          }
+          if (table === 'workflow_v2_cursors') {
+            const chain = Number((url.searchParams.get('chain') ?? '').replace(/^eq\./, ''));
+            if (chain === UNICHAIN_SEPOLIA_CHAIN_ID) {
+              return Response.json({ block_number: 250, block_hash: staleHash });
+            }
+            return Response.json({ block_number: 200, block_hash: canonicalHash });
+          }
+          return Response.json([]);
+        },
+      },
+    });
+
+    const unichainCalls: Array<{ from?: bigint; to?: bigint }> = [];
+    const lasna = {
+      getBlockNumber: vi.fn(async () => 250n),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => ({
+        timestamp: 1_700_000_000n + blockNumber,
+        hash: canonicalHash,
+      })),
+      getLogs: vi.fn(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        if (toBlock - fromBlock + 1n > 20n) {
+          throw new Error('Log response size exceeded');
+        }
+        return [];
+      }),
+    } as unknown as PublicClient;
+
+    const unichain = {
+      getBlockNumber: vi.fn(async () => 270n),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => ({
+        timestamp: 1_700_000_000n + blockNumber,
+        hash: blockNumber === 250n ? canonicalHash : staleHash,
+      })),
+      getLogs: vi.fn(async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
+        unichainCalls.push({ from: fromBlock, to: toBlock });
+        return [];
+      }),
+    } as unknown as PublicClient;
+
+    const indexer = new WorkflowV2Indexer(
+      db,
+      { lasna, unichain },
+      { lasna: DEPLOYMENT.lasna, unichain: DEPLOYMENT.unichain },
+      silentLogger,
+    );
+
+    await indexer.syncOnce();
+
+    expect(deletes).toContain('workflow_v2_outcomes');
+    expect(deletes).not.toContain('workflow_v2_market_listings');
+    expect(deletes).not.toContain('workflow_v2_runs');
+    const rewoundCursor = upserts
+      .filter((item) => item.table === 'workflow_v2_cursors')
+      .flatMap(
+        (item) =>
+          item.rows as Array<{ chain: number; block_number: number; block_hash: string | null }>,
+      )
+      .find((row) => row.chain === UNICHAIN_SEPOLIA_CHAIN_ID);
+    expect(rewoundCursor).toMatchObject({
+      chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      block_number: 226,
+      block_hash: null,
+    });
+    const lasnaCursor = upserts
+      .filter((item) => item.table === 'workflow_v2_cursors')
+      .flatMap(
+        (item) =>
+          item.rows as Array<{ chain: number; block_number: number; block_hash: string | null }>,
+      )
+      .find((row) => row.chain === LASNA_CHAIN_ID);
+    expect(lasnaCursor?.block_number).toBeLessThanOrEqual(220);
+  });
+
+  it('rewinds runs and market listings without outcomes on an automation-chain reorg', async () => {
+    const deletes: string[] = [];
+    const staleHash = hash('c');
+    const canonicalHash = hash('d');
+    const db = createClient('https://database.example', 'fixture-key', {
+      global: {
+        fetch: async (input, init) => {
+          const url = new URL(String(input));
+          const table = url.pathname.split('/').pop() ?? '';
+          const method = (init?.method ?? 'GET').toUpperCase();
+          if (method === 'DELETE') {
+            deletes.push(table);
+            return Response.json([]);
+          }
+          if (method === 'POST') {
+            const parsed = JSON.parse(typeof init?.body === 'string' ? init.body : '[]');
+            const rows = Array.isArray(parsed) ? parsed : [parsed];
+            return Response.json(rows, { status: 201 });
+          }
+          if (table === 'workflow_v2_cursors') {
+            const chain = Number((url.searchParams.get('chain') ?? '').replace(/^eq\./, ''));
+            return Response.json(
+              chain === LASNA_CHAIN_ID
+                ? { block_number: 200, block_hash: staleHash }
+                : { block_number: 200, block_hash: canonicalHash },
+            );
+          }
+          return Response.json([]);
+        },
+      },
+    });
+
+    const lasna = {
+      getBlockNumber: vi.fn(async () => 230n),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => ({
+        timestamp: 1_700_000_000n + blockNumber,
+        hash: canonicalHash,
+      })),
+      getLogs: vi.fn(async () => []),
+    } as unknown as PublicClient;
+
+    const unichain = {
+      getBlockNumber: vi.fn(async () => 220n),
+      getBlock: vi.fn(async ({ blockNumber }: { blockNumber: bigint }) => ({
+        timestamp: 1_700_000_000n + blockNumber,
+        hash: canonicalHash,
+      })),
+      getLogs: vi.fn(async () => []),
+    } as unknown as PublicClient;
+
+    const indexer = new WorkflowV2Indexer(
+      db,
+      { lasna, unichain },
+      { lasna: DEPLOYMENT.lasna, unichain: DEPLOYMENT.unichain },
+      silentLogger,
+    );
+
+    await indexer.syncOnce();
+
+    expect(deletes).toEqual(
+      expect.arrayContaining(['workflow_v2_runs', 'workflow_v2_market_listings']),
+    );
+    expect(deletes).not.toContain('workflow_v2_outcomes');
+  });
 });

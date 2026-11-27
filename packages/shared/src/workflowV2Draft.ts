@@ -416,8 +416,14 @@ export function stepAmountRules(kind: ActionCode, unit: DraftStep['unit']): Amou
   };
 }
 
-function account(value: string, noun: string, required = false): Address {
-  return readAddressField(value, { noun, optional: !required });
+function account(
+  value: string,
+  noun: string,
+  required = false,
+  disallowed?: Address,
+  disallowedMessage?: string,
+): Address {
+  return readAddressField(value, { noun, optional: !required, disallowed, disallowedMessage });
 }
 
 /** Reads one optional weekly limit, rejecting zero, over-precision, and values above uint96. */
@@ -545,6 +551,7 @@ function validateLeafActions(
   leafActions: WorkflowV2Program['nodes'][number]['actions'],
   activeChecks: ReadonlySet<number>,
   skipCaps = false,
+  vault?: Address,
 ) {
   if (leafActions.length > workflowLimits.stepsPerPath) {
     throw new Error('A workflow path can have up to three actions.');
@@ -593,6 +600,9 @@ function validateLeafActions(
     }
     if (kind === A.send || kind === A.inactivityPayout) {
       if (step.account === zeroAddress) throw new Error('Enter a recipient address.');
+      if (vault && step.account.toLowerCase() === vault.toLowerCase()) {
+        throw new Error('Recipient address cannot be your Vault address.');
+      }
     } else if (step.account !== zeroAddress) {
       throw new Error('Only transfer and inactivity payout actions can specify a recipient.');
     }
@@ -649,7 +659,7 @@ function validateLeafActions(
  */
 export function validateWorkflowV2Program(
   program: WorkflowV2Program,
-  options?: { skipCaps?: boolean },
+  options?: { skipCaps?: boolean; vault?: Address },
 ): void {
   if (!isFundsChain(program.chain) || !isFundsChain(program.originChain))
     throw new Error('Select a supported workflow network.');
@@ -705,7 +715,7 @@ export function validateWorkflowV2Program(
       if (node.yes !== 0 || node.no !== 0 || node.value !== 0n || node.upper !== 0n) {
         throw new Error('A workflow action path contains invalid branch data.');
       }
-      validateLeafActions(program, node.actions, active, options?.skipCaps);
+      validateLeafActions(program, node.actions, active, options?.skipCaps, options?.vault);
       if (node.actions.length === 1 && node.actions[0]!.kind === A.inactivityPayout) {
         if (hasPayout) {
           throw new Error('A workflow can include at most one inactivity payout.');
@@ -745,7 +755,7 @@ export function validateWorkflowV2Program(
   }
 }
 
-export function toProgram(draft: V2Draft): WorkflowV2Program {
+export function toProgram(draft: V2Draft, options?: { vault?: Address }): WorkflowV2Program {
   const title = draft.title.trim();
   if (!title || new TextEncoder().encode(title).length > 80)
     throw new Error('Enter a workflow name of up to 80 bytes.');
@@ -764,7 +774,13 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
               ? readAmountField(step.amount, stepAmountRules(step.kind, step.unit))
               : 0n,
             account: actions[step.kind].recipient
-              ? account(step.recipient, 'a recipient address', true)
+              ? account(
+                  step.recipient,
+                  'a recipient address',
+                  true,
+                  options?.vault,
+                  'Recipient address cannot be your Vault address.',
+                )
               : zeroAddress,
           };
         }),
@@ -810,7 +826,8 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
     subject: account(
       draft.subject,
       'a watched wallet address',
-      hasPaymentFrom && draft.trigger === T.payment,
+      (hasPaymentFrom && draft.trigger === T.payment) ||
+        (draft.trigger === T.transfer && draft.originChain !== draft.chain),
     ),
     usdcCap,
     wethCap,
@@ -818,7 +835,7 @@ export function toProgram(draft: V2Draft): WorkflowV2Program {
     once: draft.once,
     nodes,
   };
-  validateWorkflowV2Program(program, { skipCaps: true });
+  validateWorkflowV2Program(program, { skipCaps: true, vault: options?.vault });
   checkCaps(nodes, usdcCap, wethCap);
   return program;
 }

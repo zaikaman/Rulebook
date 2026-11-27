@@ -501,4 +501,49 @@ describe('Gemini request handling', () => {
     expect(mainnetRead).not.toHaveBeenCalled();
     expect(testnetRead).not.toHaveBeenCalled();
   });
+
+  it('does not treat a weekly budget phrase as confirmation for a per-run cap', async () => {
+    const completion = {
+      type: 'draft',
+      message: '',
+      settings: [
+        { field: 'title', value: 'Scheduled buy' },
+        { field: 'interval', value: '21600' },
+        { field: 'usdcCap', value: '500' },
+        { field: 'slippage', value: '0.5' },
+      ],
+      nodes: [
+        {
+          path: '',
+          check: 0,
+          value: '',
+          upper: '',
+          steps: [
+            { kind: workflowV2Action.buy, unit: workflowV2Unit.fixed, amount: '2', recipient: '' },
+          ],
+        },
+      ],
+    };
+    vi.stubGlobal('fetch', async () =>
+      Response.json({
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(completion) } }],
+      }),
+    );
+    const validate = vi.fn();
+    const result = await generateRulewrightDraft(
+      provider,
+      {
+        prompt:
+          'Buy 2 USDC of WETH every 6 hours with a weekly budget of 500 USDC and 0.5% slippage.',
+        followUps: [],
+      },
+      validate,
+      new AbortController().signal,
+    );
+    expect(result).toMatchObject({
+      type: 'question',
+      message: expect.stringContaining('per-run USDC cap'),
+    });
+    expect(validate).not.toHaveBeenCalled();
+  });
 });

@@ -100,11 +100,14 @@ function createResilientClient(
   defaultUrl: string,
 ): PublicClient {
   const primary = configuredUrl ?? defaultUrl;
+  const httpOptions = { timeout: 8_000, retryCount: 1, retryDelay: 300 } as const;
   const transports =
-    primary === defaultUrl ? [http(defaultUrl)] : [http(primary), http(defaultUrl)];
+    primary === defaultUrl
+      ? [http(defaultUrl, httpOptions)]
+      : [http(primary, httpOptions), http(defaultUrl, httpOptions)];
   return createPublicClient({
     chain: { ...chain, rpcUrls: { default: { http: [primary] } } },
-    transport: fallback(transports),
+    transport: fallback(transports, { retryCount: 1 }),
   });
 }
 
@@ -156,12 +159,20 @@ export function clientFor(clients: ChainClients, chainId: number): PublicClient 
   throw new Error(`No RPC client configured for chain ${chainId}`);
 }
 
-/** True when the chain answers a `blockNumber` read. */
+/** True when the chain answers a `blockNumber` read within 4 seconds. */
 export async function ping(client: PublicClient): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await client.getBlockNumber();
+    await Promise.race([
+      client.getBlockNumber({ cacheTime: 0 }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('RPC ping timed out')), 4_000);
+      }),
+    ]);
     return true;
   } catch {
     return false;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }

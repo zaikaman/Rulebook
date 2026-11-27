@@ -119,6 +119,8 @@ jobs:
       - name: Verify generated artifacts
         # Same script `npm run verify` runs locally, so both check the committed ABI module.
         run: node scripts/generate-check.mjs
+      - name: Verify deployment records
+        run: node scripts/deploy-workflows-v2.mjs --check --offline --allow-contract-drift
       - name: Build shared package
         run: npm run build -w packages/shared
       - uses: foundry-rs/foundry-toolchain@v1

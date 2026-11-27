@@ -30,6 +30,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { formatEther, zeroHash, type Hex } from 'viem';
 
 import { ErrorState } from '@/components/ErrorState';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
@@ -63,7 +64,7 @@ function proofGuideFor(automationName: string) {
 }
 
 export function WorkflowProofLookup() {
-  const { mode, automationName } = useNetworkMode();
+  const { mode, automationName, isMainnet, isDeploymentConfigured } = useNetworkMode();
   const inputId = useId();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
@@ -78,6 +79,10 @@ export function WorkflowProofLookup() {
         title="Workflow proof"
         description={`Look up a run to verify its origin, the ${decisionLabel}, and settlement.`}
       />
+
+      {isMainnet && !isDeploymentConfigured && (
+        <MainnetUnavailableCallout context="Workflow proof" />
+      )}
 
       <div className="rb-proof-lookup">
         <form
@@ -181,12 +186,13 @@ export function WorkflowProofLookup() {
 }
 
 export function WorkflowProof() {
-  const { mode } = useNetworkMode();
+  const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
+  const unavailableMainnet = isMainnet && !isDeploymentConfigured;
   const proof = useQuery({
     queryKey: ['workflow-v2', 'run-proof', mode, id.data],
-    enabled: id.success,
+    enabled: id.success && !unavailableMainnet,
     queryFn: async ({ signal }) => {
       const response = await fetch(`${v2ApiBase}/v3/runs/${id.data}?network=${mode}`, { signal });
       if (response.status === 404) return null;
@@ -194,6 +200,7 @@ export function WorkflowProof() {
       return workflowV2RunProofSchema.parse(await response.json());
     },
     refetchInterval: ({ state: { data } }) => {
+      if (unavailableMainnet) return false;
       if (data === null) return 30_000;
       if (data?.status === 'pending' || data?.status === 'in grace period') return 12_000;
       // The indexer can still reconcile a delayed settlement after the run window ends.
@@ -211,7 +218,7 @@ export function WorkflowProof() {
     <section className="app-page">
       <PageHeading
         title="Workflow run proof"
-        description="Chain records indexed from the configured Workflow V2 deployment."
+        description="Chain records indexed from the configured Rulebook deployment."
         aside={
           <div className="rb-action-row">
             {proof.data && proof.data.status !== 'confirmed' && (
@@ -232,7 +239,9 @@ export function WorkflowProof() {
         }
       />
 
-      {!id.success ? (
+      {unavailableMainnet ? (
+        <MainnetUnavailableCallout context="Workflow proof" />
+      ) : !id.success ? (
         <ErrorState message="This run ID is invalid.">
           <Link to={withNetworkQuery(appRoutes.proof, mode)} className="app-link">
             Find a run by ID
@@ -329,7 +338,11 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
             <div>
               <dt>Origin network</dt>
               <dd>
-                <NetworkBadge chainId={run.originChain} />
+                {run.originChain > 0 ? (
+                  <NetworkBadge chainId={run.originChain} />
+                ) : (
+                  'Internal schedule'
+                )}
               </dd>
             </div>
             <div>

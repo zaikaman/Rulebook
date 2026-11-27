@@ -11,6 +11,7 @@ import { Link } from 'react-router';
 
 import { useNetworkMode, withNetworkQuery } from '../lib/networkMode.js';
 import { appRoutes } from '../lib/routes.js';
+import { NetworkModeSwitch } from './chrome/NetworkModeSwitch.js';
 import { WalletControl } from './chrome/WalletControl.js';
 import { Wordmark } from './chrome/Wordmark.js';
 import '../styles/onboarding.css';
@@ -66,11 +67,10 @@ export function AccountSetupFrame({
         >
           <Wordmark />
         </Link>
-        {connected && (
-          <div className="account-setup__session">
-            <WalletControl />
-          </div>
-        )}
+        <div className="account-setup__session">
+          <NetworkModeSwitch />
+          {connected && <WalletControl />}
+        </div>
       </header>
 
       <div
@@ -196,7 +196,7 @@ export function AccountSetupFrame({
         <div className="account-setup__links">
           <Link to={withNetworkQuery(appRoutes.workflows, mode)} className="account-setup__exit">
             <HugeiconsIcon icon={ArrowLeft01Icon} size={15} aria-hidden="true" />
-            {workflow ? 'Back to workflows' : 'Back to rules'}
+            {workflow ? 'Back to workflows' : 'Back to workflows'}
           </Link>
           {manageAccount && (
             <Link className="account-setup__exit" to={withNetworkQuery(manageAccountHref, mode)}>

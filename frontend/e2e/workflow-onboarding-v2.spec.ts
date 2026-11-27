@@ -52,7 +52,7 @@ test('guides a new wallet from the landing page through V2 setup and funding', a
   try {
     await page.getByRole('button', { name: 'Connect wallet to start' }).click();
     await expect(page.getByRole('heading', { name: 'Get test tokens' })).toBeFocused();
-    await expect(page.getByRole('link', { name: 'Get Lasna REACT' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Get Lasna lREACT' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Get Unichain Sepolia ETH' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create my account' })).toHaveCount(0);
     expect(await walletRequests(page)).toEqual([]);

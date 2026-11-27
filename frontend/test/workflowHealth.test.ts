@@ -266,9 +266,23 @@ describe('workflow health', () => {
       label: 'Inactivity payout in grace period',
       tone: 'info',
       fix: 'run',
-      attention: false,
+      attention: true,
     });
     expect(health.summary).toContain('24 hours');
+  });
+
+  it('clears the grace period immediately once eligibleAt resets to 0 via checkIn()', () => {
+    expect(
+      deriveWorkflowHealth(
+        input({
+          eligibleAt: 0n,
+          lastRun: { status: 'in grace period', reason: null, reasonCode: null, recovery: null },
+        }),
+      ),
+    ).toMatchObject({
+      code: 'watching',
+      attention: false,
+    });
   });
 
   it('keeps a failed run actionable with its recovery target', () => {

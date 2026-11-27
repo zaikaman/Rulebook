@@ -6,10 +6,10 @@ Bookkeeper is the read-only account assistant inside the workspace. It answers q
 
 1. The user opens Bookkeeper from the workspace header, the mobile bar, or the focused-layout launcher.
 2. The backend creates a five-minute challenge. The user signs the Bookkeeper message with the connected wallet. The signature costs no gas and authorizes no transaction.
-3. The backend verifies the signature against the wallet and the configured frontend origin, then returns a session token with no expiry. The token is held in memory for the page lifetime, so reloading the page asks for a new signature.
+3. The backend verifies the signature against the wallet and the configured frontend origin, then returns a session token valid for 7 days (unless revoked earlier via `DELETE /v2/assistant/session`). The token is held in memory for the page lifetime, so reloading the page asks for a new signature.
 4. The token is scoped to one wallet. The model never receives a wallet address from the request body; the backend reads it from the session.
 
-Every chat request is serialized per wallet. The daily limit is 80 user messages per wallet and 3,000 globally, with a 12 requests-per-minute route limit. Expired signing challenges are removed every minute; verified sessions do not expire. Conversations and messages are deleted 30 days after their last activity.
+Every chat request is serialized per wallet. The daily limit is 80 user messages per wallet and 3,000 globally, with a 12 requests-per-minute route limit. Expired signing challenges and expired sessions are cleaned up in the background. Conversations and messages are deleted 30 days after their last activity.
 
 ## Context discipline
 
@@ -25,15 +25,15 @@ It receives no account data up front. It calls a tool only when the question nee
 
 Every tool is read-only and scoped to the session owner. The model cannot widen the wallet scope by passing an address.
 
-| Tool                   | Reads                                                                                                           | Source                                               |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `get_account_overview` | Agent and Vault addresses, Vault and wallet token balances, watching credit, execution credit, refill allowance | Lasna and Unichain RPC                               |
-| `list_workflows`       | Up to six saved workflows with status, trigger, readable paths, per-run caps, weekly budget, expiry             | Agent and Vault contracts                            |
-| `get_workflow`         | One workflow by id                                                                                              | Agent and Vault contracts                            |
-| `list_runs`            | Newest indexed runs, optionally filtered by workflow or status                                                  | `workflow_v2_activity`                               |
-| `get_run`              | One indexed run and its origin, Lasna, and settlement transactions                                              | `workflow_v2_activity`                               |
-| `search_marketplace`   | Public listing titles and descriptions                                                                          | `workflow_v2_market_listings`                        |
-| `get_notifications`    | Telegram connection, default mode, per-workflow preferences                                                     | `telegram_accounts`, `telegram_workflow_preferences` |
+| Tool                   | Reads                                                                                                                      | Source                                               |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `get_account_overview` | Agent and Vault addresses, Vault and wallet token balances, watching credit, execution credit, debt, refill allowance      | Lasna, Unichain, and Base RPC                        |
+| `list_workflows`       | Up to six saved workflows balanced across chains with status, trigger, readable paths, per-run caps, weekly budget, expiry | Agent and Vault contracts                            |
+| `get_workflow`         | One workflow by id                                                                                                         | Agent and Vault contracts                            |
+| `list_runs`            | Newest indexed runs, optionally filtered by workflow or status                                                             | `workflow_v2_activity`                               |
+| `get_run`              | One indexed run and its origin, Lasna, and settlement transactions                                                         | `workflow_v2_activity`                               |
+| `search_marketplace`   | Public listing titles and descriptions                                                                                     | `workflow_v2_market_listings`                        |
+| `get_notifications`    | Telegram connection, default mode, per-workflow preferences                                                                | `telegram_accounts`, `telegram_workflow_preferences` |
 
 The provider may call at most eight tools across at most four model rounds. The final round is sent without tools so the model always gets a chance to explain what it found. A tool failure is returned to the model as an error object and shown as a failed trace row.
 
@@ -41,13 +41,13 @@ The provider may call at most eight tools across at most four model rounds. The 
 
 Bookkeeper uses the existing `GEMINI_MODEL`, `GEMINI_BASE_URL`, and `GEMINI_API_KEY` values. Set all three, plus `WORKFLOW_V2_DEPLOYMENT`. The assistant is unavailable, not broken, when either is missing.
 
-Apply the assistant migrations (`0021_assistant.sql` and `0022_assistant_persistent_sessions.sql`) with the normal migration command:
+Apply the assistant migrations (`0021_assistant.sql`, `0022_assistant_persistent_sessions.sql`, and `0029_reliability_and_security_hardening.sql`) with the normal migration command:
 
 ```bash
 npm run migrate -w backend
 ```
 
-The migrations create the session, conversation, and message tables, the admission and finish functions, and the cleanup function. Only unsigned challenges expire; a verified session stays valid until the client discards its in-memory token. The migrations revoke all table and function access from `anon` and `authenticated` and grant the backend service role only.
+The migrations create the session, conversation, and message tables, the admission, rollback, revocation, and finish functions, and cleanup helpers. Verified sessions expire after 7 days unless revoked earlier via `DELETE /v2/assistant/session` (reloading the page or switching wallets discards only the in-memory browser token). The migrations revoke all table and function access from `anon` and `authenticated` and grant the backend service role only.
 
 ## Privacy and limits
 

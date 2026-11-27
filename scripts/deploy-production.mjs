@@ -57,6 +57,17 @@ function httpsUrl(name, raw) {
   if (url.protocol !== 'https:' || url.username || url.password) {
     throw new Error(name + ' must be a public HTTPS URL without embedded credentials.');
   }
+  if (url.search || url.hash) {
+    throw new Error(name + ' must be a public HTTPS URL without query parameters or fragments.');
+  }
+  if (
+    /^\/(?:v\d+|apikey|key)\/[A-Za-z0-9_-]+/i.test(url.pathname) ||
+    /\/[A-Za-z0-9_-]{16,}\/?$/.test(url.pathname)
+  ) {
+    throw new Error(
+      name + ' must be a public HTTPS URL without path API keys (VITE_* variables are public).',
+    );
+  }
   return url.toString();
 }
 

@@ -1196,3 +1196,104 @@ it('honors Telegram rate limits and classifies forbidden chats', async () => {
     }),
   ).resolves.toEqual({ result: 'retry', delay: 60 });
 });
+
+it('reads alert programs without historical blockNumber, includes ?chain= in workflow links, and isolates chain errors', async () => {
+  const program = createWorkflowV2Recipe('price-alert', {
+    targetPrice: '1500',
+    direction: 'rising',
+  });
+  const calls: Array<{ functionName: string; blockNumber?: bigint }> = [];
+  const baseVault = '0x6666666666666666666666666666666666666666' as const;
+  const runA = `0x${'1'.repeat(64)}` as const;
+  const wfA = `0x${'2'.repeat(64)}` as const;
+  const txA = `0x${'3'.repeat(64)}` as const;
+  const delivered: Array<{ message: string | null }> = [];
+  const mockDb = {
+    async rpc<T>(name: string, params: Record<string, unknown>, schema: z.ZodType<T>): Promise<T> {
+      if (name === 'telegram_workflow_candidates') {
+        if (params.p_chain === UNICHAIN_SEPOLIA_CHAIN_ID) {
+          throw new Error('Unichain DB timeout');
+        }
+        return schema.parse([
+          {
+            transaction_hash: txA,
+            log_index: 0,
+            block_number: 10,
+            vault: baseVault,
+            run_id: runA,
+            workflow_id: wfA,
+            program_hash: programHash,
+            origin_chain: BASE_SEPOLIA_CHAIN_ID,
+            origin_transaction: txA,
+            origin_log_index: '0',
+            epoch: '1',
+            status: 4,
+            reason: toFunctionSelector('CapExceeded()'),
+            title: 'Base send',
+            eligible: true,
+          },
+        ]);
+      }
+      if (name === 'telegram_complete_workflow') {
+        delivered.push({ message: (params.p_message as string | null) ?? null });
+      }
+      return schema.parse(null);
+    },
+  };
+  const baseClient = {
+    getTransactionReceipt: async () => ({ blockNumber: 10n, logs: [] }),
+    readContract: async ({
+      functionName,
+      blockNumber,
+    }: {
+      functionName: string;
+      blockNumber?: bigint;
+    }) => {
+      calls.push({ functionName, blockNumber });
+      return encodeWorkflowV2(program);
+    },
+  } as unknown as PublicClient;
+
+  const alerts = new WorkflowTelegramAlerts(
+    mockDb,
+    { lasna: baseClient, unichain: baseClient, base: baseClient },
+    deployment,
+    telegramConfig.appOrigin,
+    [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+  );
+  await expect(alerts.process()).rejects.toThrow('Some workflow Telegram alerts were deferred');
+  expect(delivered).toHaveLength(1);
+  expect(delivered[0]?.message).toContain(
+    `${telegramConfig.appOrigin}/workflows/${wfA}?chain=${BASE_SEPOLIA_CHAIN_ID}`,
+  );
+
+  const observed = await (
+    alerts as unknown as {
+      observedValue: (
+        chain: number,
+        row: {
+          vault: Address;
+          program_hash: `0x${string}`;
+          block_number: number;
+          origin_chain: number;
+          origin_transaction: `0x${string}`;
+          origin_log_index: string;
+        },
+        value: bigint,
+      ) => Promise<string>;
+    }
+  ).observedValue(
+    BASE_SEPOLIA_CHAIN_ID,
+    {
+      vault: baseVault,
+      program_hash: programHash,
+      block_number: 10,
+      origin_chain: BASE_SEPOLIA_CHAIN_ID,
+      origin_transaction: txA,
+      origin_log_index: '0',
+    },
+    1500n * 10n ** 18n,
+  );
+  expect(observed).toContain('1500 USDC per WETH');
+  expect(calls).toEqual([{ functionName: 'programs', blockNumber: undefined }]);
+});

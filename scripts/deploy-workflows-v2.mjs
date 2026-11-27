@@ -152,20 +152,23 @@ function forge(args, extraEnv = undefined) {
   });
 }
 
-function deploymentValue(record) {
-  const automationChain = CHAINS[AUTOMATION_KEY];
+function deploymentValue(
+  record,
+  { chains = CHAINS, automationKey = AUTOMATION_KEY, recordPath = RECORD_PATH } = {},
+) {
+  const automationChain = chains[automationKey];
   const automation = record.find(
     (entry) => entry.contract === automationChain.contract && entry.chainId === automationChain.id,
   );
   const unichain = record.find(
-    (entry) => entry.contract === CHAINS.unichain.contract && entry.chainId === CHAINS.unichain.id,
+    (entry) => entry.contract === chains.unichain.contract && entry.chainId === chains.unichain.id,
   );
   const base = record.find(
-    (entry) => entry.contract === CHAINS.base.contract && entry.chainId === CHAINS.base.id,
+    (entry) => entry.contract === chains.base.contract && entry.chainId === chains.base.id,
   );
-  if (!automation || !unichain) fail(`${RECORD_PATH} is missing the factory pair.`);
+  if (!automation || !unichain) fail(`${recordPath} is missing the factory pair.`);
   return JSON.stringify({
-    [AUTOMATION_KEY]: { factory: automation.address, startBlock: automation.blockNumber },
+    [automationKey]: { factory: automation.address, startBlock: automation.blockNumber },
     unichain: { factory: unichain.address, startBlock: unichain.blockNumber },
     ...(base ? { base: { factory: base.address, startBlock: base.blockNumber } } : {}),
   });
@@ -421,15 +424,31 @@ function expectedCreationInputHash(chain, artifact) {
   return keccak256(bytecode);
 }
 
-async function verify() {
-  const record = JSON.parse(readFileSync(RECORD_PATH, 'utf8'));
-  const expected = deploymentValue(record);
+export async function verifyDeploymentRecord({
+  recordPath = RECORD_PATH,
+  rootDir = ROOT,
+  contractsDir = CONTRACTS,
+  offline = false,
+  allowContractDrift = false,
+  requireBase = false,
+  isMainnet = IS_MAINNET,
+  chains = CHAINS,
+  automationKey = AUTOMATION_KEY,
+  backendEnvKey = BACKEND_ENV_KEY,
+  frontendEnvKey = FRONTEND_ENV_KEY,
+  warn = (message) => console.warn(message),
+  readCode,
+  readHeroku,
+} = {}) {
+  const record = JSON.parse(readFileSync(recordPath, 'utf8'));
+  if (!Array.isArray(record)) fail(`${recordPath} must be a JSON array.`);
+  const expected = deploymentValue(record, { chains, automationKey, recordPath });
   const problems = [];
-  const requireBase = process.argv.includes('--base');
-  for (const chain of [CHAINS[AUTOMATION_KEY], CHAINS.unichain, CHAINS.base]) {
+  const warnings = [];
+  for (const chain of [chains[automationKey], chains.unichain, chains.base]) {
     const item = record.find((row) => row.contract === chain.contract && row.chainId === chain.id);
     if (!item) {
-      if (chain !== CHAINS.base || requireBase) {
+      if (chain !== chains.base || requireBase) {
         problems.push(`missing ${chain.contract} record for ${chain.name}`);
       }
       continue;
@@ -443,7 +462,12 @@ async function verify() {
         `${chain.contract} on ${chain.name} must record a clean 40-character commit (source: "commit", dirty: false)`,
       );
     }
-    const artifactPath = join(CONTRACTS, 'out', `${chain.contract}.sol`, `${chain.contract}.json`);
+    const artifactPath = join(
+      contractsDir,
+      'out',
+      `${chain.contract}.sol`,
+      `${chain.contract}.json`,
+    );
     if (existsSync(artifactPath) && item.creationInputHash) {
       const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
       const compiledCreationHash = expectedCreationInputHash(chain, artifact);
@@ -451,26 +475,30 @@ async function verify() {
         compiledCreationHash &&
         compiledCreationHash.toLowerCase() !== item.creationInputHash.toLowerCase()
       ) {
+        const message = `${chain.contract} on ${chain.name} creationInputHash (${item.creationInputHash}) does not match compiled artifact (${compiledCreationHash})`;
+        if (allowContractDrift) warnings.push(message);
+        else problems.push(message);
+      }
+    }
+    if (!offline) {
+      const code = readCode
+        ? await readCode(chain, item.address)
+        : await client(rpcUrl(chain)).getCode({ address: item.address });
+      if (!code || code === '0x') {
+        problems.push(`${chain.contract} on ${chain.name} has no code at ${item.address}`);
+      } else if (
+        item.runtimeCodeHash &&
+        keccak256(code).toLowerCase() !== item.runtimeCodeHash.toLowerCase()
+      ) {
         problems.push(
-          `${chain.contract} on ${chain.name} creationInputHash (${item.creationInputHash}) does not match compiled artifact (${compiledCreationHash})`,
+          `${chain.contract} on ${chain.name} on-chain runtimeCodeHash does not match the record`,
         );
       }
     }
-    const code = await client(rpcUrl(chain)).getCode({ address: item.address });
-    if (!code || code === '0x') {
-      problems.push(`${chain.contract} on ${chain.name} has no code at ${item.address}`);
-    } else if (
-      item.runtimeCodeHash &&
-      keccak256(code).toLowerCase() !== item.runtimeCodeHash.toLowerCase()
-    ) {
-      problems.push(
-        `${chain.contract} on ${chain.name} on-chain runtimeCodeHash does not match the record`,
-      );
-    }
   }
   for (const [file, key] of [
-    [join(ROOT, 'backend', '.env'), BACKEND_ENV_KEY],
-    [join(ROOT, 'frontend', '.env.local'), FRONTEND_ENV_KEY],
+    [join(rootDir, 'backend', '.env'), backendEnvKey],
+    [join(rootDir, 'frontend', '.env.local'), frontendEnvKey],
   ]) {
     if (!existsSync(file)) continue;
     const value = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1];
@@ -478,8 +506,8 @@ async function verify() {
       problems.push(`${key} in ${file} does not match the record`);
     }
   }
-  if (IS_MAINNET) {
-    const testnetRecordPath = join(ROOT, 'deployments', 'workflows-v2.json');
+  if (isMainnet) {
+    const testnetRecordPath = join(rootDir, 'deployments', 'workflows-v2.json');
     if (existsSync(testnetRecordPath)) {
       const testnetRecord = JSON.parse(readFileSync(testnetRecordPath, 'utf8'));
       const testnetFactory = testnetRecord.find(
@@ -499,15 +527,30 @@ async function verify() {
       }
     }
   }
-  const herokuState = await heroku();
+  const herokuState = offline
+    ? { app: undefined, config: {} }
+    : await (readHeroku ? readHeroku() : heroku());
   if (herokuState.app) {
-    if (herokuState.config[BACKEND_ENV_KEY]?.toLowerCase() !== expected.toLowerCase()) {
-      problems.push(`Heroku ${BACKEND_ENV_KEY} on ${herokuState.app} does not match the record`);
+    if (herokuState.config[backendEnvKey]?.toLowerCase() !== expected.toLowerCase()) {
+      problems.push(`Heroku ${backendEnvKey} on ${herokuState.app} does not match the record`);
     }
   }
   if (problems.length) fail(problems.join('\n'));
+  for (const warning of warnings) {
+    warn(`WARN: ${warning}`);
+  }
+  return { expected, warnings, herokuApp: herokuState.app };
+}
+
+async function verify() {
+  const offline = process.argv.includes('--offline');
+  const result = await verifyDeploymentRecord({
+    offline,
+    allowContractDrift: process.argv.includes('--allow-contract-drift'),
+    requireBase: process.argv.includes('--base'),
+  });
   console.log(
-    `Record is consistent with the local environment${herokuState.app ? ` and ${herokuState.app}` : ''}.`,
+    `Record is consistent with the local environment${offline ? ' (offline check)' : ''}${result.herokuApp ? ` and ${result.herokuApp}` : ''}.`,
   );
 }
 

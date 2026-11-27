@@ -5,7 +5,7 @@ deployers, source commits, and explorer links. For each deployment-script run, t
 identifies the source that reproduces the creation bytecode with the pinned compiler and
 libraries. Records come from successful Foundry broadcast receipts.
 
-Reactive's Lasna system contract and Unichain Sepolia callback proxy are network services.
+Reactive's Lasna system contract and the Unichain Sepolia / Base Sepolia callback proxies are network services.
 Their entries identify the network and explorer, and the provider maintains their source and
 deployment history.
 

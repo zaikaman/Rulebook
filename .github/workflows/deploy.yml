@@ -76,6 +76,11 @@ jobs:
           npm ci --prefer-offline --no-audit --no-fund
           npm run build -w packages/shared
           npm install --global vercel@53.2.0 --prefer-offline --no-audit --no-fund
+      - name: Verify deployment records
+        if: steps.revision.outputs.current == 'true'
+        env:
+          HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+        run: node scripts/deploy-workflows-v2.mjs --check
       - name: Pull Vercel project settings and build
         if: steps.revision.outputs.current == 'true'
         env:

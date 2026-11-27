@@ -2,10 +2,10 @@ import { BASE_CONFIG, LASNA_CONFIG, UNICHAIN_CONFIG } from './contracts.js';
 
 export const testnetTokens = {
   react: {
-    symbol: 'REACT',
+    symbol: 'lREACT',
     network: LASNA_CONFIG,
     faucet: 'https://dev.reactive.network/reactive-mainnet#get-testnet-react',
-    linkLabel: 'Get Lasna REACT',
+    linkLabel: 'Get Lasna lREACT',
     instructions: 'Start with test ETH on Ethereum Sepolia or Base Sepolia.',
   },
   eth: {

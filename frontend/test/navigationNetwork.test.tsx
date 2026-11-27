@@ -145,4 +145,21 @@ describe('Mainnet navigation query preservation & single-chain recipe picker', (
     }
     expect(container.textContent).not.toContain('Unichain Sepolia');
   });
+
+  it('hides the AppTopbar live green dot when Mainnet has no deployment configured', () => {
+    mockUseNetworkMode.mockReturnValue({
+      ...buildNetworkModeState('mainnet'),
+      configuredFundsChains: [UNICHAIN_MAINNET_CHAIN_ID],
+      isDeploymentConfigured: false,
+      setMode: vi.fn(),
+    });
+
+    const { container } = render(
+      <MemoryRouter initialEntries={['/workflows?network=mainnet']}>
+        <AppTopbar />
+      </MemoryRouter>,
+    );
+
+    expect(container.querySelector('.app-live-dot')).toBeNull();
+  });
 });

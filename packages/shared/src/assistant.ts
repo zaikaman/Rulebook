@@ -28,7 +28,10 @@ export const assistantConversationIdSchema = z.string().uuid();
  */
 export const assistantPageSchema = z
   .object({
-    path: z.string().trim().min(1).max(240),
+    path: z
+      .string()
+      .trim()
+      .regex(/^\/[A-Za-z0-9/_-]{0,200}$/, 'Invalid page path'),
     workflowId: workflowIdSchema.optional(),
   })
   .strict();

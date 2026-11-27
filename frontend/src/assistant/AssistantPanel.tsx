@@ -60,7 +60,7 @@ export function suggestionsFor(pathname: string | undefined) {
     return ['Why did my last run fail?', 'Which runs are still pending?', 'Show my last five runs'];
   if (pathname?.startsWith('/marketplace'))
     return ['What workflows can I copy right now?', 'Find a workflow for a recurring transfer'];
-  if (/^\/workflows\/[^/]+/.test(pathname ?? ''))
+  if (/^\/workflows\/0x[0-9a-fA-F]{64}(?:\/|$)/.test(pathname ?? ''))
     return [
       'What does this workflow do?',
       'When did it last run?',
@@ -94,9 +94,11 @@ export function AssistantPanel({
   const titleId = useId();
   const scrollRef = useRef<HTMLDivElement>(null);
   const operation = useRef<AbortController>(undefined);
+  const verifyOperation = useRef<AbortController>(undefined);
   const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
   const prevModeRef = useRef(mode);
   const { address, connector } = useAccount();
+  const prevAddressRef = useRef(address);
   const { signMessageAsync } = useSignMessage();
   const availability = useQuery({
     queryKey: ['assistant-availability', mode],
@@ -120,19 +122,30 @@ export function AssistantPanel({
       : undefined;
 
   useEffect(() => {
-    if (session && address && session.owner !== address) {
-      setSession(undefined);
-      setMessages([]);
-      setConversationId(undefined);
-    }
-  }, [address, session]);
+    if (prevAddressRef.current === address) return;
+    prevAddressRef.current = address;
+    operation.current?.abort();
+    operation.current = undefined;
+    verifyOperation.current?.abort();
+    verifyOperation.current = undefined;
+    setSession(undefined);
+    setVerifying(false);
+    setMessages([]);
+    setConversationId(undefined);
+    setStreaming(false);
+    setStatus(undefined);
+    setError(undefined);
+  }, [address]);
 
   useEffect(() => {
     if (prevModeRef.current === mode) return;
     prevModeRef.current = mode;
     operation.current?.abort();
     operation.current = undefined;
+    verifyOperation.current?.abort();
+    verifyOperation.current = undefined;
     setSession(undefined);
+    setVerifying(false);
     setMessages([]);
     setConversationId(undefined);
     setStreaming(false);
@@ -140,7 +153,13 @@ export function AssistantPanel({
     setError(undefined);
   }, [mode]);
 
-  useEffect(() => () => operation.current?.abort(), []);
+  useEffect(
+    () => () => {
+      operation.current?.abort();
+      verifyOperation.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -153,10 +172,13 @@ export function AssistantPanel({
       setError('Reconnect your wallet, then try again.');
       return;
     }
+    const controller = new AbortController();
+    verifyOperation.current?.abort();
+    verifyOperation.current = controller;
     setVerifying(true);
     setError(undefined);
     try {
-      const challenge = await api.assistantChallenge(address, new AbortController().signal, mode);
+      const challenge = await api.assistantChallenge(address, controller.signal, mode);
       if (
         challenge.origin !== window.location.origin ||
         challenge.owner !== address.toLowerCase() ||
@@ -168,15 +190,14 @@ export function AssistantPanel({
         account: address,
         message: assistantSignIn(challenge),
       });
-      const response = await api.assistantSession(
-        challenge.nonce,
-        signature,
-        new AbortController().signal,
-      );
+      if (controller.signal.aborted) return;
+      const response = await api.assistantSession(challenge.nonce, signature, controller.signal);
+      if (controller.signal.aborted) return;
       setSession({ owner: address, network: mode, ...response });
       setMessages([]);
       setConversationId(undefined);
     } catch (cause) {
+      if (controller.signal.aborted) return;
       setError(
         isWalletRejection(cause)
           ? 'Wallet verification declined. Try again when you are ready.'
@@ -185,7 +206,10 @@ export function AssistantPanel({
             : 'Wallet verification failed. Try again.',
       );
     } finally {
-      setVerifying(false);
+      if (verifyOperation.current === controller) {
+        verifyOperation.current = undefined;
+        setVerifying(false);
+      }
     }
   }
 

@@ -44,7 +44,7 @@ Use a funded workflow on the new factories and record every receipt:
 
 ## Rollback
 
-Because an Agent cannot link a second Vault, rollback is a release-process action: restore the previous `WORKFLOW_V2_DEPLOYMENT` on both the frontend and backend, restore the matching record in `deployments/workflows-v2.json`, and redeploy the matching frontend. Do not delete indexed rows from the new deployment.
+Because an Agent can link only one immutable Vault per settlement chain, rollback is a release-process action: restore the previous `WORKFLOW_V2_DEPLOYMENT` on both the frontend and backend, restore the matching record in `deployments/workflows-v2.json`, and redeploy the matching frontend. Do not delete indexed rows from the new deployment.
 
 ## Release gate
 

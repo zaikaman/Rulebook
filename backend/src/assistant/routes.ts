@@ -113,6 +113,21 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
     },
   );
 
+  app.delete(
+    `${base}/session`,
+    {
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    async (request, reply) => {
+      const route = context(request, reply);
+      if (!route) return reply;
+      const token = bearer(request);
+      if (!token) return unauthorized(reply);
+      const revoked = await route.service.revoke(token, route.origin);
+      return revoked ? { revoked: true } : unauthorized(reply);
+    },
+  );
+
   app.post(
     `${base}/chat`,
     {
@@ -234,10 +249,15 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
                 ? error.message
                 : 'Bookkeeper could not answer that. Try again shortly.',
           });
-          if (text.trim())
-            await route.service
-              .finish(admission.conversation, admission.owner, text, trace)
-              .catch(() => undefined);
+        }
+        if (text.trim()) {
+          await route.service
+            .finish(admission.conversation, admission.owner, text, trace)
+            .catch(() => undefined);
+        } else if (admission.message_id !== undefined) {
+          await route.service
+            .rollback(admission.conversation, admission.owner, admission.message_id)
+            .catch(() => undefined);
         }
       } finally {
         if (!raw.writableEnded && !raw.destroyed) raw.end();
