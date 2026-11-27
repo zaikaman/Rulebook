@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Outlet, Route, Routes, useSearchParams } from 
 import { AppShell } from '../components/AppShell.js';
 import { LoadingRegion, PanelSkeleton } from '../components/chrome/Skeleton.js';
 import { OfflineState } from '../components/OfflineState.js';
+import { DemoModeQuerySync } from '../lib/demoMode.js';
 import {
   buildNetworkModeState,
   getUrlNetworkMode,
@@ -148,6 +149,7 @@ export function AppRouter() {
   return (
     <BrowserRouter>
       <NetworkModeQuerySync />
+      <DemoModeQuerySync />
       <ErrorBoundary>
         <Routes>
           <Route

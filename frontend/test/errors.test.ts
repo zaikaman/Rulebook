@@ -45,7 +45,8 @@ it('has a human message for every Solidity custom error in Errors.sol and V2 con
     '../../contracts/src/workflow/v2/WorkflowProtocolsV2.sol',
     '../../contracts/src/workflow/v2/WorkflowVaultFactoryV2.sol',
     '../../contracts/src/workflow/v2/WorkflowAgentFactoryV2.sol',
-    '../../contracts/src/workflow/v2/WorkflowAgentV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowAgentStorageV2.sol',
+    '../../contracts/src/workflow/v2/WorkflowProgramValidatorV2.sol',
   ];
   for (const file of files) {
     const source = readFileSync(new URL(file, import.meta.url), 'utf8');

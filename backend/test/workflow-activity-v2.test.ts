@@ -209,28 +209,37 @@ it('queries and exposes public proofs for Base Sepolia settlement and cross-chai
 
 it('filters /v3/marketplace and /v3/marketplace/:id by network chains and namespaced deployment even when factories match', async () => {
   const sharedFactory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-  const requests: URL[] = [];
+  const rpcCalls: Array<{ fn: string; body: Record<string, unknown> }> = [];
   const db = createClient('https://database.example', 'fixture-key', {
     global: {
-      fetch: async (input) => {
+      fetch: async (input, init) => {
         const url = new URL(String(input));
-        requests.push(url);
-        if (url.searchParams.get('id') === 'eq.1') {
-          return Response.json({
-            id: '1',
-            owner: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-            agent: '0xcccccccccccccccccccccccccccccccccccccccc',
-            workflow_id: `0x${'2'.repeat(64)}`,
-            program_hash: `0x${'3'.repeat(64)}`,
-            program: '0x01',
-            chain: url.searchParams.get('deployment')?.includes(String(REACTIVE_MAINNET_CHAIN_ID))
-              ? UNICHAIN_MAINNET_CHAIN_ID
-              : UNICHAIN_SEPOLIA_CHAIN_ID,
-            title: 'Listing',
-            description: 'Details',
-            block_number: 10,
-            log_index: 0,
-          });
+        const fn = url.pathname.split('/').pop() ?? '';
+        const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {};
+        rpcCalls.push({ fn, body });
+        if (fn === 'workflow_v2_marketplace_listing' && body.p_id === '1') {
+          const isMainnet = String(body.p_deployment ?? '').includes(
+            String(REACTIVE_MAINNET_CHAIN_ID),
+          );
+          const chain = isMainnet ? UNICHAIN_MAINNET_CHAIN_ID : UNICHAIN_SEPOLIA_CHAIN_ID;
+          return Response.json([
+            {
+              id: '1',
+              owner: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+              agent: '0xcccccccccccccccccccccccccccccccccccccccc',
+              workflow_id: `0x${'2'.repeat(64)}`,
+              program_hash: `0x${'3'.repeat(64)}`,
+              program: '0x01',
+              chain,
+              origin_chain: chain,
+              trigger: 1,
+              title: 'Listing',
+              description: 'Details',
+              block_number: 10,
+              log_index: 0,
+              verified_runs: 4,
+            },
+          ]);
         }
         return Response.json([]);
       },
@@ -244,49 +253,119 @@ it('filters /v3/marketplace and /v3/marketplace/:id by network chains and namesp
     expect((await app.inject({ url: '/v3/marketplace/1?network=testnet' })).statusCode).toBe(200);
     expect((await app.inject({ url: '/v3/marketplace/1?network=mainnet' })).statusCode).toBe(200);
 
-    expect(requests[0]?.searchParams.get('deployment')).toBe(
-      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory)}`,
-    );
-    expect(requests[0]?.searchParams.get('chain')).toBe(
-      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
-    );
+    expect(rpcCalls[0]).toEqual({
+      fn: 'workflow_v2_marketplace_browse',
+      body: {
+        p_deployment: workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory),
+        p_chains: [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+        p_query: null,
+        p_cross_chain: null,
+        p_trigger: null,
+        p_before_block: null,
+        p_before_index: null,
+        p_limit: 25,
+      },
+    });
+    expect(rpcCalls[1]).toEqual({
+      fn: 'workflow_v2_marketplace_browse',
+      body: {
+        p_deployment: workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory),
+        p_chains: [UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID],
+        p_query: null,
+        p_cross_chain: null,
+        p_trigger: null,
+        p_before_block: null,
+        p_before_index: null,
+        p_limit: 25,
+      },
+    });
+    expect(rpcCalls[2]).toEqual({
+      fn: 'workflow_v2_marketplace_listing',
+      body: {
+        p_deployment: workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory),
+        p_id: '1',
+        p_chains: [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+      },
+    });
+    expect(rpcCalls[3]).toEqual({
+      fn: 'workflow_v2_marketplace_listing',
+      body: {
+        p_deployment: workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory),
+        p_id: '1',
+        p_chains: [UNICHAIN_MAINNET_CHAIN_ID, BASE_MAINNET_CHAIN_ID],
+      },
+    });
 
-    expect(requests[1]?.searchParams.get('deployment')).toBe(
-      `eq.${workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory)}`,
-    );
-    expect(requests[1]?.searchParams.get('chain')).toBe(
-      `in.(${UNICHAIN_MAINNET_CHAIN_ID},${BASE_MAINNET_CHAIN_ID})`,
-    );
+    // Reject chains that belong to the other network mode or invalid filter params.
+    expect(
+      (
+        await app.inject({
+          url: `/v3/marketplace?network=testnet&chain=${UNICHAIN_MAINNET_CHAIN_ID}`,
+        })
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (await app.inject({ url: '/v3/marketplace?network=testnet&trigger=bogus' })).statusCode,
+    ).toBe(400);
+    expect(
+      (await app.inject({ url: '/v3/marketplace?network=testnet&crossChain=maybe' })).statusCode,
+    ).toBe(400);
 
-    expect(requests[2]?.searchParams.get('deployment')).toBe(
-      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory)}`,
-    );
-    expect(requests[2]?.searchParams.get('chain')).toBe(
-      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
-    );
+    const outOfRangeCursor = Buffer.from(
+      JSON.stringify({ block: 100, index: 2_147_483_648 }),
+    ).toString('base64url');
+    expect(
+      (await app.inject({ url: `/v3/marketplace?network=testnet&after=${outOfRangeCursor}` }))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (await app.inject({ url: '/v3/marketplace?network=testnet&after=not-base64-json' }))
+        .statusCode,
+    ).toBe(400);
 
-    expect(requests[3]?.searchParams.get('deployment')).toBe(
-      `eq.${workflowDeploymentKey(REACTIVE_MAINNET_CHAIN_ID, sharedFactory)}`,
-    );
-    expect(requests[3]?.searchParams.get('chain')).toBe(
-      `in.(${UNICHAIN_MAINNET_CHAIN_ID},${BASE_MAINNET_CHAIN_ID})`,
-    );
+    const validCursor = Buffer.from(JSON.stringify({ block: 99, index: 3 })).toString('base64url');
+    expect(
+      (
+        await app.inject({
+          url: `/v3/marketplace?network=testnet&crossChain=false&after=${validCursor}`,
+        })
+      ).statusCode,
+    ).toBe(200);
+    expect(rpcCalls.at(-1)).toEqual({
+      fn: 'workflow_v2_marketplace_browse',
+      body: {
+        p_deployment: workflowDeploymentKey(LASNA_CHAIN_ID, sharedFactory),
+        p_chains: [UNICHAIN_SEPOLIA_CHAIN_ID, BASE_SEPOLIA_CHAIN_ID],
+        p_query: null,
+        p_cross_chain: false,
+        p_trigger: null,
+        p_before_block: 99,
+        p_before_index: 3,
+        p_limit: 25,
+      },
+    });
   } finally {
     await app.close();
   }
 });
 
-it('enriches pending/expired runs with getCallbacks fallback, searches title and description in marketplace, returns healthSchema on /health, and sanitizes 500 errors', async () => {
+it('enriches pending/expired runs with getCallbacks fallback, forwards marketplace search and filters, returns healthSchema on /health, and sanitizes 500 errors', async () => {
   const factory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
   const agent = '0xcccccccccccccccccccccccccccccccccccccccc';
   const runId = `0x${'7'.repeat(64)}`;
   const hash = `0x${'8'.repeat(64)}`;
-  const marketRequests: URL[] = [];
+  const marketRpcBodies: Array<{ fn: string; body: Record<string, unknown> }> = [];
   const db = createClient('https://database.example', 'fixture-key', {
     global: {
-      fetch: async (input) => {
+      fetch: async (input, init) => {
         const url = new URL(String(input));
-        marketRequests.push(url);
+        if (url.pathname.includes('/rpc/')) {
+          marketRpcBodies.push({
+            fn: url.pathname.split('/').pop() ?? '',
+            body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {},
+          });
+          return Response.json([]);
+        }
         if (url.pathname.endsWith('/workflow_v2_activity')) {
           return Response.json({
             id: runId,
@@ -371,12 +450,22 @@ it('enriches pending/expired runs with getCallbacks fallback, searches title and
       reason: 'The run exceeded the approved spending limit.',
     });
 
-    await app.inject({ url: '/v3/marketplace?q=sweep' });
-    const marketUrl = marketRequests.find((u) =>
-      u.pathname.endsWith('/workflow_v2_market_listings'),
-    );
-    expect(marketUrl?.searchParams.get('or')).toContain('title.ilike');
-    expect(marketUrl?.searchParams.get('or')).toContain('description.ilike');
+    await app.inject({
+      url: `/v3/marketplace?q=${encodeURIComponent(' sweep ')}&chain=${BASE_SEPOLIA_CHAIN_ID}&crossChain=true&trigger=payment`,
+    });
+    expect(marketRpcBodies[0]).toEqual({
+      fn: 'workflow_v2_marketplace_browse',
+      body: {
+        p_deployment: workflowDeploymentKey(LASNA_CHAIN_ID, factory),
+        p_chains: [BASE_SEPOLIA_CHAIN_ID],
+        p_query: 'sweep',
+        p_cross_chain: true,
+        p_trigger: 2,
+        p_before_block: null,
+        p_before_index: null,
+        p_limit: 25,
+      },
+    });
 
     const healthRes = await app.inject({ url: '/health' });
     expect(healthRes.statusCode).toBe(200);

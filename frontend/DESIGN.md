@@ -142,6 +142,12 @@ components:
     rounded: '{rounded.button}'
     padding: '0.4375rem 0.875rem'
     height: '2.5rem'
+  preset-chip:
+    backgroundColor: '{colors.control}'
+    textColor: '{colors.ink-muted}'
+    rounded: '{rounded.preset}'
+    padding: '0.1875rem 0.25rem'
+    height: '1.75rem'
   landing-cta:
     backgroundColor: '{colors.landing-ink}'
     textColor: '{colors.landing-action-ink}'
@@ -211,6 +217,7 @@ Don't:
 - Group nav by Automation, Discover, and Manage; one primary action per heading.
 - Keep transaction identifiers readable at narrow widths.
   Map: src/ui
+  Map: src/ui/FilterGroup.tsx
   Map: src/styles/tokens.css
   Map: src/styles/assistant.css
   Full: .impeccable/design-full.md (read a section when you need its detail)

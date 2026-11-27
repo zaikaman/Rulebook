@@ -104,6 +104,7 @@ library WorkflowProgramV2 {
     uint8 internal constant FLAG_ONCE = 4;
     uint8 internal constant FLAG_SPENDS = 8;
     uint8 internal constant FLAG_USES_REFERENCE = 16;
+    uint8 internal constant FLAG_TRAILING = 32;
 
     struct AgentPlan {
         uint32 chain;
@@ -326,6 +327,8 @@ library WorkflowProgramV2 {
                 flags |= FLAG_INACTIVITY;
             } else if (check == ABOVE_REFERENCE || check == BELOW_REFERENCE) {
                 flags |= FLAG_USES_REFERENCE;
+            } else if (check == TRAILING) {
+                flags |= FLAG_TRAILING;
             }
         }
 
@@ -487,19 +490,27 @@ library WorkflowProgramV2 {
         uint8 check = node.check;
         if (check == 0) {
             if (node.actions.length == 0) return false;
-            uint256 fixedUsdc;
+            uint256 totalUsdc;
             for (uint256 i; i < node.actions.length; ++i) {
                 Action memory action = node.actions[i];
                 if (action.kind == ALERT) continue;
+                uint256 addition;
                 if (action.unit == PERCENT) {
-                    if (Math.mulDiv(observed, action.amount, BPS) == 0) return false;
+                    addition = Math.mulDiv(observed, action.amount, BPS);
+                    if (addition == 0) return false;
                 } else if (action.kind == REFILL) {
-                    fixedUsdc += 1;
+                    addition = 1;
                 } else if (action.kind != SELL) {
-                    fixedUsdc += action.amount;
+                    addition = action.amount;
                 }
+                totalUsdc = addition > type(uint256).max - totalUsdc
+                    ? type(uint256).max
+                    : totalUsdc + addition;
             }
-            if (program.trigger == PAYMENT && fixedUsdc > observed) return false;
+            if (totalUsdc > program.usdcCap || (program.trigger == PAYMENT && totalUsdc > observed))
+            {
+                return false;
+            }
             return true;
         }
         if (check == AMOUNT_AT_LEAST) {

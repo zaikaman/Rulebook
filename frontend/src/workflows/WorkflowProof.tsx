@@ -37,7 +37,9 @@ import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
+import { useDemoMode } from '@/lib/demoMode';
 import { appRoutes } from '@/lib/routes';
+import { Badge, Button, Panel, PanelBody, PanelHeader, PanelHeading } from '@/ui';
 import { workflowClient } from './chainV2';
 import { v2ApiBase } from './listingV2';
 
@@ -65,6 +67,7 @@ function proofGuideFor(automationName: string) {
 
 export function WorkflowProofLookup() {
   const { mode, automationName, isMainnet, isDeploymentConfigured } = useNetworkMode();
+  const { featuredRuns, demoAvailable, isDemoMode, connectedOwner, enterDemoMode } = useDemoMode();
   const inputId = useId();
   const navigate = useNavigate();
   const [input, setInput] = useState('');
@@ -181,6 +184,74 @@ export function WorkflowProofLookup() {
           </footer>
         </aside>
       </div>
+
+      {!isMainnet && featuredRuns.length > 0 && (
+        <Panel aria-labelledby="featured-proofs-title">
+          <PanelHeader>
+            <PanelHeading
+              title="Featured live proofs"
+              description="Real testnet executions indexed from the demo account."
+              titleId="featured-proofs-title"
+            />
+            {demoAvailable && !isDemoMode && !connectedOwner && (
+              <Button
+                onClick={() => {
+                  enterDemoMode();
+                  void navigate(withNetworkQuery(appRoutes.workflows, 'testnet'));
+                }}
+              >
+                Inspect demo account
+              </Button>
+            )}
+          </PanelHeader>
+          <PanelBody>
+            <ul className="grid gap-3">
+              {featuredRuns.map((run) => {
+                const tone =
+                  run.status === 'confirmed'
+                    ? 'active'
+                    : run.status === 'failed'
+                      ? 'danger'
+                      : run.status === 'pending' || run.status === 'in grace period'
+                        ? 'paused'
+                        : undefined;
+                return (
+                  <li
+                    key={`${run.chain}:${run.id}`}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3.5"
+                    style={{
+                      borderColor: 'var(--rb-border)',
+                      background: 'var(--rb-surface-inset)',
+                    }}
+                  >
+                    <div className="grid min-w-0 gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <strong className="text-sm font-semibold">{run.title}</strong>
+                        <NetworkBadge chainId={run.chain} />
+                        <Badge tone={tone}>{run.status}</Badge>
+                        {run.path !== null && <Badge plain>Path {run.path + 1}</Badge>}
+                      </div>
+                      <code
+                        className="truncate font-mono text-xs"
+                        style={{ color: 'var(--rb-ink-muted)' }}
+                      >
+                        {run.id}
+                      </code>
+                    </div>
+                    <Link
+                      className="app-button"
+                      to={withNetworkQuery(`${appRoutes.runs}/${run.id}`, mode)}
+                    >
+                      Open proof
+                      <HugeiconsIcon icon={ArrowRight01Icon} size={14} aria-hidden="true" />
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </PanelBody>
+        </Panel>
+      )}
     </section>
   );
 }

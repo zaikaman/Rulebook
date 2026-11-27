@@ -7,6 +7,8 @@ import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
+import {WorkflowAgentStorageV2} from "../../src/workflow/v2/WorkflowAgentStorageV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
@@ -79,7 +81,11 @@ contract WorkflowWeeklyBudgetTest is Test {
     function _deployAgent() private {
         system = new MockSystemContract();
         vm.chainId(ChainConfig.LASNA);
-        WorkflowAgentFactoryV2 factory = new WorkflowAgentFactoryV2(system);
+        WorkflowProgramValidatorV2 validator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 reactModule = new WorkflowAgentReactV2(system, validator);
+        WorkflowAgentV2 impl = new WorkflowAgentV2(system, validator, address(reactModule));
+        WorkflowAgentFactoryV2 factory =
+            new WorkflowAgentFactoryV2(system, validator, address(impl));
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(factory.create()));
         vm.prank(OWNER);
@@ -282,6 +288,7 @@ contract WorkflowWeeklyBudgetTest is Test {
 
         vm.startPrank(OWNER);
         vault.setWeeklyBudget(WORKFLOW, 2, 3, 2e6, 0);
+        vm.expectRevert(WorkflowVaultV2.InvalidAuthorization.selector);
         vault.checkIn(WORKFLOW);
         vm.stopPrank();
         _assertBudget(ExpectedBudget(2e6, 0, 0.6e6, 0, 1.4e6, 4));
@@ -598,7 +605,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertTrue(agent.watchingPaused(WORKFLOW));
 
         vm.prank(RECIPIENT);
-        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.BudgetBlocked.selector);
         agent.resumeWatching(WORKFLOW);
 
         vm.warp(MONDAY + WEEK + WEEK_SKEW + 1);
@@ -611,7 +618,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertEq(system.requestCount(), 1, "a recovered workflow dispatches again");
 
         vm.prank(RECIPIENT);
-        vm.expectRevert(WorkflowAgentV2.NotPaused.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.NotPaused.selector);
         agent.resumeWatching(WORKFLOW);
     }
 
@@ -1024,7 +1031,7 @@ contract WorkflowWeeklyBudgetTest is Test {
             encoded,
             "Budgeted payment",
             uint64(block.number),
-            WorkflowAgentV2.BudgetSeed(0.5e6, 0, 0, 0, uint64(MONDAY), 1)
+            WorkflowAgentStorageV2.BudgetSeed(0.5e6, 0, 0, 0, uint64(MONDAY), 1)
         );
         vm.stopPrank();
         usdc.mint(address(vault), 5e6);
@@ -1057,7 +1064,7 @@ contract WorkflowWeeklyBudgetTest is Test {
             spendEncoded,
             "Midweek spend",
             uint64(block.number),
-            WorkflowAgentV2.BudgetSeed(2e6, 0, 0, 0, uint64(MONDAY), 1)
+            WorkflowAgentStorageV2.BudgetSeed(2e6, 0, 0, 0, uint64(MONDAY), 1)
         );
         vm.stopPrank();
 
@@ -1088,7 +1095,7 @@ contract WorkflowWeeklyBudgetTest is Test {
             biggerEncoded,
             "Midweek spend v2",
             uint64(block.number),
-            WorkflowAgentV2.BudgetSeed(
+            WorkflowAgentStorageV2.BudgetSeed(
                 uLim, 0, uSpent, 0, resetsAt >= WEEK ? resetsAt - WEEK : 0, rev
             )
         );
@@ -1118,7 +1125,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertGt(wake2, wake1);
 
         // Before reaching wake2 and before reset, resumeWatching still reverts BudgetBlocked.
-        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.BudgetBlocked.selector);
         agent.resumeWatching(WORKFLOW);
 
         // Same re-pin behavior for parked-pending PAYMENT workflows.
@@ -1134,7 +1141,7 @@ contract WorkflowWeeklyBudgetTest is Test {
             payEncoded,
             "Pay missed",
             uint64(block.number),
-            WorkflowAgentV2.BudgetSeed(1e6, 0, 1e6, 0, uint64(MONDAY), 1)
+            WorkflowAgentStorageV2.BudgetSeed(1e6, 0, 1e6, 0, uint64(MONDAY), 1)
         );
         vm.stopPrank();
 

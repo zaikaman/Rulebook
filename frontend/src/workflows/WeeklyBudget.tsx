@@ -63,7 +63,15 @@ function readLimit(value: string, asset: 'USDC' | 'WETH') {
   }
 }
 
-export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wallet: Wallet }) {
+export function WorkflowWeeklyBudget({
+  item,
+  wallet,
+  readOnly = false,
+}: {
+  item: WorkflowItem;
+  wallet: Wallet;
+  readOnly?: boolean;
+}) {
   const [search, setSearch] = useSearchParams();
   const [editing, setEditing] = useState(false);
   const budget = useQuery({
@@ -71,7 +79,7 @@ export function WorkflowWeeklyBudget({ item, wallet }: { item: WorkflowItem; wal
     queryFn: () => readWorkflowWeeklyBudget(item.chain, item.vault, item.id),
     refetchInterval: 12_000,
   });
-  const editable = !item.closed && !item.staged && item.auth[1] > 0n;
+  const editable = !readOnly && !item.closed && !item.staged && item.auth[1] > 0n;
   const budgetRequested = search.get('budget') === '1';
   const editorOpen = editing || (budgetRequested && editable);
   function closeEditor() {

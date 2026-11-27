@@ -37,6 +37,7 @@ const otherWallet = '0x9999999999999999999999999999999999999999';
 interface Admission {
   status: 'ok' | 'unauthorized' | 'limited' | 'missing';
   owner?: string;
+  demo?: true;
   conversation?: string;
   history?: { role: string; content: string }[];
 }
@@ -149,6 +150,38 @@ describe('assistant admission', () => {
       [opened.conversation],
     );
     expect((await admit()).status).toBe('limited');
+  });
+
+  it('isolates demo conversations from other visitors and the signed-in demo wallet', async () => {
+    await db.query(
+      `insert into assistant_sessions (nonce, owner, origin, token_hash, expires_at, network, demo)
+        values ('demo-one', $1, $2, 'demo-token-one', now() + interval '1 hour', 'testnet', true),
+          ('demo-two', $1, $2, 'demo-token-two', now() + interval '1 hour', 'testnet', true)`,
+      [wallet, origin],
+    );
+    const signed = await admit();
+    const guest = await admit('demo-token-one');
+    expect(guest).toMatchObject({ status: 'ok', owner: wallet, demo: true });
+    expect(await admit('demo-token-one', origin, signed.conversation)).toEqual({
+      status: 'missing',
+    });
+    expect(await admit('demo-token-two', origin, guest.conversation)).toEqual({
+      status: 'missing',
+    });
+    expect(await admit('token-hash', origin, guest.conversation)).toEqual({ status: 'missing' });
+    expect(await admit('demo-token-one', origin, guest.conversation)).toMatchObject({
+      status: 'ok',
+      demo: true,
+      history: [{ role: 'user', content: 'What needs attention?' }],
+    });
+    await db.query(
+      `insert into assistant_messages (conversation_id, role, content)
+        select $1, 'user', 'quota' from generate_series(1, 10)`,
+      [guest.conversation],
+    );
+    expect(await admit('demo-token-one')).toEqual({ status: 'limited' });
+    expect(await admit('demo-token-two')).toMatchObject({ status: 'ok', demo: true });
+    expect(await admit()).toMatchObject({ status: 'ok' });
   });
 
   it('grants session and conversation operations only to the backend role', async () => {

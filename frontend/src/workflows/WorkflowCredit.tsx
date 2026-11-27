@@ -174,10 +174,12 @@ export function WorkflowCreditNotice({
   owner,
   review = false,
   chain,
+  readOnly = false,
 }: {
   owner?: Address;
   review?: boolean;
   chain?: FundsChainId;
+  readOnly?: boolean;
 }) {
   const { mode, automationName } = useNetworkMode();
   const credits = useWorkflowCredits(owner, chain);
@@ -292,7 +294,7 @@ export function WorkflowCreditNotice({
                         mode,
                       )}
                     >
-                      Add {credit.title.toLowerCase()}
+                      {readOnly ? 'Inspect in Account' : `Add ${credit.title.toLowerCase()}`}
                     </Link>
                   </div>
 

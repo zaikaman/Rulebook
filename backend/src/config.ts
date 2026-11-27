@@ -1,8 +1,10 @@
 import {
   addressSchema,
   automationChainIdSchema,
+  demoFeaturedRunLimit,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
+  workflowIdSchema,
   workflowV2DeploymentSchema,
   workflowV2MainnetDeploymentSchema,
   type Address,
@@ -10,7 +12,7 @@ import {
   type WorkflowV2Deployment,
   type WorkflowV2MainnetDeployment,
 } from '@rulebook/shared';
-import { zeroAddress } from 'viem';
+import { zeroAddress, type Hex } from 'viem';
 import { z } from 'zod';
 
 const workflowV2DeploymentJson = z
@@ -77,6 +79,8 @@ const envSchema = z.object({
   GEMINI_MODEL: z.string().optional(),
   GEMINI_BASE_URL: z.string().optional(),
   GEMINI_API_KEY: z.string().optional(),
+  DEMO_ACCOUNT_ADDRESS: addressSchema.refine((address) => address !== zeroAddress).optional(),
+  DEMO_FEATURED_RUN_IDS: z.string().optional(),
 });
 
 export interface GeminiConfig {
@@ -117,6 +121,8 @@ export interface AppConfig {
   readonly workflowsV2?: WorkflowV2Deployment;
   readonly workflowsV2Mainnet?: WorkflowV2MainnetDeployment;
   readonly gemini?: GeminiConfig;
+  readonly demoAccount?: Address;
+  readonly demoFeaturedRunIds?: readonly Hex[];
 }
 
 /** Error thrown when the environment is incomplete or malformed. */
@@ -148,8 +154,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     GEMINI_MODEL: geminiModel,
     GEMINI_BASE_URL: geminiBase,
     GEMINI_API_KEY: geminiKey,
+    DEMO_ACCOUNT_ADDRESS: demoAccount,
+    DEMO_FEATURED_RUN_IDS: demoFeaturedRunIdsRaw,
     ...base
   } = data;
+  let demoFeaturedRunIds: readonly Hex[] | undefined;
+  if (demoFeaturedRunIdsRaw?.trim()) {
+    const parsedIds = demoFeaturedRunIdsRaw
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const parsedId = workflowIdSchema.safeParse(entry);
+        if (!parsedId.success) {
+          throw new ConfigError([`Invalid run ID in DEMO_FEATURED_RUN_IDS entry "${entry}"`]);
+        }
+        return parsedId.data;
+      });
+    const uniqueIds = [...new Set(parsedIds)].slice(0, demoFeaturedRunLimit);
+    if (uniqueIds.length > 0) {
+      demoFeaturedRunIds = uniqueIds;
+    }
+  }
   const corsOrigins = base.CORS_ORIGINS.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
@@ -262,5 +288,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     workflowsV2,
     workflowsV2Mainnet,
     gemini,
+    demoAccount,
+    demoFeaturedRunIds,
   };
 }

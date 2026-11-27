@@ -11,14 +11,14 @@ export const workflowAgentV2Abi = [
         "internalType": "contract IReactiveSystem"
       },
       {
-        "name": "factory_",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
         "name": "validator_",
         "type": "address",
         "internalType": "contract WorkflowProgramValidatorV2"
+      },
+      {
+        "name": "reactModule_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -36,6 +36,19 @@ export const workflowAgentV2Abi = [
         "name": "",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "UPGRADE_INTERFACE_VERSION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -192,7 +205,7 @@ export const workflowAgentV2Abi = [
       {
         "name": "budgetSeed",
         "type": "tuple",
-        "internalType": "struct WorkflowAgentV2.BudgetSeed",
+        "internalType": "struct WorkflowAgentStorageV2.BudgetSeed",
         "components": [
           {
             "name": "usdcLimit",
@@ -468,6 +481,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "proxiableUUID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "publication",
     "inputs": [
       {
@@ -572,6 +598,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "function",
+    "name": "reactModule",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "resumeWatching",
     "inputs": [
       {
@@ -614,6 +653,24 @@ export const workflowAgentV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeToAndCall",
+    "inputs": [
+      {
+        "name": "newImplementation",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -689,6 +746,24 @@ export const workflowAgentV2Abi = [
     "type": "function",
     "name": "withdraw",
     "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "withdrawToken",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "internalType": "address"
+      },
       {
         "name": "amount",
         "type": "uint256",
@@ -899,6 +974,19 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "event",
+    "name": "Upgraded",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "WatchingPaused",
     "inputs": [
       {
@@ -943,7 +1031,39 @@ export const workflowAgentV2Abi = [
   },
   {
     "type": "error",
+    "name": "AddressEmptyCode",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BudgetBlocked",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ERC1967InvalidImplementation",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ERC1967NonPayable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FailedCall",
     "inputs": []
   },
   {
@@ -955,6 +1075,22 @@ export const workflowAgentV2Abi = [
     "type": "error",
     "name": "NotPaused",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UUPSUnauthorizedCallContext",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UUPSUnsupportedProxiableUUID",
+    "inputs": [
+      {
+        "name": "slot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
   },
   {
     "type": "error",
@@ -982,9 +1118,32 @@ export const workflowAgentFactoryV2Abi = [
         "name": "system",
         "type": "address",
         "internalType": "contract IReactiveSystem"
+      },
+      {
+        "name": "validator_",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      },
+      {
+        "name": "implementation_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "admin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -1001,6 +1160,43 @@ export const workflowAgentFactoryV2Abi = [
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "approveImplementation",
+    "inputs": [
+      {
+        "name": "impl",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "makeCurrent",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "approvedImplementation",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"
@@ -1138,6 +1334,19 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "setAdmin",
+    "inputs": [
+      {
+        "name": "nextAdmin",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "unpublish",
     "inputs": [
       {
@@ -1164,6 +1373,25 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "event",
+    "name": "AdminUpdated",
+    "inputs": [
+      {
+        "name": "previousAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "nextAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "AgentCreated",
     "inputs": [
       {
@@ -1177,6 +1405,25 @@ export const workflowAgentFactoryV2Abi = [
         "type": "address",
         "indexed": true,
         "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ImplementationApproved",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "current",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
       }
     ],
     "anonymous": false
@@ -1251,33 +1498,22 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "error",
-    "name": "FailedDeployment",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InactiveDeployment",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InsufficientBalance",
-    "inputs": [
-      {
-        "name": "balance",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "needed",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
+    "name": "InvalidImplementation",
+    "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidListing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
     "inputs": []
   }
 ] as const;
@@ -1488,6 +1724,19 @@ export const workflowVaultV2Abi = [
         "name": "",
         "type": "uint8",
         "internalType": "uint8"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "UPGRADE_INTERFACE_VERSION",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -1926,6 +2175,19 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "proxiableUUID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "revoke",
     "inputs": [
       {
@@ -2130,6 +2392,24 @@ export const workflowVaultV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "upgradeToAndCall",
+    "inputs": [
+      {
+        "name": "newImplementation",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "data",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -2542,6 +2822,31 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "PeakSynced",
+    "inputs": [
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "indexed": true,
+        "internalType": "uint64"
+      },
+      {
+        "name": "peak",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "ReferenceSynced",
     "inputs": [
       {
@@ -2629,6 +2934,19 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
+    "name": "Upgraded",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "WeeklyBudgetSet",
     "inputs": [
       {
@@ -2660,12 +2978,44 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "AddressEmptyCode",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "CapExceeded",
     "inputs": []
   },
   {
     "type": "error",
     "name": "DuplicateOrigin",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ERC1967InvalidImplementation",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ERC1967NonPayable",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "FailedCall",
     "inputs": []
   },
   {
@@ -2723,22 +3073,12 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
-    "name": "InvalidAmount",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InvalidAuthorization",
     "inputs": []
   },
   {
     "type": "error",
     "name": "InvalidMarket",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "InvalidSecondary",
     "inputs": []
   },
   {
@@ -2821,6 +3161,22 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "error",
+    "name": "UUPSUnauthorizedCallContext",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "UUPSUnsupportedProxiableUUID",
+    "inputs": [
+      {
+        "name": "slot",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "Unauthorized",
     "inputs": []
   },
@@ -2834,8 +3190,69 @@ export const workflowVaultV2Abi = [
 export const workflowVaultFactoryV2Abi = [
   {
     "type": "constructor",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "validator_",
+        "type": "address",
+        "internalType": "contract WorkflowProgramValidatorV2"
+      },
+      {
+        "name": "implementation_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "admin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "approveImplementation",
+    "inputs": [
+      {
+        "name": "impl",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "makeCurrent",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "approvedImplementation",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -2897,6 +3314,19 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "setAdmin",
+    "inputs": [
+      {
+        "name": "nextAdmin",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "validator",
     "inputs": [],
     "outputs": [
@@ -2926,6 +3356,44 @@ export const workflowVaultFactoryV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AdminUpdated",
+    "inputs": [
+      {
+        "name": "previousAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "nextAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ImplementationApproved",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "current",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -2959,29 +3427,18 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "error",
-    "name": "FailedDeployment",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "InactiveDeployment",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InsufficientBalance",
-    "inputs": [
-      {
-        "name": "balance",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "needed",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
+    "name": "InvalidImplementation",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Unauthorized",
+    "inputs": []
   },
   {
     "type": "error",
@@ -2997,6 +3454,60 @@ export const workflowVaultFactoryV2Abi = [
 ] as const;
 
 export const workflowProgramValidatorV2Abi = [
+  {
+    "type": "function",
+    "name": "budgetBlocks",
+    "inputs": [
+      {
+        "name": "usdcLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "wethLimit",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "usdcSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "wethSpent",
+        "type": "uint128",
+        "internalType": "uint128"
+      },
+      {
+        "name": "weekStart",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "plan",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "asOf",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
   {
     "type": "function",
     "name": "canTriggerPrice",
@@ -3162,6 +3673,92 @@ export const workflowProgramValidatorV2Abi = [
   },
   {
     "type": "function",
+    "name": "quoteSwapFloor",
+    "inputs": [
+      {
+        "name": "params",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramValidatorV2.SwapQuoteParams",
+        "components": [
+          {
+            "name": "router",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "pair",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "usdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "weth",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "poolFee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "marketVerified",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "usdcIsToken0",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "sell",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "amount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "slippage",
+            "type": "uint16",
+            "internalType": "uint16"
+          },
+          {
+            "name": "v3Spot",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "externalPrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "referencePrice",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "floor",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "readOracle",
     "inputs": [
       {
@@ -3218,6 +3815,249 @@ export const workflowProgramValidatorV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "readSpotPrice",
+    "inputs": [
+      {
+        "name": "pair",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdc",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "weth",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "poolFee",
+        "type": "uint24",
+        "internalType": "uint24"
+      },
+      {
+        "name": "marketVerified",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "usdcIsToken0",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "spot",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "settlementFilters",
+    "inputs": [
+      {
+        "name": "chain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "vault",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "flags",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "primaryChain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "primaryUsdc",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "secondaryChain",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "secondaryUsdc",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "list",
+        "type": "tuple[]",
+        "internalType": "struct WorkflowProgramValidatorV2.Filter[]",
+        "components": [
+          {
+            "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "signature",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic1",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic2",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
+    "name": "triggerFilters",
+    "inputs": [
+      {
+        "name": "p",
+        "type": "tuple",
+        "internalType": "struct WorkflowProgramValidatorV2.TriggerFilterParams",
+        "components": [
+          {
+            "name": "trigger",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "originChain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "automationChain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "cronSource",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "vault",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "originUsdc",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "originPair",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "originPoolFee",
+            "type": "uint24",
+            "internalType": "uint24"
+          },
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "subject",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "dip",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "list",
+        "type": "tuple[]",
+        "internalType": "struct WorkflowProgramValidatorV2.Filter[]",
+        "components": [
+          {
+            "name": "chain",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "source",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "signature",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic1",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "topic2",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "pure"
   },
   {
     "type": "function",
@@ -3415,8 +4255,34 @@ export const workflowProgramValidatorV2Abi = [
   },
   {
     "type": "error",
+    "name": "InvalidMarket",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidProgram",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidSecondary",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OraclePriceDeviation",
+    "inputs": [
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "oracle",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -3427,6 +4293,22 @@ export const workflowProgramValidatorV2Abi = [
     "type": "error",
     "name": "SequencerUnavailable",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SlippageExceeded",
+    "inputs": [
+      {
+        "name": "minOut",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   }
 ] as const;
 

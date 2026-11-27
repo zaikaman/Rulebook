@@ -3,6 +3,7 @@ pragma solidity 0.8.29;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {AbstractCallback} from "@reactive/abstract-base/AbstractCallback.sol";
@@ -12,8 +13,17 @@ import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "./WorkflowProtocolsV2.sol";
 
+interface IVaultFactoryV2 {
+    function approvedImplementation(address implementation) external view returns (bool);
+}
+
 /// @notice Enforces signed V2 limits and executes the selected workflow path atomically.
-contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocolsV2 {
+contract WorkflowVaultV2 is
+    AbstractCallback,
+    ReentrancyGuard,
+    WorkflowProtocolsV2,
+    UUPSUpgradeable
+{
     using SafeERC20 for IERC20;
 
     uint8 public constant CONFIRMED = 1;
@@ -96,6 +106,7 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
     event GraceStarted(bytes32 indexed workflow, uint64 indexed epoch, uint64 eligibleAt);
     event ReferenceSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 referencePrice);
+    event PeakSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 peak);
     event Outcome(
         bytes32 indexed workflow,
         bytes32 indexed runId,
@@ -114,7 +125,6 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     );
     event Observation(bytes32 indexed runId, uint256 value, address actor);
 
-    address public immutable factory;
     address public immutable callbackProxy;
     uint32 public immutable chain;
     address public owner;
@@ -129,6 +139,8 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     mapping(bytes32 => uint8) public outcomes;
     mapping(bytes32 => bool) private consumedPayments;
     mapping(bytes32 => mapping(bytes32 => bool)) private consumedDips;
+    address public factory;
+    uint256[50] private __gap;
 
     constructor(
         address proxy,
@@ -150,24 +162,37 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                     || cfg.sequencerFeed == address(0)
                     || !marketVerified)
         ) revert InvalidMarket();
-        factory = msg.sender;
         callbackProxy = proxy;
         chain = chain_;
         if (owner_ != address(0)) {
+            factory = msg.sender;
             owner = owner_;
             agent = agent_;
+        } else {
+            // Lock the implementation contract so it can never be initialized directly.
+            owner = address(1);
         }
     }
 
     function initialize(address owner_, address agent_) external {
-        if (
-            msg.sender != factory || owner != address(0) || owner_ == address(0)
-                || agent_ == address(0)
-        ) revert InvalidAuthorization();
+        if (owner != address(0) || owner_ == address(0) || agent_ == address(0)) {
+            revert InvalidAuthorization();
+        }
+        factory = msg.sender;
         owner = owner_;
         agent = agent_;
         vendor = IPayable(payable(callbackProxy));
         addAuthorizedSender(callbackProxy);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal view override {
+        if (msg.sender != owner) revert Unauthorized();
+        if (
+            factory == address(0)
+                || !IVaultFactoryV2(factory).approvedImplementation(newImplementation)
+        ) {
+            revert InvalidAuthorization();
+        }
     }
 
     modifier onlyOwner() {
@@ -352,7 +377,10 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
     }
 
     function checkIn(bytes32 workflow) external onlyOwner {
-        if (!authorizations[workflow].active) revert InvalidAuthorization();
+        Authorization storage auth = authorizations[workflow];
+        if (!auth.active) revert InvalidAuthorization();
+        P.Program memory program = abi.decode(programs[auth.programHash], (P.Program));
+        if (!P.hasCheck(program, P.INACTIVITY)) revert InvalidAuthorization();
         Memory storage memory_ = workflowMemory[workflow];
         memory_.lastCheckIn = uint64(block.timestamp);
         memory_.eligibleAt = 0;
@@ -461,13 +489,16 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
             ) {
                 memory_.peak = _toUint128Price(ctx.price);
             }
-            if (
-                run.high > memory_.peak
-                    && _isPeakOracleConsistent(ctx.market, run.high, memory_.lastCheckIn)
-                    && (run.originChain != chain
-                        || run.highBlock > authorizations[workflow].originAfter)
-            ) {
-                memory_.peak = run.high;
+            if (run.high > memory_.peak) {
+                if (
+                    _isPeakOracleConsistent(ctx.market, run.high, memory_.lastCheckIn)
+                        && (run.originChain != chain
+                            || run.highBlock > authorizations[workflow].originAfter)
+                ) {
+                    memory_.peak = run.high;
+                } else {
+                    emit PeakSynced(workflow, run.epoch, memory_.peak);
+                }
             }
         }
 
@@ -577,15 +608,17 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
-        if (check == P.DIP_BY && _usesOriginPrice(program)) {
-            if (
-                run.observed == 0 || !ctx.dipAvailable
-                    || uint256(run.observationTime) + Math.min(PRICE_MAX_AGE, program.interval)
-                        < block.timestamp
-            ) return false;
+        if (check == P.DIP_BY && _usesOriginPrice(program) && !ctx.dipAvailable) {
+            return false;
         }
         if (ctx.price == 0) {
             if (_usesOriginPrice(program)) {
+                if (
+                    program.trigger == P.SCHEDULE
+                        && (run.observed == 0
+                            || uint256(run.observationTime)
+                                    + Math.min(PRICE_MAX_AGE, program.interval) < block.timestamp)
+                ) return false;
                 ctx.price = run.observed;
                 if (ctx.price != 0) _guardOraclePrice(ctx.market, ctx.price);
             } else {
@@ -615,12 +648,10 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
         }
         if (check == P.PRICE_RISES_THROUGH) {
             if (run.previous == 0) return false;
-            _guardOraclePrice(ctx.market, run.previous);
             return run.previous < threshold && run.observed >= threshold && price >= threshold;
         }
         if (check == P.PRICE_FALLS_THROUGH) {
             if (run.previous == 0) return false;
-            _guardOraclePrice(ctx.market, run.previous);
             return run.previous >= threshold && run.observed < threshold && price < threshold;
         }
 
@@ -666,6 +697,11 @@ contract WorkflowVaultV2 is AbstractCallback, ReentrancyGuard, WorkflowProtocols
                     uint256 balance = IERC20(usdc).balanceOf(address(this));
                     if (balance >= ctx.refillThreshold) revert NoLongerEligible();
                     uint256 needed = Math.min(amount, ctx.refillThreshold - balance);
+                    if (budget.usdcLimit != 0) {
+                        uint256 spentTotal = budget.usdcSpent + usdcSpent;
+                        if (spentTotal >= budget.usdcLimit) revert WeeklyBudgetExceeded();
+                        needed = Math.min(needed, uint256(budget.usdcLimit) - spentTotal);
+                    }
                     uint256 allowed = IERC20(usdc).allowance(owner, address(this));
                     if (allowed == 0) revert InsufficientRefillAllowance(needed, 0);
                     uint256 ownerBalance = IERC20(usdc).balanceOf(owner);

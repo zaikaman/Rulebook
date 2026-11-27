@@ -256,6 +256,10 @@ const ERROR_COPY: ReadonlyArray<{ signature: string; message: string }> = [
     message: 'This marketplace listing is invalid.',
   },
   {
+    signature: 'InvalidImplementation()',
+    message: 'The upgrade target implementation is not approved for this deployment.',
+  },
+  {
     signature: 'InvalidWorkflow()',
     message: 'This workflow cannot be activated in its current state.',
   },

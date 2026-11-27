@@ -13,6 +13,7 @@ import {
   rulewrightJobIdSchema,
   rulewrightRequestSchema,
   rulewrightResultSchema,
+  rulewrightSessionSchema,
   rulewrightSignIn,
   UNICHAIN_SEPOLIA_CHAIN_ID,
   workflowProgramValidatorV2Abi,
@@ -66,6 +67,7 @@ export class RulewrightService {
     private readonly clients: ChainClients,
     factoryOrFactories: Partial<Record<FundsChainId, Address>> | Address,
     private readonly provider: GeminiConfig,
+    private readonly demoOwner?: Address,
   ) {
     this.factories =
       typeof factoryOrFactories === 'string'
@@ -75,6 +77,32 @@ export class RulewrightService {
 
   hasNetwork(network: NetworkMode): boolean {
     return fundsChainsFor(network).some((chain) => Boolean(this.factories[chain]));
+  }
+
+  hasDemoAccess(network?: NetworkMode): boolean {
+    return Boolean(
+      this.demoOwner && (network ?? 'testnet') === 'testnet' && this.hasNetwork('testnet'),
+    );
+  }
+
+  async createDemoSession(origin: string, network: NetworkMode = 'testnet') {
+    if (!this.hasDemoAccess(network) || !this.demoOwner) return null;
+    const nonce = `demo:${randomBytes(24).toString('hex')}`;
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = timestamp() + sessionSeconds;
+    const { error } = await this.db
+      .from('rulewright_sessions')
+      .insert({
+        nonce,
+        owner: this.demoOwner.toLowerCase(),
+        origin,
+        network: 'testnet',
+        token_hash: hash(token),
+        expires_at: date(expiresAt),
+      })
+      .abortSignal(databaseTimeout());
+    if (error) throw new Error('Rulewright could not create a demo session.');
+    return rulewrightSessionSchema.parse({ token, expiresAt });
   }
 
   private targetNetworkFor(request: Pick<RulewrightRequest, 'network' | 'draft'>): NetworkMode {

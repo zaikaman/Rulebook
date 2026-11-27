@@ -69,8 +69,9 @@ import { Spinner } from '@/components/chrome/Spinner';
 import { ErrorState } from '@/components/ErrorState';
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
+import { useDemoMode } from '@/lib/demoMode';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
-import { Badge, Button, Callout, Select } from '@/ui';
+import { Badge, Button, Callout, Panel, PanelBody, PanelHeader, PanelHeading, Select } from '@/ui';
 import { appRoutes, safeNextPath, setupHref } from '@/lib/routes';
 import { RequireAccountSetup, findLinkedWorkflowChain } from './useLinkedAccount';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
@@ -97,16 +98,16 @@ import { WorkflowWeeklyBudget } from './WeeklyBudget';
 
 export function WorkflowsV2() {
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
-  const { owner } = useWorkflowV2Wallet();
+  const { viewOwner, isDemoMode, demoAvailable, enterDemoMode } = useDemoMode();
   const rows = useQuery({
-    queryKey: ['workflow-v2', 'workflows', mode, owner],
-    enabled: Boolean(owner && isDeploymentConfigured),
-    queryFn: () => readWorkflowsV2(owner!, mode),
+    queryKey: ['workflow-v2', 'workflows', mode, viewOwner],
+    enabled: Boolean(viewOwner && isDeploymentConfigured),
+    queryFn: () => readWorkflowsV2(viewOwner!, mode),
     refetchInterval: 12_000,
   });
   const workflows = rows.data?.workflows ?? [];
   const failedChains = rows.data?.failedChains ?? [];
-  const health = useWorkflowHealth(owner, workflows);
+  const health = useWorkflowHealth(viewOwner, workflows);
   const activeCount = workflows.filter((row) => row.active).length;
   const attention = workflows.filter(
     (row) => health.rows.get(workflowHealthKey(row.chain, row.id))?.health.attention ?? !row.active,
@@ -125,7 +126,9 @@ export function WorkflowsV2() {
         description={
           isMainnet
             ? 'Build, activate, and monitor the mainnet automations that run from your wallet.'
-            : 'Build, activate, and monitor the testnet automations that run from your wallet.'
+            : isDemoMode
+              ? 'Inspect live testnet automations from the demo account.'
+              : 'Build, activate, and monitor the testnet automations that run from your wallet.'
         }
         aside={
           <Link
@@ -148,13 +151,28 @@ export function WorkflowsV2() {
           </p>
         ))}
 
-      {!owner && isDeploymentConfigured && (
-        <Callout title="Connect a wallet to load your workflows" action={<WalletControl setup />}>
-          <p>Your agent, vault, and run history all belong to the connected wallet.</p>
+      {!viewOwner && isDeploymentConfigured && (
+        <Callout
+          title="Connect a wallet to load your workflows"
+          action={
+            <div className="rb-inline">
+              <WalletControl setup />
+              {demoAvailable && !isMainnet && (
+                <Button onClick={enterDemoMode}>Inspect demo account</Button>
+              )}
+            </div>
+          }
+        >
+          <p>
+            Your agent, vault, and run history all belong to the connected wallet
+            {demoAvailable && !isMainnet
+              ? ', or inspect the live read-only testnet demo account.'
+              : '.'}
+          </p>
         </Callout>
       )}
 
-      {!owner && (
+      {!viewOwner && (
         <HowItWorks
           title="How a workflow runs"
           steps={[
@@ -209,9 +227,9 @@ export function WorkflowsV2() {
         </p>
       )}
 
-      {owner && <WorkflowCreditNotice owner={owner} />}
+      {viewOwner && <WorkflowCreditNotice owner={viewOwner} readOnly={isDemoMode} />}
 
-      {!!owner && !!rows.data && (
+      {!!viewOwner && !!rows.data && (
         <div className="rb-metrics">
           <div className="rb-metric">
             <p className="rb-metric-label">Workflows</p>
@@ -235,34 +253,37 @@ export function WorkflowsV2() {
         </div>
       )}
 
-      {!!owner && isDeploymentConfigured && rows.isPending && (
+      {!!viewOwner && isDeploymentConfigured && rows.isPending && (
         <LoadingRegion label="Reading your workflows…" className="rb-page-skeleton">
           <MetricsSkeleton />
           <CardGridSkeleton count={2} />
         </LoadingRegion>
       )}
 
-      {!!owner && rows.data && rows.data.workflows.length === 0 && failedChains.length === 0 && (
-        <EmptyState
-          icon={Book02Icon}
-          title="No workflows yet"
-          description="A workflow watches for a trigger, checks your conditions, then acts from your vault. Start from a recipe or build the logic yourself."
-          action={
-            <>
-              <Link
-                className="app-button app-button--primary"
-                to={withNetworkQuery('/workflows/new', mode)}
-              >
-                Build a workflow
-              </Link>
-              <Link className="app-button" to={withNetworkQuery('/marketplace', mode)}>
-                Browse Marketplace
-              </Link>
-            </>
-          }
-          steps={['Pick a trigger', 'Add checks and actions', 'Review and activate']}
-        />
-      )}
+      {!!viewOwner &&
+        rows.data &&
+        rows.data.workflows.length === 0 &&
+        failedChains.length === 0 && (
+          <EmptyState
+            icon={Book02Icon}
+            title="No workflows yet"
+            description="A workflow watches for a trigger, checks your conditions, then acts from your vault. Start from a recipe or build the logic yourself."
+            action={
+              <>
+                <Link
+                  className="app-button app-button--primary"
+                  to={withNetworkQuery('/workflows/new', mode)}
+                >
+                  Build a workflow
+                </Link>
+                <Link className="app-button" to={withNetworkQuery('/marketplace', mode)}>
+                  Browse Marketplace
+                </Link>
+              </>
+            }
+            steps={['Pick a trigger', 'Add checks and actions', 'Review and activate']}
+          />
+        )}
 
       {!!workflows.length && (
         <ul className="rb-card-grid">
@@ -386,13 +407,14 @@ export function WorkflowDetailV2() {
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const wallet = useWorkflowV2Wallet();
+  const { viewOwner, isDemoMode, demoAvailable, enterDemoMode } = useDemoMode();
   const data = useQuery({
-    queryKey: ['workflow-v2', 'detail', mode, wallet.owner, raw, preferredChain],
-    enabled: Boolean(wallet.owner && id.success && isDeploymentConfigured),
-    queryFn: () => readWorkflowV2(wallet.owner!, id.data!, mode, preferredChain),
+    queryKey: ['workflow-v2', 'detail', mode, viewOwner, raw, preferredChain],
+    enabled: Boolean(viewOwner && id.success && isDeploymentConfigured),
+    queryFn: () => readWorkflowV2(viewOwner!, id.data!, mode, preferredChain),
     refetchInterval: 12_000,
   });
-  const detailHealthQuery = useWorkflowHealth(wallet.owner, data.data ? [data.data] : undefined);
+  const detailHealthQuery = useWorkflowHealth(viewOwner, data.data ? [data.data] : undefined);
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
   if (!isDeploymentConfigured) {
     return isMainnet ? (
@@ -401,11 +423,28 @@ export function WorkflowDetailV2() {
       <p className="rb-note">Contracts are not configured for {automationName}.</p>
     );
   }
-  if (!wallet.owner)
+  if (!viewOwner)
     return (
       <section className="app-page">
         <PageHeading title="Workflow" />
-        <WalletControl setup />
+        <Callout
+          title="Connect a wallet to open this workflow"
+          action={
+            <div className="rb-inline">
+              <WalletControl setup />
+              {demoAvailable && !isMainnet && (
+                <Button onClick={enterDemoMode}>Inspect demo account</Button>
+              )}
+            </div>
+          }
+        >
+          <p>
+            Workflows belong to the connected wallet
+            {demoAvailable && !isMainnet
+              ? ', or inspect the live read-only testnet demo account.'
+              : '.'}
+          </p>
+        </Callout>
       </section>
     );
   if (data.error)
@@ -467,6 +506,7 @@ export function WorkflowDetailV2() {
         description="Review the program, its activation state, and the path it settles through."
         aside={
           <div className="rb-inline">
+            {isDemoMode && <Badge tone="info">Read-only demo</Badge>}
             <NetworkBadge chainId={item.chain} />
             <span className="rb-chip" data-tone={statusTone}>
               {status}
@@ -475,7 +515,7 @@ export function WorkflowDetailV2() {
         }
       />
       <div className="workflow-actions">
-        {!item.closed && (
+        {!isDemoMode && !item.closed && (
           <Link
             className="app-button"
             to={withNetworkQuery(
@@ -488,7 +528,7 @@ export function WorkflowDetailV2() {
             {active ? 'Edit workflow' : 'Review and activate'}
           </Link>
         )}
-        {!item.closed && (item.auth[3] || item.entry[4] !== 0) && (
+        {!isDemoMode && !item.closed && (item.auth[3] || item.entry[4] !== 0) && (
           <button
             type="button"
             className="app-button"
@@ -498,7 +538,7 @@ export function WorkflowDetailV2() {
             {item.partiallyPaused ? 'Finish pausing' : 'Pause workflow'}
           </button>
         )}
-        {active && payout && (
+        {!isDemoMode && active && payout && (
           <button
             className="app-button"
             type="button"
@@ -528,23 +568,20 @@ export function WorkflowDetailV2() {
           Activity
         </Link>
       </div>
-      <WorkflowHealthPanel item={item} owner={wallet.owner} />
-      <WorkflowWeeklyBudget item={item} wallet={wallet} />
-      {!item.closed && <WorkflowCreditNotice owner={wallet.owner} chain={item.chain} />}
+      <WorkflowHealthPanel item={item} owner={viewOwner} readOnly={isDemoMode} />
+      <WorkflowWeeklyBudget item={item} wallet={wallet} readOnly={isDemoMode} />
+      {!item.closed && (
+        <WorkflowCreditNotice owner={viewOwner} chain={item.chain} readOnly={isDemoMode} />
+      )}
       <div className="rb-canvas-panel">
         <WorkflowCanvas draft={diagramV2(toDraft(program, item.title)).canvas} />
         <div className="rb-panel-body">
           <WorkflowProgramSummary draft={toDraft(program, item.title)} />
         </div>
       </div>
-      {!item.staged && <Publication item={item} wallet={wallet} />}
-      {item.entry[1] > 0n && (
-        <TelegramNotifications
-          workflow
-          agent={item.agent}
-          owner={wallet.owner}
-          workflowId={item.id}
-        />
+      {!item.staged && <Publication item={item} wallet={wallet} readOnly={isDemoMode} />}
+      {!isDemoMode && item.entry[1] > 0n && (
+        <TelegramNotifications workflow agent={item.agent} owner={viewOwner} workflowId={item.id} />
       )}
       <V2Feedback wallet={wallet} />
     </section>
@@ -554,9 +591,11 @@ export function WorkflowDetailV2() {
 function Publication({
   item,
   wallet,
+  readOnly = false,
 }: {
   item: Awaited<ReturnType<typeof readWorkflowV2>>;
   wallet: ReturnType<typeof useWorkflowV2Wallet>;
+  readOnly?: boolean;
 }) {
   const { mode, automationChainId, deployment } = useNetworkMode();
   const [description, setDescription] = useState('');
@@ -662,27 +701,29 @@ function Publication({
               View listing
               <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
             </Link>
-            <button
-              type="button"
-              className="app-button app-button--danger"
-              disabled={wallet.busy}
-              onClick={() =>
-                void wallet.perform(async () => {
-                  await wallet.send(
-                    automationChainId,
-                    factory,
-                    encodeFunctionData({
-                      abi: workflowAgentFactoryV2Abi,
-                      functionName: 'unpublish',
-                      args: [published.id],
-                    }),
-                    'Remove this version from the public Marketplace.',
-                  );
-                })
-              }
-            >
-              Unpublish
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                className="app-button app-button--danger"
+                disabled={wallet.busy}
+                onClick={() =>
+                  void wallet.perform(async () => {
+                    await wallet.send(
+                      automationChainId,
+                      factory,
+                      encodeFunctionData({
+                        abi: workflowAgentFactoryV2Abi,
+                        functionName: 'unpublish',
+                        args: [published.id],
+                      }),
+                      'Remove this version from the public Marketplace.',
+                    );
+                  })
+                }
+              >
+                Unpublish
+              </button>
+            )}
           </footer>
         </>
       ) : listingUnavailable ? (
@@ -715,6 +756,18 @@ function Publication({
             </span>
             <p className="rb-publication-copy">
               Checking the Marketplace registry for this version.
+            </p>
+          </div>
+        </div>
+      ) : readOnly ? (
+        <div className="rb-publication-body">
+          <div className="rb-publication-banner">
+            <span className="rb-publication-mark" aria-hidden="true">
+              <HugeiconsIcon icon={InformationCircleIcon} size={15} strokeWidth={1.8} />
+            </span>
+            <p className="rb-publication-copy">
+              This workflow version is not listed in the public Marketplace. Connect your own wallet
+              to build and publish workflows.
             </p>
           </div>
         </div>
@@ -855,6 +908,7 @@ const activityFilterStatuses = {
 
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
+  const { viewOwner, demoAvailable, enterDemoMode } = useDemoMode();
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const [params] = useSearchParams();
   const run = params.get('run');
@@ -867,13 +921,13 @@ export function WorkflowActivityV2() {
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [refreshing, setRefreshing] = useState(false);
   const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'activity', mode, wallet.owner, workflowId, requestedId],
-    enabled: Boolean(wallet.owner && isDeploymentConfigured && scopes.success),
+    queryKey: ['workflow-v2', 'activity', mode, viewOwner, workflowId, requestedId],
+    enabled: Boolean(viewOwner && isDeploymentConfigured && scopes.success),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({
         network: mode,
-        owner: wallet.owner!,
+        owner: viewOwner!,
         ...(requestedId ? { id: requestedId } : {}),
         ...(workflowId ? { workflow: workflowId } : {}),
         ...(pageParam ? { after: pageParam } : {}),
@@ -909,11 +963,11 @@ export function WorkflowActivityV2() {
         description={`Follow each run from the origin event through the ${automationName} decision to settlement.`}
         aside={
           <>
-            {wallet.owner && <span className="rb-chip rb-chip--plain">{rows.length} loaded</span>}
+            {viewOwner && <span className="rb-chip rb-chip--plain">{rows.length} loaded</span>}
             <button
               type="button"
               className="app-button"
-              disabled={refreshing || !wallet.owner || !isDeploymentConfigured}
+              disabled={refreshing || !viewOwner || !isDeploymentConfigured}
               onClick={() => {
                 setRefreshing(true);
                 void query.refetch().finally(() => setRefreshing(false));
@@ -946,13 +1000,28 @@ export function WorkflowActivityV2() {
         </div>
       )}
 
-      {!wallet.owner && (
-        <Callout title="Connect a wallet to read its runs" action={<WalletControl setup />}>
-          <p>Activity is scoped to the wallet that owns the agent and vault.</p>
+      {!viewOwner && (
+        <Callout
+          title="Connect a wallet to read its runs"
+          action={
+            <div className="rb-inline">
+              <WalletControl setup />
+              {demoAvailable && !isMainnet && (
+                <Button onClick={enterDemoMode}>Inspect demo account</Button>
+              )}
+            </div>
+          }
+        >
+          <p>
+            Activity is scoped to the wallet that owns the agent and vault
+            {demoAvailable && !isMainnet
+              ? ', or inspect the live read-only testnet demo account.'
+              : '.'}
+          </p>
         </Callout>
       )}
 
-      {!wallet.owner && (
+      {!viewOwner && (
         <HowItWorks
           title="What each run records"
           steps={[
@@ -994,7 +1063,7 @@ export function WorkflowActivityV2() {
         </div>
       )}
 
-      {query.isPending && Boolean(wallet.owner) && isDeploymentConfigured && (
+      {query.isPending && Boolean(viewOwner) && isDeploymentConfigured && (
         <LoadingRegion label="Loading workflow activity…" className="rb-page-skeleton">
           <div className="rb-page-skeleton-toolbar">
             {[0, 1, 2, 3].map((index) => (
@@ -1005,7 +1074,7 @@ export function WorkflowActivityV2() {
         </LoadingRegion>
       )}
 
-      {!!wallet.owner && !requestedId && query.isSuccess && rows.length > 0 && (
+      {!!viewOwner && !requestedId && query.isSuccess && rows.length > 0 && (
         <div className="rb-toolbar">
           <div className="rb-filters" role="group" aria-label="Filter runs">
             {activityFilters.map((option) => (
@@ -1540,6 +1609,7 @@ export function WorkflowAccountV2({
   initialChain?: SettlementChain;
 }) {
   const wallet = useWorkflowV2Wallet();
+  const { viewOwner, isDemoMode, demoAvailable, enterDemoMode } = useDemoMode();
   const {
     mode,
     isMainnet,
@@ -1575,9 +1645,9 @@ export function WorkflowAccountV2({
   const formRef = useRef<HTMLFormElement>(null);
   const factoryAvailable = isDeploymentConfigured && Boolean(settlementFactory(chain));
   const data = useQuery({
-    queryKey: ['workflow-v2', 'funding', mode, wallet.owner, chain],
-    enabled: Boolean(wallet.owner && factoryAvailable),
-    queryFn: () => readFundsV2(wallet.owner!, chain),
+    queryKey: ['workflow-v2', 'funding', mode, viewOwner, chain],
+    enabled: Boolean(viewOwner && factoryAvailable),
+    queryFn: () => readFundsV2(viewOwner!, chain),
     refetchInterval: 12_000,
   });
   const funds = data.data;
@@ -1780,13 +1850,28 @@ export function WorkflowAccountV2({
         }
       />
 
-      {!wallet.owner && (
-        <Callout title="Connect a wallet to open its account" action={<WalletControl setup />}>
-          <p>Balances and credit are read from the agent and vault owned by that wallet.</p>
+      {!viewOwner && (
+        <Callout
+          title="Connect a wallet to open its account"
+          action={
+            <div className="rb-inline">
+              <WalletControl setup />
+              {demoAvailable && !isMainnet && (
+                <Button onClick={enterDemoMode}>Inspect demo account</Button>
+              )}
+            </div>
+          }
+        >
+          <p>
+            Balances and credit are read from the agent and vault owned by that wallet
+            {demoAvailable && !isMainnet
+              ? ', or inspect the live read-only testnet demo account.'
+              : '.'}
+          </p>
         </Callout>
       )}
 
-      {!wallet.owner && (
+      {!viewOwner && (
         <HowItWorks
           title="What your account holds"
           steps={[
@@ -1826,7 +1911,7 @@ export function WorkflowAccountV2({
         </div>
       )}
 
-      {!!wallet.owner && factoryAvailable && data.isPending && (
+      {!!viewOwner && factoryAvailable && data.isPending && (
         <LoadingRegion
           label={isMainnet ? 'Reading your account…' : 'Reading your testnet account…'}
           className="rb-page-skeleton"
@@ -1849,8 +1934,12 @@ export function WorkflowAccountV2({
 
       {funds &&
         funds.vault === zeroAddress &&
-        (manage ? (
-          <p className="rb-note">This wallet has no vault. Create one through account setup.</p>
+        (manage || isDemoMode ? (
+          <p className="rb-note">
+            {isDemoMode
+              ? `The demo account does not have a Vault on ${v2Network(chain).name}.`
+              : 'This wallet has no vault. Create one through account setup.'}
+          </p>
         ) : (
           <Callout
             title={`No ${v2Network(chain).name} Vault yet`}
@@ -1882,7 +1971,7 @@ export function WorkflowAccountV2({
             funds.agent !== zeroAddress &&
             (funds.linkedVault === zeroAddress || isAddressEqual(funds.linkedVault, funds.vault));
           const canLink = vaultMatchesAgent && agentUnlinkedOrMatching;
-          return canLink ? (
+          return canLink && !isDemoMode ? (
             <Callout
               tone="recovery"
               title={`Link your ${v2Network(chain).name} Vault to ${automationName}`}
@@ -1913,7 +2002,7 @@ export function WorkflowAccountV2({
         })()}
       {funds && funds.vault !== zeroAddress && (
         <>
-          <WorkflowCreditNotice owner={wallet.owner} chain={chain} />
+          <WorkflowCreditNotice owner={viewOwner} chain={chain} readOnly={isDemoMode} />
           <div className="rb-balance-grid">
             <div className="rb-balance" data-role="funds">
               <p className="rb-balance-head">
@@ -1955,16 +2044,18 @@ export function WorkflowAccountV2({
               tone="recovery"
               title="Unused vault ETH"
               action={
-                <Button
-                  onClick={() => {
-                    setOperation('withdraw-eth');
-                    setAmount(exactUnits(funds.native, 18));
-                    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    amountRef.current?.focus({ preventScroll: true });
-                  }}
-                >
-                  Recover ETH
-                </Button>
+                isDemoMode ? undefined : (
+                  <Button
+                    onClick={() => {
+                      setOperation('withdraw-eth');
+                      setAmount(exactUnits(funds.native, 18));
+                      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      amountRef.current?.focus({ preventScroll: true });
+                    }}
+                  >
+                    Recover ETH
+                  </Button>
+                )
               }
             >
               <p>
@@ -1979,16 +2070,18 @@ export function WorkflowAccountV2({
               tone="recovery"
               title={`Unused agent ${nativeSymbol}`}
               action={
-                <Button
-                  onClick={() => {
-                    setOperation('withdraw-agent-eth');
-                    setAmount(exactUnits(funds.agentNative, 18));
-                    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    amountRef.current?.focus({ preventScroll: true });
-                  }}
-                >
-                  Recover {nativeSymbol}
-                </Button>
+                isDemoMode ? undefined : (
+                  <Button
+                    onClick={() => {
+                      setOperation('withdraw-agent-eth');
+                      setAmount(exactUnits(funds.agentNative, 18));
+                      formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      amountRef.current?.focus({ preventScroll: true });
+                    }}
+                  >
+                    Recover {nativeSymbol}
+                  </Button>
+                )
               }
             >
               <p>
@@ -2000,90 +2093,108 @@ export function WorkflowAccountV2({
           )}
 
           <div className="rb-split">
-            <div className="app-panel">
-              <div className="rb-panel-head">
-                <div>
-                  <h2 className="rb-panel-title">{isMainnet ? 'Move funds' : 'Move test funds'}</h2>
-                  <p className="rb-panel-copy">
-                    Every action sends one transaction from your wallet.
+            {isDemoMode ? (
+              <Panel>
+                <PanelHeader>
+                  <PanelHeading
+                    title="Read-only demo account"
+                    description="Balances and credits come from the testnet Agent and Vault."
+                  />
+                </PanelHeader>
+                <PanelBody>
+                  <p className="app-copy">
+                    Connect your wallet to create a Vault and manage your own test funds.
                   </p>
+                </PanelBody>
+              </Panel>
+            ) : (
+              <div className="app-panel">
+                <div className="rb-panel-head">
+                  <div>
+                    <h2 className="rb-panel-title">
+                      {isMainnet ? 'Move funds' : 'Move test funds'}
+                    </h2>
+                    <p className="rb-panel-copy">
+                      Every action sends one transaction from your wallet.
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <form
-                ref={formRef}
-                className="rb-panel-body"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  submit();
-                }}
-              >
-                <div
-                  className={
-                    action.requiresAmount ? 'rb-form-grid' : 'rb-form-grid rb-form-grid--two'
-                  }
+                <form
+                  ref={formRef}
+                  className="rb-panel-body"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    submit();
+                  }}
                 >
-                  <V2Field name="Funding action">
-                    <Select
-                      value={activeOperation}
-                      aria-describedby="funding-hint"
-                      onChange={(next) => {
-                        setOperation(next);
-                        setAmount('');
-                      }}
-                      groups={groups.map(({ group, actions }) => ({
-                        label: group,
-                        options: actions.map((key) => ({
-                          value: key,
-                          label: fundingActions[key].label,
-                        })),
-                      }))}
-                    />
-                  </V2Field>
-                  {action.requiresAmount && (
-                    <V2Field name={action.amountLabel}>
-                      <input
-                        ref={amountRef}
-                        className="app-input"
-                        inputMode="decimal"
-                        value={amount}
-                        placeholder="0.00"
-                        aria-invalid={amountError ? true : undefined}
+                  <div
+                    className={
+                      action.requiresAmount ? 'rb-form-grid' : 'rb-form-grid rb-form-grid--two'
+                    }
+                  >
+                    <V2Field name="Funding action">
+                      <Select
+                        value={activeOperation}
                         aria-describedby="funding-hint"
-                        onChange={(event) => setAmount(event.target.value)}
+                        onChange={(next) => {
+                          setOperation(next);
+                          setAmount('');
+                        }}
+                        groups={groups.map(({ group, actions }) => ({
+                          label: group,
+                          options: actions.map((key) => ({
+                            value: key,
+                            label: fundingActions[key].label,
+                          })),
+                        }))}
                       />
                     </V2Field>
-                  )}
-                  <button
-                    className="app-button app-button--primary"
-                    disabled={!canSubmit}
-                    type="submit"
-                  >
-                    Review transaction
-                  </button>
-                </div>
-                <div className="rb-funding-guidance">
-                  <p
-                    id="funding-hint"
-                    className="rb-funding-hint"
-                    data-tone={amountError ? 'error' : undefined}
-                    role={amountError ? 'alert' : undefined}
-                  >
-                    {amountError ?? action.hint}
-                  </p>
-                  {action.requiresAmount && balance !== undefined && (
-                    <p className="rb-funding-hint">
-                      {action.balanceLabel}:{' '}
-                      <strong>
-                        {exactUnits(balance, action.decimals)} {action.unit}
-                      </strong>
-                      {action.balanceKey === 'walletNative' || action.balanceKey === 'walletWatch'
-                        ? ' Keep a little for network gas.'
-                        : null}
+                    {action.requiresAmount && (
+                      <V2Field name={action.amountLabel}>
+                        <input
+                          ref={amountRef}
+                          className="app-input"
+                          inputMode="decimal"
+                          value={amount}
+                          placeholder="0.00"
+                          aria-invalid={amountError ? true : undefined}
+                          aria-describedby="funding-hint"
+                          onChange={(event) => setAmount(event.target.value)}
+                        />
+                      </V2Field>
+                    )}
+                    <button
+                      className="app-button app-button--primary"
+                      disabled={!canSubmit}
+                      type="submit"
+                    >
+                      Review transaction
+                    </button>
+                  </div>
+                  <div className="rb-funding-guidance">
+                    <p
+                      id="funding-hint"
+                      className="rb-funding-hint"
+                      data-tone={amountError ? 'error' : undefined}
+                      role={amountError ? 'alert' : undefined}
+                    >
+                      {amountError ?? action.hint}
                     </p>
-                  )}
-                </div>
-              </form>
-            </div>
+                    {action.requiresAmount && balance !== undefined && (
+                      <p className="rb-funding-hint">
+                        {action.balanceLabel}:{' '}
+                        <strong>
+                          {exactUnits(balance, action.decimals)} {action.unit}
+                        </strong>
+                        {action.balanceKey === 'walletNative' || action.balanceKey === 'walletWatch'
+                          ? ' Keep a little for network gas.'
+                          : null}
+                      </p>
+                    )}
+                  </div>
+                </form>
+              </div>
+            )}
 
             <div className="app-panel">
               <div className="rb-panel-head">
@@ -2122,8 +2233,8 @@ export function WorkflowAccountV2({
             </div>
           </div>
 
-          {wallet.owner && funds.agent !== zeroAddress && (
-            <TelegramNotifications workflow agent={funds.agent} owner={wallet.owner} />
+          {!isDemoMode && viewOwner && funds.agent !== zeroAddress && (
+            <TelegramNotifications workflow agent={funds.agent} owner={viewOwner} />
           )}
 
           <div className="app-panel">

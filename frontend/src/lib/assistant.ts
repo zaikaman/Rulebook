@@ -68,6 +68,18 @@ export interface AssistantStreamInput {
   readonly network?: NetworkMode;
 }
 
+export async function revokeAssistantSession(token: string) {
+  await fetch(`${apiBaseUrl}/v2/assistant/session`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    signal: AbortSignal.timeout(5_000),
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-assistant-origin': window.location.origin,
+    },
+  });
+}
+
 /** Opens the SSE chat response and forwards each parsed event until the stream closes. */
 export async function streamAssistant(
   input: AssistantStreamInput,

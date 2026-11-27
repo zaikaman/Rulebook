@@ -8,6 +8,7 @@ import {UnsupportedChain} from "../../src/shared/Errors.sol";
 import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
@@ -69,11 +70,13 @@ contract WorkflowBaseSepoliaV2Test is Test {
 
         system = new MockSystemContract();
         vm.chainId(ChainConfig.LASNA);
-        WorkflowAgentFactoryV2 agentFactory = new WorkflowAgentFactoryV2(system);
+        validator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 reactModule = new WorkflowAgentReactV2(system, validator);
+        WorkflowAgentV2 agentImpl = new WorkflowAgentV2(system, validator, address(reactModule));
+        WorkflowAgentFactoryV2 agentFactory =
+            new WorkflowAgentFactoryV2(system, validator, address(agentImpl));
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(agentFactory.create()));
-
-        validator = new WorkflowProgramValidatorV2();
         baseVault = new WorkflowVaultV2(
             PROXY_BASE,
             OWNER,
@@ -142,25 +145,41 @@ contract WorkflowBaseSepoliaV2Test is Test {
     }
 
     function testVaultFactoryDeploysOnBaseSepoliaAndRejectsLasnaOrUnsupported() public {
+        ChainConfig.Config memory cfg = ChainConfig.baseSepolia();
+        WorkflowProtocolsV2.Networks memory market = WorkflowProtocolsV2.Networks(
+            cfg.usdc,
+            cfg.weth,
+            cfg.router,
+            cfg.pair,
+            cfg.poolFee,
+            cfg.ethUsdFeed,
+            cfg.usdcUsdFeed,
+            cfg.sequencerFeed,
+            cfg.ethFeedMaxAge,
+            cfg.usdcFeedMaxAge
+        );
         vm.chainId(ChainConfig.BASE_SEPOLIA);
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        new WorkflowVaultFactoryV2(validator, address(baseVault));
 
-        vm.etch(ChainConfig.baseSepolia().callbackProxy, hex"00");
-        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2();
+        vm.etch(cfg.callbackProxy, hex"00");
+        WorkflowVaultV2 impl = new WorkflowVaultV2(
+            cfg.callbackProxy, address(0), address(0), P.BASE_SEPOLIA, market, validator
+        );
+        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2(validator, address(impl));
         assertEq(factory.chain(), P.BASE_SEPOLIA);
-        assertEq(factory.callbackProxy(), ChainConfig.baseSepolia().callbackProxy);
+        assertEq(factory.callbackProxy(), cfg.callbackProxy);
         vm.prank(OWNER);
         address deployed = factory.create(address(agent));
         assertEq(WorkflowVaultV2(payable(deployed)).chain(), P.BASE_SEPOLIA);
 
         vm.chainId(ChainConfig.LASNA);
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        new WorkflowVaultFactoryV2(validator, address(impl));
 
         vm.chainId(999_999);
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        new WorkflowVaultFactoryV2(validator, address(impl));
     }
 
     function testBaseSepoliaVaultSettlesSchedulePaymentAndPrice() public {

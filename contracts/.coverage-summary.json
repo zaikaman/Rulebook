@@ -12,6 +12,14 @@
       "minimumLinePercent": 85,
       "minimumBranchPercent": 45
     },
+    "src/workflow/v2/WorkflowAgentStorageV2.sol": {
+      "minimumLinePercent": 85,
+      "minimumBranchPercent": 45
+    },
+    "src/workflow/v2/WorkflowAgentReactV2.sol": {
+      "minimumLinePercent": 85,
+      "minimumBranchPercent": 45
+    },
     "src/workflow/v2/WorkflowProgramV2.sol": {
       "minimumLinePercent": 85,
       "minimumBranchPercent": 35

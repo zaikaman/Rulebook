@@ -17,6 +17,8 @@ import {
 import {IUniswapV3Factory, IUniswapV3Pool, IV3SwapRouter} from "../../src/shared/UniswapV3.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
+import {WorkflowAgentStorageV2} from "../../src/workflow/v2/WorkflowAgentStorageV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
@@ -101,10 +103,12 @@ contract WorkflowMainnetV2Test is Test {
 
         system = new MockSystemContract();
         vm.chainId(ChainConfig.REACTIVE_MAINNET);
-        agentFactory = new WorkflowAgentFactoryV2(system);
+        validator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 reactModule = new WorkflowAgentReactV2(system, validator);
+        WorkflowAgentV2 agentImpl = new WorkflowAgentV2(system, validator, address(reactModule));
+        agentFactory = new WorkflowAgentFactoryV2(system, validator, address(agentImpl));
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(agentFactory.create()));
-        validator = new WorkflowProgramValidatorV2();
 
         unichainVault = new WorkflowVaultV2(
             PROXY,
@@ -213,15 +217,29 @@ contract WorkflowMainnetV2Test is Test {
     }
 
     function testVaultFactoryDeploysOnMainnetsAndRejectsAutomationOrUnsupported() public {
+        ChainConfig.Config memory uni = ChainConfig.unichainMainnet();
+        WorkflowProtocolsV2.Networks memory uniMarket = WorkflowProtocolsV2.Networks(
+            uni.usdc,
+            uni.weth,
+            uni.router,
+            uni.pair,
+            uni.poolFee,
+            uni.ethUsdFeed,
+            uni.usdcUsdFeed,
+            uni.sequencerFeed,
+            uni.ethFeedMaxAge,
+            uni.usdcFeedMaxAge
+        );
         vm.chainId(ChainConfig.REACTIVE_MAINNET);
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        new WorkflowVaultFactoryV2(validator, address(unichainVault));
 
-        ChainConfig.Config memory uni = ChainConfig.unichainMainnet();
         vm.chainId(ChainConfig.UNICHAIN_MAINNET);
         vm.etch(uni.callbackProxy, hex"00");
-        vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            uni.callbackProxy, address(0), address(0), P.UNICHAIN_MAINNET, uniMarket, validator
+        );
         vm.etch(uni.ethUsdFeed, hex"00");
         vm.etch(uni.usdcUsdFeed, hex"00");
         vm.etch(uni.sequencerFeed, hex"00");
@@ -232,11 +250,15 @@ contract WorkflowMainnetV2Test is Test {
             uni.usdcUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(18))
         );
         // Missing router/pair code on mainnet also rejects deployment.
-        vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            uni.callbackProxy, address(0), address(0), P.UNICHAIN_MAINNET, uniMarket, validator
+        );
         vm.etch(uni.router, hex"00");
-        vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        vm.expectRevert(WorkflowProtocolsV2.InvalidMarket.selector);
+        new WorkflowVaultV2(
+            uni.callbackProxy, address(0), address(0), P.UNICHAIN_MAINNET, uniMarket, validator
+        );
         vm.etch(uni.pair, hex"00");
         vm.mockCall(uni.router, abi.encodeCall(IV3SwapRouter.factory, ()), abi.encode(uni.router));
         vm.mockCall(
@@ -246,7 +268,10 @@ contract WorkflowMainnetV2Test is Test {
         );
         vm.mockCall(uni.pair, abi.encodeCall(IUniswapV3Pool.token0, ()), abi.encode(uni.usdc));
         vm.mockCall(uni.pair, abi.encodeCall(IUniswapV3Pool.token1, ()), abi.encode(uni.weth));
-        WorkflowVaultFactoryV2 uniFactory = new WorkflowVaultFactoryV2();
+        WorkflowVaultV2 uniImpl = new WorkflowVaultV2(
+            uni.callbackProxy, address(0), address(0), P.UNICHAIN_MAINNET, uniMarket, validator
+        );
+        WorkflowVaultFactoryV2 uniFactory = new WorkflowVaultFactoryV2(validator, address(uniImpl));
         assertEq(uniFactory.chain(), ChainConfig.UNICHAIN_MAINNET);
         assertEq(uniFactory.callbackProxy(), uni.callbackProxy);
 
@@ -291,6 +316,18 @@ contract WorkflowMainnetV2Test is Test {
         );
 
         ChainConfig.Config memory base = ChainConfig.baseMainnet();
+        WorkflowProtocolsV2.Networks memory baseMarket = WorkflowProtocolsV2.Networks(
+            base.usdc,
+            base.weth,
+            base.router,
+            base.pair,
+            base.poolFee,
+            base.ethUsdFeed,
+            base.usdcUsdFeed,
+            base.sequencerFeed,
+            base.ethFeedMaxAge,
+            base.usdcFeedMaxAge
+        );
         vm.chainId(ChainConfig.BASE_MAINNET);
         vm.etch(base.callbackProxy, hex"00");
         vm.etch(base.router, hex"00");
@@ -298,7 +335,7 @@ contract WorkflowMainnetV2Test is Test {
         vm.etch(base.ethUsdFeed, hex"00");
         vm.etch(base.sequencerFeed, hex"00");
         vm.expectRevert(WorkflowVaultFactoryV2.InactiveDeployment.selector);
-        new WorkflowVaultFactoryV2();
+        new WorkflowVaultFactoryV2(validator, address(baseVault));
         vm.etch(base.usdcUsdFeed, hex"00");
         vm.mockCall(
             base.ethUsdFeed, abi.encodeCall(IAggregatorV3.decimals, ()), abi.encode(uint8(8))
@@ -316,7 +353,11 @@ contract WorkflowMainnetV2Test is Test {
         );
         vm.mockCall(base.pair, abi.encodeCall(IUniswapV2Pair.token0, ()), abi.encode(base.usdc));
         vm.mockCall(base.pair, abi.encodeCall(IUniswapV2Pair.token1, ()), abi.encode(base.weth));
-        WorkflowVaultFactoryV2 baseFactory = new WorkflowVaultFactoryV2();
+        WorkflowVaultV2 baseImpl = new WorkflowVaultV2(
+            base.callbackProxy, address(0), address(0), P.BASE_MAINNET, baseMarket, validator
+        );
+        WorkflowVaultFactoryV2 baseFactory =
+            new WorkflowVaultFactoryV2(validator, address(baseImpl));
         assertEq(baseFactory.chain(), ChainConfig.BASE_MAINNET);
         assertEq(baseFactory.callbackProxy(), base.callbackProxy);
 
@@ -451,11 +492,11 @@ contract WorkflowMainnetV2Test is Test {
 
     function testAgentRejectsTestnetVaultLinksAndMixedEnvironmentPrograms() public {
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
         agent.linkVault(P.UNICHAIN_SEPOLIA, address(unichainVault));
 
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
         agent.linkVault(P.BASE_SEPOLIA, address(baseVault));
 
         P.Program memory mixed;
@@ -1531,15 +1572,20 @@ contract WorkflowMainnetV2Test is Test {
     }
 
     function testMainnetFactoryRejectsFundsChainAndWakeBlockUsesFasterBlockTime() public {
+        address impl = agentFactory.implementation();
+        address reactModule = WorkflowAgentV2(payable(impl)).reactModule();
         vm.chainId(ChainConfig.UNICHAIN_MAINNET);
         vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
-        new WorkflowAgentFactoryV2(system);
+        new WorkflowAgentFactoryV2(system, validator, impl);
 
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
-        new WorkflowAgentV2(system, address(agentFactory), validator);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, validator, reactModule);
 
         vm.chainId(ChainConfig.LASNA);
-        WorkflowAgentFactoryV2 lasnaFactory = new WorkflowAgentFactoryV2(system);
+        WorkflowAgentReactV2 lasnaReact = new WorkflowAgentReactV2(system, validator);
+        WorkflowAgentV2 lasnaImpl = new WorkflowAgentV2(system, validator, address(lasnaReact));
+        WorkflowAgentFactoryV2 lasnaFactory =
+            new WorkflowAgentFactoryV2(system, validator, address(lasnaImpl));
         vm.prank(OWNER);
         WorkflowAgentV2 lasnaAgent = WorkflowAgentV2(payable(lasnaFactory.create()));
         WorkflowVaultV2 sepVault = new WorkflowVaultV2(
@@ -1741,42 +1787,22 @@ contract WorkflowMainnetV2Test is Test {
             unichainVault.FAILED()
         );
 
+        // B-2: Legitimate >=5% gaps confirm cleanly when current `observed` matches Chainlink,
+        // while a manipulated `observed` is still blocked by OraclePriceDeviation.
         P.Run memory fallRun = _run(fallWf, 1_102, P.BASE_MAINNET, 2_000e18);
         fallRun.previous = 2_500e18;
-        assertEq(
-            _deliverAndExpectReason(
-                unichainVault,
-                fallWf,
-                fallRun,
-                unichainVault.FAILED(),
-                abi.encodeWithSelector(
-                    WorkflowProtocolsV2.OraclePriceDeviation.selector, 2_500e18, 2_000e18
-                )
-            ),
-            unichainVault.FAILED()
-        );
+        assertEq(_deliver(unichainVault, fallWf, fallRun), unichainVault.CONFIRMED());
 
         P.Run memory riseRun = _run(riseWf, 1_103, P.BASE_MAINNET, 2_000e18);
         riseRun.previous = 1_500e18;
-        assertEq(
-            _deliverAndExpectReason(
-                unichainVault,
-                riseWf,
-                riseRun,
-                unichainVault.FAILED(),
-                abi.encodeWithSelector(
-                    WorkflowProtocolsV2.OraclePriceDeviation.selector, 1_500e18, 2_000e18
-                )
-            ),
-            unichainVault.FAILED()
-        );
+        assertEq(_deliver(unichainVault, riseWf, riseRun), unichainVault.CONFIRMED());
 
         assertEq(unichainRouter.swapCount(), 0);
-        assertEq(unichainUsdc.balanceOf(RECIPIENT), 0);
+        assertEq(unichainUsdc.balanceOf(RECIPIENT), 20e6);
         (,,, bool fallActive) = unichainVault.authorizations(fallWf);
         (,,, bool riseActive) = unichainVault.authorizations(riseWf);
-        assertTrue(fallActive);
-        assertTrue(riseActive);
+        assertFalse(fallActive);
+        assertFalse(riseActive);
     }
 
     function testSingleBlockFlashLoanOrWickDoesNotPoisonAgentHighsForTrailingRecovery() public {

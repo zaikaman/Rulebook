@@ -306,6 +306,7 @@ export class AssistantToolExecutor {
   private readonly automationName: string;
   private readonly fundsChainIds: readonly FundsChainId[];
   private readonly deploymentId: string;
+  private readonly demo: boolean;
   private readonly workflows = new Map<string, Promise<WorkflowSnapshot>>();
   private addressesCache?: Promise<{
     agent: Address;
@@ -318,7 +319,9 @@ export class AssistantToolExecutor {
     private readonly clients: ChainClients,
     private readonly deployment: WorkflowV2Deployment | WorkflowV2MainnetDeployment,
     private readonly owner: Address,
+    options?: { readonly demo?: boolean },
   ) {
+    this.demo = Boolean(options?.demo);
     if ('reactive' in deployment) {
       this.mode = 'mainnet';
       this.automationChain = automationChainFor('mainnet');
@@ -1030,6 +1033,17 @@ export class AssistantToolExecutor {
   }
 
   private async notifications(): Promise<AssistantToolResult> {
+    if (this.demo) {
+      return this.result(
+        {
+          connection: 'redacted',
+          message:
+            'Telegram notification settings are private and hidden in demo mode. Connect your own wallet to configure alerts.',
+        },
+        'Hidden in demo mode',
+        [],
+      );
+    }
     const { agent } = await this.addresses();
     if (agent === zeroAddress)
       return this.result(

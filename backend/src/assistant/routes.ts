@@ -53,7 +53,12 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
     reply.header('cache-control', 'no-store');
     const query = z.object({ network: networkModeSchema.optional() }).safeParse(request.query);
     if (!query.success) return { available: false };
-    return { available: (await service?.ready(query.data.network).catch(() => false)) ?? false };
+    const available = (await service?.ready(query.data.network).catch(() => false)) ?? false;
+    const demoAvailable = Boolean(available && service?.hasDemoAccess(query.data.network));
+    return {
+      available,
+      ...(demoAvailable ? { demoAvailable: true } : {}),
+    };
   });
 
   function context(request: FastifyRequest, reply: FastifyReply) {
@@ -110,6 +115,42 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
         (await route.service.signIn(body.data.nonce, route.origin, body.data.signature)) ??
         unauthorized(reply)
       );
+    },
+  );
+
+  app.post(
+    `${base}/demo-session`,
+    {
+      bodyLimit: 1024,
+      config: { rateLimit: { max: 5, timeWindow: '5 minutes' } },
+    },
+    async (request, reply) => {
+      const route = context(request, reply);
+      if (!route) return reply;
+      const body = z
+        .object({ network: networkModeSchema.default('testnet') })
+        .strict()
+        .safeParse(request.body ?? {});
+      if (!body.success)
+        return sendError(reply, 400, 'assistant_network', 'Invalid network selection.');
+      if (body.data.network !== 'testnet' || !route.service.hasDemoAccess(body.data.network)) {
+        return sendError(
+          reply,
+          503,
+          'assistant_demo_unavailable',
+          'Bookkeeper demo mode is unavailable.',
+        );
+      }
+      const session = await route.service.createDemoSession(route.origin, body.data.network);
+      if (!session) {
+        return sendError(
+          reply,
+          503,
+          'assistant_demo_unavailable',
+          'Bookkeeper demo mode is unavailable.',
+        );
+      }
+      return session;
     },
   );
 
@@ -209,6 +250,7 @@ export function registerAssistantRoutes(app: FastifyInstance, deps: ServerDeps) 
             message: body.data.message,
             page: body.data.page,
             network: targetNetwork,
+            demo: admission.demo,
           },
           {
             signal: controller.signal,

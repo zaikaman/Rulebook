@@ -49,12 +49,14 @@ import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallou
 import { ApiError, api } from '@/lib/api';
 import { isWalletRejection } from '@/lib/errors';
 import { useNetworkMode } from '@/lib/networkMode';
+import { Button, Callout } from '@/ui';
 
 export type RulewrightSession = {
   owner: string;
   network: NetworkMode;
   token: string;
   expiresAt: number;
+  demo?: boolean;
 };
 
 const queueWaitMs = 5 * 60_000;
@@ -227,9 +229,11 @@ export function RulewrightDialog({
 
   const activeSession =
     verified &&
-    verified.owner === address &&
     verified.network === mode &&
-    verified.expiresAt * 1000 > Date.now() + queueWaitMs
+    verified.expiresAt * 1000 > Date.now() + queueWaitMs &&
+    (address
+      ? !verified.demo && verified.owner === address
+      : Boolean(verified.demo && mode === 'testnet'))
       ? verified
       : undefined;
   const result = preview?.result;
@@ -309,6 +313,38 @@ export function RulewrightDialog({
     }
   }
 
+  async function startDemoSession() {
+    if (isMainnet || operation.current) return;
+    const controller = new AbortController();
+    operation.current = controller;
+    const { signal } = controller;
+    setBusy('wallet');
+    setError(undefined);
+    try {
+      const response = await api.rulewrightDemoSession(signal, 'testnet');
+      if (signal.aborted) return;
+      const next: RulewrightSession = {
+        owner: 'demo',
+        network: 'testnet',
+        demo: true,
+        ...response,
+      };
+      session.current = next;
+      setVerified(next);
+    } catch (cause) {
+      if (!signal.aborted) {
+        setError(
+          cause instanceof ApiError && cause.code !== 'http_error'
+            ? cause.message
+            : 'Demo drafting session could not be started. Try again.',
+        );
+      }
+    } finally {
+      if (operation.current === controller) operation.current = undefined;
+      if (!signal.aborted) setBusy(undefined);
+    }
+  }
+
   async function generate(event: FormEvent) {
     event.preventDefault();
     const text = (question ? answer : prompt).trim();
@@ -345,6 +381,10 @@ export function RulewrightDialog({
       if (cause instanceof ApiError && cause.status === 401) {
         session.current = undefined;
         setVerified(undefined);
+        if (activeSession.demo) {
+          setError('Your demo session expired. Start a new demo session.');
+          return;
+        }
       }
       setError(
         cause instanceof Error && cause.name !== 'TimeoutError'
@@ -387,7 +427,25 @@ export function RulewrightDialog({
         </div>
       );
     }
-    if (!address) {
+    if (!activeSession && !address) {
+      if (availability.data?.demoAvailable && !isMainnet) {
+        return (
+          <Callout
+            title="Try Rulewright without a wallet"
+            action={
+              <Button
+                variant="primary"
+                disabled={Boolean(busy)}
+                onClick={() => void startDemoSession()}
+              >
+                Start demo drafting session
+              </Button>
+            }
+          >
+            <p>Generate a testnet workflow draft and preview it on the canvas.</p>
+          </Callout>
+        );
+      }
       return (
         <div className="rb-rulewright__card">
           <span className="rb-rulewright__card-mark" aria-hidden="true">
@@ -673,7 +731,7 @@ export function RulewrightDialog({
           </ol>
           <span className="rb-rulewright__session">
             <span className="app-live-dot" aria-hidden="true" />
-            Session active
+            {activeSession?.demo ? 'Demo session' : 'Session active'}
           </span>
         </div>
       )}
@@ -688,7 +746,9 @@ export function RulewrightDialog({
             <i />
           </span>
           {busy === 'wallet'
-            ? 'Confirm the signature in your wallet.'
+            ? address
+              ? 'Confirm the signature in your wallet.'
+              : 'Starting Rulewright demo session…'
             : 'Rulewright is drafting your workflow…'}
         </p>
       )}

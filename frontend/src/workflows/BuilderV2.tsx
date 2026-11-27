@@ -34,6 +34,7 @@ import {
   type TriggerCode,
   type WeeklyBudgetAmounts,
   type WorkflowFieldName,
+  type WorkflowFieldSpec,
   type WorkflowV2Program,
   type WorkflowV2RecipeId,
 } from '@rulebook/shared';
@@ -119,10 +120,12 @@ import {
   triggers,
   unavailable,
   v2DraftSchema,
+  type CheckCode,
   type DraftPath,
   type NodeTool,
   type V2Draft,
 } from './modelV2';
+import { PoolPriceAssist } from './PoolPriceAssist';
 
 const nodeMime = 'application/x-rulebook-v2-workflow-node';
 const nodeGroups = ['Triggers', 'Checks', 'Actions', 'Notifications'] as const;
@@ -213,6 +216,7 @@ function Input({
   change,
   hint,
   error,
+  assist,
   placeholder,
   required = true,
   text = false,
@@ -223,13 +227,14 @@ function Input({
   change: (value: string) => void;
   hint?: ReactNode;
   error?: ReactNode;
+  assist?: ReactNode;
   placeholder?: string;
   required?: boolean;
   text?: boolean;
   onBlur?: () => void;
 }) {
   return (
-    <Field label={name} hint={hint} error={error}>
+    <Field label={name} hint={hint} error={error} assist={assist}>
       {(ids) => (
         <input
           className="app-input"
@@ -245,6 +250,25 @@ function Input({
       )}
     </Field>
   );
+}
+
+function isPriceRecipeField(spec: WorkflowFieldSpec): boolean {
+  return spec.kind === 'number' && spec.unit === 'USDC per WETH';
+}
+
+function isPriceCheckThreshold(check: CheckCode): boolean {
+  return (
+    check === C.priceAtLeast ||
+    check === C.priceAtMost ||
+    check === C.priceBelow ||
+    check === C.priceOutside ||
+    check === C.priceRisesThrough ||
+    check === C.priceFallsThrough
+  );
+}
+
+function isPriceCheckUpper(check: CheckCode): boolean {
+  return check === C.priceOutside || check === C.aboveReference || check === C.belowReference;
 }
 
 function priceOutsideUpperIssue(lowerValue: string, upperValue: string) {
@@ -541,6 +565,18 @@ function RecipePicker({
                           placeholder={spec.placeholder}
                           hint={hint}
                           error={issue}
+                          assist={
+                            isPriceRecipeField(spec) ? (
+                              <PoolPriceAssist
+                                chain={recipeChain}
+                                value={values[field] ?? ''}
+                                onSelect={(next) => {
+                                  setValues((current) => ({ ...current, [field]: next }));
+                                  setTouched((current) => new Set(current).add(field));
+                                }}
+                              />
+                            ) : undefined
+                          }
                           change={(value) =>
                             setValues((current) => ({ ...current, [field]: value }))
                           }
@@ -1654,6 +1690,9 @@ function Editor({
     if ('check' in path) {
       const metadata = checks[path.check];
       const conditionTriggerIssue = unavailable({ group: 'check', code: path.check }, draft);
+      // The Vault evaluates transfer-triggered price checks against the settlement pool.
+      const priceChain =
+        draft.trigger === T.price || draft.trigger === T.schedule ? draft.originChain : draft.chain;
       function openBranch(anchor: string) {
         const index = diagram.paths.findIndex((entry) => entry.anchor === anchor);
         if (index >= 0) selectNode(index);
@@ -1696,6 +1735,15 @@ function Editor({
                   name={`${metadata.name} threshold`}
                   value={path.value}
                   hint="The value this condition compares against."
+                  assist={
+                    isPriceCheckThreshold(path.check) && isFundsChain(priceChain) ? (
+                      <PoolPriceAssist
+                        chain={priceChain}
+                        value={path.value}
+                        onSelect={(value) => changePath({ ...path, value })}
+                      />
+                    ) : undefined
+                  }
                   error={
                     path.value.trim()
                       ? amountIssue(path.value, checkThresholdRules(path.check, draft.trigger))
@@ -1712,6 +1760,15 @@ function Editor({
                     path.check === C.priceOutside
                       ? 'Must be above the lower price.'
                       : 'Optional starting reference price.'
+                  }
+                  assist={
+                    isPriceCheckUpper(path.check) && isFundsChain(priceChain) ? (
+                      <PoolPriceAssist
+                        chain={priceChain}
+                        value={path.upper}
+                        onSelect={(upper) => changePath({ ...path, upper })}
+                      />
+                    ) : undefined
                   }
                   required={path.check === C.priceOutside}
                   error={

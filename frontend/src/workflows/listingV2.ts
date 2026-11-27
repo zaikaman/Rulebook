@@ -18,6 +18,9 @@ export const v2ApiBase = (import.meta.env.VITE_API_BASE_URL || 'http://localhost
   /\/$/,
   '',
 );
+export type MarketplaceTriggerFilter = 'schedule' | 'payment' | 'price' | 'transfer';
+export type MarketplaceScopeFilter = 'all' | 'single' | 'cross';
+
 export const v2ListingId = z
   .string()
   .regex(/^[1-9]\d{0,77}$/)
@@ -31,12 +34,20 @@ const listing = z.object({
   workflow_id: workflowIdSchema,
   program_hash: workflowIdSchema,
   chain: fundsChainIdSchema,
+  origin_chain: fundsChainIdSchema.optional(),
+  trigger: z
+    .union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)])
+    .nullable()
+    .optional(),
   program: workflowHexSchema,
+  verified_runs: z.number().int().nonnegative().default(0),
 });
+export type V2MarketListing = z.infer<typeof listing>;
 export const v2MarketPage = z.object({
   listings: z.array(listing),
   nextCursor: z.string().nullable(),
 });
+export type V2MarketPage = z.infer<typeof v2MarketPage>;
 
 const listingReadMessages = {
   syncing: 'The Marketplace is still syncing this listing.',

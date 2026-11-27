@@ -1,7 +1,9 @@
 import {
   apiErrorSchema,
   assistantChallengeSchema,
+  assistantDemoSessionSchema,
   assistantSessionSchema,
+  demoAccountConfigSchema,
   healthSchema,
   rulewrightChallengeSchema,
   rulewrightJobIdSchema,
@@ -11,6 +13,8 @@ import {
   telegramChallengeSchema,
   telegramPairingSchema,
   telegramSettingsSchema,
+  type AssistantDemoSession,
+  type DemoAccountConfig,
   type Health,
   type NetworkMode,
   type RulewrightRequest,
@@ -75,11 +79,15 @@ export class ApiClient {
     return this.request('/health', healthSchema);
   }
 
+  demoAccount(signal?: AbortSignal, network: NetworkMode = 'testnet'): Promise<DemoAccountConfig> {
+    return this.request(`/v3/demo?network=${network}`, demoAccountConfigSchema, { signal });
+  }
+
   rulewrightAvailability(signal?: AbortSignal, network?: NetworkMode) {
     const query = network ? `?network=${network}` : '';
     return this.request(
       `/v2/rulewright/availability${query}`,
-      z.object({ available: z.boolean() }),
+      z.object({ available: z.boolean(), demoAvailable: z.boolean().optional() }),
       {
         signal,
       },
@@ -99,6 +107,14 @@ export class ApiClient {
       '/v2/rulewright/session',
       rulewrightSessionSchema,
       rulewrightRequest('POST', signal, { nonce, signature }),
+    );
+  }
+
+  rulewrightDemoSession(signal: AbortSignal, network: NetworkMode = 'testnet') {
+    return this.request(
+      '/v2/rulewright/demo-session',
+      rulewrightSessionSchema,
+      rulewrightRequest('POST', signal, { network }),
     );
   }
 
@@ -122,7 +138,7 @@ export class ApiClient {
     const query = network ? `?network=${network}` : '';
     return this.request(
       `/v2/assistant/availability${query}`,
-      z.object({ available: z.boolean() }),
+      z.object({ available: z.boolean(), demoAvailable: z.boolean().optional() }),
       {
         signal,
       },
@@ -142,6 +158,17 @@ export class ApiClient {
       '/v2/assistant/session',
       assistantSessionSchema,
       assistantRequest('POST', signal, { nonce, signature }),
+    );
+  }
+
+  assistantDemoSession(
+    signal: AbortSignal,
+    network: NetworkMode = 'testnet',
+  ): Promise<AssistantDemoSession> {
+    return this.request(
+      '/v2/assistant/demo-session',
+      assistantDemoSessionSchema,
+      assistantRequest('POST', signal, { network }),
     );
   }
 

@@ -247,6 +247,10 @@ const staticTasks = [
 const contractBuildOutputs = [
   'contracts/out/WorkflowAgentFactoryV2.sol/WorkflowAgentFactoryV2.json',
   'contracts/out/WorkflowVaultFactoryV2.sol/WorkflowVaultFactoryV2.json',
+  'contracts/out/WorkflowProgramValidatorV2.sol/WorkflowProgramValidatorV2.json',
+  'contracts/out/WorkflowAgentReactV2.sol/WorkflowAgentReactV2.json',
+  'contracts/out/WorkflowAgentV2.sol/WorkflowAgentV2.json',
+  'contracts/out/WorkflowVaultV2.sol/WorkflowVaultV2.json',
   'contracts/out/MockERC20.sol/MockERC20.json',
   'contracts/out/MockSystemContract.sol/MockSystemContract.json',
   'contracts/cache/solidity-files-cache.json',

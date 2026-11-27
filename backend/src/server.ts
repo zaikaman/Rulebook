@@ -225,11 +225,17 @@ export async function startServer(): Promise<void> {
     : [UNICHAIN_MAINNET_CHAIN_ID];
   const rulewright =
     config.gemini && vaultFactories
-      ? new RulewrightService(supabase, clients, vaultFactories, config.gemini)
+      ? new RulewrightService(supabase, clients, vaultFactories, config.gemini, config.demoAccount)
       : undefined;
   const assistant =
     config.gemini && (v2 || v2Mainnet)
-      ? new AssistantService(supabase, clients, { testnet: v2, mainnet: v2Mainnet }, config.gemini)
+      ? new AssistantService(
+          supabase,
+          clients,
+          { testnet: v2, mainnet: v2Mainnet },
+          config.gemini,
+          config.demoAccount,
+        )
       : undefined;
   const rulewrightShutdown = new AbortController();
   const telegramDb = config.telegram ? new TelegramDatabase(supabase) : undefined;
@@ -337,6 +343,10 @@ export async function startServer(): Promise<void> {
           mainnet: v2Mainnet?.reactive.factory,
         },
         callbackReaders,
+        {
+          owner: config.demoAccount,
+          featuredRunIds: config.demoFeaturedRunIds,
+        },
       );
     });
   }

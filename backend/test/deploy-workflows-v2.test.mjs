@@ -316,4 +316,88 @@ describe('verifyDeploymentRecord', () => {
       }),
     ).rejects.toThrow(/must record a clean 40-character commit/);
   });
+
+  it('verifies unbundled validator and implementation creationInputHash on both factory types', async () => {
+    const rootDir = await makeTempRoot();
+    const recordPath = join(rootDir, 'deployments', 'workflows-v2.json');
+    const validator = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const agentImpl = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const vaultImpl = '0xcccccccccccccccccccccccccccccccccccccccc';
+    const agentBytecode = '0x60016000';
+    const vaultBytecode = '0x60026000';
+    await writeFile(
+      join(
+        rootDir,
+        'contracts',
+        'out',
+        'WorkflowAgentFactoryV2.sol',
+        'WorkflowAgentFactoryV2.json',
+      ),
+      JSON.stringify({ bytecode: { object: agentBytecode } }),
+    );
+    await writeFile(
+      join(
+        rootDir,
+        'contracts',
+        'out',
+        'WorkflowVaultFactoryV2.sol',
+        'WorkflowVaultFactoryV2.json',
+      ),
+      JSON.stringify({ bytecode: { object: vaultBytecode } }),
+    );
+    const { concat, encodeAbiParameters } = await import('viem');
+    const agentArgs = encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }, { type: 'address' }],
+      ['0x8888888888888888888888888888888888888888', validator, agentImpl],
+    );
+    const vaultArgs = encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }],
+      [validator, vaultImpl],
+    );
+    await writeFile(
+      recordPath,
+      JSON.stringify([
+        {
+          name: 'Reactive Lasna',
+          chainId: TESTNET_CHAINS.lasna.id,
+          contract: 'WorkflowAgentFactoryV2',
+          address: '0x1111111111111111111111111111111111111111',
+          validator,
+          implementation: agentImpl,
+          blockNumber: 100,
+          source: 'commit',
+          commit: 'a'.repeat(40),
+          dirty: false,
+          creationInputHash: keccak256(concat([agentBytecode, agentArgs])),
+          runtimeCodeHash: keccak256('0xbeef'),
+        },
+        {
+          name: 'Unichain Sepolia',
+          chainId: TESTNET_CHAINS.unichain.id,
+          contract: 'WorkflowVaultFactoryV2',
+          address: '0x2222222222222222222222222222222222222222',
+          validator,
+          implementation: vaultImpl,
+          blockNumber: 200,
+          source: 'commit',
+          commit: 'a'.repeat(40),
+          dirty: false,
+          creationInputHash: keccak256(concat([vaultBytecode, vaultArgs])),
+          runtimeCodeHash: keccak256('0xbeef'),
+        },
+      ]),
+    );
+
+    const result = await verifyDeploymentRecord({
+      recordPath,
+      rootDir,
+      contractsDir: join(rootDir, 'contracts'),
+      offline: true,
+      allowContractDrift: false,
+      isMainnet: false,
+      chains: TESTNET_CHAINS,
+      automationKey: 'lasna',
+    });
+    expect(result.warnings).toHaveLength(0);
+  });
 });

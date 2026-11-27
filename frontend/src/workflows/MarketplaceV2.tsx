@@ -1,27 +1,40 @@
-import { decodeWorkflowV2 } from '@rulebook/shared';
-import { ArrowRight01Icon, Search01Icon, Store01Icon } from '@hugeicons/core-free-icons';
+import {
+  decodeWorkflowV2,
+  fundsChainsFor,
+  getChain,
+  workflowV2Trigger as T,
+  type TriggerCode,
+} from '@rulebook/shared';
+import {
+  ArrowRight01Icon,
+  Clock01Icon,
+  Coins01Icon,
+  Exchange01Icon,
+  Search01Icon,
+  Store01Icon,
+  Tick02Icon,
+  TradeUpIcon,
+} from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type ComponentProps } from 'react';
 import { Link, useParams } from 'react-router';
 
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
 import { PageHeading } from '@/components/chrome/PageHeading';
-import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
-import { NetworkBadge } from '@/components/NetworkBadge';
 import { CardGridSkeleton, LoadingRegion } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
+import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
+import { NetworkBadge } from '@/components/NetworkBadge';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
-import { WorkflowProgramSummary } from './BuilderV2';
-import { ListingStatusV2 } from './ListingStatusV2';
-import { toDraft } from './modelV2';
-import { v2ApiBase, v2ListingId, v2ListingQuery, v2MarketPage } from './listingV2';
 import {
   Badge,
   Button,
   ErrorState,
   FactList,
+  FilterBar,
+  FilterGroup,
   Panel,
   PanelBody,
   PanelCopy,
@@ -30,25 +43,142 @@ import {
   PanelTitle,
   Toolbar,
 } from '@/ui';
+import { WorkflowProgramSummary } from './BuilderV2';
+import {
+  type MarketplaceScopeFilter,
+  type MarketplaceTriggerFilter,
+  type V2MarketListing,
+  type V2MarketPage,
+  v2ApiBase,
+  v2ListingId,
+  v2ListingQuery,
+  v2MarketPage,
+} from './listingV2';
+import { ListingStatusV2 } from './ListingStatusV2';
+import { toDraft, triggers } from './modelV2';
+
+type IconProp = ComponentProps<typeof HugeiconsIcon>['icon'];
+
+const triggerIcons: Record<TriggerCode, IconProp> = {
+  [T.schedule]: Clock01Icon,
+  [T.payment]: Coins01Icon,
+  [T.price]: TradeUpIcon,
+  [T.transfer]: Exchange01Icon,
+};
+
+const triggerOptions: ReadonlyArray<{ value: 'all' | MarketplaceTriggerFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'schedule', label: 'Schedule' },
+  { value: 'payment', label: 'USDC payment' },
+  { value: 'price', label: 'Pool price' },
+  { value: 'transfer', label: 'Token transfer' },
+];
+
+const scopeOptions: ReadonlyArray<{ value: MarketplaceScopeFilter; label: string }> = [
+  { value: 'all', label: 'All' },
+  { value: 'single', label: 'Single-chain' },
+  { value: 'cross', label: 'Cross-chain' },
+];
 
 function shortAddress(address: string) {
   return `${address.slice(0, 6)}…${address.slice(-4)}`;
 }
 
+function readListingMeta(item: V2MarketListing): {
+  originChain: number;
+  trigger: TriggerCode | null;
+} {
+  if (item.origin_chain !== undefined && item.trigger !== undefined) {
+    return { originChain: item.origin_chain, trigger: item.trigger };
+  }
+  try {
+    const decoded = decodeWorkflowV2(item.program);
+    return {
+      originChain: item.origin_chain ?? decoded.originChain,
+      trigger: item.trigger ?? (decoded.trigger as TriggerCode),
+    };
+  } catch {
+    return {
+      originChain: item.origin_chain ?? item.chain,
+      trigger: item.trigger ?? null,
+    };
+  }
+}
+
+function VerifiedRunsBadge({ count }: { readonly count: number }) {
+  const label = `${count} verified ${count === 1 ? 'run' : 'runs'}`;
+  if (count > 0) {
+    return (
+      <Badge tone="active" plain>
+        <HugeiconsIcon icon={Tick02Icon} size={12} strokeWidth={2.1} aria-hidden="true" />
+        <span>{label}</span>
+      </Badge>
+    );
+  }
+  return <Badge plain>{label}</Badge>;
+}
+
 export function WorkflowMarketplaceV2() {
   const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
   const [search, setSearch] = useState('');
-  const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'marketplace', mode, search],
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [chainFilter, setChainFilter] = useState<string>('all');
+  const [scopeFilter, setScopeFilter] = useState<MarketplaceScopeFilter>('all');
+  const [triggerFilter, setTriggerFilter] = useState<'all' | MarketplaceTriggerFilter>('all');
+
+  useEffect(() => {
+    const trimmed = search.trim();
+    if (!trimmed) {
+      setDebouncedSearch('');
+      return;
+    }
+    const timer = setTimeout(() => setDebouncedSearch(trimmed), 200);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    setChainFilter('all');
+  }, [mode]);
+
+  const availableChains = fundsChainsFor(mode);
+  const effectiveChain =
+    chainFilter !== 'all' && availableChains.some((id) => String(id) === chainFilter)
+      ? chainFilter
+      : 'all';
+
+  const networkOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All' },
+      ...availableChains.map((id) => ({ value: String(id), label: getChain(id).name })),
+    ],
+    [availableChains],
+  );
+
+  const query = useInfiniteQuery<V2MarketPage>({
+    queryKey: [
+      'workflow-v2',
+      'marketplace',
+      mode,
+      debouncedSearch,
+      effectiveChain,
+      scopeFilter,
+      triggerFilter,
+    ],
     enabled: isDeploymentConfigured,
-    placeholderData: keepPreviousData,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === mode ? previousData : undefined,
     refetchOnMount: 'always',
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam, signal }) => {
       const params = new URLSearchParams({
-        q: search,
+        q: debouncedSearch,
         network: mode,
-        ...(pageParam ? { after: pageParam } : {}),
+        ...(effectiveChain !== 'all' ? { chain: effectiveChain } : {}),
+        ...(scopeFilter !== 'all'
+          ? { crossChain: scopeFilter === 'cross' ? 'true' : 'false' }
+          : {}),
+        ...(triggerFilter !== 'all' ? { trigger: triggerFilter } : {}),
+        ...(pageParam ? { after: String(pageParam) } : {}),
       });
       const response = await fetch(`${v2ApiBase}/v3/marketplace?${params}`, { signal });
       if (!response.ok) throw new Error('The Marketplace could not load.');
@@ -56,8 +186,21 @@ export function WorkflowMarketplaceV2() {
     },
     getNextPageParam: (result) => result.nextCursor,
   });
+
   const items = query.data?.pages.flatMap((result) => result.listings) ?? [];
-  const filtered = search.trim().length > 0;
+  const hasFilters =
+    search.trim().length > 0 ||
+    effectiveChain !== 'all' ||
+    scopeFilter !== 'all' ||
+    triggerFilter !== 'all';
+
+  function resetFilters() {
+    setSearch('');
+    setDebouncedSearch('');
+    setChainFilter('all');
+    setScopeFilter('all');
+    setTriggerFilter('all');
+  }
 
   return (
     <section className="app-page">
@@ -69,7 +212,12 @@ export function WorkflowMarketplaceV2() {
             ? 'Browse mainnet workflows published by other wallets and copy one as your own draft.'
             : 'Browse testnet workflows published by other wallets and copy one as your own draft.'
         }
-        aside={<span className="rb-chip rb-chip--plain">{items.length} listed</span>}
+        aside={
+          <Badge plain>
+            {items.length}
+            {query.hasNextPage ? '+' : ''} listed
+          </Badge>
+        }
       />
 
       {!isDeploymentConfigured &&
@@ -90,41 +238,65 @@ export function WorkflowMarketplaceV2() {
             type="search"
             maxLength={160}
             value={search}
+            disabled={!isDeploymentConfigured}
             placeholder="Search by name or description"
             onChange={(event) => setSearch(event.target.value)}
           />
         </label>
-        {filtered && (
-          <Button variant="quiet" onClick={() => setSearch('')}>
-            Clear
+        {hasFilters && isDeploymentConfigured && (
+          <Button variant="quiet" onClick={resetFilters}>
+            Reset filters
           </Button>
         )}
       </Toolbar>
+
+      <FilterBar>
+        <FilterGroup
+          label="Network"
+          options={networkOptions}
+          value={effectiveChain}
+          onChange={setChainFilter}
+          disabled={!isDeploymentConfigured}
+        />
+        <FilterGroup
+          label="Routing"
+          options={scopeOptions}
+          value={scopeFilter}
+          onChange={setScopeFilter}
+          disabled={!isDeploymentConfigured}
+        />
+        <FilterGroup
+          label="Trigger"
+          options={triggerOptions}
+          value={triggerFilter}
+          onChange={setTriggerFilter}
+          disabled={!isDeploymentConfigured}
+        />
+      </FilterBar>
 
       {query.error && (
         <ErrorState message={query.error.message} onRetry={() => void query.refetch()} />
       )}
 
-      {query.isPending && isDeploymentConfigured && (
-        <LoadingRegion label="Loading Marketplace…">
-          <CardGridSkeleton count={3} />
-        </LoadingRegion>
-      )}
+      {(query.isPending || (query.isPlaceholderData && !items.length && !query.error)) &&
+        isDeploymentConfigured && (
+          <LoadingRegion label="Loading Marketplace…">
+            <CardGridSkeleton count={3} />
+          </LoadingRegion>
+        )}
 
-      {query.isSuccess && !items.length && (
+      {query.isSuccess && !query.isPlaceholderData && !items.length && (
         <EmptyState
-          icon={filtered ? Search01Icon : Store01Icon}
-          title={filtered ? 'No listings match your search' : 'Nothing published yet'}
+          icon={hasFilters ? Search01Icon : Store01Icon}
+          title={hasFilters ? 'No listings match your filters' : 'Nothing published yet'}
           description={
-            filtered
-              ? 'Try a shorter term, or clear the search to see every published workflow.'
+            hasFilters
+              ? 'Try a different keyword or reset the active filters to browse every published workflow.'
               : 'Published workflows become starting points for other wallets. Publish one from its detail page to list it here.'
           }
           action={
-            filtered ? (
-              <button type="button" className="app-button" onClick={() => setSearch('')}>
-                Clear search
-              </button>
+            hasFilters ? (
+              <Button onClick={resetFilters}>Reset filters</Button>
             ) : (
               <Link
                 className="app-button app-button--primary"
@@ -137,46 +309,75 @@ export function WorkflowMarketplaceV2() {
         />
       )}
 
-      {!!items.length && (
-        <ul className="rb-card-grid">
-          {items.map((item) => (
-            <li key={item.id}>
-              <Link to={withNetworkQuery(`/marketplace/${item.id}`, mode)} className="rb-card">
-                <div className="rb-card-body">
-                  <div className="rb-card-head">
-                    <span className="rb-card-icon" data-role="automation" aria-hidden="true">
-                      <HugeiconsIcon icon={Store01Icon} size={18} strokeWidth={1.7} />
-                    </span>
-                    <div className="rb-card-heading">
-                      <h2 className="rb-card-title">{item.title}</h2>
-                      <p className="rb-card-meta font-mono">{shortAddress(item.owner)}</p>
+      {!query.error && !!items.length && (
+        <ul className="rb-card-grid" aria-busy={query.isFetching && !query.isPending}>
+          {items.map((item) => {
+            const meta = readListingMeta(item);
+            const crossChain = meta.originChain !== item.chain;
+            const triggerLabel = meta.trigger ? triggers[meta.trigger] : null;
+            const icon = meta.trigger ? triggerIcons[meta.trigger] : Store01Icon;
+            return (
+              <li key={item.id}>
+                <Link to={withNetworkQuery(`/marketplace/${item.id}`, mode)} className="rb-card">
+                  <div className="rb-card-body">
+                    <div className="rb-card-head">
+                      <span className="rb-card-icon" data-role="automation" aria-hidden="true">
+                        <HugeiconsIcon icon={icon} size={18} strokeWidth={1.7} />
+                      </span>
+                      <div className="rb-card-heading">
+                        <h2 className="rb-card-title">{item.title}</h2>
+                        <p className="rb-card-meta">
+                          <span className="font-mono">{shortAddress(item.owner)}</span>
+                          {triggerLabel ? (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>{triggerLabel}</span>
+                            </>
+                          ) : null}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="rb-card-copy">{item.description}</p>
+                    <div className="rb-inline">
+                      <VerifiedRunsBadge count={item.verified_runs} />
+                      {crossChain ? (
+                        <Badge
+                          tone="info"
+                          plain
+                          title={`Watches ${getChain(meta.originChain).name}, settles on ${getChain(item.chain).name}`}
+                        >
+                          <span>Cross-chain</span>
+                          <span className="sr-only">
+                            {` (watches ${getChain(meta.originChain).name}, settles on ${getChain(item.chain).name})`}
+                          </span>
+                        </Badge>
+                      ) : null}
                     </div>
                   </div>
-                  <p className="rb-card-copy">{item.description}</p>
-                </div>
-                <div className="rb-card-foot">
-                  <NetworkBadge chainId={item.chain} />
-                  <span className="rb-card-cue">
-                    Open
-                    <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
-                  </span>
-                </div>
-              </Link>
-            </li>
-          ))}
+                  <div className="rb-card-foot">
+                    <NetworkBadge chainId={item.chain} />
+                    <span className="rb-card-cue">
+                      Open
+                      <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
 
-      {query.hasNextPage && (
-        <button
-          type="button"
-          className="app-button"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
+      {!query.error && query.hasNextPage && (
+        <Button
+          disabled={query.isFetchingNextPage || query.isPlaceholderData}
+          onClick={() => {
+            if (!query.isPlaceholderData) void query.fetchNextPage();
+          }}
         >
           {query.isFetchingNextPage && <Spinner />}
           {query.isFetchingNextPage ? 'Loading more listings' : 'Load more listings'}
-        </button>
+        </Button>
       )}
     </section>
   );
@@ -191,6 +392,8 @@ export function WorkflowListingV2() {
   if (!query.isFetchedAfterMount || !query.data || query.error || query.failureReason)
     return <ListingStatusV2 query={query} />;
   const item = query.data;
+  const draft = toDraft(decodeWorkflowV2(item.program), item.title);
+  const crossChain = draft.originChain !== item.chain;
 
   return (
     <section className="app-page">
@@ -216,7 +419,7 @@ export function WorkflowListingV2() {
             />
           </PanelHeader>
           <PanelBody>
-            <WorkflowProgramSummary draft={toDraft(decodeWorkflowV2(item.program), item.title)} />
+            <WorkflowProgramSummary draft={draft} />
           </PanelBody>
         </Panel>
         <Panel className="rb-listing-details">
@@ -250,7 +453,22 @@ export function WorkflowListingV2() {
                   ),
                 },
                 { term: 'Listing', valueClassName: 'rb-listing-id', value: `#${item.id}` },
+                { term: 'Verified runs', value: <VerifiedRunsBadge count={item.verified_runs} /> },
+                { term: 'Trigger', value: triggers[draft.trigger] },
                 { term: 'Settlement', value: <NetworkBadge chainId={item.chain} /> },
+                ...(crossChain
+                  ? [
+                      { term: 'Watches', value: <NetworkBadge chainId={draft.originChain} /> },
+                      {
+                        term: 'Routing',
+                        value: (
+                          <Badge tone="info" plain>
+                            Cross-chain
+                          </Badge>
+                        ),
+                      },
+                    ]
+                  : []),
                 { term: 'Visibility', value: <Badge tone="active">Public</Badge> },
               ]}
             />

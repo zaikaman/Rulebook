@@ -6,6 +6,7 @@ import { AppMobileNav } from './chrome/AppMobileNav.js';
 import { AppScrollArea } from './chrome/AppScrollArea.js';
 import { AppSidebar } from './chrome/AppSidebar.js';
 import { AppTopbar } from './chrome/AppTopbar.js';
+import { DemoModeBanner } from './DemoModeBanner.js';
 import { OfflineState } from './OfflineState.js';
 import '../styles/workspace.css';
 
@@ -26,6 +27,7 @@ export function AppShell({
           <AppScrollArea>
             <div className={focused ? 'app-workspace app-workspace--focused' : 'app-workspace'}>
               <OfflineState />
+              {!focused && <DemoModeBanner />}
               {children ?? <Outlet />}
               {focused && (
                 <div className="app-assistant-dock">

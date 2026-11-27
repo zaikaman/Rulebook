@@ -1,5 +1,7 @@
 import {
   BASE_SEPOLIA_CHAIN_ID,
+  createWorkflowV2Recipe,
+  encodeWorkflowV2,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
   UNICHAIN_MAINNET_CHAIN_ID,
@@ -10,7 +12,7 @@ import {
 } from '@rulebook/shared';
 import { createClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
-import type { Address, Hex, PublicClient } from 'viem';
+import { keccak256, type Address, type Hex, type PublicClient } from 'viem';
 import { describe, expect, it, vi } from 'vitest';
 
 import { WorkflowV2Indexer } from '../../src/workflows/indexerV2.js';
@@ -520,5 +522,82 @@ describe('WorkflowV2Indexer', () => {
       expect.arrayContaining(['workflow_v2_runs', 'workflow_v2_market_listings']),
     );
     expect(deletes).not.toContain('workflow_v2_outcomes');
+  });
+
+  it('decodes origin_chain and trigger when indexing Published marketplace listings', async () => {
+    const owner = addr(20);
+    const agent = addr(21);
+    const workflow = hash('9');
+    const program = encodeWorkflowV2(
+      createWorkflowV2Recipe(
+        'buy-the-dip',
+        {
+          intervalSeconds: '3600',
+          dipPercent: '5',
+          buyUsdc: '10',
+          slippagePercent: '1',
+        },
+        { chain: BASE_SEPOLIA_CHAIN_ID, originChain: UNICHAIN_SEPOLIA_CHAIN_ID },
+      ),
+    );
+    const programHash = keccak256(program);
+    const { db, upserts } = createFakeDb({
+      cursors: {
+        [LASNA_CHAIN_ID]: 100,
+        [UNICHAIN_SEPOLIA_CHAIN_ID]: 250,
+        [BASE_SEPOLIA_CHAIN_ID]: 350,
+      },
+    });
+    const lasna = makeClient(130n, (call) => {
+      if (call.address === LASNA_FACTORY) {
+        return [
+          {
+            eventName: 'Published',
+            address: LASNA_FACTORY,
+            blockNumber: 105n,
+            logIndex: 0,
+            args: {
+              listing: 7n,
+              owner,
+              agent,
+              workflow,
+              programHash,
+              chain: BASE_SEPOLIA_CHAIN_ID,
+              title: 'Dip buyer',
+              description: 'Buys WETH on Base when Unichain dips',
+            },
+          },
+        ];
+      }
+      return [];
+    });
+    (lasna.client as unknown as { readContract: ReturnType<typeof vi.fn> }).readContract = vi.fn(
+      async () => program,
+    );
+
+    const indexer = new WorkflowV2Indexer(
+      db,
+      {
+        lasna: lasna.client,
+        unichain: makeClient(250n, () => []).client,
+        base: makeClient(350n, () => []).client,
+      },
+      DEPLOYMENT,
+      silentLogger,
+    );
+
+    await indexer.syncOnce();
+
+    const listingRows = upserts
+      .filter((item) => item.table === 'workflow_v2_market_listings')
+      .flatMap((item) => item.rows as Array<Record<string, unknown>>);
+    expect(listingRows).toHaveLength(1);
+    expect(listingRows[0]).toMatchObject({
+      id: '7',
+      chain: BASE_SEPOLIA_CHAIN_ID,
+      origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+      trigger: 1,
+      title: 'Dip buyer',
+    });
   });
 });

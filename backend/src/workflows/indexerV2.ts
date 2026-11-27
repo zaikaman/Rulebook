@@ -3,6 +3,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import {
   BASE_MAINNET_CHAIN_ID,
   BASE_SEPOLIA_CHAIN_ID,
+  decodeWorkflowV2,
   isAutomationChain,
   LASNA_CHAIN_ID,
   REACTIVE_MAINNET_CHAIN_ID,
@@ -40,8 +41,14 @@ interface ChainSource extends WorkflowV2ChainDeployment {
   confirmations: bigint;
 }
 
-const AGENT_FACTORY = workflowAgentFactoryV2Abi.filter((item) => item.type === 'event');
-const VAULT_CREATED = workflowVaultFactoryV2Abi.filter((item) => item.type === 'event');
+const AGENT_FACTORY = workflowAgentFactoryV2Abi.filter(
+  (item) =>
+    item.type === 'event' &&
+    (item.name === 'AgentCreated' || item.name === 'Published' || item.name === 'Unpublished'),
+);
+const VAULT_CREATED = workflowVaultFactoryV2Abi.filter(
+  (item) => item.type === 'event' && item.name === 'VaultCreated',
+);
 const AGENT_EVENTS = workflowAgentV2Abi.filter(
   (item) => item.type === 'event' && (item.name === 'Enabled' || item.name === 'Dispatched'),
 );
@@ -290,10 +297,13 @@ export class WorkflowV2Indexer {
         });
         if (keccak256(program) !== a.programHash)
           throw new Error('V2 listing program hash mismatch.');
+        const decoded = decodeWorkflowV2(program);
         await this.upsert('workflow_v2_market_listings', [
           {
             deployment: this.deployment,
             chain: a.chain,
+            origin_chain: decoded.originChain,
+            trigger: decoded.trigger,
             id: a.listing.toString(),
             owner: a.owner.toLowerCase(),
             agent: a.agent.toLowerCase(),
@@ -307,7 +317,7 @@ export class WorkflowV2Indexer {
             log_index: log.logIndex,
           },
         ]);
-      } else {
+      } else if (log.eventName === 'Unpublished') {
         const result = await this.db
           .from('workflow_v2_market_listings')
           .update({ visible: false })

@@ -362,7 +362,7 @@ async function deploy(chain, account, deployerKey) {
     );
   }
   forge([...args, '--broadcast', '--start-fresh'], forgeEnv);
-  return readBroadcast(chain.id);
+  return readBroadcast(chain.id, chain.contract);
 }
 
 function broadcastPath(chainId) {
@@ -375,16 +375,30 @@ function broadcastPath(chainId) {
   );
 }
 
-function readBroadcast(chainId) {
+function readBroadcast(chainId, contractName) {
   const path = broadcastPath(chainId);
   if (!existsSync(path)) fail(`Missing broadcast receipts at ${path}.`);
   const broadcast = JSON.parse(readFileSync(path, 'utf8'));
-  const creation = (broadcast.transactions ?? []).find(
+  const creations = (broadcast.transactions ?? []).filter(
     (transaction) =>
       transaction.transactionType === 'CREATE' && transaction.contractAddress && transaction.hash,
   );
+  const creation =
+    (contractName ? creations.find((tx) => tx.contractName === contractName) : undefined) ??
+    creations.find(
+      (tx) =>
+        tx.contractName === 'WorkflowAgentFactoryV2' ||
+        tx.contractName === 'WorkflowVaultFactoryV2',
+    ) ??
+    creations[0];
   if (!creation) fail(`No creation transaction found in ${path}.`);
-  return creation;
+  const validator = creations.find(
+    (tx) => tx.contractName === 'WorkflowProgramValidatorV2',
+  )?.contractAddress;
+  const implName =
+    contractName === 'WorkflowAgentFactoryV2' ? 'WorkflowAgentV2' : 'WorkflowVaultV2';
+  const implementation = creations.find((tx) => tx.contractName === implName)?.contractAddress;
+  return { ...creation, validator, implementation };
 }
 
 async function entry(chain, creation, source) {
@@ -402,6 +416,8 @@ async function entry(chain, creation, source) {
     chainId: chain.id,
     contract: chain.contract,
     address,
+    ...(creation.validator ? { validator: creation.validator.toLowerCase() } : {}),
+    ...(creation.implementation ? { implementation: creation.implementation.toLowerCase() } : {}),
     blockNumber: Number(receipt.blockNumber),
     transactionHash: transaction.hash,
     explorer: `${chain.explorer}/tx/${transaction.hash}`,
@@ -412,13 +428,27 @@ async function entry(chain, creation, source) {
   };
 }
 
-const LASNA_SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
+const REACTIVE_SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
 
-function expectedCreationInputHash(chain, artifact) {
+function expectedCreationInputHash(chain, artifact, item = undefined) {
   const bytecode = artifact?.bytecode?.object;
   if (!bytecode) return undefined;
+  if (item?.validator && item?.implementation) {
+    if (chain.contract === CHAINS[AUTOMATION_KEY].contract) {
+      const args = encodeAbiParameters(
+        [{ type: 'address' }, { type: 'address' }, { type: 'address' }],
+        [REACTIVE_SYSTEM_CONTRACT, item.validator, item.implementation],
+      );
+      return keccak256(concat([bytecode, args]));
+    }
+    const args = encodeAbiParameters(
+      [{ type: 'address' }, { type: 'address' }],
+      [item.validator, item.implementation],
+    );
+    return keccak256(concat([bytecode, args]));
+  }
   if (chain.contract === CHAINS[AUTOMATION_KEY].contract) {
-    const args = encodeAbiParameters([{ type: 'address' }], [LASNA_SYSTEM_CONTRACT]);
+    const args = encodeAbiParameters([{ type: 'address' }], [REACTIVE_SYSTEM_CONTRACT]);
     return keccak256(concat([bytecode, args]));
   }
   return keccak256(bytecode);
@@ -470,7 +500,7 @@ export async function verifyDeploymentRecord({
     );
     if (existsSync(artifactPath) && item.creationInputHash) {
       const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
-      const compiledCreationHash = expectedCreationInputHash(chain, artifact);
+      const compiledCreationHash = expectedCreationInputHash(chain, artifact, item);
       if (
         compiledCreationHash &&
         compiledCreationHash.toLowerCase() !== item.creationInputHash.toLowerCase()
@@ -688,7 +718,7 @@ async function recordOnly() {
       : [CHAINS[AUTOMATION_KEY], CHAINS.unichain, ...(includeBase ? [CHAINS.base] : [])];
   const updated = [];
   for (const chain of chains) {
-    updated.push(await entry(chain, readBroadcast(chain.id), source));
+    updated.push(await entry(chain, readBroadcast(chain.id, chain.contract), source));
   }
   const existing =
     mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];

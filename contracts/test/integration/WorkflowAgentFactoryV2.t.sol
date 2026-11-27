@@ -4,6 +4,8 @@ pragma solidity 0.8.29;
 import {Test} from "forge-std/Test.sol";
 import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
+import {WorkflowAgentStorageV2} from "../../src/workflow/v2/WorkflowAgentStorageV2.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
@@ -37,8 +39,10 @@ contract WorkflowAgentFactoryV2Test is Test {
         vm.warp(12 hours);
         vm.chainId(ChainConfig.LASNA);
         system = new MockSystemContract();
-        factory = new WorkflowAgentFactoryV2(system);
         validator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 reactModule = new WorkflowAgentReactV2(system, validator);
+        WorkflowAgentV2 impl = new WorkflowAgentV2(system, validator, address(reactModule));
+        factory = new WorkflowAgentFactoryV2(system, validator, address(impl));
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(factory.create()));
         vault = _vault(OWNER, address(agent));
@@ -144,7 +148,7 @@ contract WorkflowAgentFactoryV2Test is Test {
         factory.publish(WORKFLOW, DESCRIPTION);
 
         vm.prank(OWNER);
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
         factory.publish(OTHER_WORKFLOW, DESCRIPTION);
         assertEq(factory.listingCount(), 0);
     }
@@ -197,19 +201,21 @@ contract WorkflowAgentFactoryV2Test is Test {
     }
 
     function testConstructorRejectsNonAutomationChains() public {
+        address impl = factory.implementation();
+        address reactModule = WorkflowAgentV2(payable(impl)).reactModule();
         vm.chainId(31337);
         vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
-        new WorkflowAgentFactoryV2(system);
+        new WorkflowAgentFactoryV2(system, validator, impl);
 
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
-        new WorkflowAgentV2(system, address(factory), validator);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, validator, reactModule);
 
         vm.chainId(ChainConfig.UNICHAIN_SEPOLIA);
         vm.expectRevert(WorkflowAgentFactoryV2.InactiveDeployment.selector);
-        new WorkflowAgentFactoryV2(system);
+        new WorkflowAgentFactoryV2(system, validator, impl);
 
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
-        new WorkflowAgentV2(system, address(factory), validator);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
+        new WorkflowAgentV2(system, validator, reactModule);
     }
 
     function _vault(address owner, address agent_) private returns (WorkflowVaultV2) {

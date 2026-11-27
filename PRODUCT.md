@@ -16,7 +16,7 @@ Rulebook is a no-code builder for personal on-chain automations. Users choose a 
 
 ## Positioning
 
-Each workflow maps to an on-chain program signed by the user. A wallet-owned Agent on Reactive Lasna evaluates incoming events and timer ticks across supported origin chains. When conditions are satisfied, the Agent dispatches a callback to the user's Vault on the chosen settlement chain (Unichain Sepolia or Base Sepolia). The Vault holds principal and enforces limits, caps, and weekly budgets before executing any swap or transfer. The indexer reads chain activity across all configured chains to make execution evidence transparent and inspectable.
+Each workflow maps to an on-chain program signed by the user. A wallet-owned Agent (an ERC-1967 proxy with owner-only opt-in UUPS upgrades) on Reactive Lasna evaluates incoming events and timer ticks across supported origin chains. When conditions are satisfied, the Agent dispatches a callback to the user's Vault proxy on the chosen settlement chain (Unichain Sepolia or Base Sepolia). The Vault holds principal and enforces limits, caps, and weekly budgets before executing any swap or transfer. Only the wallet owner can opt in to factory-approved implementation upgrades; no admin key or indexer can unilaterally upgrade user contracts or move funds. The indexer reads chain activity across all configured chains to make execution evidence transparent and inspectable.
 
 ## Operating Context
 

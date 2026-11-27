@@ -11,6 +11,8 @@ Bookkeeper is the read-only account assistant inside the workspace. It answers q
 
 Every chat request is serialized per wallet. The daily limit is 80 user messages per wallet and 3,000 globally, with a 12 requests-per-minute route limit. Expired signing challenges and expired sessions are cleaned up in the background. Conversations and messages are deleted 30 days after their last activity.
 
+When the backend has a public demo account configured, visitors can start a two-hour testnet session without signing. Demo conversations are scoped to the session that started them, and Telegram data is unavailable. Each demo session can ask up to 12 questions within the shared demo account budget of 80 questions per UTC day. Rulewright demo drafts have a shared budget of 20 jobs per UTC day for the configured wallet.
+
 ## Context discipline
 
 The model gets only:

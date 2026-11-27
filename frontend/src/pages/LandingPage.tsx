@@ -12,11 +12,13 @@ import { SiteFooter } from '@/components/landing/site-footer.js';
 import { SiteNav } from '@/components/landing/site-nav.js';
 import { StackSection } from '@/components/landing/stack-section.js';
 import { UseCasesSection } from '@/components/landing/use-cases-section.js';
+import { useDemoMode } from '@/lib/demoMode.js';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 
 export function LandingPage() {
   const { mode } = useNetworkMode();
+  const { demoAvailable, connectedOwner } = useDemoMode();
   return (
     <div id="top" className="relative min-h-screen overflow-x-hidden bg-[#020202] text-neutral-300">
       <BackgroundEffects />
@@ -39,7 +41,7 @@ export function LandingPage() {
               part of a payment, buy on a schedule, or act when a price crosses your target.
             </p>
 
-            <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex justify-center">
+            <div className="animate-on-scroll [animation:fadeInUp_0.8s_ease-out_0.4s_both] flex flex-wrap items-center justify-center gap-3">
               <Link
                 to={withNetworkQuery(appRoutes.newWorkflow, mode)}
                 className="group relative flex items-center gap-2 rounded-full bg-white text-black px-8 py-3 text-sm font-medium transition-all hover:bg-neutral-200"
@@ -52,6 +54,14 @@ export function LandingPage() {
                   className="transition-transform group-hover:translate-x-0.5"
                 />
               </Link>
+              {demoAvailable && !connectedOwner && (
+                <Link
+                  to={withNetworkQuery(`${appRoutes.workflows}?demo=1`, 'testnet')}
+                  className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-medium text-white transition-all hover:bg-white/10"
+                >
+                  <span>Inspect live demo</span>
+                </Link>
+              )}
             </div>
           </div>
 

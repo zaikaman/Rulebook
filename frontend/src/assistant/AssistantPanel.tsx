@@ -27,13 +27,14 @@ import { useAccount, useSignMessage } from 'wagmi';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
 import { ApiError, api } from '@/lib/api';
-import { streamAssistant } from '@/lib/assistant';
+import { revokeAssistantSession, streamAssistant } from '@/lib/assistant';
+import { useDemoMode } from '@/lib/demoMode';
 import { isWalletRejection } from '@/lib/errors';
 import { useNetworkMode } from '@/lib/networkMode';
 import { Badge, Button, Callout, Dialog, ErrorState } from '@/ui';
 import '../styles/assistant.css';
 
-type Session = { owner: string; network: NetworkMode; token: string };
+type Session = { owner: string; network: NetworkMode; token: string; demo?: boolean };
 type ToolState = 'start' | 'done' | 'error';
 type ToolRead = { name: string; label: string; state: ToolState; detail?: string };
 type Message = {
@@ -102,6 +103,7 @@ export function AssistantPanel({
   const operation = useRef<AbortController>(undefined);
   const verifyOperation = useRef<AbortController>(undefined);
   const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
+  const { demoAvailable, enterDemoMode, isDemoMode } = useDemoMode();
   const prevModeRef = useRef(mode);
   const { address, connector } = useAccount();
   const prevAddressRef = useRef(address);
@@ -123,7 +125,9 @@ export function AssistantPanel({
   const [error, setError] = useState<string>();
 
   const usableSession =
-    session && address && session.owner === address && session.network === mode
+    session &&
+    session.network === mode &&
+    (address ? !session.demo && session.owner === address : Boolean(session.demo && isDemoMode))
       ? session
       : undefined;
 
@@ -158,6 +162,20 @@ export function AssistantPanel({
     setStatus(undefined);
     setError(undefined);
   }, [mode]);
+
+  useEffect(() => {
+    if (isDemoMode || !session?.demo) return;
+    operation.current?.abort();
+    operation.current = undefined;
+    setSession(undefined);
+    setMessages([]);
+    setConversationId(undefined);
+    setInput('');
+    setStreaming(false);
+    setStatus(undefined);
+    setError(undefined);
+    void revokeAssistantSession(session.token).catch(() => undefined);
+  }, [isDemoMode, session]);
 
   useEffect(
     () => () => {
@@ -210,6 +228,35 @@ export function AssistantPanel({
           : cause instanceof ApiError && cause.code !== 'http_error'
             ? cause.message
             : 'Wallet verification failed. Try again.',
+      );
+    } finally {
+      if (verifyOperation.current === controller) {
+        verifyOperation.current = undefined;
+        setVerifying(false);
+      }
+    }
+  }
+
+  async function startDemoSession() {
+    if (isMainnet || verifying) return;
+    const controller = new AbortController();
+    verifyOperation.current?.abort();
+    verifyOperation.current = controller;
+    setVerifying(true);
+    setError(undefined);
+    try {
+      const response = await api.assistantDemoSession(controller.signal, 'testnet');
+      if (controller.signal.aborted) return;
+      setSession({ owner: response.owner, network: 'testnet', token: response.token, demo: true });
+      setMessages([]);
+      setConversationId(undefined);
+      enterDemoMode();
+    } catch (cause) {
+      if (controller.signal.aborted) return;
+      setError(
+        cause instanceof ApiError && cause.code !== 'http_error'
+          ? cause.message
+          : 'Demo Bookkeeper session could not be started. Try again.',
       );
     } finally {
       if (verifyOperation.current === controller) {
@@ -309,10 +356,13 @@ export function AssistantPanel({
         if (cause instanceof ApiError && cause.status === 401) {
           setSession(undefined);
           setConversationId(undefined);
-          setError('Your Bookkeeper session expired. Verify your wallet again.');
+          const expiredMessage = usableSession.demo
+            ? 'Your demo session expired. Start a new demo session.'
+            : 'Your Bookkeeper session expired. Verify your wallet again.';
+          setError(expiredMessage);
           updateAssistant(assistantId, (message) => ({
             ...message,
-            error: 'Your verification expired. Verify the wallet again.',
+            error: expiredMessage,
           }));
         } else {
           updateAssistant(assistantId, (message) => ({
@@ -388,7 +438,58 @@ export function AssistantPanel({
           </p>
         </Callout>
       );
-    if (!address)
+    if (!usableSession && !address) {
+      if (demoAvailable && availability.data?.demoAvailable && !isMainnet) {
+        return (
+          <div className="app-assistant-verify">
+            <span className="app-assistant-verify-mark" aria-hidden="true">
+              <HugeiconsIcon icon={SparklesIcon} size={22} strokeWidth={1.6} />
+            </span>
+            <div className="app-assistant-verify-copy">
+              <h3>Ask about the demo account</h3>
+              <p>
+                Bookkeeper answers from the live testnet demo account’s workflows, runs, balances,
+                and credits without connecting a wallet.
+              </p>
+            </div>
+            <ul className="app-assistant-facts">
+              <li>
+                <HugeiconsIcon icon={LockKeyIcon} size={13} strokeWidth={1.8} aria-hidden="true" />
+                No wallet or signature
+              </li>
+              <li>
+                <HugeiconsIcon
+                  icon={CheckmarkCircle02Icon}
+                  size={13}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+                Live testnet demo account
+              </li>
+              <li>
+                <HugeiconsIcon icon={Shield01Icon} size={13} strokeWidth={1.8} aria-hidden="true" />
+                Read-only account access
+              </li>
+            </ul>
+            <Button
+              autoFocus
+              variant="primary"
+              disabled={verifying}
+              onClick={() => void startDemoSession()}
+              className="app-assistant-verify-action"
+            >
+              {verifying ? 'Starting demo session…' : 'Start demo session'}
+            </Button>
+            <div className="mt-1">
+              <WalletControl />
+            </div>
+            <p className="app-assistant-disclaimer">
+              Questions and the records each answer reads are sent to the configured model provider.
+              Nothing is fetched until a question needs it.
+            </p>
+          </div>
+        );
+      }
       return (
         <Callout title="Connect a wallet to start" action={<WalletControl />}>
           <p>
@@ -397,6 +498,7 @@ export function AssistantPanel({
           </p>
         </Callout>
       );
+    }
     if (!usableSession)
       return (
         <div className="app-assistant-verify">
@@ -583,10 +685,10 @@ export function AssistantPanel({
             </span>
             <span>
               <HugeiconsIcon icon={LockKeyIcon} size={12} strokeWidth={1.9} aria-hidden="true" />
-              Private session
+              {usableSession.demo ? 'Demo account' : 'Private session'}
             </span>
-            <span className="app-assistant-wallet" title={address ?? undefined}>
-              {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : 'No wallet'}
+            <span className="app-assistant-wallet" title={usableSession.owner}>
+              {`${usableSession.owner.slice(0, 6)}…${usableSession.owner.slice(-4)}`}
             </span>
             <Badge tone={isMainnet ? 'paused' : undefined} plain={!isMainnet}>
               {isMainnet ? 'Mainnet' : 'Testnet'}

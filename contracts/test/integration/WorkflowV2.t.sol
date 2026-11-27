@@ -7,6 +7,8 @@ import {ChainConfig} from "../../src/chain/ChainConfig.sol";
 import {CallbackConfiguration} from "../../src/shared/ReactiveTypes.sol";
 import {WorkflowAgentV2} from "../../src/workflow/v2/WorkflowAgentV2.sol";
 import {WorkflowAgentFactoryV2} from "../../src/workflow/v2/WorkflowAgentFactoryV2.sol";
+import {WorkflowAgentReactV2} from "../../src/workflow/v2/WorkflowAgentReactV2.sol";
+import {WorkflowAgentStorageV2} from "../../src/workflow/v2/WorkflowAgentStorageV2.sol";
 import {WorkflowProgramV2 as P} from "../../src/workflow/v2/WorkflowProgramV2.sol";
 import {WorkflowProgramValidatorV2} from "../../src/workflow/v2/WorkflowProgramValidatorV2.sol";
 import {WorkflowProtocolsV2} from "../../src/workflow/v2/WorkflowProtocolsV2.sol";
@@ -113,7 +115,12 @@ contract WorkflowV2SettlementTest is Test {
         weth.mint(address(router), 100 ether);
         system = new MockSystemContract();
         vm.chainId(ChainConfig.LASNA);
-        WorkflowAgentFactoryV2 factory = new WorkflowAgentFactoryV2(system);
+        WorkflowProgramValidatorV2 agentValidator = new WorkflowProgramValidatorV2();
+        WorkflowAgentReactV2 reactModule = new WorkflowAgentReactV2(system, agentValidator);
+        WorkflowAgentV2 agentImpl =
+            new WorkflowAgentV2(system, agentValidator, address(reactModule));
+        WorkflowAgentFactoryV2 factory =
+            new WorkflowAgentFactoryV2(system, agentValidator, address(agentImpl));
         vm.prank(OWNER);
         agent = WorkflowAgentV2(payable(factory.create()));
         vm.prank(OWNER);
@@ -138,8 +145,25 @@ contract WorkflowV2SettlementTest is Test {
 
     function testFactoryCreatesOneVaultPerOwnerAndRejectsAnAgentChange() public {
         vm.chainId(P.UNICHAIN_SEPOLIA);
-        vm.etch(ChainConfig.unichainSepolia().callbackProxy, hex"00");
-        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2();
+        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        vm.etch(cfg.callbackProxy, hex"00");
+        WorkflowProgramValidatorV2 vaultValidator = new WorkflowProgramValidatorV2();
+        WorkflowProtocolsV2.Networks memory market = WorkflowProtocolsV2.Networks(
+            cfg.usdc,
+            cfg.weth,
+            cfg.router,
+            cfg.pair,
+            cfg.poolFee,
+            cfg.ethUsdFeed,
+            cfg.usdcUsdFeed,
+            cfg.sequencerFeed,
+            cfg.ethFeedMaxAge,
+            cfg.usdcFeedMaxAge
+        );
+        WorkflowVaultV2 impl = new WorkflowVaultV2(
+            cfg.callbackProxy, address(0), address(0), P.UNICHAIN_SEPOLIA, market, vaultValidator
+        );
+        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2(vaultValidator, address(impl));
         vm.startPrank(OWNER);
         address walletVault = factory.create(address(agent));
         assertEq(factory.create(address(agent)), walletVault);
@@ -160,7 +184,7 @@ contract WorkflowV2SettlementTest is Test {
         tick.block_number = block.number + 1;
         tick.topic_1 = tick.block_number;
         tick.tx_hash = 101;
-        vm.expectRevert(WorkflowAgentV2.Unauthorized.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.Unauthorized.selector);
         agent.react(tick);
         vm.prank(address(system));
         agent.react(tick);
@@ -199,7 +223,7 @@ contract WorkflowV2SettlementTest is Test {
         tick.block_number = number;
         tick.tx_hash = number;
         vm.expectEmit(true, false, false, true, address(agent));
-        emit WorkflowAgentV2.Expired(WORKFLOW, 1);
+        emit WorkflowAgentStorageV2.Expired(WORKFLOW, 1);
         vm.prank(address(system));
         agent.react(tick);
         assertEq(system.requestCount(), 0, "an expired workflow never dispatches");
@@ -348,7 +372,7 @@ contract WorkflowV2SettlementTest is Test {
         vm.prank(address(system));
         agent.react(payment);
 
-        vm.expectRevert(WorkflowAgentV2.BudgetBlocked.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.BudgetBlocked.selector);
         agent.resumeWatching(WORKFLOW);
 
         vm.warp(vm.getBlockTimestamp() + 7 days + 10 minutes);
@@ -423,13 +447,29 @@ contract WorkflowV2SettlementTest is Test {
         _enable(program);
         _syncBudget(1e6, 0.5e6, 1);
 
+        // B-8: PERCENT share exceeding program.usdcCap is rejected before parking/dispatching.
         IReactive.LogRecord memory payment = _paymentLog(101, type(uint256).max);
         vm.prank(address(system));
         agent.react(payment);
-
-        assertEq(agent.pendingRuns(WORKFLOW), 1, "max uint amount parks cleanly without overflow");
-        assertEq(agent.wakeBlock(WORKFLOW), 0);
+        assertEq(agent.pendingRuns(WORKFLOW), 0);
         assertEq(system.requestCount(), 0);
+
+        // And validator.budgetBlocks handles type(uint256).max safely without overflow.
+        uint256[] memory plan = new uint256[](1);
+        plan[0] = (uint256(5_000) << 208) | (uint256(1) << 224);
+        assertTrue(
+            agent.validator()
+                .budgetBlocks(
+                    1e6,
+                    0,
+                    0.5e6,
+                    0,
+                    uint64(block.timestamp),
+                    plan,
+                    type(uint256).max,
+                    uint64(block.timestamp)
+                )
+        );
     }
 
     function testPriceAlertConfirmsOnceAtTheTarget() public {
@@ -520,20 +560,26 @@ contract WorkflowV2SettlementTest is Test {
         assertEq(_deliver(wrongSenderRun), vault.SKIPPED());
 
         payment.topic_1 = uint160(OWNER);
+        // B-8: Agent refuses to dispatch when PERCENT share (25% of 8e6 = 2e6) exceeds usdcCap (1e6).
         payment.block_number = 102;
         payment.tx_hash = 102;
         payment.data = abi.encode(8e6);
         vm.prank(address(system));
         agent.react(payment);
-        _deliverRequest(0);
-        assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.FAILED());
+        assertEq(
+            system.requestCount(), 0, "over-cap percentage payment is filtered before callback"
+        );
+
+        P.Run memory overCapRun = _run(102, P.PAYMENT, 8e6);
+        overCapRun.actor = OWNER;
+        assertEq(_deliver(overCapRun), vault.FAILED());
 
         payment.block_number = 103;
         payment.tx_hash = 103;
         payment.data = abi.encode(3e6);
         vm.prank(address(system));
         agent.react(payment);
-        _deliverRequest(1);
+        _deliverRequest(0);
         assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
         assertEq(usdc.balanceOf(RECIPIENT), 0.75e6);
     }
@@ -600,7 +646,7 @@ contract WorkflowV2SettlementTest is Test {
         closed.topic_2 = 1;
         vm.prank(address(system));
         agent.react(closed);
-        assertEq(system.unsubscribeCount(), 3);
+        assertEq(system.unsubscribeCount(), 4);
     }
 
     function testCompetingExitBranchesSettleOnlyOnce() public {
@@ -1444,16 +1490,16 @@ contract WorkflowV2SettlementTest is Test {
         vm.startPrank(OWNER);
         vault.authorize(expId, 1, encoded, "Expired");
         vm.warp(block.timestamp + 10);
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
         agent.enable(expId, 1, encoded, "Expired", uint64(block.number));
-        vm.expectRevert(WorkflowAgentV2.InvalidWorkflow.selector);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
         agent.enableWithBudget(
             expId,
             1,
             encoded,
             "Expired",
             uint64(block.number),
-            WorkflowAgentV2.BudgetSeed(0, 0, 0, 0, 0, 0)
+            WorkflowAgentStorageV2.BudgetSeed(0, 0, 0, 0, 0, 0)
         );
         vm.stopPrank();
 

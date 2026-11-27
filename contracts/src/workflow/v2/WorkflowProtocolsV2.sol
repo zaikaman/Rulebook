@@ -7,7 +7,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PriceMath} from "../../libraries/PriceMath.sol";
 import {IAggregatorV3} from "../../shared/Chainlink.sol";
 import {IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router02} from "../../shared/UniswapV2.sol";
-import {IUniswapV3Factory, IUniswapV3Pool, IV3SwapRouter} from "../../shared/UniswapV3.sol";
+import {IUniswapV3Factory, IV3SwapRouter} from "../../shared/UniswapV3.sol";
 import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
 /// @notice Settlement-chain reads and protocol calls. External money destinations are pinned at deployment.
@@ -140,37 +140,6 @@ abstract contract WorkflowProtocolsV2 {
         return _oraclePrice();
     }
 
-    function _reserves() internal view returns (uint112 stable, uint112 wrapped) {
-        if (pair == address(0)) revert InvalidMarket();
-        IUniswapV2Pair pool = IUniswapV2Pair(pair);
-        (uint112 first, uint112 second,) = pool.getReserves();
-        bool isUsdc0 = marketVerified ? usdcIsToken0 : pool.token0() == usdc;
-        return isUsdc0 ? (first, second) : (second, first);
-    }
-
-    function _v3SpotPrice() internal view returns (uint256) {
-        if (pair == address(0)) revert InvalidMarket();
-        IUniswapV3Pool pool = IUniswapV3Pool(pair);
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
-        uint128 liq = pool.liquidity();
-        bool isUsdc0;
-        if (marketVerified) {
-            isUsdc0 = usdcIsToken0;
-        } else {
-            address t0 = pool.token0();
-            address t1 = pool.token1();
-            isUsdc0 = t0 == usdc;
-            if (!((isUsdc0 && t1 == weth) || (t0 == weth && t1 == usdc))) revert InvalidMarket();
-        }
-        if (
-            liq == 0 || sqrtPriceX96 < PriceMath.MIN_SQRT_RATIO
-                || sqrtPriceX96 >= PriceMath.MAX_SQRT_RATIO
-        ) revert InvalidMarket();
-        uint256 spot = PriceMath.usdcPerWethFromSqrtPriceX96(sqrtPriceX96, isUsdc0);
-        if (spot == 0) revert InvalidMarket();
-        return spot;
-    }
-
     function _cachedOraclePrice(MarketCache memory cache) internal view returns (uint256) {
         if (ethUsdFeed == address(0)) return 0;
         if (!cache.oracleLoaded) {
@@ -214,18 +183,15 @@ abstract contract WorkflowProtocolsV2 {
 
     function _price(MarketCache memory cache) internal view returns (uint256) {
         uint256 spot;
-        if (poolFee == 0) {
-            (uint112 stable, uint112 wrapped) = _reserves();
-            if (stable == 0 || wrapped == 0) revert InvalidMarket();
-            spot = PriceMath.usdcPerWeth(stable, wrapped);
+        if (poolFee != 0 && cache.v3SpotLoaded) {
+            spot = cache.v3SpotPrice;
         } else {
-            if (!cache.v3SpotLoaded) {
-                cache.v3SpotPrice = _v3SpotPrice();
+            spot = validator.readSpotPrice(pair, usdc, weth, poolFee, marketVerified, usdcIsToken0);
+            if (poolFee != 0) {
+                cache.v3SpotPrice = spot;
                 cache.v3SpotLoaded = true;
             }
-            spot = cache.v3SpotPrice;
         }
-        if (spot == 0 || spot > type(uint128).max) revert InvalidMarket();
         _guardOraclePrice(cache, spot);
         return spot;
     }
@@ -258,52 +224,24 @@ abstract contract WorkflowProtocolsV2 {
         uint64 expiresAt,
         uint256 referencePrice
     ) internal returns (uint256 received) {
-        if (router == address(0) || pair == address(0)) {
-            revert InvalidMarket();
-        }
-        uint24 effectiveFee = poolFee == 0 ? PriceMath.V2_FEE_PPM : poolFee;
-        uint256 spotQuote;
-        if (poolFee == 0) {
-            if (!marketVerified) {
-                if (
-                    IUniswapV2Factory(IUniswapV2Router02(router).factory()).getPair(usdc, weth)
-                        != pair
-                ) {
-                    revert InvalidMarket();
-                }
-            }
-            (uint112 stable, uint112 wrapped) = _reserves();
-            spotQuote = sell
-                ? PriceMath.expectedOut(amount, wrapped, stable)
-                : PriceMath.expectedOut(amount, stable, wrapped);
-        } else {
-            if (!marketVerified) {
-                if (
-                    IUniswapV3Factory(IV3SwapRouter(router).factory()).getPool(usdc, weth, poolFee)
-                        != pair
-                ) revert InvalidMarket();
-            }
-            uint256 v3Spot = cache.v3SpotLoaded ? cache.v3SpotPrice : _v3SpotPrice();
-            spotQuote = PriceMath.quotedOut(sell, amount, v3Spot, poolFee);
-        }
-        uint256 floor = PriceMath.applySlippage(spotQuote, slippage);
-        if (ethUsdFeed != address(0)) {
-            uint256 externalPrice = _cachedOraclePrice(cache);
-            uint16 maxDeviation =
-                slippage > MAX_PRICE_DEVIATION_BPS ? slippage : MAX_PRICE_DEVIATION_BPS;
-            if (
-                referencePrice != 0
-                    && PriceMath.movedBy(referencePrice, externalPrice, maxDeviation)
-            ) {
-                revert OraclePriceDeviation(referencePrice, externalPrice);
-            }
-            uint256 oracleQuote = PriceMath.quotedOut(sell, amount, externalPrice, effectiveFee);
-            uint256 oracleFloor = PriceMath.applySlippage(oracleQuote, slippage);
-            if (oracleFloor == 0) revert InvalidMarket();
-            if (oracleFloor > floor) floor = oracleFloor;
-        }
-        if (floor == 0) revert InvalidMarket();
-        if (spotQuote < floor) revert SlippageExceeded(floor, spotQuote);
+        uint256 externalPrice = ethUsdFeed != address(0) ? _cachedOraclePrice(cache) : 0;
+        uint256 floor = validator.quoteSwapFloor(
+            WorkflowProgramValidatorV2.SwapQuoteParams({
+                router: router,
+                pair: pair,
+                usdc: usdc,
+                weth: weth,
+                poolFee: poolFee,
+                marketVerified: marketVerified,
+                usdcIsToken0: usdcIsToken0,
+                sell: sell,
+                amount: amount,
+                slippage: slippage,
+                v3Spot: poolFee != 0 && cache.v3SpotLoaded ? cache.v3SpotPrice : 0,
+                externalPrice: externalPrice,
+                referencePrice: referencePrice
+            })
+        );
         address tokenIn = sell ? weth : usdc;
         address tokenOut = sell ? usdc : weth;
         IERC20 token = IERC20(tokenIn);

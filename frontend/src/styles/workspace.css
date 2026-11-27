@@ -745,6 +745,48 @@
   background: var(--rb-status-active-tint);
 }
 
+.app-panel.app-demo-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  margin-block-end: 1.25rem;
+  border-color: var(--rb-accent-line);
+  padding: 0.875rem 1.125rem;
+  background: var(--rb-accent-tint);
+  color: var(--rb-ink);
+}
+
+.app-demo-banner__copy {
+  display: grid;
+  gap: 0.375rem;
+  min-inline-size: 0;
+}
+
+.app-demo-banner__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.app-demo-banner__address {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--rb-ink-muted);
+  font-family: var(--font-geist-mono);
+  font-size: 0.75rem;
+}
+
+.app-demo-banner__copy p {
+  color: var(--rb-ink-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
 .app-rule-start {
   display: grid;
 }

@@ -285,21 +285,22 @@ The workspace uses restrained rounded rectangles: 0.375rem tags, 0.5625rem field
 
 New feature code imports from `src/ui`. A feature file may keep layout-only classes and its own domain classes, but it must not recreate a primitive recipe.
 
-| Primitive                                           | Use                                        | Replaces                          |
-| --------------------------------------------------- | ------------------------------------------ | --------------------------------- |
-| `Button`                                            | All actions and dialog footers             | `button.app-button` markup        |
-| `Panel`, `PanelHeader`, `PanelBody`, `PanelHeading` | Every bordered content panel               | `div.app-panel` plus `rb-panel-*` |
-| `Badge`                                             | Status, visibility, and index chips        | `rb-chip` with a raw `data-tone`  |
-| `FactList`                                          | Addresses, IDs, networks, and spec facts   | `dl.rb-spec-facts`                |
-| `ErrorState`                                        | Failed reads, chain errors, copy failures  | `rb-error`                        |
-| `SyncState`                                         | Indexing and not-yet-visible records       | `rb-sync`                         |
-| `EmptyState`                                        | Empty collections and first-run guidance   | `rb-empty`                        |
-| `Callout`                                           | One explanation plus one action            | `rb-callout`                      |
-| `Dialog`                                            | Modal surfaces with focus trap and restore | `dialog.app-dialog`               |
-| `Field`                                             | Labelled inputs with hint or error         | `label.app-field`                 |
-| `Select`                                            | Grouped single-choice pickers              | native `select` option popups     |
-| `PageHeading`                                       | Page title, description, breadcrumb, aside | `header.app-heading`              |
-| `Toolbar`                                           | Search and filter rows                     | `div.rb-toolbar`                  |
+| Primitive                                           | Use                                        | Replaces                             |
+| --------------------------------------------------- | ------------------------------------------ | ------------------------------------ |
+| `Button`                                            | All actions and dialog footers             | `button.app-button` markup           |
+| `Panel`, `PanelHeader`, `PanelBody`, `PanelHeading` | Every bordered content panel               | `div.app-panel` plus `rb-panel-*`    |
+| `Badge`                                             | Status, visibility, and index chips        | `rb-chip` with a raw `data-tone`     |
+| `FactList`                                          | Addresses, IDs, networks, and spec facts   | `dl.rb-spec-facts`                   |
+| `ErrorState`                                        | Failed reads, chain errors, copy failures  | `rb-error`                           |
+| `SyncState`                                         | Indexing and not-yet-visible records       | `rb-sync`                            |
+| `EmptyState`                                        | Empty collections and first-run guidance   | `rb-empty`                           |
+| `Callout`                                           | One explanation plus one action            | `rb-callout`                         |
+| `Dialog`                                            | Modal surfaces with focus trap and restore | `dialog.app-dialog`                  |
+| `Field`                                             | Labelled inputs with hint or error         | `label.app-field`                    |
+| `Select`                                            | Grouped single-choice pickers              | native `select` option popups        |
+| `PageHeading`                                       | Page title, description, breadcrumb, aside | `header.app-heading`                 |
+| `Toolbar`                                           | Search and filter rows                     | `div.rb-toolbar`                     |
+| `FilterBar`, `FilterGroup`                          | Accessible filter chip strips and groups   | raw `rb-filter-group` / `rb-filters` |
 
 Rules that apply across components:
 

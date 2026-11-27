@@ -111,7 +111,7 @@ sequenceDiagram
 2. After that authorization is mined, the owner signs `enable` on the Agent. The Agent checks the same bytes, stores them, and subscribes through the system contract at `0x8888888888888888888888888888888888888888`.
 3. A schedule subscribes to `Cron100` on Lasna. A dip or a price workflow also subscribes to `Sync` on the pair. A payment workflow subscribes to USDC transfers into that Vault. A watched-wallet workflow subscribes to transfers of the named token. An inactivity workflow also watches USDC leaving the owner. A one-shot workflow subscribes to the Vault's own `Closed` event and removes its subscriptions after it finishes.
 4. `react` accepts only the system contract. It ignores logs the program did not subscribe to. For a schedule it waits until `nextDue`, then carries the cached price or the last activity time. For a price log it updates the cached price and the trailing high. For a transfer it carries the amount and the counterparty. It builds a `Run` that names the origin chain, transaction, log index, and block.
-5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets the configured settlement Vault chain (`1301` Unichain Sepolia or `84532` Base Sepolia), this owner's Vault, and an 850,000 gas limit. The payload expires ten minutes after the Lasna block. The same origin log cannot dispatch twice.
+5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets the configured settlement Vault chain (`1301` Unichain Sepolia or `84532` Base Sepolia), this owner's Vault, and a 1,200,000 gas limit. The payload expires ten minutes after the Lasna block. The same origin log cannot dispatch twice.
 6. The callback proxy injects the Agent address as the first argument. `execute` requires that caller to be the proxy and that injected address to be the Vault's immutable Agent. A mismatched program hash, epoch, or stale origin is recorded as a skip. An expired payload is recorded as expired.
 7. The Vault walks the tree. Caps, slippage, the weekly budget, a one-hour price age, and the inactivity grace period are enforced in that call. A failing step rolls the whole run back, and the Vault still records the outcome. Statuses are confirmed, skipped, expired, failed, and in grace period.
 
@@ -129,7 +129,7 @@ These bounds are in the contracts, and the builder enforces the same ones before
 | Actions on one path        | 3                                                 |
 | Schedule interval          | 120 seconds to 30 days                            |
 | Slippage                   | At most 10%                                       |
-| Callback gas               | 850,000                                           |
+| Callback gas               | 1,200,000                                         |
 | Callback lifetime          | 10 minutes                                        |
 | Price observation age      | 1 hour                                            |
 | Inactivity minimum         | 1 day, then a 24-hour grace period                |
@@ -155,13 +155,15 @@ Intervals, expiries, and the weekly reset use timestamps (so 200ms block times o
 | Router               | Unichain Sepolia                                             |                                                     | [`0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF`](https://sepolia.uniscan.xyz/address/0x6e8C9D62A16419357eA998229126D2fD6B1CCfbF)  |
 | Router               | Base Sepolia                                                 |                                                     | [`0x1689E7B1F10000AE47eBfE339a4f69dECd19F602`](https://sepolia.basescan.org/address/0x1689E7B1F10000AE47eBfE339a4f69dECd19F602) |
 
-Each wallet calls `create()` on the Lasna factory and receives a clone of `WorkflowAgentV2`. It then calls `create(agent)` on the Unichain Sepolia or Base Sepolia `WorkflowVaultFactoryV2` and receives its own `WorkflowVaultV2` for that chain. A second call returns the contract that wallet already owns. The owner links each Vault from the Agent (`linkVault(chainId, vault)`). Cross-chain workflows can watch a price feed or transfer on one supported funds chain and settle on another, and inactivity workflows watch owner transfers across every linked funds chain while isolating price histories per `(originChain, pair)`. Setup can resume after any deployment.
+Each wallet calls `create()` on the Lasna factory and receives its own `WorkflowAgentV2` ERC-1967 proxy. It then calls `create(agent)` on the Unichain Sepolia or Base Sepolia `WorkflowVaultFactoryV2` and receives its own `WorkflowVaultV2` ERC-1967 proxy for that chain. A second call returns the contract that wallet already owns. Each wallet owner retains sole authority to opt in to factory-approved UUPS implementation upgrades on their own Agent and Vault proxies (`upgradeToAndCall`); factory admins cannot unilaterally upgrade existing user proxies. The owner links each Vault from the Agent (`linkVault(chainId, vault)`). Cross-chain workflows can watch a price feed or transfer on one supported funds chain and settle on another, and inactivity workflows watch owner transfers across every linked funds chain while isolating price histories per `(originChain, pair)`. Setup can resume after any deployment.
 
 The current factory addresses, their deployment transactions, indexer start blocks, and bytecode hashes live only in [`deployments/workflows-v2.json`](deployments/workflows-v2.json). The backend, the frontend, and the release job read that record, so this README never repeats deployment addresses. The receipts at the top of this file were produced by the current record; regenerate them with [`scripts/smoke-workflows-v2.ts`](scripts/smoke-workflows-v2.ts) against the current record.
 
 Lasna RPC: `https://lasna-rpc.rnk.dev/`. Unichain Sepolia RPC: `https://sepolia.unichain.org`. Base Sepolia RPC: `https://sepolia.base.org`. Explorers: [lasna.reactscan.net](https://lasna.reactscan.net), [sepolia.uniscan.xyz](https://sepolia.uniscan.xyz), and [sepolia.basescan.org](https://sepolia.basescan.org).
 
 ## Using the app
+
+When demo mode is enabled, choose **Inspect live demo** on the landing page or **Inspect demo account** in the workspace. You can view live testnet workflows, health, run history, Vault balances and featured proofs without a wallet. If the AI services are configured, you can also preview a draft in Rulewright or ask Bookkeeper about the demo account.
 
 Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the frontend locally (see [Run the tests](#run-the-tests)). Connect a wallet that can sign on the chosen networks. Add Reactive Lasna if the wallet asks: chain id `5318007`, the RPC above, and symbol `lREACT`.
 
@@ -172,6 +174,8 @@ Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the fron
 5. Open **Activity** for the path and the receipts. Open **Public proof** for a link you can share. **Workflow costs** shows the credits and a live gas quote.
 
 The app reads chain state through its API. The API has no key that can move Vault principal.
+
+To enable the demo, set `DEMO_ACCOUNT_ADDRESS` in the backend to the public testnet smoke wallet that owns the Agent and Vaults for the configured deployment. Use a dedicated public account with active workflows and indexed runs. Optionally set `DEMO_FEATURED_RUN_IDS` to up to four comma-separated run IDs owned by that account. By default, the proof page features its latest confirmed runs. The frontend reads availability from the backend. Apply [migration 0030](backend/db/migrations/0030_assistant_demo_sessions.sql) before enabling Bookkeeper guest access.
 
 ## Ask the Bookkeeper
 

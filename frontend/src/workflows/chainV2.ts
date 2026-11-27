@@ -7,10 +7,13 @@ import {
   encodeWorkflowV2,
   executionCreditAbi,
   getChain,
+  getFundsChain,
   isAutomationChain,
   isFundsChain,
   networkModeForChain,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  usdcPerWethFromReserves,
+  usdcPerWethFromSqrtPriceX96,
   validateWorkflowV2Program,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
@@ -35,6 +38,7 @@ import {
   formatUnits,
   isAddressEqual,
   keccak256,
+  parseAbi,
   toFunctionSelector,
   zeroAddress,
   zeroHash,
@@ -89,6 +93,71 @@ export function v2Network(chain: WalletChain) {
 export function v2Explorer(chain: number, hash: Hex) {
   if (!isAutomationChain(chain) && !isFundsChain(chain)) return undefined;
   return `${v2Network(chain).explorerUrl}/tx/${hash}`;
+}
+
+const uniswapV2PairAbi = parseAbi([
+  'function token0() view returns (address)',
+  'function token1() view returns (address)',
+  'function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
+]);
+
+const uniswapV3PoolAbi = parseAbi([
+  'function token0() view returns (address)',
+  'function token1() view returns (address)',
+  'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+  'function liquidity() view returns (uint128)',
+]);
+
+export interface PoolSpotPrice {
+  readonly chainId: SettlementChain;
+  readonly pair: Address;
+  readonly price: bigint;
+  readonly isV3: boolean;
+  readonly updatedAt: number;
+}
+
+function isUsdcWethTokenOrder(token0: Address, token1: Address, usdc: Address, weth: Address) {
+  return (
+    (isAddressEqual(token0, usdc) && isAddressEqual(token1, weth)) ||
+    (isAddressEqual(token0, weth) && isAddressEqual(token1, usdc))
+  );
+}
+
+/**
+ * Reads the live USDC/WETH spot price (1e18-scaled) from the configured pool/pair on `chain`.
+ */
+export async function readPoolSpotPrice(chain: SettlementChain): Promise<PoolSpotPrice> {
+  const cfg = getFundsChain(chain);
+  const client = workflowClient(chain);
+  const isV3 = Boolean(cfg.poolFee && cfg.poolFee > 0);
+
+  if (isV3) {
+    const [token0, token1, slot0, liquidity] = await Promise.all([
+      client.readContract({ address: cfg.pair, abi: uniswapV3PoolAbi, functionName: 'token0' }),
+      client.readContract({ address: cfg.pair, abi: uniswapV3PoolAbi, functionName: 'token1' }),
+      client.readContract({ address: cfg.pair, abi: uniswapV3PoolAbi, functionName: 'slot0' }),
+      client.readContract({ address: cfg.pair, abi: uniswapV3PoolAbi, functionName: 'liquidity' }),
+    ]);
+    if (liquidity <= 0n) {
+      throw new Error('Pool has no active liquidity.');
+    }
+    if (!isUsdcWethTokenOrder(token0, token1, cfg.usdc, cfg.weth)) {
+      throw new Error('Configured pool does not match USDC/WETH.');
+    }
+    const price = usdcPerWethFromSqrtPriceX96(slot0[0], isAddressEqual(token0, cfg.usdc));
+    return { chainId: chain, pair: cfg.pair, price, isV3: true, updatedAt: Date.now() };
+  }
+
+  const [token0, token1, reserves] = await Promise.all([
+    client.readContract({ address: cfg.pair, abi: uniswapV2PairAbi, functionName: 'token0' }),
+    client.readContract({ address: cfg.pair, abi: uniswapV2PairAbi, functionName: 'token1' }),
+    client.readContract({ address: cfg.pair, abi: uniswapV2PairAbi, functionName: 'getReserves' }),
+  ]);
+  if (!isUsdcWethTokenOrder(token0, token1, cfg.usdc, cfg.weth)) {
+    throw new Error('Configured pair does not match USDC/WETH.');
+  }
+  const price = usdcPerWethFromReserves(reserves[0], reserves[1], isAddressEqual(token0, cfg.usdc));
+  return { chainId: chain, pair: cfg.pair, price, isV3: false, updatedAt: Date.now() };
 }
 
 export function weeklyLimitLabel(amount: bigint, decimals: number, asset: string) {

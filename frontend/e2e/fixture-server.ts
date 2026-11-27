@@ -10,13 +10,31 @@ import { fileURLToPath } from 'node:url';
 
 import {
   BASE_SEPOLIA_CHAIN_ID,
+  createWorkflowV2Recipe,
+  encodeWorkflowV2,
+  executionCreditAbi,
   getChain,
   LASNA_CHAIN_ID,
   UNICHAIN_SEPOLIA_CHAIN_ID,
+  workflowAgentFactoryV2Abi,
+  workflowAgentV2Abi,
+  workflowDeploymentKey,
+  workflowVaultFactoryV2Abi,
+  workflowVaultV2Abi,
   type Address,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { createPublicClient, createWalletClient, http, parseAbi, type Abi, type Hex } from 'viem';
+import {
+  createPublicClient,
+  createWalletClient,
+  erc20Abi,
+  http,
+  keccak256,
+  parseAbi,
+  zeroAddress,
+  type Abi,
+  type Hex,
+} from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { createChainClients } from '../../backend/src/chain/clients.js';
@@ -30,9 +48,11 @@ import {
   ANVIL_LASNA_RPC_URL,
   ANVIL_RPC_PORT,
   ANVIL_RPC_URL,
+  DEMO_ADDRESS,
   FIXTURE_API_PORT,
   FIXTURE_API_URL,
   FIXTURE_FRONTEND_URL,
+  SPONSOR_ADDRESS,
   SPONSOR_PRIVATE_KEY,
   USER_ADDRESS,
   WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
@@ -46,27 +66,57 @@ interface Artifact {
   readonly deployedBytecode: { readonly object: Hex };
 }
 
-function emptyWorkflowV2Database() {
-  const query = () => {
-    const result = { data: [], error: null };
+interface FixtureDemoRecord {
+  readonly activity: Record<string, unknown>;
+  readonly health: Record<string, unknown>;
+}
+
+function fixtureWorkflowV2Database(demo?: FixtureDemoRecord) {
+  const from = (table: string) => {
+    const predicates: Array<(row: Record<string, unknown>) => boolean> = [];
+    const evaluate = () => {
+      if (table !== 'workflow_v2_activity' || !demo) return [];
+      return [demo.activity].filter((row) => predicates.every((predicate) => predicate(row)));
+    };
     const builder = {
       select: () => builder,
-      match: () => builder,
-      eq: () => builder,
-      in: () => builder,
+      match: (criteria: Record<string, unknown>) => {
+        for (const [key, value] of Object.entries(criteria)) {
+          predicates.push((row) => row[key] === value);
+        }
+        return builder;
+      },
+      eq: (key: string, value: unknown) => {
+        predicates.push((row) => row[key] === value);
+        return builder;
+      },
+      in: (key: string, values: readonly unknown[]) => {
+        predicates.push((row) => values.includes(row[key]));
+        return builder;
+      },
       or: () => builder,
       ilike: () => builder,
       order: () => builder,
       limit: () => builder,
-      maybeSingle: async () => ({ data: null, error: null }),
-      then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
+      maybeSingle: async () => ({ data: evaluate()[0] ?? null, error: null }),
+      then: (resolve: (value: { data: Record<string, unknown>[]; error: null }) => unknown) =>
+        Promise.resolve({ data: evaluate(), error: null }).then(resolve),
     };
     return builder;
   };
   return {
-    from: query,
-    // The health endpoint reads one filtered aggregate result and has no rows in this fixture.
-    rpc: async () => ({ data: [], error: null }),
+    from,
+    rpc: async (fn: string, args?: { p_deployment?: string; p_owner?: string }) => {
+      if (
+        fn === 'workflow_v2_health' &&
+        demo &&
+        args?.p_deployment === demo.activity.deployment &&
+        args?.p_owner?.toLowerCase() === demo.activity.owner
+      ) {
+        return { data: [demo.health], error: null };
+      }
+      return { data: [], error: null };
+    },
   } as unknown as SupabaseClient;
 }
 
@@ -79,10 +129,23 @@ function artifact(path: string): Artifact {
 const workflowAgentFactoryV2Artifact = artifact(
   '../../contracts/out/WorkflowAgentFactoryV2.sol/WorkflowAgentFactoryV2.json',
 );
+const workflowAgentReactV2Artifact = artifact(
+  '../../contracts/out/WorkflowAgentReactV2.sol/WorkflowAgentReactV2.json',
+);
+const workflowAgentV2Artifact = artifact(
+  '../../contracts/out/WorkflowAgentV2.sol/WorkflowAgentV2.json',
+);
 const workflowVaultFactoryV2Artifact = artifact(
   '../../contracts/out/WorkflowVaultFactoryV2.sol/WorkflowVaultFactoryV2.json',
 );
+const workflowVaultV2Artifact = artifact(
+  '../../contracts/out/WorkflowVaultV2.sol/WorkflowVaultV2.json',
+);
+const workflowValidatorV2Artifact = artifact(
+  '../../contracts/out/WorkflowProgramValidatorV2.sol/WorkflowProgramValidatorV2.json',
+);
 const mockErc20Artifact = artifact('../../contracts/out/MockERC20.sol/MockERC20.json');
+const mockPairArtifact = artifact('../../contracts/out/MockPair.sol/MockPair.json');
 const mockSystemArtifact = artifact(
   '../../contracts/out/MockSystemContract.sol/MockSystemContract.json',
 );
@@ -112,6 +175,8 @@ const ERC20 = parseAbi([
   'function mint(address to, uint256 amount)',
   'function balanceOf(address account) view returns (uint256)',
 ]);
+
+const MOCK_PAIR = parseAbi(['function setReserves(uint112 reserve0, uint112 reserve1)']);
 
 async function waitForAnvil(url: string): Promise<void> {
   for (let attempt = 0; attempt < 800; attempt += 1) {
@@ -226,10 +291,42 @@ async function main(): Promise<void> {
 
     await Promise.all([
       (async () => {
+        const systemContract = getChain(LASNA_CHAIN_ID).systemContract;
+        const validatorHash = await lasnaWallet.deployContract({
+          abi: workflowValidatorV2Artifact.abi,
+          bytecode: workflowValidatorV2Artifact.bytecode.object,
+          args: [],
+        });
+        const validatorReceipt = await lasnaPublicClient.waitForTransactionReceipt({
+          hash: validatorHash,
+        });
+        const validatorAddress = validatorReceipt.contractAddress;
+        if (!validatorAddress) throw new Error('Lasna validator deployment failed');
+
+        const reactModuleHash = await lasnaWallet.deployContract({
+          abi: workflowAgentReactV2Artifact.abi,
+          bytecode: workflowAgentReactV2Artifact.bytecode.object,
+          args: [systemContract, validatorAddress],
+        });
+        const reactModuleReceipt = await lasnaPublicClient.waitForTransactionReceipt({
+          hash: reactModuleHash,
+        });
+        const reactModuleAddress = reactModuleReceipt.contractAddress;
+        if (!reactModuleAddress) throw new Error('Lasna Agent react module deployment failed');
+
+        const implHash = await lasnaWallet.deployContract({
+          abi: workflowAgentV2Artifact.abi,
+          bytecode: workflowAgentV2Artifact.bytecode.object,
+          args: [systemContract, validatorAddress, reactModuleAddress],
+        });
+        const implReceipt = await lasnaPublicClient.waitForTransactionReceipt({ hash: implHash });
+        const implAddress = implReceipt.contractAddress;
+        if (!implAddress) throw new Error('Lasna Agent implementation deployment failed');
+
         const hash = await lasnaWallet.deployContract({
           abi: workflowAgentFactoryV2Artifact.abi,
           bytecode: workflowAgentFactoryV2Artifact.bytecode.object,
-          args: [getChain(LASNA_CHAIN_ID).systemContract],
+          args: [systemContract, validatorAddress, implAddress],
         });
         const receipt = await lasnaPublicClient.waitForTransactionReceipt({ hash });
         if (
@@ -239,10 +336,50 @@ async function main(): Promise<void> {
         }
       })(),
       (async () => {
+        const cfg = getChain(UNICHAIN_SEPOLIA_CHAIN_ID);
+        const validatorHash = await wallet.deployContract({
+          abi: workflowValidatorV2Artifact.abi,
+          bytecode: workflowValidatorV2Artifact.bytecode.object,
+          args: [],
+        });
+        const validatorReceipt = await publicClient.waitForTransactionReceipt({
+          hash: validatorHash,
+        });
+        const validatorAddress = validatorReceipt.contractAddress;
+        if (!validatorAddress) throw new Error('Unichain validator deployment failed');
+
+        const market = {
+          usdc: cfg.usdc,
+          weth: cfg.weth,
+          router: cfg.router,
+          pair: cfg.pair,
+          poolFee: cfg.poolFee ?? 0,
+          ethUsdFeed: zeroAddress,
+          usdcUsdFeed: zeroAddress,
+          sequencerFeed: zeroAddress,
+          ethFeedMaxAge: 0,
+          usdcFeedMaxAge: 0,
+        };
+        const implHash = await wallet.deployContract({
+          abi: workflowVaultV2Artifact.abi,
+          bytecode: workflowVaultV2Artifact.bytecode.object,
+          args: [
+            cfg.callbackProxy,
+            zeroAddress,
+            zeroAddress,
+            UNICHAIN_SEPOLIA_CHAIN_ID,
+            market,
+            validatorAddress,
+          ],
+        });
+        const implReceipt = await publicClient.waitForTransactionReceipt({ hash: implHash });
+        const implAddress = implReceipt.contractAddress;
+        if (!implAddress) throw new Error('Unichain Vault implementation deployment failed');
+
         const hash = await wallet.deployContract({
           abi: workflowVaultFactoryV2Artifact.abi,
           bytecode: workflowVaultFactoryV2Artifact.bytecode.object,
-          args: [],
+          args: [validatorAddress, implAddress],
         });
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         if (
@@ -252,10 +389,50 @@ async function main(): Promise<void> {
         }
       })(),
       (async () => {
+        const cfg = getChain(BASE_SEPOLIA_CHAIN_ID);
+        const validatorHash = await baseWallet.deployContract({
+          abi: workflowValidatorV2Artifact.abi,
+          bytecode: workflowValidatorV2Artifact.bytecode.object,
+          args: [],
+        });
+        const validatorReceipt = await basePublicClient.waitForTransactionReceipt({
+          hash: validatorHash,
+        });
+        const validatorAddress = validatorReceipt.contractAddress;
+        if (!validatorAddress) throw new Error('Base validator deployment failed');
+
+        const market = {
+          usdc: cfg.usdc,
+          weth: cfg.weth,
+          router: cfg.router,
+          pair: cfg.pair,
+          poolFee: cfg.poolFee ?? 0,
+          ethUsdFeed: zeroAddress,
+          usdcUsdFeed: zeroAddress,
+          sequencerFeed: zeroAddress,
+          ethFeedMaxAge: 0,
+          usdcFeedMaxAge: 0,
+        };
+        const implHash = await baseWallet.deployContract({
+          abi: workflowVaultV2Artifact.abi,
+          bytecode: workflowVaultV2Artifact.bytecode.object,
+          args: [
+            cfg.callbackProxy,
+            zeroAddress,
+            zeroAddress,
+            BASE_SEPOLIA_CHAIN_ID,
+            market,
+            validatorAddress,
+          ],
+        });
+        const implReceipt = await basePublicClient.waitForTransactionReceipt({ hash: implHash });
+        const implAddress = implReceipt.contractAddress;
+        if (!implAddress) throw new Error('Base Vault implementation deployment failed');
+
         const baseFactoryHash = await baseWallet.deployContract({
           abi: workflowVaultFactoryV2Artifact.abi,
           bytecode: workflowVaultFactoryV2Artifact.bytecode.object,
-          args: [],
+          args: [validatorAddress, implAddress],
         });
         const baseFactoryReceipt = await basePublicClient.waitForTransactionReceipt({
           hash: baseFactoryHash,
@@ -300,8 +477,223 @@ async function main(): Promise<void> {
           });
           await client.waitForTransactionReceipt({ hash });
         }
+
+        const pair = getChain(chainId).pair;
+        const usdcIsToken0 = usdc.toLowerCase() < weth.toLowerCase();
+        const [token0, token1] = usdcIsToken0 ? [usdc, weth] : [weth, usdc];
+        const deployPairHash = await walletClient.deployContract({
+          abi: mockPairArtifact.abi,
+          bytecode: mockPairArtifact.bytecode.object,
+          args: [token0, token1],
+        });
+        const deployPairReceipt = await client.waitForTransactionReceipt({ hash: deployPairHash });
+        if (!deployPairReceipt.contractAddress) {
+          throw new Error(`MockPair deployment failed on chain ${chainId}`);
+        }
+        const pairCode = await client.getCode({ address: deployPairReceipt.contractAddress });
+        if (!pairCode) {
+          throw new Error(`MockPair runtime bytecode missing on chain ${chainId}`);
+        }
+        await client.request({
+          method: 'anvil_setCode',
+          params: [pair, pairCode],
+        } as never);
+        const usdcReserve =
+          chainId === UNICHAIN_SEPOLIA_CHAIN_ID ? 250_000_000_000n : 260_000_000_000n;
+        const wethReserve = 100n * 10n ** 18n;
+        const [reserve0, reserve1] = usdcIsToken0
+          ? [usdcReserve, wethReserve]
+          : [wethReserve, usdcReserve];
+        const reservesHash = await walletClient.writeContract({
+          address: pair,
+          abi: MOCK_PAIR,
+          functionName: 'setReserves',
+          args: [reserve0, reserve1],
+        });
+        await client.waitForTransactionReceipt({ hash: reservesHash });
       }),
     );
+
+    const demoWallet = createWalletClient({
+      account: DEMO_ADDRESS,
+      chain: anvilChain,
+      transport: http(ANVIL_RPC_URL),
+    });
+    const demoLasnaWallet = createWalletClient({
+      account: DEMO_ADDRESS,
+      chain: lasnaAnvilChain,
+      transport: http(ANVIL_LASNA_RPC_URL),
+    });
+
+    const createAgentHash = await demoLasnaWallet.writeContract({
+      address: WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+      abi: workflowAgentFactoryV2Abi,
+      functionName: 'create',
+    });
+    await lasnaPublicClient.waitForTransactionReceipt({ hash: createAgentHash });
+    const demoAgent = await lasnaPublicClient.readContract({
+      address: WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+      abi: workflowAgentFactoryV2Abi,
+      functionName: 'agentOf',
+      args: [DEMO_ADDRESS],
+    });
+    if (demoAgent === zeroAddress) throw new Error('Demo Agent deployment failed');
+
+    const createVaultHash = await demoWallet.writeContract({
+      address: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+      abi: workflowVaultFactoryV2Abi,
+      functionName: 'create',
+      args: [demoAgent],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: createVaultHash });
+    const demoVault = await publicClient.readContract({
+      address: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+      abi: workflowVaultFactoryV2Abi,
+      functionName: 'vaultOf',
+      args: [DEMO_ADDRESS],
+    });
+    if (demoVault === zeroAddress) throw new Error('Demo Vault deployment failed');
+
+    const linkHash = await demoLasnaWallet.writeContract({
+      address: demoAgent,
+      abi: workflowAgentV2Abi,
+      functionName: 'linkVault',
+      args: [UNICHAIN_SEPOLIA_CHAIN_ID, demoVault],
+    });
+    await lasnaPublicClient.waitForTransactionReceipt({ hash: linkHash });
+
+    const unichainUsdc = getChain(UNICHAIN_SEPOLIA_CHAIN_ID).usdc;
+    const mintDemoUsdcHash = await wallet.writeContract({
+      address: unichainUsdc,
+      abi: ERC20,
+      functionName: 'mint',
+      args: [DEMO_ADDRESS, 25_000_000n],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: mintDemoUsdcHash });
+
+    const fundDemoVaultHash = await demoWallet.writeContract({
+      address: unichainUsdc,
+      abi: erc20Abi,
+      functionName: 'transfer',
+      args: [demoVault, 25_000_000n],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: fundDemoVaultHash });
+
+    const execCreditHash = await demoWallet.writeContract({
+      address: getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy,
+      abi: executionCreditAbi,
+      functionName: 'depositTo',
+      args: [demoVault],
+      value: 100_000_000_000_000_000n,
+    });
+    await publicClient.waitForTransactionReceipt({ hash: execCreditHash });
+
+    const watchCreditHash = await demoLasnaWallet.writeContract({
+      address: getChain(LASNA_CHAIN_ID).systemContract,
+      abi: executionCreditAbi,
+      functionName: 'depositTo',
+      args: [demoAgent],
+      value: 500_000_000_000_000_000n,
+    });
+    await lasnaPublicClient.waitForTransactionReceipt({ hash: watchCreditHash });
+
+    const demoWorkflowId = `0x${'de'.repeat(32)}` as Hex;
+    const demoTitle = 'Income sweep demo';
+    const demoProgram = encodeWorkflowV2(
+      createWorkflowV2Recipe(
+        'income-sweep',
+        { minimumPaymentUsdc: '1', sendUsdc: '0.2', recipient: SPONSOR_ADDRESS },
+        { chain: UNICHAIN_SEPOLIA_CHAIN_ID, vault: demoVault },
+      ),
+    );
+    const demoProgramHash = keccak256(demoProgram);
+    const authorizeHash = await demoWallet.writeContract({
+      address: demoVault,
+      abi: workflowVaultV2Abi,
+      functionName: 'authorizeWithWeeklyBudget',
+      args: [demoWorkflowId, 1n, demoProgram, demoTitle, 10_000_000n, 0n],
+    });
+    await publicClient.waitForTransactionReceipt({ hash: authorizeHash });
+
+    const [demoAuth, demoBudget] = await Promise.all([
+      publicClient.readContract({
+        address: demoVault,
+        abi: workflowVaultV2Abi,
+        functionName: 'authorizations',
+        args: [demoWorkflowId],
+      }),
+      publicClient.readContract({
+        address: demoVault,
+        abi: workflowVaultV2Abi,
+        functionName: 'weeklyBudget',
+        args: [demoWorkflowId],
+      }),
+    ]);
+    const enableHash = await demoLasnaWallet.writeContract({
+      address: demoAgent,
+      abi: workflowAgentV2Abi,
+      functionName: 'enableWithBudget',
+      args: [
+        demoWorkflowId,
+        1n,
+        demoProgram,
+        demoTitle,
+        demoAuth[2],
+        {
+          usdcLimit: demoBudget[0],
+          wethLimit: demoBudget[1],
+          usdcSpent: demoBudget[2],
+          wethSpent: demoBudget[3],
+          weekStart: demoBudget[6] >= 604_800n ? demoBudget[6] - 604_800n : 0n,
+          revision: demoBudget[7],
+        },
+      ],
+    });
+    await lasnaPublicClient.waitForTransactionReceipt({ hash: enableHash });
+
+    const demoRunId = `0x${'ef'.repeat(32)}` as Hex;
+    const demoDeployment = workflowDeploymentKey(LASNA_CHAIN_ID, WORKFLOW_V2_AGENT_FACTORY_ADDRESS);
+    const demoExpiresAt = Math.floor(Date.now() / 1000) + 3600;
+    const demoRecord: FixtureDemoRecord = {
+      activity: {
+        deployment: demoDeployment,
+        owner: DEMO_ADDRESS.toLowerCase(),
+        id: demoRunId,
+        workflow_id: demoWorkflowId,
+        agent: demoAgent.toLowerCase(),
+        title: demoTitle,
+        chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        program_hash: demoProgramHash,
+        epoch: '1',
+        origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        origin_transaction: authorizeHash.toLowerCase(),
+        origin_log_index: '1',
+        lasna_transaction: enableHash.toLowerCase(),
+        lasna_block: 100,
+        expires_at: demoExpiresAt,
+        destination_transaction: fundDemoVaultHash.toLowerCase(),
+        reason: null,
+        path: 0,
+        status: 'confirmed',
+      },
+      health: {
+        chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+        workflow_id: demoWorkflowId,
+        last_run_id: demoRunId,
+        last_status: 'confirmed',
+        last_reason: null,
+        last_expires_at: demoExpiresAt,
+        last_path: 0,
+        last_lasna_transaction: enableHash.toLowerCase(),
+        last_destination_transaction: fundDemoVaultHash.toLowerCase(),
+        last_success_id: demoRunId,
+        last_success_path: 0,
+        last_success_lasna_transaction: enableHash.toLowerCase(),
+        last_success_destination_transaction: fundDemoVaultHash.toLowerCase(),
+        pending_run_id: null,
+        pending_expires_at: null,
+      },
+    };
 
     const config: AppConfig = {
       PORT: FIXTURE_API_PORT,
@@ -317,6 +709,7 @@ async function main(): Promise<void> {
         unichain: { factory: WORKFLOW_V2_VAULT_FACTORY_ADDRESS, startBlock: 1 },
         base: { factory: WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS, startBlock: 1 },
       },
+      demoAccount: DEMO_ADDRESS,
       corsOrigins: [FIXTURE_FRONTEND_URL],
     };
 
@@ -333,8 +726,14 @@ async function main(): Promise<void> {
       },
       { logger: false },
     );
-    const workflowDatabase = emptyWorkflowV2Database();
-    registerWorkflowV2Routes(built.app, workflowDatabase, WORKFLOW_V2_AGENT_FACTORY_ADDRESS);
+    const workflowDatabase = fixtureWorkflowV2Database(demoRecord);
+    registerWorkflowV2Routes(
+      built.app,
+      workflowDatabase,
+      WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
+      undefined,
+      { owner: DEMO_ADDRESS },
+    );
     serverRef.current = built.app;
     await built.app.listen({ port: FIXTURE_API_PORT, host: '127.0.0.1' });
     const v2Marketplace = await fetch(`${FIXTURE_API_URL}/v3/marketplace`, {

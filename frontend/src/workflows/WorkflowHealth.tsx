@@ -16,15 +16,20 @@ import {
 export function WorkflowHealthPanel({
   item,
   owner,
+  readOnly = false,
 }: {
   readonly item: WorkflowHealthItem;
   readonly owner?: Address;
+  readonly readOnly?: boolean;
 }) {
   const { mode } = useNetworkMode();
   const { rows, pending, runsUnavailable, creditsUnavailable } = useWorkflowHealth(owner, [item]);
   const view = rows.get(workflowHealthKey(item.chain, item.id));
   if (!view) return null;
   const href = workflowHealthHref(view.health, item.id, view.lastRun?.id, view.chain, mode);
+  const readOnlySafeFix =
+    view.health.fix === 'run' || view.health.fix === 'activity' || view.health.fix === 'account';
+  const showFix = Boolean(href && view.health.fixLabel && (!readOnly || readOnlySafeFix));
   const facts = [
     {
       term: 'Last successful run',
@@ -72,7 +77,7 @@ export function WorkflowHealthPanel({
       <PanelBody>
         <p className="app-copy">{view.health.summary}</p>
         <FactList items={facts} />
-        {href && view.health.fixLabel ? (
+        {showFix && href ? (
           <div className="flex flex-wrap items-center gap-2">
             <Link className="app-button" to={href}>
               {view.health.fixLabel}

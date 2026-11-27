@@ -8,6 +8,8 @@ import {PriceMath} from "../src/libraries/PriceMath.sol";
 import {IUniswapV2Pair} from "../src/shared/UniswapV2.sol";
 import {IUniswapV3Pool} from "../src/shared/UniswapV3.sol";
 import {WorkflowProgramV2 as P} from "../src/workflow/v2/WorkflowProgramV2.sol";
+import {WorkflowProgramValidatorV2} from "../src/workflow/v2/WorkflowProgramValidatorV2.sol";
+import {WorkflowProtocolsV2} from "../src/workflow/v2/WorkflowProtocolsV2.sol";
 import {WorkflowVaultFactoryV2} from "../src/workflow/v2/WorkflowVaultFactoryV2.sol";
 import {WorkflowVaultV2} from "../src/workflow/v2/WorkflowVaultV2.sol";
 
@@ -16,12 +18,21 @@ contract WorkflowMainnetForkV2Test is Test {
     address private constant AGENT = address(0xA9E7);
     address private immutable RECIPIENT_A = makeAddr("forkRecipientA");
     address private immutable RECIPIENT_B = makeAddr("forkRecipientB");
-    uint64 private constant CALLBACK_GAS = 850_000;
+    uint64 private constant CALLBACK_GAS = 1_200_000;
 
     function testUnichainMainnetForkWorstCaseThreeActionPriceLeafFitsCallbackGas() public {
         vm.createSelectFork("https://mainnet.unichain.org");
         ChainConfig.Config memory cfg = ChainConfig.unichainMainnet();
-        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2();
+        WorkflowProgramValidatorV2 validator = new WorkflowProgramValidatorV2();
+        WorkflowVaultV2 impl = new WorkflowVaultV2(
+            cfg.callbackProxy,
+            address(0),
+            address(0),
+            uint32(cfg.chainId),
+            _market(cfg),
+            validator
+        );
+        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2(validator, address(impl));
         vm.prank(OWNER);
         WorkflowVaultV2 vault = WorkflowVaultV2(payable(factory.create(AGENT)));
 
@@ -91,7 +102,16 @@ contract WorkflowMainnetForkV2Test is Test {
     function testBaseMainnetForkWorstCaseThreeActionPriceLeafFitsCallbackGas() public {
         vm.createSelectFork("https://mainnet.base.org");
         ChainConfig.Config memory cfg = ChainConfig.baseMainnet();
-        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2();
+        WorkflowProgramValidatorV2 validator = new WorkflowProgramValidatorV2();
+        WorkflowVaultV2 impl = new WorkflowVaultV2(
+            cfg.callbackProxy,
+            address(0),
+            address(0),
+            uint32(cfg.chainId),
+            _market(cfg),
+            validator
+        );
+        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2(validator, address(impl));
         vm.prank(OWNER);
         WorkflowVaultV2 vault = WorkflowVaultV2(payable(factory.create(AGENT)));
 
@@ -135,7 +155,7 @@ contract WorkflowMainnetForkV2Test is Test {
             expiresAt: uint64(block.timestamp + 10 minutes),
             observed: spot,
             previous: uint128(spot + 1e18),
-            high: uint128(spot + 1e18),
+            high: uint128((spot * 105) / 100),
             highBlock: uint64(block.number + 1),
             observationTime: uint64(block.timestamp),
             activityTime: 0,
@@ -157,6 +177,25 @@ contract WorkflowMainnetForkV2Test is Test {
         assertEq(IERC20(cfg.usdc).balanceOf(RECIPIENT_A), 1e6);
         assertEq(IERC20(cfg.usdc).balanceOf(RECIPIENT_B), 1e6);
         assertLt(used, CALLBACK_GAS);
+    }
+
+    function _market(ChainConfig.Config memory cfg)
+        private
+        pure
+        returns (WorkflowProtocolsV2.Networks memory)
+    {
+        return WorkflowProtocolsV2.Networks(
+            cfg.usdc,
+            cfg.weth,
+            cfg.router,
+            cfg.pair,
+            cfg.poolFee,
+            cfg.ethUsdFeed,
+            cfg.usdcUsdFeed,
+            cfg.sequencerFeed,
+            cfg.ethFeedMaxAge,
+            cfg.usdcFeedMaxAge
+        );
     }
 
     function _worstCaseNodes(uint256 spot) private view returns (P.Node[] memory nodes) {

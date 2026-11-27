@@ -1,6 +1,8 @@
 import {
   addressSchema,
   automationChainFor,
+  demoAccountConfigSchema,
+  demoFeaturedRunLimit,
   fundsChainIdSchema,
   fundsChainsFor,
   networkModeSchema,
@@ -9,12 +11,13 @@ import {
   workflowIdSchema,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
+  workflowV2Trigger,
   type Address,
   type NetworkMode,
 } from '@rulebook/shared';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyInstance } from 'fastify';
-import { zeroHash } from 'viem';
+import { zeroHash, type Hex } from 'viem';
 import { z } from 'zod';
 
 import type { CallbackReader } from '../chain/lasnaCallbacks.js';
@@ -34,6 +37,8 @@ const query = z.object({
   network: networkModeSchema.default('testnet'),
 });
 const listingId = z.string().regex(/^[1-9]\d{0,77}$/);
+const triggerCode = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
+const marketplaceTriggerFilter = z.enum(['schedule', 'payment', 'price', 'transfer']);
 const listing = z.object({
   id: listingId,
   owner: addressSchema,
@@ -42,14 +47,17 @@ const listing = z.object({
   program_hash: workflowIdSchema,
   program: z.string().regex(/^0x[\da-f]+$/i),
   chain: settlementChain,
+  origin_chain: settlementChain,
+  trigger: triggerCode.nullable(),
   title: z.string(),
   description: z.string(),
   block_number: z.number().int().safe(),
   log_index: z.number().int().nonnegative(),
+  verified_runs: z.number().int().nonnegative().default(0),
 });
 const marketCursor = z.object({
   block: z.number().int().nonnegative().safe(),
-  index: z.number().int().nonnegative().safe(),
+  index: z.number().int().nonnegative().max(2_147_483_647),
 });
 const run = z.object({
   id: workflowIdSchema,
@@ -106,6 +114,16 @@ const proofRow = run
     agent: addressSchema.optional(),
   });
 const proofColumns = Object.keys(proofRow.shape).join(',');
+const demoRunRow = z.object({
+  id: workflowIdSchema,
+  workflow_id: workflowIdSchema,
+  title: z.string(),
+  chain: settlementChain,
+  origin_chain: z.number().int(),
+  status: workflowV2RunStatusSchema,
+  path: z.number().int().nonnegative().nullable(),
+});
+const demoRunColumns = Object.keys(demoRunRow.shape).join(',');
 const routeRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } } as const;
 
 function readCursor(value: string | undefined) {
@@ -139,6 +157,7 @@ export function registerWorkflowV2Routes(
   db: SupabaseClient,
   factoryOrDeployments: Address | { testnet?: Address; mainnet?: Address },
   callbackReaders?: Partial<Record<NetworkMode, CallbackReader>>,
+  demoConfig?: { readonly owner?: Address; readonly featuredRunIds?: readonly Hex[] },
 ) {
   function resolveDeployment(network: NetworkMode) {
     const address =
@@ -155,16 +174,87 @@ export function registerWorkflowV2Routes(
     };
   }
 
+  app.get('/v3/demo', routeRateLimit, async (request, reply) => {
+    const params = z
+      .object({ network: networkModeSchema.default('testnet') })
+      .safeParse(request.query);
+    if (!params.success) return reply.code(400).send({ message: 'Check the network parameter.' });
+    const network = params.data.network;
+    if (network !== 'testnet' || !demoConfig?.owner) {
+      reply.header('cache-control', 'no-store');
+      return demoAccountConfigSchema.parse({
+        available: false,
+        owner: null,
+        network,
+        featuredRuns: [],
+      });
+    }
+    const { deployment, chains } = resolveDeployment('testnet');
+    if (!deployment) {
+      reply.header('cache-control', 'no-store');
+      return demoAccountConfigSchema.parse({
+        available: false,
+        owner: null,
+        network,
+        featuredRuns: [],
+      });
+    }
+    let featuredQuery = db
+      .from('workflow_v2_activity')
+      .select(demoRunColumns)
+      .match({ deployment, owner: demoConfig.owner.toLowerCase() })
+      .in('chain', [...chains]);
+    if (demoConfig.featuredRunIds?.length) {
+      featuredQuery = featuredQuery.in('id', [...demoConfig.featuredRunIds]);
+    } else {
+      featuredQuery = featuredQuery.eq('status', 'confirmed');
+    }
+    const { data, error } = await featuredQuery
+      .order('lasna_block', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(demoFeaturedRunLimit);
+    if (error) throw error;
+    const featuredRuns = z
+      .array(demoRunRow)
+      .parse(data ?? [])
+      .map((row) => ({
+        id: row.id,
+        workflowId: row.workflow_id,
+        title: row.title,
+        chain: row.chain,
+        originChain: row.origin_chain,
+        status: row.status,
+        path: row.path,
+      }));
+    reply.header('cache-control', 'public, max-age=30');
+    return demoAccountConfigSchema.parse({
+      available: true,
+      owner: demoConfig.owner,
+      network: 'testnet',
+      featuredRuns,
+    });
+  });
+
   app.get('/v3/marketplace', routeRateLimit, async (request, reply) => {
     const params = z
       .object({
         q: z.string().max(160).default(''),
         after: z.string().max(250).optional(),
         network: networkModeSchema.default('testnet'),
+        chain: z.coerce.number().int().optional(),
+        crossChain: z.enum(['true', 'false']).optional(),
+        trigger: marketplaceTriggerFilter.optional(),
       })
       .safeParse(request.query);
     if (!params.success) return reply.code(400).send({ message: 'Check the search parameters.' });
     const { deployment, chains } = resolveDeployment(params.data.network);
+    const selectedChains =
+      params.data.chain === undefined
+        ? [...chains]
+        : chains.some((candidate) => candidate === params.data.chain)
+          ? [params.data.chain]
+          : null;
+    if (!selectedChains) return reply.code(400).send({ message: 'Check the search parameters.' });
     if (!deployment) return { listings: [], nextCursor: null };
     let before;
     if (params.data.after) {
@@ -176,24 +266,21 @@ export function registerWorkflowV2Routes(
         return reply.code(400).send({ message: 'This Marketplace page link is invalid.' });
       }
     }
-    let page = db
-      .from('workflow_v2_market_listings')
-      .select('*')
-      .match({ deployment, visible: true })
-      .in('chain', [...chains]);
-    const search = params.data.q.trim().replace(/[%_\\*"]/g, (character) => `\\${character}`);
-    if (search) page = page.or(`title.ilike."%${search}%",description.ilike."%${search}%"`);
-    if (before)
-      page = page.or(
-        `block_number.lt.${before.block},and(block_number.eq.${before.block},log_index.lt.${before.index})`,
-      );
+    const trimmed = params.data.q.trim();
     const limit = 24;
-    const { data, error } = await page
-      .order('block_number', { ascending: false })
-      .order('log_index', { ascending: false })
-      .limit(limit + 1);
+    const { data, error } = await db.rpc('workflow_v2_marketplace_browse', {
+      p_deployment: deployment,
+      p_chains: selectedChains,
+      p_query: trimmed || null,
+      p_cross_chain:
+        params.data.crossChain === undefined ? null : params.data.crossChain === 'true',
+      p_trigger: params.data.trigger ? workflowV2Trigger[params.data.trigger] : null,
+      p_before_block: before?.block ?? null,
+      p_before_index: before?.index ?? null,
+      p_limit: limit + 1,
+    });
     if (error) throw error;
-    const rows = z.array(listing).parse(data);
+    const rows = z.array(listing).parse(data ?? []);
     const last = rows[limit - 1];
     return {
       listings: rows.slice(0, limit),
@@ -215,16 +302,15 @@ export function registerWorkflowV2Routes(
       return reply.code(400).send({ message: 'This listing ID is invalid.' });
     const { deployment, chains } = resolveDeployment(networkQuery.data.network);
     if (!deployment) return reply.code(404).send({ message: 'This listing is unavailable.' });
-    const { data, error } = await db
-      .from('workflow_v2_market_listings')
-      .select('*')
-      .match({ deployment, visible: true, id: params.data.id })
-      .in('chain', [...chains])
-      .maybeSingle();
+    const { data, error } = await db.rpc('workflow_v2_marketplace_listing', {
+      p_deployment: deployment,
+      p_id: params.data.id,
+      p_chains: [...chains],
+    });
     if (error) throw error;
-    return data
-      ? listing.parse(data)
-      : reply.code(404).send({ message: 'This listing is unavailable.' });
+    const rows = z.array(listing).parse(data ?? []);
+    const item = rows[0];
+    return item ? item : reply.code(404).send({ message: 'This listing is unavailable.' });
   });
 
   app.get('/v3/health', routeRateLimit, async (request, reply) => {
