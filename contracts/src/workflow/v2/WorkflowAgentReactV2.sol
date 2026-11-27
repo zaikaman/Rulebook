@@ -9,6 +9,8 @@ import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 
 interface IWorkflowSettlementV2 {
     function execute(address sender, bytes32 workflow, P.Run calldata run) external;
+    function recordActivity(address sender, bytes32 workflow, uint64 epoch, uint64 activityTime)
+        external;
 }
 
 /// @notice Delegatecall module executing `react` and `resumeWatching` for `WorkflowAgentV2`.
@@ -107,7 +109,10 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             ) {
                 cursor.blockNumber = uint64(log.block_number);
                 cursor.logIndex = uint64(log.log_index);
-                if (block.timestamp > lastActivity) lastActivity = uint64(block.timestamp);
+                if (block.timestamp > lastActivity) {
+                    lastActivity = uint64(block.timestamp);
+                    _cancelPendingPayouts();
+                }
             }
         }
         // Retiring an entry removes it with a swap-and-pop, so the loop re-reads the same index
@@ -122,6 +127,32 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             }
             _route(workflow, log, market);
             ++index;
+        }
+    }
+
+    function _cancelPendingPayouts() private {
+        for (uint256 index; index < active.length; ++index) {
+            bytes32 workflow = active[index];
+            uint64 graceUntil = payoutGraceUntil[workflow];
+            if (graceUntil == 0 || block.timestamp > uint256(graceUntil) + GRACE_SKEW + LIFETIME) {
+                continue;
+            }
+            Entry storage entry = entries[workflow];
+            if (entry.expiry != 0 && block.timestamp > entry.expiry) continue;
+            try system.requestCallbackV_1_0(
+                CallbackConfiguration({
+                    chainId: entry.chain,
+                    recipient: vaults[entry.chain],
+                    gasLimit: 100_000,
+                    payload: abi.encodeCall(
+                        IWorkflowSettlementV2.recordActivity,
+                        (address(0), workflow, entry.epoch, lastActivity)
+                    )
+                })
+            ) {}
+                catch {
+                // Scheduled runs still carry the recorded activity if the relay refuses a request.
+            }
         }
     }
 
@@ -195,21 +226,33 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
                 ) {
                     high.value = sustained;
                     high.blockNumber = state.previousBlockNumber;
+                    high.observedAt = state.previousTime;
                 }
                 WorkflowMeta storage info = meta[workflow];
-                if (block.timestamp < info.cooldownUntil) return;
+                (uint128 previousLow, uint128 previousHigh) = _crossingRange(workflow, info, state);
+                bool cooling = block.timestamp < info.cooldownUntil;
+                if (cooling && (info.flags & P.FLAG_CROSSING) == 0) return;
                 uint256 refPrice = (info.flags & FLAG_REF_PENDING) != 0
                     && block.timestamp < uint256(info.cooldownUntil) + LIFETIME
                     ? type(uint256).max
                     : info.referencePrice;
-                if (!validator.canTriggerPrice(
-                        programs[entry.hash], state.price, state.previousPrice, high.value, refPrice
+                if (!validator.canTriggerPriceRange(
+                        programs[entry.hash],
+                        state.price,
+                        previousLow,
+                        previousHigh,
+                        high.value,
+                        refPrice,
+                        cooling
                     )) return;
                 run.observed = state.price;
                 run.previous = state.previousPrice;
                 run.high = high.value;
                 run.highBlock = high.blockNumber;
                 run.observationTime = state.time;
+                run.observationId = P.priceEvidence(previousHigh, high.observedAt, cooling);
+                // A price log has no payer. Preserve the immediate previous price for old Vaults.
+                run.actor = address(uint160(previousLow));
             } else {
                 if (log.data.length != 32) return;
                 uint256 amount = abi.decode(log.data, (uint256));
@@ -225,6 +268,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
                 ) return;
                 if (watched == address(0)) {
                     if (log.topic_2 != uint160(vaults[entry.chain])) return;
+                    if (entry.trigger == P.PAYMENT && log.topic_1 == uint160(owner)) return;
                 } else if (log.topic_1 != uint160(watched) && log.topic_2 != uint160(watched)) {
                     return;
                 }
@@ -258,6 +302,23 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         _dispatch(workflow, entry, run, runId);
     }
 
+    function _crossingRange(bytes32 workflow, WorkflowMeta storage info, PriceState storage state)
+        private
+        returns (uint128 low, uint128 high)
+    {
+        low = state.previousPrice;
+        high = low;
+        if ((info.flags & P.FLAG_CROSSING) == 0) return (low, high);
+        CrossingRange storage range = crossings[workflow];
+        if (range.blockNumber == 0) return (low, high);
+        // Add completed blocks only. Intra-block pool wicks must not become crossing evidence.
+        if (state.previousBlockNumber >= range.blockNumber && low != 0) {
+            if (range.low == 0 || low < range.low) range.low = low;
+            if (high > range.high) range.high = high;
+        }
+        return (range.low, range.high);
+    }
+
     function _dispatch(bytes32 workflow, Entry storage entry, P.Run memory run, bytes32 runId)
         private
     {
@@ -272,6 +333,9 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             info.cooldownUntil =
                 nextCooldown > type(uint40).max ? type(uint40).max : uint40(nextCooldown);
             if ((info.flags & P.FLAG_USES_REFERENCE) != 0) info.flags |= FLAG_REF_PENDING;
+            if ((info.flags & P.FLAG_CROSSING) != 0) {
+                crossings[workflow] = CrossingRange(0, 0, run.originBlock);
+            }
         }
         emit Dispatched(
             workflow,
@@ -500,15 +564,17 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             uint32 revision
         ) = abi.decode(log.data, (uint96, uint96, uint128, uint128, uint64, uint32));
         Budget storage budget = budgets[workflow];
+        address vault = log._contract;
+        if (revision < budgetRevisions[workflow][vault]) return;
         if (
             budget.known
-                && (weekStart < budget.weekStart
+                && (revision < budget.revision
+                    || weekStart < budget.weekStart
                     || (weekStart == budget.weekStart
-                        && (revision < budget.revision
-                            || usdcSpent < budget.usdcSpent
-                            || wethSpent < budget.wethSpent)))
+                        && (usdcSpent < budget.usdcSpent || wethSpent < budget.wethSpent)))
         ) return;
         uint64 prevWeek = budget.weekStart;
+        budgetRevisions[workflow][vault] = revision;
         budgets[workflow] =
             Budget(usdcLimit, wethLimit, usdcSpent, wethSpent, weekStart, revision, true);
         if (entry.trigger == 0) return;
@@ -553,6 +619,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             if (entry.trigger != P.SCHEDULE || !entry.inactivity) return;
             uint64 eligibleAt = abi.decode(log.data, (uint64));
             if (eligibleAt == 0) return;
+            if (eligibleAt > payoutGraceUntil[workflow]) payoutGraceUntil[workflow] = eligibleAt;
             uint64 target = eligibleAt + GRACE_SKEW;
             if (target < entry.nextDue) entry.nextDue = target;
             return;
@@ -562,6 +629,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             uint128 syncedPeak = abi.decode(log.data, (uint128));
             highs[workflow].value = syncedPeak;
             highs[workflow].blockNumber = syncedPeak == 0 ? 0 : uint64(log.block_number);
+            highs[workflow].observedAt = 0;
             return;
         }
         if (

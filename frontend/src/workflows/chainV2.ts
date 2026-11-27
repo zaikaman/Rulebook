@@ -33,6 +33,9 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import {
+  BaseError,
+  ContractFunctionRevertedError,
+  ContractFunctionZeroDataError,
   encodeFunctionData,
   erc20Abi,
   formatUnits,
@@ -84,6 +87,32 @@ export function settlementFactory(chain: SettlementChain = UNICHAIN_SEPOLIA_CHAI
 
 export function workflowClient(chain: WalletChain) {
   return publicClientFor(chain);
+}
+
+const upgradeableFactoryAbi = parseAbi(['function admin() view returns (address)']);
+
+async function requireUpgradeableFactory(chain: WalletChain, factory: Address) {
+  try {
+    await workflowClient(chain).readContract({
+      address: factory,
+      abi: upgradeableFactoryAbi,
+      functionName: 'admin',
+    });
+  } catch (error) {
+    if (
+      error instanceof BaseError &&
+      error.walk(
+        (cause) =>
+          cause instanceof ContractFunctionZeroDataError ||
+          cause instanceof ContractFunctionRevertedError,
+      )
+    ) {
+      throw new Error(
+        'This deployment uses legacy contracts. Account creation and workflow activation require the proxy migration.',
+      );
+    }
+    throw error;
+  }
 }
 
 export function v2Network(chain: WalletChain) {
@@ -850,6 +879,7 @@ export function useWorkflowV2Wallet() {
   async function createAgent(signer: Address, reviewedConnector?: string) {
     const agentFactory = deployment?.automationFactory;
     if (!agentFactory) throw new Error(`This ${mode} deployment is unavailable.`);
+    await requireUpgradeableFactory(automationChainId, agentFactory);
     const receipt = await send(
       automationChainId,
       agentFactory,
@@ -874,7 +904,12 @@ export function useWorkflowV2Wallet() {
     chain: SettlementChain = defaultFundsChainId,
   ) {
     const vaultFactory = settlementFactory(chain);
-    if (!vaultFactory) throw new Error(`This ${mode} deployment is unavailable.`);
+    const agentFactory = deployment?.automationFactory;
+    if (!vaultFactory || !agentFactory) throw new Error(`This ${mode} deployment is unavailable.`);
+    await Promise.all([
+      requireUpgradeableFactory(automationChainId, agentFactory),
+      requireUpgradeableFactory(chain, vaultFactory),
+    ]);
     const receipt = await send(
       chain,
       vaultFactory,
@@ -1061,7 +1096,12 @@ export function useWorkflowV2Wallet() {
       const chain = program.chain as SettlementChain;
       const client = workflowClient(chain);
       const factory = settlementFactory(chain);
-      if (!factory) throw new Error(`This ${mode} deployment is unavailable.`);
+      const agentFactory = deployment?.automationFactory;
+      if (!factory || !agentFactory) throw new Error(`This ${mode} deployment is unavailable.`);
+      await Promise.all([
+        requireUpgradeableFactory(automationChainId, agentFactory),
+        requireUpgradeableFactory(chain, factory),
+      ]);
       const encoded = encodeWorkflowV2(program);
       await validateV2Program(encoded, program);
       const existingVault = await readVault(signer, chain);

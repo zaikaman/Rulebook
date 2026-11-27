@@ -100,20 +100,19 @@ contract WorkflowAgentV2 is WorkflowAgentStorageV2, UUPSUpgradeable {
         uint64 originAfter,
         BudgetSeed calldata budgetSeed
     ) external onlyOwner {
-        if (budgetSeed.usdcLimit != 0 || budgetSeed.wethLimit != 0) {
-            budgets[workflow] = Budget(
-                budgetSeed.usdcLimit,
-                budgetSeed.wethLimit,
-                budgetSeed.usdcSpent,
-                budgetSeed.wethSpent,
-                budgetSeed.weekStart,
-                budgetSeed.revision,
-                true
-            );
-        } else {
-            delete budgets[workflow];
-        }
+        budgets[workflow] = Budget(
+            budgetSeed.usdcLimit,
+            budgetSeed.wethLimit,
+            budgetSeed.usdcSpent,
+            budgetSeed.wethSpent,
+            budgetSeed.weekStart,
+            budgetSeed.revision,
+            true
+        );
         _enableCore(workflow, epoch, encoded, title, originAfter);
+        address vault = vaults[entries[workflow].chain];
+        if (budgetSeed.revision < budgetRevisions[workflow][vault]) revert InvalidWorkflow();
+        budgetRevisions[workflow][vault] = budgetSeed.revision;
     }
 
     function _enableCore(

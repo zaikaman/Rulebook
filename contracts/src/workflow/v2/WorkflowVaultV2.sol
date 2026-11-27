@@ -33,6 +33,7 @@ contract WorkflowVaultV2 is
     uint8 public constant IN_GRACE_PERIOD = 6;
     uint8 private constant NO_PATH = type(uint8).max;
     uint64 public constant PAYOUT_GRACE = 24 hours;
+    uint64 private constant CALLBACK_LIFETIME = 10 minutes;
     uint64 private constant PRICE_MAX_AGE = 1 hours;
     uint64 private constant WEEK = 7 days;
     // Unix time zero is a Thursday. Monday 00:00 UTC therefore falls on a weekly remainder of
@@ -140,7 +141,8 @@ contract WorkflowVaultV2 is
     mapping(bytes32 => bool) private consumedPayments;
     mapping(bytes32 => mapping(bytes32 => bool)) private consumedDips;
     address public factory;
-    uint256[50] private __gap;
+    mapping(bytes32 => uint64) public payoutReadyAt;
+    uint256[49] private __gap;
 
     constructor(
         address proxy,
@@ -181,11 +183,23 @@ contract WorkflowVaultV2 is
         factory = msg.sender;
         owner = owner_;
         agent = agent_;
-        vendor = IPayable(payable(callbackProxy));
-        addAuthorizedSender(callbackProxy);
+        _syncCallbackProxy(callbackProxy);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal view override {
+    /// @notice Updates the Reactive payment ACL after an implementation changes the callback proxy.
+    function syncCallbackProxy() external onlyOwner {
+        _syncCallbackProxy(callbackProxy);
+    }
+
+    function _syncCallbackProxy(address next) private {
+        address previous = address(vendor);
+        if (previous == next) return;
+        if (previous != address(0)) removeAuthorizedSender(previous);
+        vendor = IPayable(payable(next));
+        addAuthorizedSender(next);
+    }
+
+    function _authorizeUpgrade(address newImplementation) internal override {
         if (msg.sender != owner) revert Unauthorized();
         if (
             factory == address(0)
@@ -193,6 +207,9 @@ contract WorkflowVaultV2 is
         ) {
             revert InvalidAuthorization();
         }
+        address nextProxy = WorkflowVaultV2(payable(newImplementation)).callbackProxy();
+        if (nextProxy.code.length == 0) revert InvalidAuthorization();
+        _syncCallbackProxy(nextProxy);
     }
 
     modifier onlyOwner() {
@@ -307,6 +324,7 @@ contract WorkflowVaultV2 is
         memory_.peak = 0;
         memory_.referencePrice = 0;
         memory_.eligibleAt = 0;
+        delete payoutReadyAt[workflow];
         memory_.lastCheckIn = uint64(block.timestamp);
         authorizations[workflow] = Authorization(hash, epoch, uint64(block.number), true);
         // Start the first budget week when the workflow is first authorized.
@@ -373,6 +391,7 @@ contract WorkflowVaultV2 is
         auth.active = false;
         if (paymentWorkflow == workflow) paymentWorkflow = bytes32(0);
         delete workflowMemory[workflow].eligibleAt;
+        delete payoutReadyAt[workflow];
         emit Revoked(workflow, epoch);
     }
 
@@ -384,6 +403,7 @@ contract WorkflowVaultV2 is
         Memory storage memory_ = workflowMemory[workflow];
         memory_.lastCheckIn = uint64(block.timestamp);
         memory_.eligibleAt = 0;
+        delete payoutReadyAt[workflow];
         emit CheckIn(workflow, memory_.lastCheckIn);
     }
 
@@ -394,10 +414,29 @@ contract WorkflowVaultV2 is
     }
 
     function execute(address sender, bytes32 workflow, P.Run calldata run) external nonReentrant {
-        if (!senders[msg.sender] || sender != agent) revert Unauthorized();
+        if (msg.sender != callbackProxy || sender != agent) revert Unauthorized();
         bytes32 runId = P.runId(agent, workflow, run);
         if (outcomes[runId] != 0) return;
         _attempt(workflow, run, runId);
+    }
+
+    /// @notice Forwards wallet activity independently of any in-flight payout run.
+    function recordActivity(address sender, bytes32 workflow, uint64 epoch, uint64 activityTime)
+        external
+    {
+        if (msg.sender != callbackProxy || sender != agent) revert Unauthorized();
+        Authorization storage auth = authorizations[workflow];
+        if (auth.active && auth.epoch == epoch) _recordActivity(workflow, activityTime);
+    }
+
+    function _recordActivity(bytes32 workflow, uint64 activityTime) private {
+        Memory storage memory_ = workflowMemory[workflow];
+        if (activityTime <= memory_.activity) return;
+        memory_.activity = activityTime;
+        if (activityTime > memory_.lastCheckIn) {
+            memory_.eligibleAt = 0;
+            delete payoutReadyAt[workflow];
+        }
     }
 
     function _attempt(bytes32 workflow, P.Run calldata run, bytes32 runId) private {
@@ -466,6 +505,7 @@ contract WorkflowVaultV2 is
         Memory storage memory_ = workflowMemory[workflow];
         if (program.expires != 0 && block.timestamp > program.expires) return (EXPIRED, NO_PATH);
         if (memory_.closed) return (SKIPPED, NO_PATH);
+        if (program.trigger == P.PAYMENT && run.actor == owner) revert NoLongerEligible();
 
         Context memory ctx;
         if (run.observationId != bytes32(0)) {
@@ -485,13 +525,18 @@ contract WorkflowVaultV2 is
             ctx.price = program.originChain == chain ? _price(ctx.market) : run.observed;
             if (
                 ctx.price > memory_.peak
-                    && _isPeakOracleConsistent(ctx.market, ctx.price, memory_.lastCheckIn)
+                    && _isPeakOracleConsistent(ctx.market, ctx.price, memory_.lastCheckIn, 0)
             ) {
                 memory_.peak = _toUint128Price(ctx.price);
             }
             if (run.high > memory_.peak) {
                 if (
-                    _isPeakOracleConsistent(ctx.market, run.high, memory_.lastCheckIn)
+                    _isPeakOracleConsistent(
+                            ctx.market,
+                            run.high,
+                            memory_.lastCheckIn,
+                            uint64(uint256(run.observationId))
+                        )
                         && (run.originChain != chain
                             || run.highBlock > authorizations[workflow].originAfter)
                 ) {
@@ -502,20 +547,28 @@ contract WorkflowVaultV2 is
             }
         }
 
-        if (run.activityTime > memory_.activity) {
-            memory_.activity = run.activityTime;
-            if (run.activityTime > memory_.lastCheckIn) memory_.eligibleAt = 0;
-        }
+        if (run.activityTime != 0) _recordActivity(workflow, run.activityTime);
 
         uint8 cursor;
+        bool crossingRequired = program.trigger == P.PRICE && P.requiresCrossing(run);
         while (program.nodes[cursor].check != 0) {
             P.Node memory node = program.nodes[cursor];
             bool matched = _evaluate(program, node, run, memory_, ctx);
+            if (
+                matched
+                    && (node.check == P.PRICE_RISES_THROUGH || node.check == P.PRICE_FALLS_THROUGH)
+            ) {
+                crossingRequired = false;
+            }
             cursor = matched ? node.yes : node.no;
         }
+        if (crossingRequired) revert NoLongerEligible();
         P.Action[] memory actions = program.nodes[cursor].actions;
         if (actions.length == 0) {
-            if (P.hasCheck(program, P.INACTIVITY)) memory_.eligibleAt = 0;
+            if (P.hasCheck(program, P.INACTIVITY)) {
+                memory_.eligibleAt = 0;
+                delete payoutReadyAt[workflow];
+            }
             if (ctx.referenceSeeded) {
                 emit ReferenceSynced(workflow, run.epoch, memory_.referencePrice);
             }
@@ -524,13 +577,7 @@ contract WorkflowVaultV2 is
 
         P.Action memory first = actions[0];
         if (first.kind == P.INACTIVITY_PAYOUT) {
-            if (memory_.eligibleAt == 0) {
-                memory_.eligibleAt = uint64(block.timestamp) + PAYOUT_GRACE;
-            }
-            if (block.timestamp < memory_.eligibleAt) {
-                emit GraceStarted(workflow, run.epoch, memory_.eligibleAt);
-                return (IN_GRACE_PERIOD, cursor);
-            }
+            if (!_payoutReady(workflow, memory_, run)) return (IN_GRACE_PERIOD, cursor);
         }
 
         bool spends = _spends(actions);
@@ -565,13 +612,43 @@ contract WorkflowVaultV2 is
             }
         }
         if (program.once) {
+            if (first.kind == P.INACTIVITY_PAYOUT) delete payoutReadyAt[workflow];
             memory_.closed = true;
             authorizations[workflow].active = false;
             if (paymentWorkflow == workflow) paymentWorkflow = bytes32(0);
             emit Closed(workflow, run.epoch);
         }
-        emit Observation(runId, ctx.price == 0 ? run.observed : ctx.price, run.actor);
+        emit Observation(
+            runId,
+            ctx.price == 0 ? run.observed : ctx.price,
+            program.trigger == P.PRICE ? address(0) : run.actor
+        );
         return (CONFIRMED, cursor);
+    }
+
+    function _payoutReady(bytes32 workflow, Memory storage memory_, P.Run calldata run)
+        private
+        returns (bool)
+    {
+        uint64 eligibleAt = memory_.eligibleAt;
+        if (eligibleAt == 0) {
+            eligibleAt = uint64(block.timestamp) + PAYOUT_GRACE;
+            memory_.eligibleAt = eligibleAt;
+        }
+        uint64 dispatchedAt =
+            run.expiresAt >= CALLBACK_LIFETIME ? run.expiresAt - CALLBACK_LIFETIME : 0;
+        uint64 readyAt = payoutReadyAt[workflow];
+        if (readyAt != 0) {
+            if (block.timestamp >= readyAt && dispatchedAt >= readyAt) return true;
+            emit GraceStarted(workflow, run.epoch, readyAt);
+        } else if (block.timestamp >= eligibleAt && dispatchedAt >= eligibleAt) {
+            readyAt = uint64(block.timestamp) + CALLBACK_LIFETIME;
+            payoutReadyAt[workflow] = readyAt;
+            emit GraceStarted(workflow, run.epoch, readyAt);
+        } else {
+            emit GraceStarted(workflow, run.epoch, eligibleAt);
+        }
+        return false;
     }
 
     function _spends(P.Action[] memory actions) private pure returns (bool) {
@@ -608,9 +685,6 @@ contract WorkflowVaultV2 is
         if (check == P.INACTIVITY) {
             return block.timestamp >= Math.max(memory_.activity, memory_.lastCheckIn) + threshold;
         }
-        if (check == P.DIP_BY && _usesOriginPrice(program) && !ctx.dipAvailable) {
-            return false;
-        }
         if (ctx.price == 0) {
             if (_usesOriginPrice(program)) {
                 if (
@@ -618,7 +692,7 @@ contract WorkflowVaultV2 is
                         && (run.observed == 0
                             || uint256(run.observationTime)
                                     + Math.min(PRICE_MAX_AGE, program.interval) < block.timestamp)
-                ) return false;
+                ) revert StaleObservation();
                 ctx.price = run.observed;
                 if (ctx.price != 0) _guardOraclePrice(ctx.market, ctx.price);
             } else {
@@ -626,6 +700,7 @@ contract WorkflowVaultV2 is
             }
         }
         if (ctx.price == 0) return false;
+        if (check == P.DIP_BY && _usesOriginPrice(program) && !ctx.dipAvailable) return false;
         uint256 price = ctx.price;
         if (check == P.PRICE_AT_LEAST) return price >= threshold;
         if (check == P.PRICE_AT_MOST) return price <= threshold;
@@ -647,12 +722,11 @@ contract WorkflowVaultV2 is
             return dipped;
         }
         if (check == P.PRICE_RISES_THROUGH) {
-            if (run.previous == 0) return false;
-            return run.previous < threshold && run.observed >= threshold && price >= threshold;
+            uint256 low = P.crossingLow(run);
+            return low != 0 && low < threshold && run.observed >= threshold && price >= threshold;
         }
         if (check == P.PRICE_FALLS_THROUGH) {
-            if (run.previous == 0) return false;
-            return run.previous >= threshold && run.observed < threshold && price < threshold;
+            return P.crossingHigh(run) >= threshold && run.observed < threshold && price < threshold;
         }
 
         uint256 referencePrice = memory_.referencePrice;

@@ -2143,6 +2143,25 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "function",
+    "name": "payoutReadyAt",
+    "inputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "poolFee",
     "inputs": [],
     "outputs": [
@@ -2185,6 +2204,34 @@ export const workflowVaultV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "recordActivity",
+    "inputs": [
+      {
+        "name": "sender",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "workflow",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "epoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "activityTime",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -2372,6 +2419,13 @@ export const workflowVaultV2Abi = [
         "internalType": "uint8"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "syncCallbackProxy",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -3549,6 +3603,55 @@ export const workflowProgramValidatorV2Abi = [
   },
   {
     "type": "function",
+    "name": "canTriggerPriceRange",
+    "inputs": [
+      {
+        "name": "encoded",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "observed",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "previousLow",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "previousHigh",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "peak",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "referencePrice",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "crossingRequired",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "canTriggerTransfer",
     "inputs": [
       {
@@ -4237,6 +4340,70 @@ export const workflowProgramValidatorV2Abi = [
         "name": "since",
         "type": "uint64",
         "internalType": "uint64"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifyPeakAt",
+    "inputs": [
+      {
+        "name": "ethFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "usdcFeed",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "ethScale",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "usdcScale",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "latestEthRound",
+        "type": "uint80",
+        "internalType": "uint80"
+      },
+      {
+        "name": "peakTime",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "since",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "peak",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "ethMaxAge",
+        "type": "uint32",
+        "internalType": "uint32"
+      },
+      {
+        "name": "usdcMaxAge",
+        "type": "uint32",
+        "internalType": "uint32"
       }
     ],
     "outputs": [

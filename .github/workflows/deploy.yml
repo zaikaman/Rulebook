@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   deploy:
@@ -76,11 +77,23 @@ jobs:
           npm ci --prefer-offline --no-audit --no-fund
           npm run build -w packages/shared
           npm install --global vercel@53.2.0 --prefer-offline --no-audit --no-fund
+      - name: Download Solidity artifacts from verified CI
+        if: steps.revision.outputs.current == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: compiled-contracts
+          path: contracts/out
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
       - name: Verify deployment records
         if: steps.revision.outputs.current == 'true'
         env:
           HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
-        run: node scripts/deploy-workflows-v2.mjs --check
+        run: |
+          node scripts/deploy-workflows-v2.mjs --check --require-artifacts --base
+          if test -f deployments/workflows-v2-mainnet.json; then
+            node scripts/deploy-workflows-v2.mjs --mainnet --check --require-artifacts --base
+          fi
       - name: Pull Vercel project settings and build
         if: steps.revision.outputs.current == 'true'
         env:

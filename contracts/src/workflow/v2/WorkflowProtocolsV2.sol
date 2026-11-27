@@ -152,13 +152,28 @@ abstract contract WorkflowProtocolsV2 {
         return cache.oraclePrice;
     }
 
-    function _isPeakOracleConsistent(MarketCache memory cache, uint256 peak, uint64 since)
-        internal
-        view
-        returns (bool)
-    {
+    function _isPeakOracleConsistent(
+        MarketCache memory cache,
+        uint256 peak,
+        uint64 since,
+        uint64 peakTime
+    ) internal view returns (bool) {
         if (ethUsdFeed == address(0)) return true;
         uint256 latest = _cachedOraclePrice(cache);
+        if (peakTime != 0) {
+            return validator.verifyPeakAt(
+                ethUsdFeed,
+                usdcUsdFeed,
+                ethFeedScale,
+                usdcFeedScale,
+                cache.ethRoundId,
+                peakTime,
+                since,
+                peak,
+                ethFeedMaxAge,
+                usdcFeedMaxAge
+            );
+        }
         if (peak <= Math.mulDiv(latest, PriceMath.BPS + MAX_PEAK_DEVIATION_BPS, PriceMath.BPS)) {
             return true;
         }

@@ -81,6 +81,13 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     struct PriceHigh {
         uint128 value;
         uint64 blockNumber;
+        uint64 observedAt;
+    }
+
+    struct CrossingRange {
+        uint128 low;
+        uint128 high;
+        uint64 blockNumber;
     }
 
     struct Filter {
@@ -202,7 +209,10 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     uint64 internal lastActivity;
     mapping(uint32 => ActivityCursor) internal activityCursors;
     address public factory;
-    uint256[50] private __gap;
+    mapping(bytes32 => CrossingRange) internal crossings;
+    mapping(bytes32 => uint64) internal payoutGraceUntil;
+    mapping(bytes32 => mapping(address => uint32)) internal budgetRevisions;
+    uint256[47] private __gap;
 
     constructor(IReactiveSystem system_, WorkflowProgramValidatorV2 validator_) {
         if (!ChainConfig.isAutomationChain(block.chainid)) revert InvalidWorkflow();
@@ -248,6 +258,8 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
         _clearPending(workflow);
         _unpin(workflow);
         delete meta[workflow];
+        delete crossings[workflow];
+        delete payoutGraceUntil[workflow];
         entry.trigger = 0;
         for (uint256 index; index < active.length; ++index) {
             if (active[index] != workflow) continue;

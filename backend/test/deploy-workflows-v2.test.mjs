@@ -272,6 +272,19 @@ describe('verifyDeploymentRecord', () => {
         automationKey: 'lasna',
       }),
     ).rejects.toThrow(/creationInputHash/);
+
+    await expect(
+      verifyDeploymentRecord({
+        recordPath,
+        rootDir,
+        contractsDir: join(rootDir, 'contracts'),
+        offline: true,
+        requireArtifacts: true,
+        isMainnet: false,
+        chains: TESTNET_CHAINS,
+        automationKey: 'lasna',
+      }),
+    ).rejects.toThrow(/proxy deployment evidence/);
   });
 
   it('rejects dirty or non-commit records even when offline and allowContractDrift are set', async () => {

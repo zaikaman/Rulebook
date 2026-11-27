@@ -11,6 +11,7 @@
  * and Heroku agree and that the factories have code on chain. Use it in preflight and CI.
  * `--record-only` rebuilds the record from the existing Foundry broadcast receipts without
  * deploying, which recovers a lost record or one written by hand.
+ * `--stage` writes a candidate record for smoke testing without changing app configuration.
  *
  * Env: DEPLOYER_PRIVATE_KEY (or MAINNET_DEPLOYER_PRIVATE_KEY with `--mainnet`),
  * LASNA_RPC_URL / UNICHAIN_RPC_URL / BASE_SEPOLIA_RPC_URL (or REACTIVE_MAINNET_RPC_URL /
@@ -29,7 +30,9 @@ import {
   formatEther,
   formatGwei,
   http,
+  isAddressEqual,
   keccak256,
+  parseAbi,
   parseEther,
 } from 'viem';
 import { resolveFoundryBinary } from './foundry-env.mjs';
@@ -43,6 +46,8 @@ const RECORD_PATH = join(
   'deployments',
   IS_MAINNET ? 'workflows-v2-mainnet.json' : 'workflows-v2.json',
 );
+const STAGED_RECORD_PATH = RECORD_PATH.replace(/\.json$/, '.pending.json');
+const STAGED_SMOKE_PATH = RECORD_PATH.replace(/\.json$/, '-smoke.pending.json');
 const BACKEND_ENV_KEY = IS_MAINNET ? 'WORKFLOW_V2_MAINNET_DEPLOYMENT' : 'WORKFLOW_V2_DEPLOYMENT';
 const FRONTEND_ENV_KEY = IS_MAINNET
   ? 'VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT'
@@ -429,6 +434,92 @@ async function entry(chain, creation, source) {
 }
 
 const REACTIVE_SYSTEM_CONTRACT = '0x8888888888888888888888888888888888888888';
+const deploymentComponentsAbi = parseAbi([
+  'function implementation() view returns (address)',
+  'function validator() view returns (address)',
+  'function reactModule() view returns (address)',
+  'function system() view returns (address)',
+  'function chain() view returns (uint32)',
+  'function callbackProxy() view returns (address)',
+]);
+
+function artifactFor(contractsDir, name) {
+  const path = join(contractsDir, 'out', `${name}.sol`, `${name}.json`);
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
+}
+
+function normalizedRuntime(code, artifact) {
+  const bytecode = artifact?.deployedBytecode;
+  if (!code || code === '0x' || !bytecode?.object || code.length !== bytecode.object.length) {
+    return undefined;
+  }
+  const bytes = Buffer.from(code.slice(2), 'hex');
+  for (const { start, length } of Object.values(bytecode.immutableReferences ?? {}).flat()) {
+    bytes.fill(0, start, start + length);
+  }
+  return bytes.toString('hex');
+}
+
+async function verifyCurrentComponents(rpc, chain, item, contractsDir, isAgent, staged, problems) {
+  const read = (address, functionName) =>
+    rpc.readContract({ address, abi: deploymentComponentsAbi, functionName });
+  try {
+    const [implementation, factoryValidator] = await Promise.all([
+      read(item.address, 'implementation'),
+      read(item.address, 'validator'),
+    ]);
+    const validator = await read(implementation, 'validator');
+    if (staged && !isAddressEqual(implementation, item.implementation)) {
+      problems.push(`${chain.name} candidate implementation changed since deployment`);
+    }
+    const components = [
+      [isAgent ? 'WorkflowAgentV2' : 'WorkflowVaultV2', implementation],
+      ['WorkflowProgramValidatorV2', validator],
+    ];
+    if (!isAddressEqual(factoryValidator, item.validator)) {
+      problems.push(`${chain.name} factory validator does not match its deployment record`);
+    }
+    if (isAgent) {
+      const reactModule = await read(implementation, 'reactModule');
+      const [agentSystem, moduleSystem, moduleValidator] = await Promise.all([
+        read(implementation, 'system'),
+        read(reactModule, 'system'),
+        read(reactModule, 'validator'),
+      ]);
+      if (
+        !isAddressEqual(agentSystem, REACTIVE_SYSTEM_CONTRACT) ||
+        !isAddressEqual(moduleSystem, agentSystem) ||
+        !isAddressEqual(moduleValidator, validator)
+      ) {
+        problems.push(`${chain.name} Agent and React module have inconsistent configuration`);
+      }
+      components.push(['WorkflowAgentReactV2', reactModule]);
+    } else {
+      const [vaultChain, factoryProxy, implementationProxy] = await Promise.all([
+        read(implementation, 'chain'),
+        read(item.address, 'callbackProxy'),
+        read(implementation, 'callbackProxy'),
+      ]);
+      if (vaultChain !== chain.id || !isAddressEqual(factoryProxy, implementationProxy)) {
+        problems.push(`${chain.name} vault and factory have inconsistent callback configuration`);
+      }
+    }
+    await Promise.all(
+      components.map(async ([name, address]) => {
+        const artifact = artifactFor(contractsDir, name);
+        const code = await rpc.getCode({ address });
+        const expected = normalizedRuntime(artifact?.deployedBytecode?.object, artifact);
+        if (!expected || expected !== normalizedRuntime(code, artifact)) {
+          problems.push(`${chain.name} ${name} runtime does not match its compiled artifact`);
+        }
+      }),
+    );
+  } catch (error) {
+    problems.push(
+      `${chain.name} component verification failed: ${error.shortMessage ?? error.message}`,
+    );
+  }
+}
 
 function expectedCreationInputHash(chain, artifact, item = undefined) {
   const bytecode = artifact?.bytecode?.object;
@@ -460,6 +551,8 @@ export async function verifyDeploymentRecord({
   contractsDir = CONTRACTS,
   offline = false,
   allowContractDrift = false,
+  requireArtifacts = false,
+  staged = false,
   requireBase = false,
   isMainnet = IS_MAINNET,
   chains = CHAINS,
@@ -492,15 +585,25 @@ export async function verifyDeploymentRecord({
         `${chain.contract} on ${chain.name} must record a clean 40-character commit (source: "commit", dirty: false)`,
       );
     }
-    const artifactPath = join(
-      contractsDir,
-      'out',
-      `${chain.contract}.sol`,
-      `${chain.contract}.json`,
-    );
-    if (existsSync(artifactPath) && item.creationInputHash) {
-      const artifact = JSON.parse(readFileSync(artifactPath, 'utf8'));
+    const artifact = artifactFor(contractsDir, chain.contract);
+    if (
+      requireArtifacts &&
+      (!artifact ||
+        !item.creationInputHash ||
+        !item.runtimeCodeHash ||
+        !item.validator ||
+        !item.implementation)
+    ) {
+      problems.push(
+        `${chain.name} is missing a compiled factory artifact or proxy deployment evidence`,
+      );
+      continue;
+    }
+    if (artifact && item.creationInputHash) {
       const compiledCreationHash = expectedCreationInputHash(chain, artifact, item);
+      if (requireArtifacts && !compiledCreationHash) {
+        problems.push(`${chain.name} factory artifact is missing its creation bytecode`);
+      }
       if (
         compiledCreationHash &&
         compiledCreationHash.toLowerCase() !== item.creationInputHash.toLowerCase()
@@ -511,9 +614,10 @@ export async function verifyDeploymentRecord({
       }
     }
     if (!offline) {
+      const rpc = !readCode || requireArtifacts ? client(rpcUrl(chain)) : undefined;
       const code = readCode
         ? await readCode(chain, item.address)
-        : await client(rpcUrl(chain)).getCode({ address: item.address });
+        : await rpc.getCode({ address: item.address });
       if (!code || code === '0x') {
         problems.push(`${chain.contract} on ${chain.name} has no code at ${item.address}`);
       } else if (
@@ -524,13 +628,28 @@ export async function verifyDeploymentRecord({
           `${chain.contract} on ${chain.name} on-chain runtimeCodeHash does not match the record`,
         );
       }
+      if (requireArtifacts && code && code !== '0x') {
+        const expected = normalizedRuntime(artifact?.deployedBytecode?.object, artifact);
+        if (!expected || expected !== normalizedRuntime(code, artifact)) {
+          problems.push(`${chain.name} factory runtime does not match its compiled artifact`);
+        }
+        await verifyCurrentComponents(
+          rpc,
+          chain,
+          item,
+          contractsDir,
+          chain === chains[automationKey],
+          staged,
+          problems,
+        );
+      }
     }
   }
   for (const [file, key] of [
     [join(rootDir, 'backend', '.env'), backendEnvKey],
     [join(rootDir, 'frontend', '.env.local'), frontendEnvKey],
   ]) {
-    if (!existsSync(file)) continue;
+    if (staged || !existsSync(file)) continue;
     const value = readFileSync(file, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'))?.[1];
     if (value?.trim().toLowerCase() !== expected.toLowerCase()) {
       problems.push(`${key} in ${file} does not match the record`);
@@ -557,9 +676,10 @@ export async function verifyDeploymentRecord({
       }
     }
   }
-  const herokuState = offline
-    ? { app: undefined, config: {} }
-    : await (readHeroku ? readHeroku() : heroku());
+  const herokuState =
+    offline || staged
+      ? { app: undefined, config: {} }
+      : await (readHeroku ? readHeroku() : heroku());
   if (herokuState.app) {
     if (herokuState.config[backendEnvKey]?.toLowerCase() !== expected.toLowerCase()) {
       problems.push(`Heroku ${backendEnvKey} on ${herokuState.app} does not match the record`);
@@ -574,9 +694,13 @@ export async function verifyDeploymentRecord({
 
 async function verify() {
   const offline = process.argv.includes('--offline');
+  const staged = process.argv.includes('--stage');
   const result = await verifyDeploymentRecord({
+    ...(staged ? { recordPath: STAGED_RECORD_PATH } : {}),
     offline,
+    staged,
     allowContractDrift: process.argv.includes('--allow-contract-drift'),
+    requireArtifacts: process.argv.includes('--require-artifacts'),
     requireBase: process.argv.includes('--base'),
   });
   console.log(
@@ -595,6 +719,11 @@ function revision() {
 
 async function publish(record, source) {
   const serialized = `${JSON.stringify(record, null, 2)}\n`;
+  if (process.argv.includes('--stage')) {
+    writeFileSync(STAGED_RECORD_PATH, serialized);
+    console.log(`Candidate deployment record: ${STAGED_RECORD_PATH}`);
+    return;
+  }
   const current = existsSync(RECORD_PATH) ? readFileSync(RECORD_PATH, 'utf8') : '';
   const value = deploymentValue(record);
   const files = [];
@@ -694,8 +823,9 @@ async function release() {
     console.log(`Deploying ${chain.contract} on ${chain.name}...`);
     updated.push(await entry(chain, await deploy(chain, wallet.address, key), source));
   }
+  const priorRecord = process.argv.includes('--stage') ? STAGED_RECORD_PATH : RECORD_PATH;
   const existing =
-    mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+    mergeOnly && existsSync(priorRecord) ? JSON.parse(readFileSync(priorRecord, 'utf8')) : [];
   await publish(mergeOnly ? mergeRecord(existing, updated) : updated, source);
 }
 
@@ -720,9 +850,53 @@ async function recordOnly() {
   for (const chain of chains) {
     updated.push(await entry(chain, readBroadcast(chain.id, chain.contract), source));
   }
+  const priorRecord = process.argv.includes('--stage') ? STAGED_RECORD_PATH : RECORD_PATH;
   const existing =
-    mergeOnly && existsSync(RECORD_PATH) ? JSON.parse(readFileSync(RECORD_PATH, 'utf8')) : [];
+    mergeOnly && existsSync(priorRecord) ? JSON.parse(readFileSync(priorRecord, 'utf8')) : [];
   await publish(mergeOnly ? mergeRecord(existing, updated) : updated, source);
+}
+
+async function promoteStage() {
+  if (process.argv.includes('--stage')) fail('Pass --promote-stage on its own.');
+  const record = JSON.parse(readFileSync(STAGED_RECORD_PATH, 'utf8'));
+  const smoke = JSON.parse(readFileSync(STAGED_SMOKE_PATH, 'utf8'));
+  const automation = CHAINS[AUTOMATION_KEY];
+  const agent = record.find(
+    (row) => row.chainId === automation.id && row.contract === automation.contract,
+  );
+  if (
+    !agent ||
+    smoke.automationChainId !== automation.id ||
+    smoke.agentFactory?.toLowerCase() !== agent.address.toLowerCase()
+  ) {
+    fail('Staged smoke evidence must match the candidate Agent factory.');
+  }
+  for (const chain of [CHAINS.unichain, CHAINS.base]) {
+    const candidate = record.find(
+      (row) => row.chainId === chain.id && row.contract === chain.contract,
+    );
+    const evidence = smoke.chains?.[String(chain.id)];
+    if (
+      !evidence ||
+      evidence.vaultFactory?.toLowerCase() !== candidate?.address?.toLowerCase() ||
+      evidence.schedule?.run?.status !== 'confirmed' ||
+      evidence.sweep?.runs?.length !== 2 ||
+      evidence.sweep.runs.some((run) => run.status !== 'confirmed')
+    ) {
+      fail(`Staged smoke evidence must cover the candidate Vault factory on ${chain.name}.`);
+    }
+  }
+  await verifyDeploymentRecord({
+    recordPath: STAGED_RECORD_PATH,
+    staged: true,
+    requireArtifacts: true,
+    requireBase: true,
+  });
+  await publish(record, agent);
+  writeFileSync(
+    RECORD_PATH.replace(/\.json$/, '-smoke.json'),
+    JSON.stringify(smoke, null, 2) + '\n',
+  );
 }
 
 function isMainModule() {
@@ -735,6 +909,7 @@ function isMainModule() {
 if (isMainModule()) {
   try {
     if (process.argv.includes('--check')) await verify();
+    else if (process.argv.includes('--promote-stage')) await promoteStage();
     else if (process.argv.includes('--record-only')) await recordOnly();
     else await release();
   } catch (error) {

@@ -3,7 +3,7 @@ pragma solidity 0.8.29;
 
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {PriceMath} from "../../libraries/PriceMath.sol";
-import {IAggregatorV3} from "../../shared/Chainlink.sol";
+import {IAggregatorV3, IPhaseAggregatorProxy} from "../../shared/Chainlink.sol";
 import {IUniswapV2Factory, IUniswapV2Pair, IUniswapV2Router02} from "../../shared/UniswapV2.sol";
 import {IUniswapV3Factory, IUniswapV3Pool, IV3SwapRouter} from "../../shared/UniswapV3.sol";
 import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
@@ -93,7 +93,21 @@ contract WorkflowProgramValidatorV2 {
         uint256 peak,
         uint256 referencePrice
     ) external pure returns (bool) {
-        return P.canTriggerPrice(encoded, observed, previous, peak, referencePrice);
+        return P.canTriggerPrice(encoded, observed, previous, previous, peak, referencePrice, false);
+    }
+
+    function canTriggerPriceRange(
+        bytes calldata encoded,
+        uint256 observed,
+        uint256 previousLow,
+        uint256 previousHigh,
+        uint256 peak,
+        uint256 referencePrice,
+        bool crossingRequired
+    ) external pure returns (bool) {
+        return P.canTriggerPrice(
+            encoded, observed, previousLow, previousHigh, peak, referencePrice, crossingRequired
+        );
     }
 
     function canTriggerTransfer(bytes calldata encoded, uint256 observed, address actor)
@@ -163,7 +177,7 @@ contract WorkflowProgramValidatorV2 {
             bool invalid = answeredInRound < roundId || rId != roundId || answer <= 0
                 || updatedAt == 0 || updatedAt > block.timestamp
                 || uint256(answer) > type(uint256).max / ethFeedScale;
-            if (invalid) break;
+            if (invalid || updatedAt < since) break;
             uint256 ethUsd = uint256(answer) * ethFeedScale;
             uint256 roundPrice =
                 !hasUsdcFeed ? ethUsd : Math.mulDiv(ethUsd, PriceMath.PRICE_SCALE, usdcUsd);
@@ -176,9 +190,111 @@ contract WorkflowProgramValidatorV2 {
             ) {
                 return true;
             }
-            if (updatedAt < since) break;
         }
         return false;
+    }
+
+    /// @notice Checks the oracle round in force at the recorded time of a sustained pool peak.
+    function verifyPeakAt(
+        address ethFeed,
+        address usdcFeed,
+        uint256 ethScale,
+        uint256 usdcScale,
+        uint80 latestEthRound,
+        uint64 peakTime,
+        uint64 since,
+        uint256 peak,
+        uint32 ethMaxAge,
+        uint32 usdcMaxAge
+    ) external view returns (bool) {
+        if (peakTime < since || peakTime > block.timestamp) return false;
+        (uint256 eth, uint256 updatedAt) = _roundAt(ethFeed, latestEthRound, peakTime, ethScale);
+        if (eth == 0 || peakTime - updatedAt > ethMaxAge) return false;
+        uint256 price = eth;
+        if (usdcFeed != address(0)) {
+            (uint80 latestUsdcRound,,,,) = IAggregatorV3(usdcFeed).latestRoundData();
+            (uint256 usd, uint256 usdTime) =
+                _roundAt(usdcFeed, latestUsdcRound, peakTime, usdcScale);
+            if (usd == 0 || peakTime - usdTime > usdcMaxAge) return false;
+            price = Math.mulDiv(price, PriceMath.PRICE_SCALE, usd);
+        }
+        return peak <= Math.mulDiv(price, PriceMath.BPS + MAX_PEAK_DEVIATION_BPS, PriceMath.BPS);
+    }
+
+    function _roundAt(address feed, uint80 head, uint64 timestamp, uint256 scale)
+        private
+        view
+        returns (uint256 answer, uint256 updatedAt)
+    {
+        if (uint64(head) == 0) return (0, 0);
+        uint16 phase = uint16(head >> 64);
+        // Find the phase containing the observation, then binary-search its contiguous rounds.
+        if (phase != 0) {
+            uint16 startPhase = 1;
+            while (startPhase < phase) {
+                uint16 mid = startPhase + uint16((uint256(phase) - startPhase + 1) / 2);
+                (, uint256 firstTime) = _historicalRound(feed, (uint80(mid) << 64) | 1);
+                if (firstTime == 0) return (0, 0);
+                if (firstTime <= timestamp) startPhase = mid;
+                else phase = mid - 1;
+            }
+        }
+        if (phase != uint16(head >> 64)) {
+            (uint80 last, uint256 phaseScale) = _phaseEnd(feed, phase);
+            if (last == 0) return (0, 0);
+            scale = phaseScale;
+            head = (uint80(phase) << 64) | last;
+        }
+        uint80 low = (uint80(phase) << 64) | 1;
+        (, uint256 startTime) = _historicalRound(feed, low);
+        if (startTime == 0 || startTime > timestamp) return (0, 0);
+        while (low < head) {
+            uint80 mid = low + (head - low + 1) / 2;
+            (, uint256 midTime) = _historicalRound(feed, mid);
+            if (midTime == 0) return (0, 0);
+            if (midTime <= timestamp) low = mid;
+            else head = mid - 1;
+        }
+        (answer, updatedAt) = _historicalRound(feed, low);
+        if (scale == 0 || answer > type(uint256).max / scale) return (0, 0);
+        answer *= scale;
+    }
+
+    function _phaseEnd(address feed, uint16 phase) private view returns (uint80, uint256) {
+        address aggregator;
+        try IPhaseAggregatorProxy(feed).phaseAggregators(phase) returns (address old) {
+            aggregator = old;
+        } catch {
+            return (0, 0);
+        }
+        if (aggregator.code.length == 0) return (0, 0);
+        uint256 scale;
+        try IAggregatorV3(aggregator).decimals() returns (uint8 decimals) {
+            if (decimals > 18) return (0, 0);
+            scale = 10 ** (18 - decimals);
+        } catch {
+            return (0, 0);
+        }
+        try IAggregatorV3(aggregator).latestRoundData() returns (
+            uint80 last, int256, uint256, uint256, uint80
+        ) {
+            if (last <= type(uint64).max) return (last, scale);
+        } catch {}
+        return (0, 0);
+    }
+
+    function _historicalRound(address feed, uint80 round)
+        private
+        view
+        returns (uint256 answer, uint256 updatedAt)
+    {
+        try IAggregatorV3(feed).getRoundData(round) returns (
+            uint80 id, int256 value, uint256, uint256 time, uint80 answered
+        ) {
+            if (id == round && answered >= round && value > 0 && time <= block.timestamp) {
+                return (uint256(value), time);
+            }
+        } catch {}
     }
 
     function _requireSequencerUp(address sequencerFeed) private view {

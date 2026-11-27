@@ -1850,6 +1850,7 @@ contract WorkflowMainnetV2Test is Test {
         assertEq(decoded.highBlock, 14);
 
         // Out-of-order delivery (delivering drop directly without delivering peak callback first) still triggers TRAILING.
+        vm.warp(vm.getBlockTimestamp() + 1);
         uniEthUsd.setAnswer(1_970e18);
         unichainPair.setPrice(_sqrtPriceFor(1_940e18), V3_LIQUIDITY);
         _deliverRequest(peakReqIdx, address(unichainVault));
@@ -2002,7 +2003,12 @@ contract WorkflowMainnetV2Test is Test {
 
         vm.expectEmit(true, true, false, true, address(unichainVault));
         emit WorkflowVaultV2.Outcome(
-            dipWf, _runId(dipWf, staleDip), 1, unichainVault.SKIPPED(), 2, bytes4(0)
+            dipWf,
+            _runId(dipWf, staleDip),
+            1,
+            unichainVault.SKIPPED(),
+            type(uint8).max,
+            WorkflowVaultV2.StaleObservation.selector
         );
         assertEq(_deliver(unichainVault, dipWf, staleDip), unichainVault.SKIPPED());
         assertEq(unichainRouter.swapCount(), 0);

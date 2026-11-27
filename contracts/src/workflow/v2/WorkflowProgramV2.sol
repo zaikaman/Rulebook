@@ -105,6 +105,7 @@ library WorkflowProgramV2 {
     uint8 internal constant FLAG_SPENDS = 8;
     uint8 internal constant FLAG_USES_REFERENCE = 16;
     uint8 internal constant FLAG_TRAILING = 32;
+    uint8 internal constant FLAG_CROSSING = 128;
 
     struct AgentPlan {
         uint32 chain;
@@ -329,6 +330,8 @@ library WorkflowProgramV2 {
                 flags |= FLAG_USES_REFERENCE;
             } else if (check == TRAILING) {
                 flags |= FLAG_TRAILING;
+            } else if (check == PRICE_RISES_THROUGH || check == PRICE_FALLS_THROUGH) {
+                flags |= FLAG_CROSSING;
             }
         }
 
@@ -370,26 +373,39 @@ library WorkflowProgramV2 {
     function canTriggerPrice(
         bytes calldata encoded,
         uint256 observed,
-        uint256 previous,
+        uint256 previousLow,
+        uint256 previousHigh,
         uint256 peak,
-        uint256 referencePrice
+        uint256 referencePrice,
+        bool crossingRequired
     ) internal pure returns (bool) {
         Program memory program = abi.decode(encoded, (Program));
         if (program.trigger != PRICE || observed == 0) return false;
-        return _canTriggerPriceNode(program.nodes, 0, observed, previous, peak, referencePrice);
+        return _canTriggerPriceNode(
+            program.nodes,
+            0,
+            observed,
+            previousLow,
+            previousHigh,
+            peak,
+            referencePrice,
+            crossingRequired
+        );
     }
 
     function _canTriggerPriceNode(
         Node[] memory nodes,
         uint8 cursor,
         uint256 observed,
-        uint256 previous,
+        uint256 previousLow,
+        uint256 previousHigh,
         uint256 peak,
-        uint256 referencePrice
+        uint256 referencePrice,
+        bool crossingRequired
     ) private pure returns (bool) {
         Node memory node = nodes[cursor];
         uint8 check = node.check;
-        if (check == 0) return node.actions.length != 0;
+        if (check == 0) return !crossingRequired && node.actions.length != 0;
 
         bool known = true;
         bool matched;
@@ -403,9 +419,11 @@ library WorkflowProgramV2 {
         } else if (check == PRICE_OUTSIDE) {
             matched = observed < threshold || observed > node.upper;
         } else if (check == PRICE_RISES_THROUGH) {
-            matched = previous != 0 && previous < threshold && observed >= threshold;
+            matched = previousLow != 0 && previousLow < threshold && observed >= threshold;
+            if (matched) crossingRequired = false;
         } else if (check == PRICE_FALLS_THROUGH) {
-            matched = previous != 0 && previous >= threshold && observed < threshold;
+            matched = previousHigh >= threshold && observed < threshold;
+            if (matched) crossingRequired = false;
         } else if (check == TRAILING) {
             uint256 effectivePeak = peak > observed ? peak : observed;
             matched = observed <= Math.mulDiv(effectivePeak, BPS - threshold, BPS);
@@ -418,12 +436,18 @@ library WorkflowProgramV2 {
             } else {
                 uint256 refPrice = referencePrice != 0 ? referencePrice : node.upper;
                 if (refPrice == 0) {
-                    return _hasExecutableLeaf(nodes, node.yes) || _hasExecutableLeaf(nodes, node.no);
+                    if (!crossingRequired) {
+                        return
+                            _hasExecutableLeaf(nodes, node.yes)
+                                || _hasExecutableLeaf(nodes, node.no);
+                    }
+                    known = false;
+                } else {
+                    referencePrice = refPrice;
+                    matched = check == ABOVE_REFERENCE
+                        ? observed >= Math.mulDiv(refPrice, BPS + threshold, BPS)
+                        : observed <= Math.mulDiv(refPrice, BPS - threshold, BPS);
                 }
-                referencePrice = refPrice;
-                matched = check == ABOVE_REFERENCE
-                    ? observed >= Math.mulDiv(refPrice, BPS + threshold, BPS)
-                    : observed <= Math.mulDiv(refPrice, BPS - threshold, BPS);
             }
         } else {
             known = false;
@@ -431,11 +455,60 @@ library WorkflowProgramV2 {
 
         if (known) {
             return _canTriggerPriceNode(
-                nodes, matched ? node.yes : node.no, observed, previous, peak, referencePrice
+                nodes,
+                matched ? node.yes : node.no,
+                observed,
+                previousLow,
+                previousHigh,
+                peak,
+                referencePrice,
+                crossingRequired
             );
         }
-        return _canTriggerPriceNode(nodes, node.yes, observed, previous, peak, referencePrice)
-            || _canTriggerPriceNode(nodes, node.no, observed, previous, peak, referencePrice);
+        return _canTriggerPriceNode(
+            nodes,
+            node.yes,
+            observed,
+            previousLow,
+            previousHigh,
+            peak,
+            referencePrice,
+            crossingRequired
+        )
+            || _canTriggerPriceNode(
+            nodes,
+            node.no,
+            observed,
+            previousLow,
+            previousHigh,
+            peak,
+            referencePrice,
+            crossingRequired
+        );
+    }
+
+    /// @dev PRICE runs use observationId for price evidence; scheduled dips still use the log ID.
+    function priceEvidence(uint128 previousHigh, uint64 peakTime, bool crossingRequired)
+        internal
+        pure
+        returns (bytes32)
+    {
+        return bytes32(
+            (uint256(crossingRequired ? 1 : 0) << 255) | (uint256(previousHigh) << 64) | peakTime
+        );
+    }
+
+    function requiresCrossing(Run calldata run) internal pure returns (bool) {
+        return uint256(run.observationId) >> 255 != 0;
+    }
+
+    function crossingHigh(Run calldata run) internal pure returns (uint256) {
+        uint256 high = uint128(uint256(run.observationId) >> 64);
+        return high == 0 ? run.previous : high;
+    }
+
+    function crossingLow(Run calldata run) internal pure returns (uint256) {
+        return run.actor == address(0) ? run.previous : uint160(run.actor);
     }
 
     function _hasExecutableLeaf(Node[] memory nodes, uint8 cursor) private pure returns (bool) {

@@ -57,6 +57,7 @@ import {
   getAbiItem,
   http,
   isAddress,
+  isAddressEqual,
   keccak256,
   parseEther,
   parseUnits,
@@ -73,10 +74,12 @@ export const AGENT_MAX_ACTIVE = 4;
 export const SMOKE_REQUIRED_ACTIVE_SLOTS = 2;
 export const SMOKE_WORKFLOW_TITLES = ['Income sweep smoke', 'Scheduled buy smoke'] as const;
 
-const SMOKE_TRANSFER_AMOUNTS = ['1.20', '0.60', '0.10'] as const;
+const SMOKE_TRANSFER_AMOUNTS = ['1.20', '0.60'] as const;
 const SMOKE_SCHEDULE_BUY_USDC = '0.2';
-// 1.20 + 0.60 + 0.10 - (0.20 + 0.05 swept back to recipient === owner.address) = 1.65 USDC.
-const SMOKE_MIN_TOTAL_USDC = parseUnits('1.65', 6);
+const SMOKE_MIN_PAYER_USDC = SMOKE_TRANSFER_AMOUNTS.reduce(
+  (sum, amount) => sum + parseUnits(amount, 6),
+  0n,
+);
 
 export interface VaultAuthorizationState {
   epoch: bigint;
@@ -218,7 +221,7 @@ export function smokeSlippagePercent(chainId: FundsChainId): string {
 export function assertSmokeCliArgs(argv: readonly string[] = process.argv.slice(2)): void {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]!;
-    if (arg === '--mainnet' || arg === '--confirm-mainnet') {
+    if (arg === '--mainnet' || arg === '--confirm-mainnet' || arg === '--stage') {
       continue;
     }
     if (arg === '--chain' || arg === '--chains') {
@@ -233,7 +236,7 @@ export function assertSmokeCliArgs(argv: readonly string[] = process.argv.slice(
       continue;
     }
     throw new Error(
-      `Unknown argument "${arg}". Supported options: --mainnet, --confirm-mainnet, --chain <targets>, --chains <targets>.`,
+      `Unknown argument "${arg}". Supported options: --mainnet, --confirm-mainnet, --stage, --chain <targets>, --chains <targets>.`,
     );
   }
 }
@@ -710,12 +713,12 @@ async function main() {
   const AUTOMATION_CHAIN_ID: AutomationChainId = IS_MAINNET
     ? REACTIVE_MAINNET_CHAIN_ID
     : LASNA_CHAIN_ID;
-  const RECORD_FILE = IS_MAINNET
-    ? '../deployments/workflows-v2-mainnet.json'
-    : '../deployments/workflows-v2.json';
-  const SMOKE_FILE = IS_MAINNET
-    ? '../deployments/workflows-v2-mainnet-smoke.json'
-    : '../deployments/workflows-v2-smoke.json';
+  const recordBase = IS_MAINNET
+    ? '../deployments/workflows-v2-mainnet'
+    : '../deployments/workflows-v2';
+  const recordSuffix = process.argv.includes('--stage') ? '.pending.json' : '.json';
+  const RECORD_FILE = recordBase + recordSuffix;
+  const SMOKE_FILE = recordBase + '-smoke' + recordSuffix;
 
   function connection<T extends SupportedChainId>(id: T, rpc: string, symbol: string) {
     const config = getChain(id);
@@ -748,6 +751,11 @@ async function main() {
   }
 
   const owner = privateKeyToAccount(resolveSmokeSignerKey(IS_MAINNET));
+  const payerKey = IS_MAINNET ? 'MAINNET_SMOKE_PAYER_PRIVATE_KEY' : 'SMOKE_PAYER_PRIVATE_KEY';
+  const payer = privateKeyToAccount(normalizePrivateKey(env(payerKey)));
+  if (isAddressEqual(payer.address, owner.address)) {
+    throw new Error(`${payerKey} must identify a different wallet from the workflow owner.`);
+  }
   const recipient = owner.address;
 
   const records: { contract: string; chainId: number; address: Address; commit?: string }[] =
@@ -775,11 +783,12 @@ async function main() {
     to: Address,
     data?: Hex,
     value = 0n,
+    signer = owner,
   ): Promise<{ transactionHash: Hex; blockNumber: bigint }> {
     const wallet = createWalletClient({
       chain: network.chain,
       transport: network.transport,
-      account: owner,
+      account: signer,
     });
     // Reactive chains accept legacy-priced transactions; the node rejects EIP-1559 fees.
     const fees =
@@ -808,21 +817,22 @@ async function main() {
   }
   for (const chainId of targetChains) {
     const fundsNet = fundsConnections.get(chainId)!;
-    const [nativeBalance, usdcBalance] = await Promise.all([
+    const [nativeBalance, payerNative, payerUsdc] = await Promise.all([
       fundsNet.public.getBalance({ address: owner.address }),
+      fundsNet.public.getBalance({ address: payer.address }),
       fundsNet.public.readContract({
         address: fundsNet.config.usdc,
         abi: erc20Abi,
         functionName: 'balanceOf',
-        args: [owner.address],
+        args: [payer.address],
       }),
     ]);
     if (nativeBalance === 0n) {
       throw new Error(`Signer ${owner.address} has 0 ETH on ${fundsNet.config.name} (${chainId}).`);
     }
-    if (usdcBalance < SMOKE_MIN_TOTAL_USDC) {
+    if (payerNative === 0n || payerUsdc < SMOKE_MIN_PAYER_USDC) {
       throw new Error(
-        `Signer ${owner.address} needs at least ${formatUnits(SMOKE_MIN_TOTAL_USDC, 6)} USDC on ${fundsNet.config.name} (${chainId}), found ${formatUnits(usdcBalance, 6)} USDC.`,
+        `Payment signer ${payer.address} needs ETH for gas and at least ${formatUnits(SMOKE_MIN_PAYER_USDC, 6)} USDC on ${fundsNet.config.name} (${chainId}).`,
       );
     }
   }
@@ -1324,7 +1334,6 @@ async function main() {
           for (const [amount, path, status] of [
             [SMOKE_TRANSFER_AMOUNTS[0], 1, 1],
             [SMOKE_TRANSFER_AMOUNTS[1], 3, 1],
-            [SMOKE_TRANSFER_AMOUNTS[2], 4, 2],
           ] as const) {
             throwIfAborted();
             const origin = await send(
@@ -1335,6 +1344,8 @@ async function main() {
                 functionName: 'transfer',
                 args: [vault, parseUnits(amount, 6)],
               }),
+              0n,
+              payer,
             );
             const run = await proof(
               `[${fundsNet.config.name}] Payment ${amount} USDC`,

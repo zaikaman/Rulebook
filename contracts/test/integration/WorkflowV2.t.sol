@@ -536,9 +536,10 @@ contract WorkflowV2SettlementTest is Test {
     }
 
     function testPaymentFromUsesTheLoggedSenderAndCapsPercentageOfPayment() public {
+        address payer = address(0xBA11);
         P.Action memory send = P.Action(P.SEND, P.PERCENT, 2500, RECIPIENT);
         P.Program memory program = _program(P.PAYMENT, _branch(P.PAYMENT_FROM, 0, send));
-        program.subject = OWNER;
+        program.subject = payer;
         program.usdcCap = 1e6;
         _enable(program);
         usdc.mint(address(vault), 10e6);
@@ -559,7 +560,7 @@ contract WorkflowV2SettlementTest is Test {
         wrongSenderRun.actor = RECIPIENT;
         assertEq(_deliver(wrongSenderRun), vault.SKIPPED());
 
-        payment.topic_1 = uint160(OWNER);
+        payment.topic_1 = uint160(payer);
         // B-8: Agent refuses to dispatch when PERCENT share (25% of 8e6 = 2e6) exceeds usdcCap (1e6).
         payment.block_number = 102;
         payment.tx_hash = 102;
@@ -571,7 +572,7 @@ contract WorkflowV2SettlementTest is Test {
         );
 
         P.Run memory overCapRun = _run(102, P.PAYMENT, 8e6);
-        overCapRun.actor = OWNER;
+        overCapRun.actor = payer;
         assertEq(_deliver(overCapRun), vault.FAILED());
 
         payment.block_number = 103;
@@ -582,6 +583,21 @@ contract WorkflowV2SettlementTest is Test {
         _deliverRequest(0);
         assertEq(vault.outcomes(_runId(payment.tx_hash)), vault.CONFIRMED());
         assertEq(usdc.balanceOf(RECIPIENT), 0.75e6);
+    }
+
+    function testOwnerFundingIsNeitherDispatchedNorSettledAsPayment() public {
+        _enable(_program(P.PAYMENT, _path(_action(P.SEND, 1e6, RECIPIENT))));
+        usdc.mint(address(vault), 10e6);
+        IReactive.LogRecord memory deposit = _paymentLog(101, 5e6);
+        deposit.topic_1 = uint160(OWNER);
+        vm.prank(address(system));
+        agent.react(deposit);
+        assertEq(system.requestCount(), 0);
+
+        P.Run memory oldCallback = _run(101, P.PAYMENT, 5e6);
+        oldCallback.actor = OWNER;
+        assertEq(_deliver(oldCallback), vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), 0);
     }
 
     function testDipSignalIsConsumedOnlyAfterOneTrade() public {
@@ -864,8 +880,14 @@ contract WorkflowV2SettlementTest is Test {
         vm.warp(authorized + 3 days);
         assertEq(_deliver(_run(104, P.SCHEDULE, 0)), vault.IN_GRACE_PERIOD());
         vm.warp(vm.getBlockTimestamp() + 24 hours);
-        assertEq(_deliver(_run(105, P.SCHEDULE, 0)), vault.CONFIRMED());
-        assertEq(_deliver(_run(106, P.SCHEDULE, 0)), vault.SKIPPED());
+        assertEq(_deliver(_run(105, P.SCHEDULE, 0)), vault.IN_GRACE_PERIOD());
+        uint64 readyAt = vault.payoutReadyAt(WORKFLOW);
+        vm.warp(readyAt - 1);
+        P.Run memory early = _run(106, P.SCHEDULE, 0);
+        vm.warp(readyAt);
+        assertEq(_deliver(early), vault.IN_GRACE_PERIOD());
+        assertEq(_deliver(_run(107, P.SCHEDULE, 0)), vault.CONFIRMED());
+        assertEq(_deliver(_run(108, P.SCHEDULE, 0)), vault.SKIPPED());
         assertEq(usdc.balanceOf(RECIPIENT), 1e6);
     }
 
@@ -996,6 +1018,45 @@ contract WorkflowV2SettlementTest is Test {
         vm.stopPrank();
         (,,, uint40 resetUntil,) = agent.meta(WORKFLOW);
         assertEq(resetUntil, 0);
+    }
+
+    function testDistinctCrossingSettlesDuringCooldownWithoutAnotherSwap() public {
+        _enable(
+            _program(P.PRICE, _branch(P.PRICE_FALLS_THROUGH, 2e18, _action(P.ALERT, 0, address(0))))
+        );
+        _sync(101, 2_100_000);
+        _price(1_950_000);
+        _sync(102, 1_950_000);
+        assertEq(system.requestCount(), 1);
+        _deliverRequest(0);
+        _sync(103, 2_050_000);
+        _sync(104, 1_950_000);
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1);
+        assertEq(vault.outcomes(_runId(104)), vault.CONFIRMED());
+        _sync(105, 1_950_000);
+        vm.warp(vm.getBlockTimestamp() + agent.PRICE_COOLDOWN());
+        _sync(106, 1_950_000);
+        assertEq(system.requestCount(), 2);
+    }
+
+    function testCooldownCrossingCannotSettleANonCrossingSpendingPath() public {
+        P.Node[] memory nodes =
+            _branch(P.PRICE_FALLS_THROUGH, 2e18, _action(P.ALERT, 0, address(0)));
+        nodes[2] = _leaf(_action(P.SEND, 1e6, RECIPIENT));
+        _enable(_program(P.PRICE, nodes));
+        usdc.mint(address(vault), 2e6);
+
+        _price(2_100_000);
+        _sync(101, 2_100_000);
+        _deliverRequest(0);
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+
+        _sync(102, 1_950_000);
+        assertEq(system.requestCount(), 2);
+        _deliverRequest(1);
+        assertEq(vault.outcomes(_runId(102)), vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
     }
 
     function testTrailingUpdatesPeakDuringCooldownAndTriggersOnRecoveryAfterCooldown() public {
@@ -1450,12 +1511,27 @@ contract WorkflowV2SettlementTest is Test {
             }
         }
 
-        // Fires payout ~24h later without waiting 30 days.
+        // Opens the final confirmation window without waiting 30 days.
         vm.warp(eligibleAt + 2 minutes);
         _cron(2);
         assertEq(system.requestCount(), 2, "nextDue pulled forward past 24h grace");
         _deliverRequest(1);
-        assertEq(usdc.balanceOf(RECIPIENT), 1e6);
+        uint64 readyAt = vault.payoutReadyAt(WORKFLOW);
+        assertGt(readyAt, eligibleAt);
+        assertEq(usdc.balanceOf(RECIPIENT), 0);
+
+        vm.warp(vm.getBlockTimestamp() + 1);
+        IReactive.LogRecord memory transfer = _paymentLog(950, 1e6);
+        transfer.topic_1 = uint160(OWNER);
+        transfer.topic_2 = uint160(RECIPIENT);
+        vm.prank(address(system));
+        agent.react(transfer);
+        assertEq(system.requestCount(), 3, "wallet activity gets a separate cancellation callback");
+        _deliverRequest(2);
+        assertEq(vault.payoutReadyAt(WORKFLOW), 0);
+        vm.warp(readyAt);
+        assertEq(_deliver(_run(108, P.SCHEDULE, 0)), vault.SKIPPED());
+        assertEq(usdc.balanceOf(RECIPIENT), 0);
     }
 
     function testTransferWithSubjectRejectsSelfTransfers() public {

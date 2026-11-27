@@ -116,6 +116,7 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         ChainConfig.Config memory base = ChainConfig.baseMainnet();
         vm.chainId(ChainConfig.BASE_MAINNET);
         vm.etch(base.callbackProxy, hex"00");
+        vm.etch(PROXY, hex"00");
         WorkflowProtocolsV2.Networks memory market = WorkflowProtocolsV2.Networks(
             address(usdc),
             address(weth),
@@ -172,8 +173,10 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
             1 days,
             1 days
         );
+        address nextProxy = address(0xCA12);
+        vm.etch(nextProxy, hex"00");
         MockVaultV2Upgrade v21 = new MockVaultV2Upgrade(
-            PROXY, address(0), address(0), P.BASE_MAINNET, market, validator
+            nextProxy, address(0), address(0), P.BASE_MAINNET, market, validator
         );
 
         // Non-admin cannot approve implementations or transfer admin.
@@ -232,9 +235,17 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         (,, uint128 spent,,,,,) = vault.weeklyBudget(wf);
         assertEq(spent, 5e6);
 
-        // Proxy remains operational after upgrade.
+        // The old relay loses settlement and payment authority atomically.
         P.Run memory run2 = _run(wf, 2, P.BASE_MAINNET, 0);
         vm.prank(PROXY);
+        vm.expectRevert(WorkflowVaultV2.Unauthorized.selector);
+        vault.execute(address(agent), wf, run2);
+        vm.prank(PROXY);
+        vm.expectRevert(bytes("Authorized sender only"));
+        vault.pay(0);
+        vm.prank(nextProxy);
+        vault.pay(0);
+        vm.prank(nextProxy);
         vault.execute(address(agent), wf, run2);
         assertEq(usdc.balanceOf(RECIPIENT), 10e6);
 
@@ -421,6 +432,99 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         vm.warp(ts + 240);
         _sync(P.BASE_MAINNET, 13, 2_900e6);
         assertEq(system.requestCount(), 1, "PeakSynced prevents callback spam loop");
+    }
+
+    function testHistoricalPeakUsesObservationTimeAcrossOraclePhases() public {
+        uint64 since = uint64(block.timestamp);
+        uint64 observedAt = since + 2;
+        uint80 firstPhase = uint80(1) << 64;
+        uint80 secondPhase = uint80(2) << 64;
+        ethUsd.setRound(firstPhase | 1, 3_600e8, since - 1, since - 1, firstPhase | 1);
+        ethUsd.setRound(firstPhase | 2, 3_500e8, since + 1, since + 1, firstPhase | 2);
+        ethUsd.setRound(firstPhase | 3, 3_100e8, since + 3, since + 3, firstPhase | 3);
+        for (uint80 round = 1; round <= 75; ++round) {
+            uint256 time = uint256(since) + 3 + round;
+            ethUsd.setRound(secondPhase | round, 3_100e8, time, time, secondPhase | round);
+        }
+        MockAggregatorV3 previous = new MockAggregatorV3(8, 3_100e8, since + 3, since + 3);
+        previous.setRound(3, 3_100e8, since + 3, since + 3, 3);
+        vm.mockCall(
+            address(ethUsd),
+            abi.encodeWithSignature("phaseAggregators(uint16)", 1),
+            abi.encode(address(previous))
+        );
+        vm.warp(since + 80);
+        usdcUsd.setAnswer(0.95e8);
+
+        assertTrue(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                secondPhase | 75,
+                observedAt,
+                since,
+                3_500e18,
+                1 hours,
+                1 hours
+            )
+        );
+        assertFalse(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                secondPhase | 75,
+                since - 1,
+                since,
+                3_500e18,
+                1 hours,
+                1 hours
+            )
+        );
+        assertFalse(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                secondPhase | 75,
+                observedAt,
+                since,
+                3_650e18,
+                1 hours,
+                1 hours
+            )
+        );
+
+        previous.setDecimals(19);
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        previous.setDecimals(8);
+        previous.setDecimalsReverts(true);
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        previous.setDecimalsReverts(false);
+        previous.setReverts(true);
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        previous.setReverts(false);
+        previous.setRound(secondPhase | 3, 3_100e8, since + 3, since + 3, secondPhase | 3);
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        vm.clearMockedCalls();
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        vm.mockCall(
+            address(ethUsd),
+            abi.encodeWithSignature("phaseAggregators(uint16)", 1),
+            abi.encode(address(0))
+        );
+        assertFalse(_peakAt(observedAt, since, secondPhase | 75));
+        assertFalse(_peakAt(observedAt, since, 0));
+    }
+
+    function _peakAt(uint64 observedAt, uint64 since, uint80 latest) private view returns (bool) {
+        return validator.verifyPeakAt(
+            address(ethUsd), address(0), 1e10, 0, latest, observedAt, since, 3_500e18, 1 hours, 0
+        );
     }
 
     function testPriceCrossingsConfirmOnLargeLegitimateGaps() public {
@@ -618,6 +722,7 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         nodes[1].actions = _actions(_action(P.SEND, 5e6, RECIPIENT));
         nodes[2] = P.Node(P.DIP_BY, 3, 4, 500, 0, new P.Action[](0));
         nodes[3].actions = _actions(_action(P.SEND, 5e6, RECIPIENT));
+        nodes[4].actions = _actions(_action(P.SEND, 5e6, RECIPIENT));
 
         P.Program memory prog = _program(P.BASE_MAINNET, P.UNICHAIN_MAINNET, P.SCHEDULE, nodes);
         usdc.mint(address(vault), 20e6);
@@ -632,6 +737,61 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
             vault.outcomes(_runId(wf, P.REACTIVE_MAINNET, bytes32(uint256(1)), 0)), vault.SKIPPED()
         );
         assertEq(usdc.balanceOf(RECIPIENT), 0);
+    }
+
+    function testZeroBudgetSeedPreservesRevisionAgainstDelayedBudgetEvents() public {
+        bytes32 workflow = keccak256("zero budget revision");
+        uint64 week = uint64(MONDAY);
+        bytes memory encoded = abi.encode(
+            _program(
+                P.BASE_MAINNET, P.BASE_MAINNET, P.SCHEDULE, _path(_action(P.SEND, 5e6, RECIPIENT))
+            )
+        );
+        vm.prank(OWNER);
+        agent.enableWithBudget(
+            workflow,
+            1,
+            encoded,
+            "Zero budget",
+            uint64(block.number),
+            WorkflowAgentStorageV2.BudgetSeed(0, 0, 0, 0, week, 2)
+        );
+        IReactive.LogRecord memory snapshot;
+        snapshot.chain_id = P.BASE_MAINNET;
+        snapshot._contract = address(vault);
+        snapshot.topic_0 = BUDGET_SYNCED;
+        snapshot.topic_1 = uint256(workflow);
+        snapshot.data = abi.encode(uint96(1), uint96(0), uint128(0), uint128(0), week, uint32(1));
+        vm.prank(address(system));
+        agent.react(snapshot);
+        assertFalse(agent.watchingPaused(workflow));
+        (uint96 limit,,,,, uint32 revision, bool known) = agent.budgets(workflow);
+        assertEq(limit, 0);
+        assertEq(revision, 2);
+        assertTrue(known);
+
+        vm.startPrank(OWNER);
+        agent.disable(workflow, 1);
+        agent.enable(workflow, 2, encoded, "No budget seed", uint64(block.number));
+        vm.stopPrank();
+        vm.prank(address(system));
+        agent.react(snapshot);
+        assertFalse(agent.watchingPaused(workflow));
+
+        vm.startPrank(OWNER);
+        agent.disable(workflow, 2);
+        agent.linkVault(P.BASE_MAINNET, address(0xBEEF));
+        agent.enableWithBudget(
+            workflow,
+            3,
+            encoded,
+            "New vault",
+            uint64(block.number),
+            WorkflowAgentStorageV2.BudgetSeed(0, 0, 0, 0, week, 1)
+        );
+        vm.stopPrank();
+        (,,,,, revision,) = agent.budgets(workflow);
+        assertEq(revision, 1);
     }
 
     function testCanTriggerTransferRejectsPercentOverObservedOrUsdcCap() public view {

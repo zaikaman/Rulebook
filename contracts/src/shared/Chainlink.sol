@@ -25,3 +25,7 @@ interface IAggregatorV3 {
             uint80 answeredInRound
         );
 }
+
+interface IPhaseAggregatorProxy {
+    function phaseAggregators(uint16 phase) external view returns (address);
+}

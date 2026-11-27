@@ -78,7 +78,7 @@ Open **Workflows → New workflow**, pick a recipe, and fill in the amounts. The
 
 Price checks use the last `Sync`/`Swap` on the configured USDC/WETH pair, quoted as USDC per WETH. The Agent keeps that price, the previous price, and, for a trailing stop, the sustained high since the workflow was enabled. For Buy more on a dip, the Vault compares the scheduled price against its recorded baseline price (updating the baseline when price rises and resetting it after a confirmed dip).
 
-An inactivity payout needs an explicit confirmation in the review, a fixed recipient and amount, and at least one day of silence. Silence means no USDC `Transfer` from the owner. When the grace period starts, the owner can check in. A check-in clears the pending payout. The payout can happen only once.
+An inactivity payout needs an explicit confirmation in the review, a fixed recipient and amount, and at least one day without qualifying USDC activity. The Vault waits 24 hours, then opens a final ten-minute confirmation window. A direct owner check-in clears the pending payout immediately. Qualifying USDC transfers clear it when Reactive delivers the activity to the Vault. The payout can happen only once.
 
 A weekly spending budget is optional and per asset. It sits on top of the per-run caps. A run that would cross either weekly limit is skipped whole, the workflow stays active, and the reason is **Run would exceed the weekly spending budget**. The counter resets Monday at 00:00 UTC from the settlement Vault's block timestamp. Editing the budget leaves the schedule and the inactivity window where they are.
 

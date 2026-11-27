@@ -946,12 +946,13 @@ contract WorkflowWeeklyBudgetTest is Test {
     }
 
     function testDustTransfersBlockedPreCallbackAndParkedPaymentsRetryFifo() public {
+        address payer = address(0xBA11);
         P.Node[] memory n1 = new P.Node[](5);
         n1[0] = _check(P.PAYMENT_FROM, 0, 0, 1, 3);
         n1[1] = _check(P.AMOUNT_AT_LEAST, 5e6, 0, 2, 4);
         n1[2] = _leaf(P.Action(P.SEND, P.PERCENT, 1000, RECIPIENT));
         P.Program memory program = _program(P.PAYMENT, n1);
-        program.subject = OWNER;
+        program.subject = payer;
         program.usdcCap = 10e6;
         _enable(program, 5e6, 0);
         usdc.mint(address(vault), 20e6);
@@ -961,7 +962,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         vm.recordLogs();
         for (uint64 k = 200; k < 202; ++k) {
             P.Run memory firstRun = _paymentRun(k, 25e6);
-            firstRun.actor = OWNER;
+            firstRun.actor = payer;
             assertEq(_deliver(firstRun), vault.CONFIRMED());
         }
         _forwardBudget();
@@ -974,7 +975,7 @@ contract WorkflowWeeklyBudgetTest is Test {
         log.topic_2 = uint160(address(vault));
         uint256 reqsBefore = system.requestCount();
         for (uint256 i = 1; i <= 10; ++i) {
-            log.topic_1 = i <= 5 ? uint160(address(0xD057)) : uint160(OWNER);
+            log.topic_1 = i <= 5 ? uint160(address(0xD057)) : uint160(payer);
             log.data = abi.encode(i <= 5 ? 10e6 : 4e6);
             log.block_number = 300 + i;
             log.tx_hash = 300 + i;
@@ -984,8 +985,8 @@ contract WorkflowWeeklyBudgetTest is Test {
         assertEq(agent.pendingRuns(WORKFLOW), 0, "dust and unmatched transfers never fill pending");
         assertEq(system.requestCount(), reqsBefore);
 
-        // 3 legitimate 6e6 / 7e6 / 8e6 payments from OWNER park in pending FIFO order.
-        log.topic_1 = uint160(OWNER);
+        // 3 legitimate 6e6 / 7e6 / 8e6 payments park in pending FIFO order.
+        log.topic_1 = uint160(payer);
         for (uint256 i = 1; i <= 3; ++i) {
             log.data = abi.encode((5 + i) * 1e6);
             log.block_number = 400 + i;

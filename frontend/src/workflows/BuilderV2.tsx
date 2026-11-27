@@ -593,7 +593,8 @@ function RecipePicker({
                       checked={consent}
                       onChange={(event) => setConsent(event.target.checked)}
                     />
-                    I authorize one fixed payout after a 24-hour grace period.
+                    I authorize one fixed payout after 24 hours of grace and 10 minutes for final
+                    confirmation.
                   </label>
                 )}
                 {error && (
@@ -2283,7 +2284,7 @@ function Editor({
                     checked={consent}
                     onChange={(event) => setConsent(event.target.checked)}
                   />
-                  Authorize the fixed payout after the 24-hour grace period.
+                  Authorize the fixed payout after the grace and final confirmation periods.
                 </label>
               )}
               {(!settlementFactory(draft.chain as SettlementChain) ||
