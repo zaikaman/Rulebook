@@ -78,8 +78,6 @@ function makeClients({ baseFails }: { baseFails: boolean }) {
       switch (functionName) {
         case 'vaultOf':
           return UNICHAIN_VAULT;
-        case 'workflowIds':
-          return [WORKFLOW_ID];
         case 'authorizations':
           return [WORKFLOW_ID, 1n, zeroHash, true] as const;
         case 'workflowMemory':
@@ -112,7 +110,10 @@ describe('chainV2 per-chain RPC error isolation', () => {
 
   it('returns Unichain workflows and lists Base Sepolia in failedChains when Base RPC fails', async () => {
     makeClients({ baseFails: true });
-    const result = await readWorkflowsV2(OWNER, 'testnet');
+    const result = await readWorkflowsV2(OWNER, 'testnet', [
+      { chain: UNICHAIN_SEPOLIA_CHAIN_ID, id: WORKFLOW_ID },
+      { chain: BASE_SEPOLIA_CHAIN_ID, id: WORKFLOW_ID },
+    ]);
     expect(result.workflows).toHaveLength(1);
     expect(result.workflows[0]?.chain).toBe(UNICHAIN_SEPOLIA_CHAIN_ID);
     expect(result.workflows[0]?.title).toBe('Unichain recurring');

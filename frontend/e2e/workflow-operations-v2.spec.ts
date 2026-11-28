@@ -59,7 +59,10 @@ test('warns about low credits and opens the right funding action and workflow Ac
   const workflowActivity = page
     .locator('main')
     .getByRole('link', { name: 'Activity', exact: true });
-  await expect(workflowActivity).toHaveAttribute('href', `/activity?workflow=${id}`);
+  await expect(workflowActivity).toHaveAttribute(
+    'href',
+    `/activity?workflow=${id}&chain=${UNICHAIN_SEPOLIA_CHAIN_ID}`,
+  );
   const filtered = page.waitForRequest((request) => {
     const url = new URL(request.url());
     return url.pathname === '/v3/activity' && url.searchParams.get('workflow') === id;
@@ -73,6 +76,41 @@ test('warns about low credits and opens the right funding action and workflow Ac
   await credit.getByRole('link', { name: 'Add execution credit' }).click();
   await expect(page.getByLabel('Funding action')).toContainText('Deposit ETH for execution credit');
   await expect(page.getByLabel('Amount (ETH)')).toBeFocused();
+
+  await page.goBack();
+  await page.getByRole('button', { name: 'Archive workflow', exact: true }).click();
+  const archive = page.getByRole('dialog', { name: `Archive ${title}?` });
+  await expect(archive).toContainText('Run history stays available');
+  const pendingArchive = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/v3/workflows/archive' && response.status() === 425,
+  );
+  await archive.getByRole('button', { name: 'Archive workflow' }).click();
+  await approveSignature(page, 'Unichain Sepolia', { switchNetwork: true });
+  await approveSignature(page, 'Reactive Lasna', { switchNetwork: true });
+  await pendingArchive;
+  await expect(
+    page
+      .getByRole('status')
+      .getByText('Waiting for both networks to confirm the workflow is paused.'),
+  ).toBeVisible();
+  for (const url of [ANVIL_RPC_URL, ANVIL_LASNA_RPC_URL]) {
+    const mined = await page.request.post(url, {
+      data: { jsonrpc: '2.0', id: 1, method: 'anvil_mine', params: ['0x14'] },
+    });
+    expect(await mined.json()).not.toHaveProperty('error');
+  }
+  await expect(page.getByRole('button', { name: 'Restore as paused' })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(workflowActivity).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Edit workflow' })).toHaveCount(0);
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows?scope=archived');
+  await page.getByRole('link', { name: new RegExp(title) }).click();
+  await page.getByRole('button', { name: 'Restore as paused' }).click();
+  await expect(page.getByRole('link', { name: 'Review and activate' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause workflow' })).toHaveCount(0);
 });
 
 test('finds a public workflow proof from workspace costs without connecting a wallet', async ({
@@ -162,4 +200,35 @@ test('finds a public workflow proof from workspace costs without connecting a wa
   await expect(transactions.getByText('Transaction execution gas 0.000021 ETH')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Connect wallet to start' })).toHaveCount(0);
   expect(await page.locator('main').evaluate((main) => main.scrollWidth)).toBeLessThanOrEqual(390);
+});
+
+test('deletes a browser draft and keeps Activity filters in the URL', async ({ page }) => {
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows/new?template=blank');
+  await page.getByLabel('Workflow name').fill('Unpublished draft');
+  await page.getByRole('button', { name: 'Delete draft' }).click();
+  const confirm = page.getByRole('dialog', { name: 'Delete this draft?' });
+  await confirm.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByLabel('Workflow name')).toHaveValue('Unpublished draft');
+  await page.getByRole('button', { name: 'Delete draft' }).click();
+  await confirm.getByRole('button', { name: 'Delete draft' }).click();
+  await expect(page).toHaveURL(FIXTURE_FRONTEND_URL + '/workflows');
+  await page.goto(FIXTURE_FRONTEND_URL + '/workflows/new?template=blank');
+  await expect(page.getByLabel('Workflow name')).toHaveValue('');
+
+  await page.goto(FIXTURE_FRONTEND_URL + '/activity?demo=1');
+  const filters = page.getByRole('group', { name: 'Filter runs' });
+  const filtered = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return url.pathname === '/v3/activity' && url.searchParams.get('status') === 'pending';
+  });
+  await filters.getByRole('button', { name: 'Pending', exact: true }).click();
+  await filtered;
+  await expect(page.getByRole('heading', { name: 'No runs match this filter' })).toBeVisible();
+  await page.reload();
+  await expect(filters.getByRole('button', { name: 'Pending', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await filters.getByRole('button', { name: 'Confirmed', exact: true }).click();
+  await expect(page.getByText('Income sweep demo', { exact: true })).toBeVisible();
 });

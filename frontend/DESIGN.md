@@ -196,6 +196,8 @@ components:
 
 # Design System: Rulebook
 
+Use `Pagination` from `src/ui` for bounded lists with Previous and Next actions. Give the navigation a list-specific accessible label and offer a first-page action when a saved cursor no longer returns results.
+
 <!-- impeccable:design-map -->
 
 Name: Rulebook

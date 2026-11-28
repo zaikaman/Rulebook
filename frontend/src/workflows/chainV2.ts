@@ -17,7 +17,6 @@ import {
   validateWorkflowV2Program,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
-  workflowHealthKey,
   workflowProgramValidatorV2Abi,
   workflowV2Action,
   workflowV2Trigger,
@@ -418,60 +417,34 @@ export interface WorkflowListResultV2 {
 
 export async function readWorkflowsV2(
   owner: Address,
-  mode: NetworkMode = 'testnet',
+  mode: NetworkMode,
+  references: readonly { chain: SettlementChain; id: Hex }[],
 ): Promise<WorkflowListResultV2> {
-  const chains = configuredFundsChains(mode);
+  const chains = configuredFundsChains(mode).filter((chain) =>
+    references.some((row) => row.chain === chain),
+  );
+  if (!chains.length) return { workflows: [], failedChains: [] };
   const [agent, vaultResults] = await Promise.all([
     readAgent(owner, undefined, mode),
     Promise.allSettled(chains.map((chain) => readVault(owner, chain))),
   ]);
-  if (agent === zeroAddress) return { workflows: [], failedChains: [] };
+  if (agent === zeroAddress) return { workflows: [], failedChains: chains };
   const failedSet = new Set<SettlementChain>();
-  const deployed: Array<{ chain: SettlementChain; vault: Address }> = [];
+  const vaults = new Map<SettlementChain, Address>();
   chains.forEach((chain, index) => {
     const result = vaultResults[index];
-    if (!result || result.status === 'rejected') {
+    if (!result || result.status === 'rejected' || result.value === zeroAddress) {
       failedSet.add(chain);
       return;
     }
-    if (result.value !== zeroAddress) {
-      deployed.push({ chain, vault: result.value });
-    }
+    vaults.set(chain, result.value);
   });
-  if (!deployed.length) {
-    return { workflows: [], failedChains: chains.filter((chain) => failedSet.has(chain)) };
-  }
-  const perChainResults = await Promise.allSettled(
-    deployed.map(async ({ chain, vault }) => ({
-      chain,
-      vault,
-      ids: await workflowClient(chain).readContract({
-        address: vault,
-        abi: workflowVaultV2Abi,
-        functionName: 'workflowIds',
-      }),
-    })),
-  );
-  const items: Array<{ chain: SettlementChain; vault: Address; id: Hex }> = [];
-  perChainResults.forEach((result, index) => {
-    const chain = deployed[index]!.chain;
-    if (result.status === 'rejected') {
-      failedSet.add(chain);
-      return;
-    }
-    for (const id of result.value.ids.slice().reverse()) {
-      items.push({ chain: result.value.chain, vault: result.value.vault, id });
-    }
-  });
-  const seen = new Set<string>();
-  const unique = items.filter(({ chain, id }) => {
-    const key = workflowHealthKey(chain, id);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  const selected = references.flatMap(({ chain, id }) => {
+    const vault = vaults.get(chain);
+    return vault ? [{ chain, id, vault }] : [];
   });
   const detailResults = await Promise.allSettled(
-    unique.map(async ({ chain, vault, id }) =>
+    selected.map(async ({ chain, vault, id }) =>
       readWorkflowVersionDetails(await workflowVersion(agent, vault, id, chain)),
     ),
   );
@@ -480,7 +453,7 @@ export async function readWorkflowsV2(
     if (result.status === 'fulfilled') {
       workflows.push(result.value);
     } else {
-      failedSet.add(unique[index]!.chain);
+      failedSet.add(selected[index]!.chain);
     }
   });
   return {
@@ -1294,7 +1267,7 @@ export function useWorkflowV2Wallet() {
     });
   }
 
-  function pause(item: Awaited<ReturnType<typeof readWorkflowV2>>) {
+  function pause(item: Awaited<ReturnType<typeof readWorkflowV2>>, requireReviewedVersion = false) {
     return perform(async () => {
       const { chain, agent, vault, id } = item;
       const itemMode = networkModeForChain(chain);
@@ -1303,6 +1276,13 @@ export function useWorkflowV2Wallet() {
         v2Entry(agent, id, itemMode),
         v2Authorization(chain, vault, id),
       ]);
+      const watching = entry[5] === chain && entry[4] !== 0;
+      if (
+        requireReviewedVersion &&
+        (auth[1] !== item.auth[1] || (watching && entry[1] !== item.entry[1]))
+      ) {
+        throw new Error('The workflow changed. Review its current version before archiving.');
+      }
       if (auth[3])
         await send(
           chain,
@@ -1314,7 +1294,7 @@ export function useWorkflowV2Wallet() {
           }),
           'Block new spending for this workflow.',
         );
-      if (entry[4] !== 0)
+      if (watching)
         await send(
           itemAutoChain,
           agent,

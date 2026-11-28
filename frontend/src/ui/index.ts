@@ -16,6 +16,7 @@ export {
   type FilterOption,
 } from './FilterGroup.js';
 export { PageHeading } from './PageHeading.js';
+export { Pagination } from './Pagination.js';
 export { Panel, PanelBody, PanelCopy, PanelHeading, PanelHeader, PanelTitle } from './Panel.js';
 export { PresetStrip, type PresetOption, type PresetStripProps } from './PresetStrip.js';
 export { Select, type SelectGroup, type SelectOption, type SelectProps } from './Select.js';

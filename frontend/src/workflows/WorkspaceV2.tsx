@@ -9,6 +9,9 @@ import {
   readAmount,
   workflowHealthKey,
   workflowIdSchema,
+  workflowActivityFilterSchema,
+  workflowArchiveMessage,
+  workflowDeploymentKey,
   workflowV2RunStatusSchema,
   workflowAgentFactoryV2Abi,
   workflowAgentV2Abi,
@@ -34,7 +37,7 @@ import {
   Wallet01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams, useSearchParams } from 'react-router';
 import {
@@ -48,6 +51,7 @@ import {
   type Hex,
 } from 'viem';
 import { z } from 'zod';
+import { useSignMessage } from 'wagmi';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { WalletControl } from '@/components/chrome/WalletControl';
@@ -62,7 +66,6 @@ import {
   CardGridSkeleton,
   FeedSkeleton,
   LoadingRegion,
-  MetricsSkeleton,
   Skeleton,
 } from '@/components/chrome/Skeleton';
 import { Spinner } from '@/components/chrome/Spinner';
@@ -71,14 +74,28 @@ import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
 import { useDemoMode } from '@/lib/demoMode';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
-import { Badge, Button, Callout, Panel, PanelBody, PanelHeader, PanelHeading, Select } from '@/ui';
+import {
+  Badge,
+  Button,
+  Callout,
+  Dialog,
+  FilterGroup,
+  Pagination,
+  Panel,
+  PanelBody,
+  PanelCopy,
+  PanelHeader,
+  PanelHeading,
+  PanelTitle,
+  Select,
+  Toolbar,
+} from '@/ui';
 import { appRoutes, safeNextPath, setupHref } from '@/lib/routes';
 import { RequireAccountSetup, findLinkedWorkflowChain } from './useLinkedAccount';
 import { V2Feedback, V2Field, WorkflowProgramSummary } from './BuilderV2';
 import {
   configuredFundsChains,
   readFundsV2,
-  readWorkflowsV2,
   readWorkflowV2,
   settlementFactory,
   useWorkflowV2Wallet,
@@ -95,28 +112,33 @@ import { WorkflowCreditNotice } from './WorkflowCredit';
 import { useWorkflowHealth, workflowHealthHref, shortRun } from './health';
 import { WorkflowHealthPanel } from './WorkflowHealth';
 import { WorkflowWeeklyBudget } from './WeeklyBudget';
+import {
+  archiveStateQueryKey,
+  readArchiveState,
+  readWorkflowPage,
+  useWorkflowListParams,
+  writeArchiveState,
+} from './lifecycle';
+
+const workflowScopes = [
+  { value: 'current', label: 'Current' },
+  { value: 'archived', label: 'Archived' },
+] as const;
 
 export function WorkflowsV2() {
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const { viewOwner, isDemoMode, demoAvailable, enterDemoMode } = useDemoMode();
+  const { params, setParams, after, setPage } = useWorkflowListParams(viewOwner);
+  const scope = params.get('scope') === 'archived' ? 'archived' : 'current';
   const rows = useQuery({
-    queryKey: ['workflow-v2', 'workflows', mode, viewOwner],
+    queryKey: ['workflow-v2', 'workflows', mode, viewOwner, scope, after],
     enabled: Boolean(viewOwner && isDeploymentConfigured),
-    queryFn: () => readWorkflowsV2(viewOwner!, mode),
+    queryFn: ({ signal }) => readWorkflowPage(viewOwner!, mode, scope, after, signal),
     refetchInterval: 12_000,
   });
   const workflows = rows.data?.workflows ?? [];
   const failedChains = rows.data?.failedChains ?? [];
   const health = useWorkflowHealth(viewOwner, workflows);
-  const activeCount = workflows.filter((row) => row.active).length;
-  const attention = workflows.filter(
-    (row) => health.rows.get(workflowHealthKey(row.chain, row.id))?.health.attention ?? !row.active,
-  ).length;
-  const idCounts = new Map<string, number>();
-  for (const row of workflows) {
-    const normalized = row.id.toLowerCase();
-    idCounts.set(normalized, (idCounts.get(normalized) ?? 0) + 1);
-  }
 
   return (
     <section className="app-page">
@@ -229,41 +251,50 @@ export function WorkflowsV2() {
 
       {viewOwner && <WorkflowCreditNotice owner={viewOwner} readOnly={isDemoMode} />}
 
-      {!!viewOwner && !!rows.data && (
-        <div className="rb-metrics">
-          <div className="rb-metric">
-            <p className="rb-metric-label">Workflows</p>
-            <p className="rb-metric-value">{workflows.length}</p>
-            <p className="rb-metric-note">
-              {configuredFundsChains(mode).length > 1
-                ? 'Saved across your vaults'
-                : 'Saved in this vault'}
-            </p>
-          </div>
-          <div className="rb-metric" data-tone="active">
-            <p className="rb-metric-label">Active</p>
-            <p className="rb-metric-value">{activeCount}</p>
-            <p className="rb-metric-note">Enabled on {automationName}</p>
-          </div>
-          <div className="rb-metric">
-            <p className="rb-metric-label">Needs attention</p>
-            <p className="rb-metric-value">{attention}</p>
-            <p className="rb-metric-note">Blocked, failed, or not active</p>
-          </div>
-        </div>
+      {!!viewOwner && isDeploymentConfigured && (
+        <Toolbar>
+          <FilterGroup
+            label="Workflow collection"
+            options={workflowScopes.map((option) => ({
+              ...option,
+              count: option.value === scope ? rows.data?.total : undefined,
+            }))}
+            value={scope}
+            onChange={(value) => {
+              const next = new URLSearchParams(params);
+              if (value === 'archived') next.set('scope', value);
+              else next.delete('scope');
+              next.delete('after');
+              setParams(next);
+            }}
+          />
+        </Toolbar>
       )}
 
+      {rows.data?.syncing && !after && (
+        <Callout title="Syncing workflow history">
+          Newly authorized workflows appear after confirmation and indexing.
+        </Callout>
+      )}
       {!!viewOwner && isDeploymentConfigured && rows.isPending && (
         <LoadingRegion label="Reading your workflows…" className="rb-page-skeleton">
-          <MetricsSkeleton />
           <CardGridSkeleton count={2} />
         </LoadingRegion>
       )}
 
       {!!viewOwner &&
         rows.data &&
+        !after &&
+        !rows.data.syncing &&
         rows.data.workflows.length === 0 &&
-        failedChains.length === 0 && (
+        failedChains.length === 0 &&
+        (scope === 'archived' ? (
+          <EmptyState
+            icon={Book02Icon}
+            title="No archived workflows"
+            description="Workflows you archive will appear here with their run history."
+          />
+        ) : (
           <EmptyState
             icon={Book02Icon}
             title="No workflows yet"
@@ -283,17 +314,14 @@ export function WorkflowsV2() {
             }
             steps={['Pick a trigger', 'Add checks and actions', 'Review and activate']}
           />
-        )}
+        ))}
 
       {!!workflows.length && (
         <ul className="rb-card-grid">
           {workflows.map((row) => {
             const key = workflowHealthKey(row.chain, row.id);
             const view = health.rows.get(key);
-            const isDuplicateId = (idCounts.get(row.id.toLowerCase()) ?? 0) > 1;
-            const detailPath = isDuplicateId
-              ? `/workflows/${row.id}?chain=${row.chain}`
-              : `/workflows/${row.id}`;
+            const detailPath = `/workflows/${row.id}?chain=${row.chain}`;
             const ready = !row.active && row.staged && row.auth[3];
             const tone =
               view?.health.tone ??
@@ -328,9 +356,10 @@ export function WorkflowsV2() {
                     : ready
                       ? 'The Vault authorization is staged. Finish activation to start watching.'
                       : 'This workflow is not watching for events.');
-            const fixHref = view
-              ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain, mode)
-              : undefined;
+            const fixHref =
+              view && scope !== 'archived'
+                ? workflowHealthHref(view.health, row.id, view.lastRun?.id, view.chain, mode)
+                : undefined;
             return (
               <li key={key}>
                 <div className="rb-card">
@@ -348,12 +377,16 @@ export function WorkflowsV2() {
                     </div>
                     <div className="grid justify-items-start gap-1.5">
                       <Badge
-                        tone={tone}
+                        tone={scope === 'archived' ? 'paused' : tone}
                         className="max-w-full whitespace-normal [overflow-wrap:anywhere]"
                       >
-                        {label}
+                        {scope === 'archived' ? 'Archived' : label}
                       </Badge>
-                      <p className="rb-card-copy">{summary}</p>
+                      <p className="rb-card-copy">
+                        {scope === 'archived'
+                          ? 'Open the workflow to view its history or restore it.'
+                          : summary}
+                      </p>
                     </div>
                   </Link>
                   <div className="rb-card-foot flex-wrap">
@@ -391,12 +424,20 @@ export function WorkflowsV2() {
           })}
         </ul>
       )}
+      <Pagination
+        label="Workflow pages"
+        previous={rows.data?.previousCursor}
+        next={rows.data?.nextCursor}
+        onPage={setPage}
+        firstPage={Boolean(after && (rows.isError || (rows.data && !rows.data.items.length)))}
+      />
     </section>
   );
 }
 
 export function WorkflowDetailV2() {
-  const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
+  const { mode, isMainnet, automationChainId, automationName, deployment, isDeploymentConfigured } =
+    useNetworkMode();
   const [params] = useSearchParams();
   const rawChain = params.get('chain');
   const parsedChain = rawChain ? Number(rawChain) : NaN;
@@ -407,6 +448,11 @@ export function WorkflowDetailV2() {
   const { id: raw } = useParams();
   const id = workflowIdSchema.safeParse(raw);
   const wallet = useWorkflowV2Wallet();
+  const { signMessageAsync } = useSignMessage();
+  const queries = useQueryClient();
+  const [archiveConfirmation, setArchiveConfirmation] = useState(false);
+  const [archivePending, setArchivePending] = useState(false);
+  const [archiveConfirming, setArchiveConfirming] = useState(false);
   const { viewOwner, isDemoMode, demoAvailable, enterDemoMode } = useDemoMode();
   const data = useQuery({
     queryKey: ['workflow-v2', 'detail', mode, viewOwner, raw, preferredChain],
@@ -415,6 +461,13 @@ export function WorkflowDetailV2() {
     refetchInterval: 12_000,
   });
   const detailHealthQuery = useWorkflowHealth(viewOwner, data.data ? [data.data] : undefined);
+  const archiveKey = archiveStateQueryKey(viewOwner, mode, id.data, data.data?.chain);
+  const archive = useQuery({
+    queryKey: archiveKey,
+    enabled: Boolean(viewOwner && id.success && data.data && !isDemoMode),
+    queryFn: ({ signal }) => readArchiveState(viewOwner!, mode, id.data!, data.data!.chain, signal),
+    refetchInterval: 12_000,
+  });
   if (!id.success) return <p role="alert">This workflow link is invalid.</p>;
   if (!isDeploymentConfigured) {
     return isMainnet ? (
@@ -472,6 +525,53 @@ export function WorkflowDetailV2() {
       </section>
     );
   const item = data.data;
+  const archived =
+    archive.data?.archived &&
+    archive.data.epoch === item.auth[1].toString() &&
+    !item.auth[3] &&
+    item.entry[4] === 0;
+  const pendingArchive = archivePending || item.partiallyPaused;
+  const isWatching = item.auth[3] || item.entry[4] !== 0;
+
+  async function changeArchive(action: 'archive' | 'restore') {
+    if (!deployment || !archive.data || isDemoMode) return;
+    setArchiveConfirmation(false);
+    if (action === 'archive') {
+      setArchivePending(true);
+      if (isWatching && !(await wallet.pause(item, true))) return;
+    }
+    const succeeded = await wallet.perform(async (signer) => {
+      if (!viewOwner || !isAddressEqual(signer, viewOwner))
+        throw new Error('Reconnect the wallet that owns this workflow.');
+      const change = {
+        owner: signer,
+        network: mode,
+        chain: item.chain,
+        workflow: item.id,
+        action,
+        epoch: item.auth[1].toString(),
+        revision: archive.data!.revision,
+        expires: Math.floor(Date.now() / 1000) + 240,
+      };
+      const signature = await signMessageAsync({
+        account: signer,
+        message: workflowArchiveMessage(
+          change,
+          window.location.origin,
+          workflowDeploymentKey(automationChainId, deployment.automationFactory),
+        ),
+      });
+      try {
+        const updated = await writeArchiveState({ ...change, signature }, () =>
+          setArchiveConfirming(true),
+        );
+        queries.setQueryData(archiveKey, updated);
+      } finally {
+        setArchiveConfirming(false);
+      }
+    });
+    if (succeeded) setArchivePending(false);
+  }
   const program = decodeWorkflowV2(item.program);
   const payout = program.nodes.some((node) =>
     node.actions.some((step) => step.kind === workflowV2Action.inactivityPayout),
@@ -496,8 +596,12 @@ export function WorkflowDetailV2() {
         : item.auth[3]
           ? 'info'
           : 'paused';
-  const status = detailHealth?.label ?? fallbackStatus;
-  const statusTone = item.closed ? 'info' : (detailHealth?.tone ?? fallbackTone);
+  const status = archived ? 'Archived' : (detailHealth?.label ?? fallbackStatus);
+  const statusTone = archived
+    ? 'paused'
+    : item.closed
+      ? 'info'
+      : (detailHealth?.tone ?? fallbackTone);
   return (
     <section className="app-page">
       <PageHeading
@@ -515,7 +619,7 @@ export function WorkflowDetailV2() {
         }
       />
       <div className="workflow-actions">
-        {!isDemoMode && !item.closed && (
+        {!isDemoMode && !archived && !item.closed && (
           <Link
             className="app-button"
             to={withNetworkQuery(
@@ -528,7 +632,7 @@ export function WorkflowDetailV2() {
             {active ? 'Edit workflow' : 'Review and activate'}
           </Link>
         )}
-        {!isDemoMode && !item.closed && (item.auth[3] || item.entry[4] !== 0) && (
+        {!isDemoMode && !archived && !item.closed && isWatching && (
           <button
             type="button"
             className="app-button"
@@ -538,6 +642,17 @@ export function WorkflowDetailV2() {
             {item.partiallyPaused ? 'Finish pausing' : 'Pause workflow'}
           </button>
         )}
+        {!isDemoMode &&
+          archive.data &&
+          (archived ? (
+            <Button disabled={wallet.busy} onClick={() => void changeArchive('restore')}>
+              {item.closed ? 'Restore to workflow list' : 'Restore as paused'}
+            </Button>
+          ) : (
+            <Button disabled={wallet.busy} onClick={() => setArchiveConfirmation(true)}>
+              {pendingArchive ? 'Finish archiving' : 'Archive workflow'}
+            </Button>
+          ))}
         {!isDemoMode && active && payout && (
           <button
             className="app-button"
@@ -562,15 +677,53 @@ export function WorkflowDetailV2() {
           </button>
         )}
         <Link
-          to={withNetworkQuery(`${appRoutes.activity}?workflow=${item.id}`, mode)}
+          to={withNetworkQuery(
+            `${appRoutes.activity}?workflow=${item.id}&chain=${item.chain}`,
+            mode,
+          )}
           className="app-button"
         >
           Activity
         </Link>
       </div>
-      <WorkflowHealthPanel item={item} owner={viewOwner} readOnly={isDemoMode} />
-      <WorkflowWeeklyBudget item={item} wallet={wallet} readOnly={isDemoMode} />
-      {!item.closed && (
+      {archiveConfirming && (
+        <p role="status">Waiting for both networks to confirm the workflow is paused.</p>
+      )}
+      {archive.isError && (
+        <Callout
+          title="Archive status unavailable"
+          action={<Button onClick={() => void archive.refetch()}>Try again</Button>}
+        >
+          Refresh to manage this workflow’s archive status.
+        </Callout>
+      )}
+      {archiveConfirmation && (
+        <Dialog
+          labelledBy="workflow-archive-title"
+          describedBy="workflow-archive-description"
+          onCancel={() => setArchiveConfirmation(false)}
+        >
+          <PanelBody className="grid gap-4">
+            <PanelTitle id="workflow-archive-title">Archive {item.title}?</PanelTitle>
+            <PanelCopy id="workflow-archive-description">
+              {isWatching
+                ? 'Rulebook will revoke spending and stop watching before archiving. '
+                : ''}
+              Run history stays available. You can unpublish a public copy under Marketplace
+              listing.
+            </PanelCopy>
+            <Toolbar>
+              <Button onClick={() => setArchiveConfirmation(false)}>Cancel</Button>
+              <Button variant="primary" onClick={() => void changeArchive('archive')}>
+                Archive workflow
+              </Button>
+            </Toolbar>
+          </PanelBody>
+        </Dialog>
+      )}
+      <WorkflowHealthPanel item={item} owner={viewOwner} readOnly={isDemoMode || archived} />
+      <WorkflowWeeklyBudget item={item} wallet={wallet} readOnly={isDemoMode || archived} />
+      {!item.closed && !archived && (
         <WorkflowCreditNotice owner={viewOwner} chain={item.chain} readOnly={isDemoMode} />
       )}
       <div className="rb-canvas-panel">
@@ -580,7 +733,7 @@ export function WorkflowDetailV2() {
         </div>
       </div>
       {!item.staged && <Publication item={item} wallet={wallet} readOnly={isDemoMode} />}
-      {!isDemoMode && item.entry[1] > 0n && (
+      {!isDemoMode && !archived && item.entry[1] > 0n && (
         <TelegramNotifications workflow agent={item.agent} owner={viewOwner} workflowId={item.id} />
       )}
       <V2Feedback wallet={wallet} />
@@ -872,7 +1025,11 @@ const runSchema = z.object({
     .transform((value) => value as Address),
   programHash: workflowIdSchema,
 });
-const activityPage = z.object({ runs: z.array(runSchema), nextCursor: z.string().nullable() });
+const activityPage = z.object({
+  runs: z.array(runSchema),
+  nextCursor: z.string().nullable(),
+  previousCursor: z.string().nullable().default(null),
+});
 
 function TransactionLink({
   chain,
@@ -891,53 +1048,67 @@ function TransactionLink({
   ) : null;
 }
 
-type ActivityFilter = 'all' | 'pending' | 'confirmed' | 'other';
-
 const activityFilters = [
-  { id: 'all', label: 'All' },
-  { id: 'pending', label: 'Pending' },
-  { id: 'confirmed', label: 'Confirmed' },
-  { id: 'other', label: 'Other' },
-] as const satisfies readonly { readonly id: ActivityFilter; readonly label: string }[];
-
-const activityFilterStatuses = {
-  pending: new Set(['pending', 'in grace period']),
-  confirmed: new Set(['confirmed']),
-  other: new Set(['skipped', 'expired', 'failed']),
-} as const satisfies Record<Exclude<ActivityFilter, 'all'>, ReadonlySet<string>>;
+  { value: 'all', label: 'All' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'confirmed', label: 'Confirmed' },
+  { value: 'other', label: 'Other' },
+] as const;
 
 export function WorkflowActivityV2() {
   const wallet = useWorkflowV2Wallet();
   const { viewOwner, demoAvailable, enterDemoMode } = useDemoMode();
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
-  const [params] = useSearchParams();
+  const { params, setParams, after, setPage } = useWorkflowListParams(viewOwner);
   const run = params.get('run');
   const workflow = params.get('workflow');
   const scopes = z
-    .object({ run: workflowIdSchema.nullable(), workflow: workflowIdSchema.nullable() })
-    .safeParse({ run, workflow });
+    .object({
+      run: workflowIdSchema.nullable(),
+      workflow: workflowIdSchema.nullable(),
+      chain: z.coerce.number().pipe(fundsChainIdSchema).nullable(),
+      status: workflowActivityFilterSchema,
+    })
+    .safeParse({
+      run,
+      workflow,
+      chain: params.get('chain'),
+      status: params.get('status') ?? 'all',
+    });
   const requestedId = scopes.data?.run;
   const workflowId = scopes.data?.workflow;
-  const [filter, setFilter] = useState<ActivityFilter>('all');
+  const chain = scopes.data?.chain;
+  const workflowHref = `${appRoutes.workflows}/${workflowId}${chain ? `?chain=${chain}` : ''}`;
+  const filter = requestedId ? 'all' : (scopes.data?.status ?? 'all');
   const [refreshing, setRefreshing] = useState(false);
-  const query = useInfiniteQuery({
-    queryKey: ['workflow-v2', 'activity', mode, viewOwner, workflowId, requestedId],
+  const query = useQuery({
+    queryKey: [
+      'workflow-v2',
+      'activity',
+      mode,
+      viewOwner,
+      workflowId,
+      requestedId,
+      chain,
+      filter,
+      after,
+    ],
     enabled: Boolean(viewOwner && isDeploymentConfigured && scopes.success),
-    initialPageParam: null as string | null,
-    queryFn: async ({ pageParam, signal }) => {
+    queryFn: async ({ signal }) => {
       const params = new URLSearchParams({
         network: mode,
         owner: viewOwner!,
+        ...(filter !== 'all' ? { status: filter } : {}),
         ...(requestedId ? { id: requestedId } : {}),
         ...(workflowId ? { workflow: workflowId } : {}),
-        ...(pageParam ? { after: pageParam } : {}),
+        ...(chain ? { chain: String(chain) } : {}),
+        ...(after ? { after } : {}),
       });
       const response = await fetch(`${v2ApiBase}/v3/activity?${params}`, { signal });
       if (!response.ok) throw new Error('Couldn’t read workflow activity.');
       return activityPage.parse(await response.json());
     },
-    getNextPageParam: (page) => page.nextCursor,
-    refetchInterval: (state) => ((state.state.data?.pages.length ?? 0) <= 1 ? 12_000 : false),
+    refetchInterval: after ? false : 12_000,
   });
   if (!scopes.success) {
     return (
@@ -950,11 +1121,7 @@ export function WorkflowActivityV2() {
       </section>
     );
   }
-  const rows = query.data?.pages.flatMap((page) => page.runs) ?? [];
-  const visible =
-    requestedId || filter === 'all'
-      ? rows
-      : rows.filter((run) => activityFilterStatuses[filter].has(run.status));
+  const rows = query.data?.runs ?? [];
   return (
     <section className="app-page">
       <PageHeading
@@ -963,7 +1130,6 @@ export function WorkflowActivityV2() {
         description={`Follow each run from the origin event through the ${automationName} decision to settlement.`}
         aside={
           <>
-            {viewOwner && <span className="rb-chip rb-chip--plain">{rows.length} loaded</span>}
             <button
               type="button"
               className="app-button"
@@ -987,10 +1153,7 @@ export function WorkflowActivityV2() {
       {(workflowId || requestedId) && (
         <div className="rb-inline">
           {workflowId && (
-            <Link
-              className="app-link"
-              to={withNetworkQuery(`${appRoutes.workflows}/${workflowId}`, mode)}
-            >
+            <Link className="app-link" to={withNetworkQuery(workflowHref, mode)}>
               {rows[0]?.title ?? 'Open workflow'}
             </Link>
           )}
@@ -1074,38 +1237,39 @@ export function WorkflowActivityV2() {
         </LoadingRegion>
       )}
 
-      {!!viewOwner && !requestedId && query.isSuccess && rows.length > 0 && (
-        <div className="rb-toolbar">
-          <div className="rb-filters" role="group" aria-label="Filter runs">
-            {activityFilters.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                className="rb-filter"
-                aria-pressed={filter === option.id}
-                onClick={() => setFilter(option.id)}
-              >
-                {option.label}
-                <span className="rb-filter-count">
-                  {option.id === 'all'
-                    ? rows.length
-                    : rows.filter((run) => activityFilterStatuses[option.id].has(run.status))
-                        .length}
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {!!viewOwner && !requestedId && isDeploymentConfigured && (
+        <Toolbar>
+          <FilterGroup
+            label="Filter runs"
+            options={activityFilters}
+            value={filter}
+            onChange={(value) => {
+              const next = new URLSearchParams(params);
+              if (value === 'all') next.delete('status');
+              else next.set('status', value);
+              next.delete('after');
+              setParams(next);
+            }}
+          />
+        </Toolbar>
       )}
 
-      {query.isSuccess && !rows.length && (
+      {query.isSuccess && !rows.length && !after && (
         <EmptyState
           icon={Clock01Icon}
-          title={requestedId ? 'Run unavailable for this wallet' : 'No runs yet'}
+          title={
+            requestedId
+              ? 'Run unavailable for this wallet'
+              : filter === 'all'
+                ? 'No runs yet'
+                : 'No runs match this filter'
+          }
           description={
             requestedId
               ? 'Open the public proof to check whether this run has been indexed.'
-              : 'Runs appear here once a trigger fires and the agent evaluates the workflow’s conditions.'
+              : filter === 'all'
+                ? 'Runs appear here once a trigger fires and the agent evaluates the workflow’s conditions.'
+                : 'Choose another status to see more runs.'
           }
           action={
             <Link
@@ -1114,7 +1278,7 @@ export function WorkflowActivityV2() {
                 requestedId
                   ? `${appRoutes.runs}/${requestedId}`
                   : workflowId
-                    ? `${appRoutes.workflows}/${workflowId}`
+                    ? workflowHref
                     : appRoutes.workflows,
                 mode,
               )}
@@ -1123,7 +1287,7 @@ export function WorkflowActivityV2() {
             </Link>
           }
           steps={
-            requestedId
+            requestedId || filter !== 'all'
               ? undefined
               : [
                   `Trigger evaluates on ${automationName}`,
@@ -1134,11 +1298,9 @@ export function WorkflowActivityV2() {
         />
       )}
 
-      {rows.length > 0 && !visible.length && <p className="rb-note">No runs match this filter.</p>}
-
-      {!!visible.length && (
+      {!!rows.length && (
         <ul className="rb-feed">
-          {visible.map((run) => {
+          {rows.map((run) => {
             const tone =
               run.status === 'confirmed'
                 ? 'active'
@@ -1207,7 +1369,7 @@ export function WorkflowActivityV2() {
                     {!requestedId && (
                       <Link
                         to={withNetworkQuery(
-                          `${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}`,
+                          `${appRoutes.activity}?workflow=${run.workflowId}&run=${run.id}&chain=${run.chain}`,
                           runMode,
                         )}
                       >
@@ -1228,17 +1390,13 @@ export function WorkflowActivityV2() {
         </ul>
       )}
 
-      {query.hasNextPage && (
-        <button
-          type="button"
-          className="app-button"
-          disabled={query.isFetchingNextPage}
-          onClick={() => void query.fetchNextPage()}
-        >
-          {query.isFetchingNextPage && <Spinner />}
-          {query.isFetchingNextPage ? 'Loading more runs' : 'Load more runs'}
-        </button>
-      )}
+      <Pagination
+        label="Activity pages"
+        previous={query.data?.previousCursor}
+        next={query.data?.nextCursor}
+        onPage={setPage}
+        firstPage={Boolean(after && (query.isError || (query.isSuccess && !rows.length)))}
+      />
       <V2Feedback wallet={wallet} />
     </section>
   );

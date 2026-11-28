@@ -1,4 +1,4 @@
-import { fundsChainIdSchema } from '@rulebook/shared';
+import { fundsChainIdSchema, networkModeForChain } from '@rulebook/shared';
 import { Suspense, lazy, useEffect, useRef, type ReactNode } from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes, useSearchParams } from 'react-router';
 
@@ -130,6 +130,11 @@ export function NetworkModeQuerySync() {
     }
     if (modeChanged) {
       const next = new URLSearchParams(searchParams);
+      if (!urlChanged && urlMode !== mode) {
+        next.delete('after');
+        const chain = fundsChainIdSchema.safeParse(Number(next.get('chain')));
+        if (chain.success && networkModeForChain(chain.data) !== mode) next.delete('chain');
+      }
       if (mode === 'mainnet') next.set('network', 'mainnet');
       else next.delete('network');
       if (next.toString() !== searchParams.toString()) {

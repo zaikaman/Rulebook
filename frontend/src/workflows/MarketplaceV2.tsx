@@ -18,7 +18,7 @@ import {
 import { HugeiconsIcon } from '@hugeicons/react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ComponentProps } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 
 import { CopyButton } from '@/components/chrome/CopyButton';
 import { EmptyState } from '@/components/chrome/EmptyState';
@@ -122,11 +122,21 @@ function VerifiedRunsBadge({ count }: { readonly count: number }) {
 
 export function WorkflowMarketplaceV2() {
   const { mode, isMainnet, isDeploymentConfigured } = useNetworkMode();
-  const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [chainFilter, setChainFilter] = useState<string>('all');
-  const [scopeFilter, setScopeFilter] = useState<MarketplaceScopeFilter>('all');
-  const [triggerFilter, setTriggerFilter] = useState<'all' | MarketplaceTriggerFilter>('all');
+  const [filters, setFilters] = useSearchParams();
+  const search = (filters.get('q') ?? '').slice(0, 160);
+  const [debouncedSearch, setDebouncedSearch] = useState(search.trim());
+  const chainFilter = filters.get('chain') ?? 'all';
+  const scopeFilter =
+    scopeOptions.find((option) => option.value === filters.get('scope'))?.value ?? 'all';
+  const triggerFilter =
+    triggerOptions.find((option) => option.value === filters.get('trigger'))?.value ?? 'all';
+
+  function changeFilter(name: string, value: string, replace = false) {
+    const next = new URLSearchParams(filters);
+    if (!value || (value === 'all' && name !== 'q')) next.delete(name);
+    else next.set(name, value);
+    setFilters(next, { replace });
+  }
 
   useEffect(() => {
     const trimmed = search.trim();
@@ -137,10 +147,6 @@ export function WorkflowMarketplaceV2() {
     const timer = setTimeout(() => setDebouncedSearch(trimmed), 200);
     return () => clearTimeout(timer);
   }, [search]);
-
-  useEffect(() => {
-    setChainFilter('all');
-  }, [mode]);
 
   const availableChains = fundsChainsFor(mode);
   const effectiveChain =
@@ -197,11 +203,10 @@ export function WorkflowMarketplaceV2() {
     triggerFilter !== 'all';
 
   function resetFilters() {
-    setSearch('');
+    const next = new URLSearchParams(filters);
+    for (const key of ['q', 'chain', 'scope', 'trigger']) next.delete(key);
+    setFilters(next);
     setDebouncedSearch('');
-    setChainFilter('all');
-    setScopeFilter('all');
-    setTriggerFilter('all');
   }
 
   return (
@@ -245,7 +250,7 @@ export function WorkflowMarketplaceV2() {
                 value={search}
                 disabled={!isDeploymentConfigured}
                 placeholder="Search by name or description"
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => changeFilter('q', event.target.value, true)}
               />
             </label>
             {hasFilters && isDeploymentConfigured && (
@@ -261,7 +266,7 @@ export function WorkflowMarketplaceV2() {
           options={networkOptions}
           value={effectiveChain}
           defaultValue="all"
-          onChange={setChainFilter}
+          onChange={(value) => changeFilter('chain', value)}
           disabled={!isDeploymentConfigured}
         />
         <FilterGroup
@@ -269,7 +274,7 @@ export function WorkflowMarketplaceV2() {
           options={scopeOptions}
           value={scopeFilter}
           defaultValue="all"
-          onChange={setScopeFilter}
+          onChange={(value) => changeFilter('scope', value)}
           disabled={!isDeploymentConfigured}
         />
         <FilterGroup
@@ -277,7 +282,7 @@ export function WorkflowMarketplaceV2() {
           options={triggerOptions}
           value={triggerFilter}
           defaultValue="all"
-          onChange={setTriggerFilter}
+          onChange={(value) => changeFilter('trigger', value)}
           disabled={!isDeploymentConfigured}
         />
       </FilterBar>

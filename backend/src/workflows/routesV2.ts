@@ -9,6 +9,8 @@ import {
   workflowDeploymentKey,
   workflowHealthResponseSchema,
   workflowIdSchema,
+  workflowActivityFilterSchema,
+  workflowActivityStatuses,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
   workflowV2Trigger,
@@ -22,19 +24,33 @@ import { z } from 'zod';
 
 import type { CallbackReader } from '../chain/lasnaCallbacks.js';
 import { workflowV2FailureReason } from './failureReasons.js';
+import {
+  registerWorkflowInventoryRoutes,
+  type WorkflowInventoryOptions,
+} from './inventoryRoutes.js';
+import {
+  bidirectionalPage,
+  encodePageCursor,
+  pageScope,
+  readPageCursor,
+  workflowPageSize,
+} from './pagination.js';
 const settlementChain = fundsChainIdSchema;
 const cursor = z.object({
   block: z.number().int().nonnegative().safe(),
   id: workflowIdSchema,
   chain: settlementChain,
+  before: z.boolean().optional(),
 });
 
 const query = z.object({
   owner: addressSchema,
   id: workflowIdSchema.optional(),
   workflow: workflowIdSchema.optional(),
+  chain: z.coerce.number().pipe(settlementChain).optional(),
   after: z.string().max(250).optional(),
   network: networkModeSchema.default('testnet'),
+  status: workflowActivityFilterSchema.default('all'),
 });
 const listingId = z.string().regex(/^[1-9]\d{0,77}$/);
 const triggerCode = z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]);
@@ -126,15 +142,6 @@ const demoRunRow = z.object({
 const demoRunColumns = Object.keys(demoRunRow.shape).join(',');
 const routeRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } } as const;
 
-function readCursor(value: string | undefined) {
-  if (!value) return undefined;
-  try {
-    return cursor.parse(JSON.parse(Buffer.from(value, 'base64url').toString('utf8')));
-  } catch {
-    throw Object.assign(new Error('This activity page link is invalid.'), { statusCode: 400 });
-  }
-}
-
 function runProof(row: z.infer<typeof proofRow>) {
   return workflowV2RunProofSchema.parse({
     id: row.id,
@@ -158,6 +165,7 @@ export function registerWorkflowV2Routes(
   factoryOrDeployments: Address | { testnet?: Address; mainnet?: Address },
   callbackReaders?: Partial<Record<NetworkMode, CallbackReader>>,
   demoConfig?: { readonly owner?: Address; readonly featuredRunIds?: readonly Hex[] },
+  inventory?: WorkflowInventoryOptions,
 ) {
   function resolveDeployment(network: NetworkMode) {
     const address =
@@ -169,10 +177,13 @@ export function registerWorkflowV2Routes(
           ? factoryOrDeployments.mainnet
           : factoryOrDeployments.testnet;
     return {
+      address,
       deployment: address ? workflowDeploymentKey(automationChainFor(network), address) : null,
       chains: fundsChainsFor(network),
     };
   }
+
+  registerWorkflowInventoryRoutes(app, db, resolveDeployment, inventory);
 
   app.get('/v3/demo', routeRateLimit, async (request, reply) => {
     const params = z
@@ -239,7 +250,7 @@ export function registerWorkflowV2Routes(
     const params = z
       .object({
         q: z.string().max(160).default(''),
-        after: z.string().max(250).optional(),
+        after: z.string().max(300).optional(),
         network: networkModeSchema.default('testnet'),
         chain: z.coerce.number().int().optional(),
         crossChain: z.enum(['true', 'false']).optional(),
@@ -256,18 +267,24 @@ export function registerWorkflowV2Routes(
           : null;
     if (!selectedChains) return reply.code(400).send({ message: 'Check the search parameters.' });
     if (!deployment) return { listings: [], nextCursor: null };
+    const trimmed = params.data.q.trim();
+    const scope = pageScope(
+      'marketplace',
+      deployment,
+      selectedChains,
+      trimmed,
+      params.data.crossChain,
+      params.data.trigger,
+    );
     let before;
     if (params.data.after) {
       try {
-        before = marketCursor.parse(
-          JSON.parse(Buffer.from(params.data.after, 'base64url').toString('utf8')),
-        );
+        before = readPageCursor(params.data.after, marketCursor, scope, true);
       } catch {
         return reply.code(400).send({ message: 'This Marketplace page link is invalid.' });
       }
     }
-    const trimmed = params.data.q.trim();
-    const limit = 24;
+    const limit = workflowPageSize;
     const { data, error } = await db.rpc('workflow_v2_marketplace_browse', {
       p_deployment: deployment,
       p_chains: selectedChains,
@@ -286,9 +303,7 @@ export function registerWorkflowV2Routes(
       listings: rows.slice(0, limit),
       nextCursor:
         last && rows.length > limit
-          ? Buffer.from(
-              JSON.stringify({ block: last.block_number, index: last.log_index }),
-            ).toString('base64url')
+          ? encodePageCursor(scope, { block: last.block_number, index: last.log_index })
           : null,
     };
   });
@@ -368,33 +383,55 @@ export function registerWorkflowV2Routes(
   app.get('/v3/activity', routeRateLimit, async (request, reply) => {
     const input = query.safeParse(request.query);
     if (!input.success) return reply.code(400).send({ message: 'Check the activity filters.' });
-    const { deployment } = resolveDeployment(input.data.network);
-    if (!deployment) return { runs: [], nextCursor: null };
-    const after = readCursor(input.data.after);
-    const limit = 24;
+    const { deployment, chains } = resolveDeployment(input.data.network);
+    if (!deployment) return { runs: [], nextCursor: null, previousCursor: null };
+    const owner = input.data.owner.toLowerCase();
+    const { status, chain } = input.data;
+    if (chain !== undefined && !chains.includes(chain)) {
+      return reply.code(400).send({ message: 'Check the activity network.' });
+    }
+    const scope = pageScope(
+      'activity',
+      deployment,
+      owner,
+      input.data.id,
+      input.data.workflow,
+      chain,
+      status,
+    );
+    let after;
+    try {
+      after = input.data.after ? readPageCursor(input.data.after, cursor, scope, true) : undefined;
+    } catch {
+      return reply.code(400).send({ message: 'This activity page link is invalid.' });
+    }
+    const ascending = Boolean(after?.before);
     let pageQuery = db
       .from('workflow_v2_activity')
       .select('*')
-      .match({ deployment, owner: input.data.owner.toLowerCase() })
-      .in('chain', [...fundsChainsFor(input.data.network)]);
+      .match({ deployment, owner })
+      .in('chain', chain === undefined ? [...chains] : [chain]);
     if (input.data.id) pageQuery = pageQuery.eq('id', input.data.id);
     if (input.data.workflow) pageQuery = pageQuery.eq('workflow_id', input.data.workflow);
+    if (status !== 'all') pageQuery = pageQuery.in('status', workflowActivityStatuses[status]);
     if (after) {
       const equalBlock = `lasna_block.eq.${after.block}`;
+      const comparison = ascending ? 'gt' : 'lt';
       pageQuery = pageQuery.or(
-        `lasna_block.lt.${after.block},and(${equalBlock},id.lt.${after.id}),and(${equalBlock},id.eq.${after.id},chain.lt.${after.chain})`,
+        `lasna_block.${comparison}.${after.block},and(${equalBlock},id.${comparison}.${after.id}),and(${equalBlock},id.eq.${after.id},chain.${comparison}.${after.chain})`,
       );
     }
     const { data, error } = await pageQuery
-      .order('lasna_block', { ascending: false })
-      .order('id', { ascending: false })
-      .order('chain', { ascending: false })
-      .limit(limit + 1);
+      .order('lasna_block', { ascending })
+      .order('id', { ascending })
+      .order('chain', { ascending })
+      .limit(workflowPageSize + 1);
     if (error) throw error;
-    const rows = z.array(run).parse(data);
-    const last = rows[limit - 1];
+    const page = bidirectionalPage(z.array(run).parse(data), after, (row, before) =>
+      encodePageCursor(scope, { block: row.lasna_block, id: row.id, chain: row.chain, before }),
+    );
     return {
-      runs: rows.slice(0, limit).map((row) => ({
+      runs: page.items.map((row) => ({
         ...runProof(row),
         agent: row.agent,
         workflowId: row.workflow_id,
@@ -402,12 +439,8 @@ export function registerWorkflowV2Routes(
         epoch: row.epoch,
         reasonCode: row.reason,
       })),
-      nextCursor:
-        last && rows.length > limit
-          ? Buffer.from(
-              JSON.stringify({ block: last.lasna_block, id: last.id, chain: last.chain }),
-            ).toString('base64url')
-          : null,
+      nextCursor: page.nextCursor,
+      previousCursor: page.previousCursor,
     };
   });
 

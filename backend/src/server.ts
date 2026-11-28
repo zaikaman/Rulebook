@@ -347,6 +347,7 @@ export async function startServer(): Promise<void> {
           owner: config.demoAccount,
           featuredRunIds: config.demoFeaturedRunIds,
         },
+        { clients, corsOrigins: config.corsOrigins, vaultFactories: vaultFactories ?? {} },
       );
     });
   }

@@ -22,6 +22,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { FastifyBaseLogger } from 'fastify';
 import { keccak256, type Address, type PublicClient } from 'viem';
 
+import { workflowConfirmationDepth } from './finality.js';
+
 const ADDRESS_BATCH_SIZE = 50;
 const ACCOUNT_PAGE_SIZE = 1000;
 const IDLE_POLL_MS = 5_000;
@@ -54,6 +56,9 @@ const AGENT_EVENTS = workflowAgentV2Abi.filter(
 );
 const VAULT_EVENTS = workflowVaultV2Abi.filter(
   (item) => item.type === 'event' && (item.name === 'Outcome' || item.name === 'AgentRebound'),
+);
+const INVENTORY_EVENTS = workflowVaultV2Abi.filter(
+  (item) => item.type === 'event' && item.name === 'Authorized',
 );
 const telegramOutcomes = new Set([1, 3, 4, 6]);
 
@@ -92,13 +97,13 @@ export class WorkflowV2Indexer {
           ...config.reactive,
           chain: REACTIVE_MAINNET_CHAIN_ID,
           client: clients.reactiveMainnet,
-          confirmations: 20n,
+          confirmations: workflowConfirmationDepth(REACTIVE_MAINNET_CHAIN_ID),
         },
         {
           ...config.unichain,
           chain: UNICHAIN_MAINNET_CHAIN_ID,
           client: clients.unichainMainnet,
-          confirmations: 12n,
+          confirmations: workflowConfirmationDepth(UNICHAIN_MAINNET_CHAIN_ID),
         },
       ];
       if (config.base && clients.baseMainnet) {
@@ -106,19 +111,24 @@ export class WorkflowV2Indexer {
           ...config.base,
           chain: BASE_MAINNET_CHAIN_ID,
           client: clients.baseMainnet,
-          confirmations: 12n,
+          confirmations: workflowConfirmationDepth(BASE_MAINNET_CHAIN_ID),
         });
       }
       return;
     }
     this.deployment = workflowDeploymentKey(LASNA_CHAIN_ID, config.lasna.factory);
     this.sources = [
-      { ...config.lasna, chain: LASNA_CHAIN_ID, client: clients.lasna, confirmations: 20n },
+      {
+        ...config.lasna,
+        chain: LASNA_CHAIN_ID,
+        client: clients.lasna,
+        confirmations: workflowConfirmationDepth(LASNA_CHAIN_ID),
+      },
       {
         ...config.unichain,
         chain: UNICHAIN_SEPOLIA_CHAIN_ID,
         client: clients.unichain,
-        confirmations: 12n,
+        confirmations: workflowConfirmationDepth(UNICHAIN_SEPOLIA_CHAIN_ID),
       },
     ];
     if (config.base && clients.base) {
@@ -126,7 +136,7 @@ export class WorkflowV2Indexer {
         ...config.base,
         chain: BASE_SEPOLIA_CHAIN_ID,
         client: clients.base,
-        confirmations: 12n,
+        confirmations: workflowConfirmationDepth(BASE_SEPOLIA_CHAIN_ID),
       });
     }
   }
@@ -152,7 +162,97 @@ export class WorkflowV2Indexer {
   }
 
   async run() {
-    await Promise.all(this.sources.map((source) => this.runSource(source)));
+    await Promise.all([
+      ...this.sources.map((source) => this.runSource(source)),
+      ...this.sources
+        .filter((source) => !isAutomationChain(source.chain))
+        .map((source) => this.runInventorySource(source)),
+    ]);
+  }
+
+  // Replay independently so an inventory backfill never resets the activity or alert cursors.
+  private async runInventorySource(source: ChainSource) {
+    while (!this.stopped) {
+      try {
+        if (!(await this.pollInventory(source))) continue;
+      } catch (err) {
+        this.logger.error(
+          { err, chain: source.chain, deployment: this.deployment },
+          'Workflow inventory indexing failed',
+        );
+      }
+      await pause(IDLE_POLL_MS, undefined, { signal: this.abort.signal }).catch(() => undefined);
+    }
+  }
+
+  private async pollInventory(source: ChainSource) {
+    const { chain, client, startBlock, confirmations } = source;
+    const scope = { deployment: this.deployment, chain };
+    const [inventory, settlement] = await Promise.all([
+      this.db
+        .from('workflow_v2_inventory_cursors')
+        .select('block_number,block_hash')
+        .match(scope)
+        .maybeSingle(),
+      this.db.from('workflow_v2_cursors').select('block_number').match(scope).maybeSingle(),
+    ]);
+    if (inventory.error) throw inventory.error;
+    if (settlement.error) throw settlement.error;
+    if (!settlement.data) return true;
+
+    const floor = BigInt(startBlock) - 1n;
+    const cursor = inventory.data ? BigInt(inventory.data.block_number) : floor;
+    const expectedHash = inventory.data?.block_hash ?? null;
+    const batchScope = {
+      p_deployment: this.deployment,
+      p_chain: chain,
+      p_expected_block: inventory.data?.block_number ?? null,
+      p_expected_hash: expectedHash,
+    };
+    if (expectedHash) {
+      const { hash } = await client.getBlock({ blockNumber: cursor });
+      if (hash !== expectedHash) {
+        const candidate = cursor - confirmations * 2n;
+        const rewindTo = candidate > floor ? candidate : floor;
+        const { error } = await this.db.rpc('workflow_v2_apply_inventory_batch', {
+          ...batchScope,
+          p_block: Number(rewindTo),
+          p_hash: null,
+          p_events: null,
+        });
+        if (error) throw error;
+        return false;
+      }
+    }
+
+    // The settlement cursor advances only after it has discovered the Vaults in this range.
+    const head = BigInt(settlement.data.block_number);
+    if (cursor >= head) return true;
+    const end = cursor + defaultMaxRange(chain);
+    const toBlock = end < head ? end : head;
+    const { hash } = await client.getBlock({ blockNumber: toBlock });
+    if (!hash) throw new Error('Workflow inventory block is not available.');
+    const known = await this.knownAddresses(chain, []);
+    const logs = await this.fetchKnownLogs(source, known, INVENTORY_EVENTS, cursor + 1n, toBlock);
+    const [latest, previous] = await Promise.all([
+      client.getBlock({ blockNumber: toBlock }),
+      expectedHash ? client.getBlock({ blockNumber: cursor }) : null,
+    ]);
+    if (latest.hash !== hash || (previous && previous.hash !== expectedHash)) return false;
+    const { data, error } = await this.db.rpc('workflow_v2_apply_inventory_batch', {
+      ...batchScope,
+      p_block: Number(toBlock),
+      p_hash: hash,
+      p_events: logs.map((log) => ({
+        vault: log.address.toLowerCase(),
+        workflow_id: log.args.workflow.toLowerCase(),
+        epoch: log.args.epoch.toString(),
+        block_number: Number(log.blockNumber),
+        log_index: log.logIndex,
+      })),
+    });
+    if (error) throw error;
+    return data === true && toBlock === head;
   }
 
   private async runSource(source: ChainSource) {
@@ -487,10 +587,12 @@ export class WorkflowV2Indexer {
     }
   }
 
-  private async fetchKnownLogs(
+  private async fetchKnownLogs<
+    Events extends typeof AGENT_EVENTS | typeof VAULT_EVENTS | typeof INVENTORY_EVENTS,
+  >(
     source: ChainSource,
     known: readonly Address[],
-    events: typeof AGENT_EVENTS | typeof VAULT_EVENTS,
+    events: Events,
     fromBlock: bigint,
     toBlock: bigint,
   ) {

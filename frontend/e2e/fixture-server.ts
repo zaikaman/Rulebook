@@ -37,7 +37,11 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-import { createChainClients } from '../../backend/src/chain/clients.js';
+import {
+  clientFor,
+  createChainClients,
+  type ChainClients,
+} from '../../backend/src/chain/clients.js';
 import type { AppConfig } from '../../backend/src/config.js';
 import { buildServer } from '../../backend/src/server.js';
 import { registerWorkflowV2Routes } from '../../backend/src/workflows/routesV2.js';
@@ -71,12 +75,22 @@ interface FixtureDemoRecord {
   readonly health: Record<string, unknown>;
 }
 
-function fixtureWorkflowV2Database(demo?: FixtureDemoRecord) {
+function fixtureWorkflowV2Database(clients: ChainClients, demo: FixtureDemoRecord) {
+  const archives: Record<string, unknown>[] = [];
+  const factories = {
+    [UNICHAIN_SEPOLIA_CHAIN_ID]: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+    [BASE_SEPOLIA_CHAIN_ID]: WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
+  };
   const from = (table: string) => {
     const predicates: Array<(row: Record<string, unknown>) => boolean> = [];
     const evaluate = () => {
-      if (table !== 'workflow_v2_activity' || !demo) return [];
-      return [demo.activity].filter((row) => predicates.every((predicate) => predicate(row)));
+      const rows =
+        table === 'workflow_v2_activity'
+          ? [demo.activity]
+          : table === 'workflow_v2_archive_events'
+            ? archives
+            : [];
+      return rows.filter((row) => predicates.every((predicate) => predicate(row)));
     };
     const builder = {
       select: () => builder,
@@ -106,7 +120,87 @@ function fixtureWorkflowV2Database(demo?: FixtureDemoRecord) {
   };
   return {
     from,
-    rpc: async (fn: string, args?: { p_deployment?: string; p_owner?: string }) => {
+    rpc: async (
+      fn: string,
+      args: {
+        p_deployment: string;
+        p_owner: Address;
+        p_chains: (keyof typeof factories)[];
+        p_archived: boolean;
+        p_cursor_chain: number;
+        p_cursor_id: string | null;
+        p_before: boolean;
+        p_limit: number;
+        p_chain: number;
+        p_workflow: Hex;
+        p_revision: number;
+        p_epoch: string;
+      },
+    ) => {
+      if (fn === 'workflow_v2_inventory_page') {
+        const byChain = await Promise.all(
+          args.p_chains.map(async (chain) => {
+            const client = clientFor(clients, chain);
+            const vault = await client.readContract({
+              address: factories[chain],
+              abi: workflowVaultFactoryV2Abi,
+              functionName: 'vaultOf',
+              args: [args.p_owner],
+            });
+            if (vault === zeroAddress) return [];
+            const ids = await client.readContract({
+              address: vault,
+              abi: workflowVaultV2Abi,
+              functionName: 'workflowIds',
+            });
+            return ids
+              .filter((id) => {
+                const archive = archives.find(
+                  (row) =>
+                    row.deployment === args.p_deployment &&
+                    row.owner === args.p_owner &&
+                    row.chain === chain &&
+                    row.workflow_id === id,
+                );
+                return Boolean(archive?.archived) === args.p_archived;
+              })
+              .map((id) => ({ chain, id }));
+          }),
+        );
+        const sorted = byChain.flat().sort((a, b) => a.chain - b.chain || a.id.localeCompare(b.id));
+        const page = sorted.filter(({ chain, id }) => {
+          if (!args.p_cursor_id) return true;
+          const compared = chain - args.p_cursor_chain || id.localeCompare(args.p_cursor_id);
+          return args.p_before ? compared < 0 : compared > 0;
+        });
+        if (args.p_before) page.reverse();
+        return {
+          data: { items: page.slice(0, args.p_limit), total: sorted.length, syncing: false },
+          error: null,
+        };
+      }
+      if (fn === 'workflow_v2_write_archive') {
+        const key = {
+          deployment: args.p_deployment,
+          chain: args.p_chain,
+          owner: args.p_owner,
+          workflow_id: args.p_workflow,
+        };
+        const index = archives.findIndex((row) =>
+          Object.entries(key).every(([field, value]) => row[field] === value),
+        );
+        if ((archives[index]?.revision ?? 0) !== args.p_revision)
+          return { data: false, error: null };
+        const updated = {
+          ...key,
+          archived: args.p_archived,
+          revision: args.p_revision + 1,
+          epoch: args.p_epoch,
+        };
+        if (index === -1) archives.push(updated);
+        else archives[index] = updated;
+        return { data: true, error: null };
+      }
       if (
         fn === 'workflow_v2_health' &&
         demo &&
@@ -713,7 +807,7 @@ async function main(): Promise<void> {
       corsOrigins: [FIXTURE_FRONTEND_URL],
     };
 
-    createChainClients(config);
+    const clients = createChainClients(config);
     const built = buildServer(
       {
         config,
@@ -726,13 +820,21 @@ async function main(): Promise<void> {
       },
       { logger: false },
     );
-    const workflowDatabase = fixtureWorkflowV2Database(demoRecord);
+    const workflowDatabase = fixtureWorkflowV2Database(clients, demoRecord);
     registerWorkflowV2Routes(
       built.app,
       workflowDatabase,
       WORKFLOW_V2_AGENT_FACTORY_ADDRESS,
       undefined,
       { owner: DEMO_ADDRESS },
+      {
+        clients,
+        corsOrigins: config.corsOrigins,
+        vaultFactories: {
+          [UNICHAIN_SEPOLIA_CHAIN_ID]: WORKFLOW_V2_VAULT_FACTORY_ADDRESS,
+          [BASE_SEPOLIA_CHAIN_ID]: WORKFLOW_V2_BASE_VAULT_FACTORY_ADDRESS,
+        },
+      },
     );
     serverRef.current = built.app;
     await built.app.listen({ port: FIXTURE_API_PORT, host: '127.0.0.1' });

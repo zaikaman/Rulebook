@@ -64,14 +64,24 @@ import {
   type FormEvent,
   type ReactNode,
 } from 'react';
-import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { bytesToHex, formatUnits, parseUnits, zeroAddress, type Hex } from 'viem';
 import { useAccount } from 'wagmi';
 import { z } from 'zod';
 
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { MainnetUnavailableCallout } from '@/components/MainnetUnavailableCallout';
-import { Button, Callout, Field, Select } from '@/ui';
+import {
+  Button,
+  Callout,
+  Dialog,
+  Field,
+  PanelBody,
+  PanelCopy,
+  PanelTitle,
+  Select,
+  Toolbar,
+} from '@/ui';
 import { formatContractError } from '@/lib/errors';
 import { WalletControl } from '@/components/chrome/WalletControl';
 import { LoadingRegion, Skeleton } from '@/components/chrome/Skeleton';
@@ -91,6 +101,7 @@ import {
 import { diagramV2, replacePath } from './diagramV2';
 import { ListingStatusV2 } from './ListingStatusV2';
 import { v2ListingId, v2ListingQuery } from './listingV2';
+import { archiveStateQueryKey, readArchiveState } from './lifecycle';
 import { branchPathKey, type LibraryTarget } from './nodeLibraryModel';
 import {
   configuredFundsChains,
@@ -850,6 +861,11 @@ export function WorkflowBuilderV2() {
     enabled: Boolean(id.success && address && isDeploymentConfigured && query.data),
     queryFn: () => readWorkflowWeeklyBudget(query.data!.chain, query.data!.vault, id.data!),
   });
+  const archiveQuery = useQuery({
+    queryKey: archiveStateQueryKey(address, mode, id.data, query.data?.chain),
+    enabled: Boolean(id.success && address && query.data),
+    queryFn: ({ signal }) => readArchiveState(address!, mode, id.data!, query.data!.chain, signal),
+  });
   if (raw && !id.success) return <p role="alert">This workflow link is invalid.</p>;
   if (raw && !isDeploymentConfigured) {
     return (
@@ -888,7 +904,22 @@ export function WorkflowBuilderV2() {
       </section>
     );
   if (query.error) return <p role="alert">{query.error.message}</p>;
-  if (raw && budgetQuery.isPending)
+  const onChain = query.data;
+  if (
+    onChain &&
+    archiveQuery.data?.archived &&
+    archiveQuery.data.epoch === onChain.auth[1].toString() &&
+    !onChain.auth[3] &&
+    onChain.entry[4] === 0
+  ) {
+    return (
+      <Navigate
+        replace
+        to={withNetworkQuery(`/workflows/${onChain.id}?chain=${onChain.chain}`, mode)}
+      />
+    );
+  }
+  if (raw && (budgetQuery.isPending || archiveQuery.isPending))
     return (
       <section className="app-page">
         <PageHeading title="Edit workflow" description="Reading the weekly spending budget." />
@@ -903,6 +934,16 @@ export function WorkflowBuilderV2() {
         The weekly budget could not be read. Reopen this workflow before editing it.
       </p>
     );
+  if (raw && archiveQuery.error) {
+    return (
+      <Callout
+        title="Archive status unavailable"
+        action={<Button onClick={() => void archiveQuery.refetch()}>Try again</Button>}
+      >
+        Checking the archive status is required before editing this workflow.
+      </Callout>
+    );
+  }
   if (copy && !copyId.success) return <p role="alert">This listing link is invalid.</p>;
   const recipe = workflowV2Recipes.find((item) => item.id === params.get('recipe'))?.id;
   if (!raw && copyId.success)
@@ -1066,6 +1107,8 @@ function Editor({
   );
   const [recipes, setRecipes] = useState(!original && !saved && !startBlank);
   const [rulewrightOpen, setRulewrightOpen] = useState(false);
+  const [confirmDeleteDraft, setConfirmDeleteDraft] = useState(false);
+  const [draftDeleteError, setDraftDeleteError] = useState(false);
   const rulewrightSession = useRef<RulewrightSession>(undefined);
   const [selected, pick] = useState<NodeTool>();
   const [status, setStatus] = useState<string>();
@@ -1137,6 +1180,16 @@ function Editor({
       /* The current draft remains available in this tab. */
     }
   }, [storageKey, workflowId, draft, positions, recipes]);
+
+  function deleteDraft() {
+    try {
+      localStorage.removeItem(storageKey);
+    } catch {
+      setDraftDeleteError(true);
+      return;
+    }
+    navigate(withNetworkQuery('/workflows', mode), { replace: true });
+  }
   function update(fields: Partial<V2Draft>) {
     revision.current += 1;
     setDraft((current) => {
@@ -1367,6 +1420,11 @@ function Editor({
       <button type="button" className="app-button" onClick={() => review(undefined)}>
         Back to editing
       </button>
+      {!id && (
+        <Button disabled={wallet.busy} onClick={() => setConfirmDeleteDraft(true)}>
+          Delete draft
+        </Button>
+      )}
     </div>
   ) : (
     <div className="rb-action-row">
@@ -1374,6 +1432,11 @@ function Editor({
         <button type="button" className="app-button" onClick={() => setRecipes(true)}>
           Browse recipes
         </button>
+      )}
+      {!id && (
+        <Button disabled={validating} onClick={() => setConfirmDeleteDraft(true)}>
+          Delete draft
+        </Button>
       )}
       {id && (
         <Link
@@ -2199,6 +2262,29 @@ function Editor({
         }
         aside={headingAside}
       />
+      {confirmDeleteDraft && (
+        <Dialog
+          labelledBy="delete-workflow-draft"
+          describedBy="delete-workflow-draft-description"
+          onCancel={() => setConfirmDeleteDraft(false)}
+        >
+          <PanelBody className="grid gap-4">
+            <PanelTitle id="delete-workflow-draft">Delete this draft?</PanelTitle>
+            <PanelCopy id="delete-workflow-draft-description">
+              This permanently removes the draft saved in this browser.
+            </PanelCopy>
+            {draftDeleteError && (
+              <p role="alert">The browser could not delete the saved draft. Try again.</p>
+            )}
+            <Toolbar>
+              <Button onClick={() => setConfirmDeleteDraft(false)}>Cancel</Button>
+              <Button variant="danger-solid" onClick={deleteDraft}>
+                Delete draft
+              </Button>
+            </Toolbar>
+          </PanelBody>
+        </Dialog>
+      )}
       {isMainnet && !isDeploymentConfigured && (
         <MainnetUnavailableCallout context="Workflow creation" />
       )}

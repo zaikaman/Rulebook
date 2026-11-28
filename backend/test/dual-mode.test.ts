@@ -166,7 +166,11 @@ describe('dual mode & mainnet backend support', () => {
       url: `/v3/activity?owner=${owner}&network=mainnet`,
     });
     expect(unconfiguredActivity.statusCode).toBe(200);
-    expect(unconfiguredActivity.json()).toEqual({ runs: [], nextCursor: null });
+    expect(unconfiguredActivity.json()).toEqual({
+      runs: [],
+      nextCursor: null,
+      previousCursor: null,
+    });
     expect(seenUrls).toHaveLength(0);
 
     const unconfiguredMarketplace = await app.inject({
