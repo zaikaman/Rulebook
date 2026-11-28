@@ -1272,6 +1272,10 @@
   opacity: 0.68;
 }
 
+.rb-card-grid[data-layout='compact'] {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17rem), 1fr));
+}
+
 .rb-card {
   display: flex;
   block-size: 100%;

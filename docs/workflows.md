@@ -35,6 +35,12 @@ Each workflow card and its detail page show one health status: **Watching for th
 
 The Marketplace publishes the exact enabled program version. Copying creates an editable draft that keeps the trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the payout recipients so the copier chooses their own. Each wallet provides its own Vault funds and signs its own authorization.
 
+### Seed the testnet Marketplace
+
+The [Marketplace launch catalog](../scripts/seed-workflow-marketplace.mjs) covers payments, alerts, and trading on the active Lasna deployment. Run `npm run build -w packages/shared` and then `node scripts/seed-workflow-marketplace.mjs` to validate the ten programs and estimate registration gas. The script reads `DEPLOYER_PRIVATE_KEY` and the RPC overrides from `contracts/.env` or the process environment. The publishing wallet needs lREACT for gas and an Agent with linked vaults on Unichain Sepolia and Base Sepolia.
+
+Run the same command with `--publish` to register each program, disable its subscription, and publish the copyable version. The seed assigns no vault authorizations and leaves any manually unpublished listing private. Check the printed listing IDs against the Marketplace after the indexer catches up.
+
 ## Run your first income sweep
 
 1. Open **Account & Vault** in Testnet mode. On Unichain Sepolia, create and link your Vault to your Lasna Agent. Fund watching credit with testnet lREACT and execution credit with Unichain Sepolia ETH. Check **Workflow costs** for the current suggested reserves. Keep testnet gas in both signing wallets for transactions you send directly.

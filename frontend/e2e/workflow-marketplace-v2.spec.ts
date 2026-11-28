@@ -325,9 +325,11 @@ test('searches description, filters by network, cross-chain, and trigger chips, 
   await expect(page.getByText('14 verified runs')).toBeVisible();
   await expect(page.getByText('3 verified runs')).toBeVisible();
   await expect(page.getByText('0 verified runs')).toBeVisible();
-  await expect(
-    page.getByRole('link', { name: /Dip accumulator/ }).getByText('Cross-chain', { exact: true }),
-  ).toBeVisible();
+  const crossChainCard = page.getByRole('link', { name: /Dip accumulator/ });
+  await expect(crossChainCard.getByText('Cross-chain', { exact: true })).toBeVisible();
+  await expect(crossChainCard.getByText('Unichain Sepolia', { exact: true })).toBeVisible();
+  await expect(crossChainCard.getByText('Base Sepolia', { exact: true })).toBeVisible();
+  await expect(crossChainCard.getByText('Preview', { exact: true })).toBeVisible();
 
   await page.screenshot({
     path: testInfo.outputPath('marketplace-desktop.png'),

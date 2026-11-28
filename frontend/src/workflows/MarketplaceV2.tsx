@@ -31,10 +31,12 @@ import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import {
   Badge,
   Button,
+  CardGrid,
   ErrorState,
   FactList,
   FilterBar,
   FilterGroup,
+  LinkCard,
   Panel,
   PanelBody,
   PanelCopy,
@@ -205,18 +207,19 @@ export function WorkflowMarketplaceV2() {
   return (
     <section className="app-page">
       <PageHeading
-        eyebrow="Discover"
         title="Marketplace"
         description={
           isMainnet
-            ? 'Browse mainnet workflows published by other wallets and copy one as your own draft.'
-            : 'Browse testnet workflows published by other wallets and copy one as your own draft.'
+            ? 'Find a mainnet automation for your wallet. Preview its logic and copy it as a private draft.'
+            : 'Explore testnet workflows for payments, wallet alerts, and trading. Preview the logic and copy a workflow as a private draft.'
         }
         aside={
-          <Badge plain>
-            {items.length}
-            {query.hasNextPage ? '+' : ''} listed
-          </Badge>
+          query.isSuccess && (
+            <Badge plain aria-live="polite">
+              {items.length}
+              {query.hasNextPage ? '+' : ''} listed
+            </Badge>
+          )
         }
       />
 
@@ -315,7 +318,7 @@ export function WorkflowMarketplaceV2() {
       )}
 
       {!query.error && !!items.length && (
-        <ul className="rb-card-grid" aria-busy={query.isFetching && !query.isPending}>
+        <CardGrid compact aria-busy={query.isFetching && !query.isPending}>
           {items.map((item) => {
             const meta = readListingMeta(item);
             const crossChain = meta.originChain !== item.chain;
@@ -323,54 +326,39 @@ export function WorkflowMarketplaceV2() {
             const icon = meta.trigger ? triggerIcons[meta.trigger] : Store01Icon;
             return (
               <li key={item.id}>
-                <Link to={withNetworkQuery(`/marketplace/${item.id}`, mode)} className="rb-card">
-                  <div className="rb-card-body">
-                    <div className="rb-card-head">
-                      <span className="rb-card-icon" data-role="automation" aria-hidden="true">
-                        <HugeiconsIcon icon={icon} size={18} strokeWidth={1.7} />
-                      </span>
-                      <div className="rb-card-heading">
-                        <h2 className="rb-card-title">{item.title}</h2>
-                        <p className="rb-card-meta">
-                          <span className="font-mono">{shortAddress(item.owner)}</span>
-                          {triggerLabel ? (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span>{triggerLabel}</span>
-                            </>
-                          ) : null}
-                        </p>
-                      </div>
+                <LinkCard
+                  to={withNetworkQuery(`/marketplace/${item.id}`, mode)}
+                  title={item.title}
+                  icon={<HugeiconsIcon icon={icon} size={18} strokeWidth={1.7} />}
+                  iconTone={meta.trigger === T.payment ? 'funds' : 'automation'}
+                  meta={triggerLabel}
+                  description={item.description}
+                  footer={
+                    <div className="flex min-w-0 flex-wrap items-center gap-1">
+                      {crossChain && (
+                        <>
+                          <span className="sr-only">Watches</span>
+                          <NetworkBadge chainId={meta.originChain} />
+                          <HugeiconsIcon icon={ArrowRight01Icon} size={12} aria-hidden="true" />
+                          <span className="sr-only">Settles on</span>
+                        </>
+                      )}
+                      <NetworkBadge chainId={item.chain} />
                     </div>
-                    <p className="rb-card-copy">{item.description}</p>
-                    <div className="rb-inline">
-                      <VerifiedRunsBadge count={item.verified_runs} />
-                      {crossChain ? (
-                        <Badge
-                          tone="info"
-                          plain
-                          title={`Watches ${getChain(meta.originChain).name}, settles on ${getChain(item.chain).name}`}
-                        >
-                          <span>Cross-chain</span>
-                          <span className="sr-only">
-                            {` (watches ${getChain(meta.originChain).name}, settles on ${getChain(item.chain).name})`}
-                          </span>
-                        </Badge>
-                      ) : null}
-                    </div>
-                  </div>
-                  <div className="rb-card-foot">
-                    <NetworkBadge chainId={item.chain} />
-                    <span className="rb-card-cue">
-                      Open
-                      <HugeiconsIcon icon={ArrowRight01Icon} size={13} aria-hidden="true" />
-                    </span>
-                  </div>
-                </Link>
+                  }
+                  cue="Preview"
+                >
+                  <VerifiedRunsBadge count={item.verified_runs} />
+                  {crossChain && (
+                    <Badge tone="info" plain>
+                      Cross-chain
+                    </Badge>
+                  )}
+                </LinkCard>
               </li>
             );
           })}
-        </ul>
+        </CardGrid>
       )}
 
       {!query.error && query.hasNextPage && (

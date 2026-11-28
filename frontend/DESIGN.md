@@ -218,6 +218,11 @@ Don't:
 - Keep transaction identifiers readable at narrow widths.
   Map: src/ui
   Map: src/ui/FilterGroup.tsx
+  Map: src/ui/LinkCard.tsx
   Map: src/styles/tokens.css
   Map: src/styles/assistant.css
   Full: .impeccable/design-full.md (read a section when you need its detail)
+
+## Browse cards
+
+Use `CardGrid` with `LinkCard` for items that open a detail page. Use the compact grid for short descriptions and let network badges wrap inside the footer at narrow widths. Keep the card cue short and name the item in the card title.
