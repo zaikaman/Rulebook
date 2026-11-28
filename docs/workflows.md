@@ -48,4 +48,4 @@ Apply migrations through `0029_reliability_and_security_hardening.sql` with `npm
 
 Run `npm run verify`; it includes the Playwright browser suite. Test the branching income sweep on the live testnets with 1.20, 0.60, and 0.10 USDC deposits. Record the origin, Lasna decision, and destination transactions, and check the selected path and balances for each. Verify scheduled and price-triggered runs before presenting them as live-tested recipes.
 
-[Testnet factory receipts](../deployments/workflows-v2.json) · [Live income sweep receipts](../deployments/workflows-v2-smoke.json)
+[Active testnet factory record](../deployments/workflows-v2.json) · [Historical income sweep receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json) · [Staged smoke evidence](submission-evidence.md#staged-erc-1967-smoke-verification)

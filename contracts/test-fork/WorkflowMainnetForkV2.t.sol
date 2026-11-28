@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ChainConfig} from "../src/chain/ChainConfig.sol";
 import {PriceMath} from "../src/libraries/PriceMath.sol";
+import {CallbackConfiguration} from "../src/shared/ReactiveTypes.sol";
 import {IUniswapV2Pair} from "../src/shared/UniswapV2.sol";
 import {IUniswapV3Pool} from "../src/shared/UniswapV3.sol";
 import {WorkflowProgramV2 as P} from "../src/workflow/v2/WorkflowProgramV2.sol";
@@ -177,6 +178,77 @@ contract WorkflowMainnetForkV2Test is Test {
         assertEq(IERC20(cfg.usdc).balanceOf(RECIPIENT_A), 1e6);
         assertEq(IERC20(cfg.usdc).balanceOf(RECIPIENT_B), 1e6);
         assertLt(used, CALLBACK_GAS);
+    }
+
+    function testUnichainSepoliaActivityCancelsArmedPayoutThroughReactiveProxy() public {
+        vm.createSelectFork("https://sepolia.unichain.org");
+        ChainConfig.Config memory cfg = ChainConfig.unichainSepolia();
+        WorkflowProgramValidatorV2 validator = new WorkflowProgramValidatorV2();
+        WorkflowVaultV2 impl = new WorkflowVaultV2(
+            cfg.callbackProxy, address(0), address(0), uint32(cfg.chainId), _market(cfg), validator
+        );
+        WorkflowVaultFactoryV2 factory = new WorkflowVaultFactoryV2(validator, address(impl));
+        vm.prank(OWNER);
+        WorkflowVaultV2 vault = WorkflowVaultV2(payable(factory.create(AGENT)));
+        vm.deal(address(vault), 0.1 ether);
+
+        P.Node[] memory nodes = new P.Node[](3);
+        nodes[0] = P.Node(P.INACTIVITY, 1, 2, 1 days, 0, new P.Action[](0));
+        nodes[1].actions = new P.Action[](1);
+        nodes[1].actions[0] = P.Action(P.INACTIVITY_PAYOUT, P.FIXED, 1e6, RECIPIENT_A);
+        P.Program memory program;
+        program.version = 2;
+        program.chain = uint32(cfg.chainId);
+        program.originChain = program.chain;
+        program.trigger = P.SCHEDULE;
+        program.interval = 2 minutes;
+        program.usdcCap = 1e6;
+        program.once = true;
+        program.nodes = nodes;
+        bytes memory encoded = abi.encode(program);
+        bytes32 workflow = keccak256("fork inactivity cancellation");
+        vm.prank(OWNER);
+        vault.authorize(workflow, 1, encoded, "Inactivity cancellation");
+
+        P.Run memory run;
+        run.epoch = 1;
+        run.programHash = keccak256(encoded);
+        run.originChain = P.LASNA;
+        run.originTransaction = bytes32(uint256(1));
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        run.expiresAt = uint64(vm.getBlockTimestamp() + 10 minutes);
+        vm.prank(cfg.callbackProxy);
+        vault.execute(AGENT, workflow, run);
+
+        vm.warp(vm.getBlockTimestamp() + vault.PAYOUT_GRACE());
+        run.originTransaction = bytes32(uint256(2));
+        run.expiresAt = uint64(vm.getBlockTimestamp() + 10 minutes);
+        vm.prank(cfg.callbackProxy);
+        vault.execute(AGENT, workflow, run);
+        assertGt(vault.payoutReadyAt(workflow), vm.getBlockTimestamp());
+
+        vm.warp(vm.getBlockTimestamp() + 1 minutes);
+        uint64 activityTime = uint64(vm.getBlockTimestamp());
+        uint64 activityGas = 250_000;
+        CallbackConfiguration memory callback = CallbackConfiguration({
+            chainId: cfg.chainId,
+            recipient: address(vault),
+            gasLimit: activityGas,
+            payload: abi.encodeCall(WorkflowVaultV2.recordActivity, (AGENT, workflow, 1, activityTime))
+        });
+        vm.txGasPrice(1 gwei);
+        uint256 balanceBefore = address(vault).balance;
+        // This relayer delivered the recorded Unichain Sepolia schedule smoke callback.
+        vm.prank(0xF9F61C1D3325e2d4aBb55dd9e0Db84F7A0D914B0);
+        (bool delivered, bytes memory result) = cfg.callbackProxy.call{gas: activityGas}(
+            abi.encodeWithSignature("deliverCallback(uint8,bytes)", 0, abi.encode(callback))
+        );
+        assertTrue(delivered, vm.toString(result));
+        assertLt(address(vault).balance, balanceBefore);
+        (,,, uint64 recordedActivity, uint64 eligibleAt,,,) = vault.workflowMemory(workflow);
+        assertEq(recordedActivity, activityTime);
+        assertEq(eligibleAt, 0);
+        assertEq(vault.payoutReadyAt(workflow), 0);
     }
 
     function _market(ChainConfig.Config memory cfg)

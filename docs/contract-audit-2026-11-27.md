@@ -1,5 +1,7 @@
 # Contract Audit & Upgradeability Conversation (2026-11-27)
 
+This conversation records the contract review from November 27, 2026. The current staged deployment and its verification receipts are documented separately. [Staged smoke evidence](submission-evidence.md#staged-erc-1967-smoke-verification)
+
 ## User
 
 > audit the contracts, i want to make sure i dont have to keep redeploying because of making changes to the contracts constantly, and report back all the issues you find if there are any

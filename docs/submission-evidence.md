@@ -1,6 +1,17 @@
 # Submission evidence
 
-## Workflow V2 cross-chain testnet verification · 24 November 2026
+## Staged ERC-1967 smoke verification
+
+On November 28, 2026, Vaults created by the staged factories settled the large and small income sweeps and the scheduled buy on both funds chains. A 1.20 USDC payment sent 0.20 USDC, a 0.60 USDC payment sent 0.05 USDC, and each scheduled buy spent 0.20 USDC. All four workflows were revoked on their Vaults and disabled on their Agent after the tests. [Lasna factory receipt](https://lasna.reactscan.net/tx/0x0fd13fd16bb54f2b1396f4f269cf7315180146c47acce4905b1bfd539d439c22) · [Unichain Sepolia factory receipt](https://sepolia.uniscan.xyz/tx/0x66fad58a7add12ed3f20e5c04798df752da0e6453177ea24e9ac2df0071926e8) · [Base Sepolia factory receipt](https://sepolia.basescan.org/tx/0x319f930faf3d392a500934dc82beaf1978ec66e9bdc0adfabfc7f49cfc88a4f2)
+
+| Settlement chain | 1.20 USDC payment                                                                                                | 0.60 USDC payment                                                                                                | Scheduled buy                                                                                                    |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Unichain Sepolia | [Settlement](https://sepolia.uniscan.xyz/tx/0xa149f9cffbff4b1ed121e6d581b95c92dc7506b1d65403fa7d3e2d68bd64bf1a)  | [Settlement](https://sepolia.uniscan.xyz/tx/0xf521d0901b6c18bcc9f052f5d0f1e5dc7007b59b92bc68b19a9075d50dfdaab6)  | [Settlement](https://sepolia.uniscan.xyz/tx/0x5daade087d192861151065e47de8949cfdf8c7caa2e113c0b209737aa501dd61)  |
+| Base Sepolia     | [Settlement](https://sepolia.basescan.org/tx/0x28de738bf14c5a7b7b75787eb7dda7b445c94231379567d6cde3b4339577019e) | [Settlement](https://sepolia.basescan.org/tx/0xe01a2cd900297c089b7ceece86c117a98de01083b5a1b3d40b022083a9485dad) | [Settlement](https://sepolia.basescan.org/tx/0xdbd106931705b3bd602af3f450c48f8cc4d878f0c980a1358d373d9c0390119e) |
+
+The runner needed a Lasna gas top-up during the final cleanup. The staged evidence was reconciled from successful on-chain settlement and cleanup receipts. The release gate verifies the clean source commit and deployed bytecode before publication. [Cutover runbook](../deployments/README.md#cutover-to-erc-1967-proxies)
+
+## Historical Workflow V2 testnet verification · 24 November 2026
 
 Workflow V2 operates across Reactive Lasna (automation and monitoring) and Unichain Sepolia (vault custody and settlement). The live loops below demonstrate multi-path branch evaluation, scheduled execution, and destination callback settlement.
 
@@ -26,17 +37,17 @@ On the same Agent `0x6bF114548E7A748c7E8ED736b0E80c07B01291F8` and Vault `0x9585
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Scheduled buy | [Lasna Cron100, 06:30:33 UTC](https://lasna.reactscan.net/tx/0xa0dbed575f09181e3c3c62b83fc3a3cbdd6b76e68ff2aa330a39ccc61cfa10df) | [Next block, 06:30:34 UTC](https://lasna.reactscan.net/tx/0xc66cac219fbffefcac68212e1a984edc775d8e7c7936c497bd001900149d549c) | [Unichain swap, 06:30:36 UTC](https://sepolia.uniscan.xyz/tx/0xd377b1311e7aa8871e1c25bd3e46480e0da35944f25164d53d5674dd06a7005d) |
 
-See [Workflow V2 smoke records](../deployments/workflows-v2-smoke.json).
+The archived smoke file contains these November 24 receipts. [Historical smoke receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json)
 
 ---
 
 ## Verified automated evidence
 
-- **Contracts** — 161 Foundry tests pass with zero skips. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
-- **Shared** — 36 Vitest tests cover program encoding, validation, recipe generation, health derivation, and chain configuration.
-- **Backend** — 141 Vitest tests cover workflow indexing, activity, proof reads, health, marketplace, Rulewright, Bookkeeper assistant, Telegram linking, and release deployment validation.
-- **Frontend** — 110 Vitest tests and 68 Playwright tests cover account onboarding, multichain setup, the builder, execution activity, proof, marketplace, Telegram notifications, Bookkeeper assistant, and offline recovery.
-- **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses, start blocks, commit `3b0e31b5482cc7b9b7623d4bf13c1ff6c34a5351`, and bytecode hashes for Reactive Lasna, Unichain Sepolia, and Base Sepolia.
+- **Contracts** — The staged source passed 195 Foundry tests with zero skips and three separate fork tests. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
+- **Shared** — Vitest tests cover program encoding, validation, recipe generation, health derivation, and chain configuration.
+- **Backend** — Vitest tests cover workflow indexing, activity, proof reads, health, marketplace, Rulewright, Bookkeeper assistant, Telegram linking, and release deployment validation.
+- **Frontend** — Vitest tests and 73 Playwright tests cover account onboarding, multichain setup, the builder, execution activity, proof, marketplace, Telegram notifications, Bookkeeper assistant, and offline recovery.
+- **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses, start blocks, source commits, and bytecode hashes for Reactive Lasna, Unichain Sepolia, and Base Sepolia.
 
 ### Submission checklist
 

@@ -18,6 +18,8 @@ interface IWorkflowSettlementV2 {
 /// @notice Delegatecall module executing `react` and `resumeWatching` for `WorkflowAgentV2`.
 contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
     address private immutable __self = address(this);
+    // Covers the callback proxy accounting and payment reserves plus the Vault update.
+    uint64 private constant ACTIVITY_CALLBACK_GAS = 250_000;
     address public immutable feedbackModule;
 
     modifier onlyDelegateCall() {
@@ -161,7 +163,7 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
                 CallbackConfiguration({
                     chainId: entry.chain,
                     recipient: vaults[entry.chain],
-                    gasLimit: 100_000,
+                    gasLimit: ACTIVITY_CALLBACK_GAS,
                     payload: abi.encodeCall(
                         IWorkflowSettlementV2.recordActivity,
                         (address(0), workflow, entry.epoch, lastActivity)

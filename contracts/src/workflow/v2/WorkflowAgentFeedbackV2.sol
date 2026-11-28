@@ -48,7 +48,8 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
             peakBlock = high.blockNumber;
             peakObservedAt = high.observedAt;
         }
-        (uint128 previousLow, uint128 previousHigh) = _crossingRange(workflow, entry, info, state);
+        (uint128 previousLow, uint128 previousHigh) =
+            _crossingRange(workflow, entry, info, state, run);
         bool cooling = block.timestamp < info.cooldownUntil;
         bool hasCrossing = (info.flags & P.FLAG_CROSSING) != 0;
         if (cooling && !hasCrossing) return run;
@@ -89,7 +90,8 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
                     ))
         ) return run;
         run.observed = state.price;
-        run.previous = state.previousPrice;
+        // Keep the legacy fallback empty when there is no eligible crossing range.
+        if (previousLow == 0 || previousHigh == 0) run.previous = 0;
         run.high = peakValue;
         run.highBlock = peakBlock;
         run.observationTime = state.time;
@@ -102,12 +104,14 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
         bytes32 workflow,
         Entry storage entry,
         WorkflowMeta storage info,
-        PriceState storage state
+        PriceState storage state,
+        P.Run memory run
     ) private returns (uint128 low, uint128 high) {
-        bool freshPrev = state.previousPrice != 0 && state.previousTime >= entry.nextDue
+        bool freshPrev = state.previousTime >= entry.nextDue
             && (entry.originChain != entry.chain || state.previousBlockNumber > entry.originAfter);
         low = freshPrev ? state.previousPrice : 0;
         high = low;
+        run.previous = low;
         if ((info.flags & P.FLAG_CROSSING) == 0) return (low, high);
         bytes32[] storage inFlight = crossingInFlight[workflow];
         uint256 index;

@@ -1603,6 +1603,40 @@ contract WorkflowV2SettlementTest is Test {
         assertGt(checkInAt, start + 1 days);
     }
 
+    function testPriceAlertDispatchWithoutEligiblePreviousObservation() public {
+        P.Program memory program =
+            _program(P.PRICE, _branch(P.PRICE_AT_LEAST, 2e18, _action(P.ALERT, 0, address(0))));
+        bytes memory encoded = abi.encode(program);
+        bytes32 prior = keccak256("previous price observer");
+        vm.startPrank(OWNER);
+        vault.authorize(prior, 1, encoded, "Prior observer");
+        agent.enable(prior, 1, encoded, "Prior observer", uint64(block.number));
+        vm.stopPrank();
+        _sync(101, 1_900_000);
+        vm.prank(OWNER);
+        agent.disable(prior, 1);
+
+        vm.warp(vm.getBlockTimestamp() + 1 minutes);
+        _enable(program);
+        _price(2_100_000);
+        _sync(102, 2_100_000);
+        assertEq(system.requestCount(), 1);
+
+        P.Run memory expected = _run(102, P.PRICE, 2.1e18);
+        expected.originBlock = 102;
+        assertEq(
+            system.requestAt(0).payload,
+            abi.encodeCall(WorkflowVaultV2.execute, (address(0), WORKFLOW, expected))
+        );
+        _deliverRequest(0);
+        bytes32 runId = keccak256(
+            abi.encode(
+                address(agent), WORKFLOW, P.UNICHAIN_SEPOLIA, bytes32(uint256(102)), uint64(0)
+            )
+        );
+        assertEq(vault.outcomes(runId), vault.CONFIRMED());
+    }
+
     function testOutOfOrderCrossingCallbacksDoNotTriggerStaleObservation() public {
         P.Program memory fallProg = _program(
             P.PRICE, _branch(P.PRICE_FALLS_THROUGH, 2e18, _action(P.SEND, 1e6, RECIPIENT))
@@ -1802,6 +1836,7 @@ contract WorkflowV2SettlementTest is Test {
         vm.prank(address(system));
         agent.react(transfer);
         assertEq(system.requestCount(), 3, "wallet activity gets a separate cancellation callback");
+        assertEq(system.requestAt(2).gasLimit, 250_000);
         _deliverRequest(2);
         assertEq(vault.payoutReadyAt(WORKFLOW), 0);
         vm.warp(readyAt);

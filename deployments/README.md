@@ -25,11 +25,15 @@ file through their deployment settings, so the repository only needs the active 
 [weekly budget rollout](../docs/runbooks/weekly-budgets.md).
 
 - [Workflow V2 factories](./workflows-v2.json)
-- [Workflow V2 smoke receipts](./workflows-v2-smoke.json)
+- [Published smoke receipts](./workflows-v2-smoke.json)
+- [Legacy factory records](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2.json)
+- [Historical November 24 smoke receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json)
+
+The staged candidate uses the local `workflows-v2.pending.json` and `workflows-v2-smoke.pending.json` files. The November 28 receipts cover both settlement chains. Promotion requires the exact deployed source in a clean commit and a passing strict deployment check. [Staged smoke evidence](../docs/submission-evidence.md#staged-erc-1967-smoke-verification)
 
 ## Cutover to ERC-1967 proxies
 
-The recorded Lasna Agent factory creates immutable clones. The recorded Unichain and Base
+The legacy Lasna Agent factory creates immutable clones. The legacy Unichain and Base
 Sepolia factories create Vaults directly. Owners need a new Agent and new Vaults to adopt the
 upgradeable release. The legacy addresses remain accessible on-chain.
 
