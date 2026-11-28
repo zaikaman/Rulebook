@@ -4,6 +4,7 @@ import { useLocation } from 'react-router';
 import { Link } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
+import { useDemoMode } from '@/lib/demoMode';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
 import { Badge, Button } from '@/ui';
@@ -30,6 +31,7 @@ function pageLabel(pathname: string): string {
 export function AppTopbar() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
+  const { isDemoMode } = useDemoMode();
   const { mode, automationName, isDeploymentConfigured } = useNetworkMode();
 
   return (
@@ -58,7 +60,7 @@ export function AppTopbar() {
           {isDeploymentConfigured && <span className="app-live-dot" aria-hidden="true" />}
           {automationName}
         </Badge>
-        <WalletControl />
+        {!isDemoMode && <WalletControl />}
       </div>
     </header>
   );

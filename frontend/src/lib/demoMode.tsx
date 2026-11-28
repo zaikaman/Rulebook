@@ -1,4 +1,4 @@
-import { type Address, type DemoFeaturedRun } from '@rulebook/shared';
+import { addressSchema, type Address, type DemoFeaturedRun } from '@rulebook/shared';
 import { useQuery } from '@tanstack/react-query';
 import {
   createContext,
@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useSearchParams } from 'react-router';
+import { zeroAddress } from 'viem';
 import { useAccount } from 'wagmi';
 
 import { api } from './api.js';
@@ -17,6 +18,13 @@ import { resolveWorkflowV2Deployment } from './contracts.js';
 import { useNetworkMode } from './networkMode.js';
 
 export const DEMO_MODE_STORAGE_KEY = 'rulebook.demoMode';
+
+function configuredDemoOwner(): Address | undefined {
+  const configured = addressSchema.safeParse(import.meta.env.VITE_DEMO_ACCOUNT_ADDRESS?.trim());
+  return configured.success && configured.data.toLowerCase() !== zeroAddress
+    ? (configured.data.toLowerCase() as Address)
+    : undefined;
+}
 
 function getInitialDemoRequested(): boolean {
   if (typeof window === 'undefined') return false;
@@ -82,7 +90,11 @@ export function DemoModeProvider({ children }: { readonly children: ReactNode })
     retry: false,
   });
 
-  const demoOwner = demoQuery.data?.available ? (demoQuery.data.owner ?? undefined) : undefined;
+  const demoOwner = demoQuery.data?.available
+    ? (demoQuery.data.owner ?? undefined)
+    : demoQuery.isError
+      ? configuredDemoOwner()
+      : undefined;
   const featuredRuns: readonly DemoFeaturedRun[] = useMemo(
     () => demoQuery.data?.featuredRuns ?? [],
     [demoQuery.data?.featuredRuns],
@@ -100,7 +112,7 @@ export function DemoModeProvider({ children }: { readonly children: ReactNode })
   const enterDemoMode = useCallback(() => {
     if (connectedOwner) return;
     if (mode !== 'testnet') {
-      setMode('testnet');
+      setMode('testnet', { persist: false });
     }
     setDemoRequested(true);
     setStoredDemoMode(true);

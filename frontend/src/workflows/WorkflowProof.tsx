@@ -7,7 +7,6 @@ import {
   REACTIVE_MAINNET_CHAIN_ID,
   workflowIdSchema,
   workflowV2RunProofSchema,
-  type SupportedChainId,
   type WorkflowV2RunProof,
 } from '@rulebook/shared';
 import {
@@ -24,7 +23,7 @@ import {
   Wallet01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { useQuery } from '@tanstack/react-query';
+import { useQueries, useQuery } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { formatEther, zeroHash, type Hex } from 'viem';
@@ -40,8 +39,15 @@ import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { useDemoMode } from '@/lib/demoMode';
 import { appRoutes } from '@/lib/routes';
 import { Badge, Button, Panel, PanelBody, PanelHeader, PanelHeading } from '@/ui';
-import { workflowClient } from './chainV2';
+import { LatencyBar, RunProofPanel } from '@/ui';
 import { v2ApiBase } from './listingV2';
+import {
+  computeProofLatency,
+  formatBlockTimestamp,
+  proofStageTelemetryQuery,
+  type StageReceiptTelemetry,
+} from './proofTiming';
+import { recentVerifiedRunsQuery } from './recentRuns';
 
 function proofGuideFor(automationName: string) {
   const decisionTitle =
@@ -72,9 +78,67 @@ export function WorkflowProofLookup() {
   const navigate = useNavigate();
   const [input, setInput] = useState('');
   const [invalid, setInvalid] = useState(false);
+  const unavailableMainnet = isMainnet && !isDeploymentConfigured;
   const decisionLabel =
     automationName === 'Reactive Mainnet' ? 'Reactive Mainnet decision' : 'Lasna decision';
   const proofGuide = proofGuideFor(automationName);
+  const recentRuns = useQuery(
+    recentVerifiedRunsQuery(mode, 5, !isMainnet && isDeploymentConfigured),
+  );
+  const runs = recentRuns.data ?? [];
+  const runTimingQueries = useQueries({
+    queries: runs.flatMap((run) => {
+      const runMode = networkModeForChain(run.chain);
+      const automationChain = automationChainFor(runMode);
+      const hasOriginTx = Boolean(run.originTransaction && run.originTransaction !== zeroHash);
+      const startChain = hasOriginTx
+        ? run.originChain > 0
+          ? run.originChain
+          : 0
+        : automationChain;
+      const startHash = hasOriginTx
+        ? run.originChain > 0
+          ? run.originTransaction
+          : null
+        : run.lasnaTransaction;
+      return [
+        proofStageTelemetryQuery(startChain, startHash),
+        proofStageTelemetryQuery(run.chain, run.destinationTransaction),
+      ];
+    }),
+  });
+  const recentItems = runs.map((run, index) => {
+    const runMode = networkModeForChain(run.chain);
+    const automationChain = automationChainFor(runMode);
+    const hasOriginTx = Boolean(run.originTransaction && run.originTransaction !== zeroHash);
+    const startQuery = runTimingQueries[index * 2];
+    const settlementQuery = runTimingQueries[index * 2 + 1];
+    const startTimestamp = startQuery?.data?.timestamp ?? null;
+    const settlementTimestamp = settlementQuery?.data?.timestamp ?? null;
+    const latency = computeProofLatency({
+      originTimestamp: hasOriginTx ? startTimestamp : null,
+      decisionTimestamp: hasOriginTx ? null : startTimestamp,
+      settlementTimestamp,
+      hasOriginTx,
+      hasSettlementTx: Boolean(
+        run.destinationTransaction && run.destinationTransaction !== zeroHash,
+      ),
+      decisionShortName:
+        automationChain === REACTIVE_MAINNET_CHAIN_ID ? 'Reactive Mainnet' : 'Lasna',
+    });
+    const latencyLoading = Boolean(startQuery?.isFetching || settlementQuery?.isFetching);
+    return {
+      id: run.id,
+      to: withNetworkQuery(`${appRoutes.runs}/${run.id}`, runMode, true),
+      originChain: run.originChain,
+      automationChain,
+      settlementChain: run.chain,
+      path: run.path,
+      status: run.status,
+      latencyLabel: latency.formattedTotal,
+      latencyLoading: latencyLoading && !latency.formattedTotal,
+    };
+  });
 
   return (
     <section className="app-page">
@@ -83,9 +147,7 @@ export function WorkflowProofLookup() {
         description={`Look up a run to verify its origin, the ${decisionLabel}, and settlement.`}
       />
 
-      {isMainnet && !isDeploymentConfigured && (
-        <MainnetUnavailableCallout context="Workflow proof" />
-      )}
+      {unavailableMainnet && <MainnetUnavailableCallout context="Workflow proof" />}
 
       <div className="rb-proof-lookup">
         <form
@@ -252,6 +314,18 @@ export function WorkflowProofLookup() {
           </PanelBody>
         </Panel>
       )}
+
+      {!isMainnet && isDeploymentConfigured && (
+        <RunProofPanel
+          title="Recent verified runs"
+          description="Open a settled run from the public testnet demo account to inspect its origin, decision, settlement, and block-level timing."
+          badgeLabel="No wallet required"
+          items={recentItems}
+          loading={recentRuns.isPending}
+          error={recentRuns.isError ? 'Recent verified runs could not be loaded.' : null}
+          onRetry={() => void recentRuns.refetch()}
+        />
+      )}
     </section>
   );
 }
@@ -371,6 +445,48 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
   const statusLabel = provisionalExpiry ? 'Settlement window elapsed' : run.status;
   const tone = statusTone(run.status, provisionalExpiry);
   const recorded = steps.filter(({ hash }) => hash && hash !== zeroHash).length;
+  const telemetryQueries = useQueries({
+    queries: steps.map((step) => proofStageTelemetryQuery(step.chain, step.hash)),
+  });
+  const hasOriginTx = Boolean(run.originTransaction && run.originTransaction !== zeroHash);
+  const hasSettlementTx = Boolean(
+    run.destinationTransaction && run.destinationTransaction !== zeroHash,
+  );
+  const decisionShortName =
+    automationChain === REACTIVE_MAINNET_CHAIN_ID ? 'Reactive Mainnet' : 'Lasna';
+  const settlementPending =
+    !hasSettlementTx && (run.status === 'pending' || run.status === 'in grace period');
+  const latency = computeProofLatency({
+    originTimestamp: telemetryQueries[0]?.data?.timestamp ?? null,
+    decisionTimestamp: telemetryQueries[1]?.data?.timestamp ?? null,
+    settlementTimestamp: telemetryQueries[2]?.data?.timestamp ?? null,
+    hasOriginTx,
+    hasSettlementTx,
+    settlementPending,
+    decisionShortName,
+  });
+  const telemetryPending = steps.some((step, index) => {
+    const valid = Boolean(step.hash && step.hash !== zeroHash);
+    const supported = isAutomationChain(step.chain) || isFundsChain(step.chain);
+    return valid && supported && telemetryQueries[index]?.isFetching;
+  });
+  const totalLabel =
+    latency.isComplete && latency.formattedTotal
+      ? `Total: ${latency.formattedTotal}`
+      : settlementPending
+        ? 'Pending settlement'
+        : null;
+  const totalTone =
+    latency.isComplete && run.status === 'confirmed'
+      ? 'active'
+      : totalLabel === 'Pending settlement'
+        ? 'info'
+        : 'neutral';
+  const latencyCaption = latency.clockSkewDetected
+    ? 'Cross-chain block clocks disagree. Timing is approximate.'
+    : !telemetryPending && !latency.hasAnyTiming && recorded > 0
+      ? 'Block timestamps unavailable from RPC.'
+      : null;
 
   return (
     <div className="rb-proof-layout">
@@ -470,10 +586,20 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
           <span className="rb-chip rb-chip--plain">{recorded} / 3 recorded</span>
         </header>
 
+        <LatencyBar
+          title="Cross-chain timing"
+          totalLabel={totalLabel}
+          totalTone={totalTone}
+          loading={telemetryPending && !latency.isComplete}
+          hops={latency.hops.map(({ formatted, ...hop }) => ({ ...hop, value: formatted }))}
+          caption={latencyCaption}
+        />
+
         <ol className="rb-proof-stages" aria-label="Run transactions">
           {steps.map(({ label, chain, hash }, index) => {
             const present = Boolean(hash && hash !== zeroHash);
             const role = isAutomationChain(chain) ? 'automation' : 'funds';
+            const telemetry = telemetryQueries[index];
             const missing =
               label === 'Origin event'
                 ? 'No external transaction recorded.'
@@ -499,7 +625,7 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
                   </header>
                   {present && hash ? (
                     <>
-                      <ProofTransaction chain={chain} hash={hash} />
+                      <ProofTransaction chain={chain} hash={hash} telemetry={telemetry} />
                       {label === 'Origin event' && (
                         <p className="rb-proof-log">Log index {run.originLogIndex}</p>
                       )}
@@ -516,8 +642,8 @@ function ProofDetails({ run }: { run: WorkflowV2RunProof }) {
         <footer className="rb-proof-trail-foot">
           <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
           <p>
-            Transaction execution gas uses each receipt. Network credit charges and data fees are
-            billed separately.
+            Transaction execution gas and block timestamps are read from each chain&apos;s RPC.
+            Network credit charges and data fees are billed separately.
           </p>
         </footer>
       </section>
@@ -543,25 +669,26 @@ function statusIcon(status: WorkflowV2RunProof['status']) {
   return Clock01Icon;
 }
 
-function ProofTransaction({ chain, hash }: { chain: number; hash: Hex }) {
+interface ProofTransactionTelemetry {
+  readonly data?: StageReceiptTelemetry;
+  readonly isPending: boolean;
+  readonly isError: boolean;
+}
+
+function ProofTransaction({
+  chain,
+  hash,
+  telemetry,
+}: {
+  chain: number;
+  hash: Hex;
+  telemetry?: ProofTransactionTelemetry;
+}) {
   const network = CHAIN_CONFIGS.get(chain);
   const supported = isAutomationChain(chain) || isFundsChain(chain);
-  const executionGas = useQuery({
-    queryKey: ['workflow-v2', 'proof-execution-gas', chain, hash],
-    enabled: supported,
-    queryFn: async () => {
-      const { gasUsed, effectiveGasPrice } = await workflowClient(
-        chain as SupportedChainId,
-      ).getTransactionReceipt({ hash });
-      // Some Lasna receipts omit the effective price even when gas usage is recorded.
-      return typeof gasUsed === 'bigint' && typeof effectiveGasPrice === 'bigint'
-        ? gasUsed * effectiveGasPrice
-        : null;
-    },
-    staleTime: Infinity,
-    retry: false,
-  });
-  const cost = executionGas.data;
+  const cost = telemetry?.data?.executionGas;
+  const blockNumber = telemetry?.data?.blockNumber ?? null;
+  const timestamp = telemetry?.data?.timestamp ?? null;
 
   return (
     <div className="rb-proof-transaction">
@@ -582,11 +709,17 @@ function ProofTransaction({ chain, hash }: { chain: number; hash: Hex }) {
         <p className="rb-proof-gas">
           Transaction execution gas {formatEther(cost)} {network?.nativeSymbol ?? 'ETH'}
         </p>
-      ) : cost === null || executionGas.isError ? (
+      ) : cost === null || telemetry?.isError ? (
         <p className="rb-proof-gas">Transaction execution gas unavailable.</p>
-      ) : supported && executionGas.isPending ? (
+      ) : supported && telemetry?.isPending ? (
         <p className="rb-proof-gas">Reading transaction execution gas…</p>
       ) : null}
+      {typeof timestamp === 'number' && (
+        <p className="rb-proof-log">
+          {blockNumber !== null ? `Block #${blockNumber.toLocaleString('en-US')} · ` : ''}
+          {formatBlockTimestamp(timestamp)}
+        </p>
+      )}
     </div>
   );
 }

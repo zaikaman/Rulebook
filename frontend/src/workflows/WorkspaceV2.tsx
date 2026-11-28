@@ -1,7 +1,11 @@
 import {
   automationChainFor,
   decodeWorkflowV2,
+  estimateCreditRunway,
+  estimatedGasPerRunLabel,
   executionCreditAbi,
+  feeCreditWarningThreshold,
+  formatRunwayRuns,
   fundsChainIdSchema,
   getChain,
   isFundsChain,
@@ -74,11 +78,13 @@ import { NetworkBadge } from '@/components/NetworkBadge';
 import { TelegramNotifications } from '@/components/TelegramNotifications';
 import { useDemoMode } from '@/lib/demoMode';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
+import { creditFaucetFor, usdcFaucetFor } from '@/lib/testnetTokens';
 import {
   Badge,
   Button,
   Callout,
   Dialog,
+  ExternalLink,
   FilterGroup,
   Pagination,
   Panel,
@@ -87,6 +93,7 @@ import {
   PanelHeader,
   PanelHeading,
   PanelTitle,
+  RunwayReadout,
   Select,
   Toolbar,
 } from '@/ui';
@@ -109,6 +116,7 @@ import { WorkflowCanvas } from './Graph';
 import { canvasLeaf, diagramV2 } from './diagramV2';
 import { v2ApiBase } from './listingV2';
 import { WorkflowCreditNotice } from './WorkflowCredit';
+import { useChainGasPrices } from './useGasPrices';
 import { useWorkflowHealth, workflowHealthHref, shortRun } from './health';
 import { WorkflowHealthPanel } from './WorkflowHealth';
 import { WorkflowWeeklyBudget } from './WeeklyBudget';
@@ -1808,8 +1816,30 @@ export function WorkflowAccountV2({
     queryFn: () => readFundsV2(viewOwner!, chain),
     refetchInterval: 12_000,
   });
+  const [watchGasQuery, execGasQuery] = useChainGasPrices([automationChainId, chain], mode);
   const funds = data.data;
   const vaultReady = !!funds && funds.vault !== zeroAddress;
+  const watchDebt = funds?.watchDebt ?? null;
+  const executionDebt = funds?.executionDebt ?? null;
+  const watchRunCost = watchGasQuery?.isError ? null : watchGasQuery?.data?.runCostWei;
+  const execRunCost = execGasQuery?.isError ? null : execGasQuery?.data?.runCostWei;
+  const executionRunway =
+    funds && executionDebt !== null && execRunCost
+      ? estimateCreditRunway({
+          reserveWei: funds.execution,
+          debtWei: executionDebt,
+          estimatedCostPerRunWei: execRunCost,
+        })
+      : null;
+  const watchingRunway =
+    funds && watchDebt !== null && watchRunCost
+      ? estimateCreditRunway({
+          reserveWei: funds.watch,
+          debtWei: watchDebt,
+          estimatedCostPerRunWei: watchRunCost,
+        })
+      : null;
+  const watchThreshold = feeCreditWarningThreshold(automationChainId);
   useEffect(() => {
     if (funding && vaultReady) amountRef.current?.focus();
   }, [funding, vaultReady]);
@@ -1848,6 +1878,35 @@ export function WorkflowAccountV2({
     !wallet.busy &&
     (!action.requiresAmount || (parsedAmount !== undefined && parsedAmount > 0n)) &&
     !amountError;
+  const watchingDeposit = activeOperation === 'watch-credit';
+  const depositRunCost = watchingDeposit
+    ? watchRunCost
+    : activeOperation === 'run-credit'
+      ? execRunCost
+      : null;
+  const depositDebt = watchingDeposit ? watchDebt : executionDebt;
+  const depositTotalRunway =
+    funds &&
+    depositDebt !== null &&
+    parsedAmount !== undefined &&
+    parsedAmount > 0n &&
+    !amountError &&
+    depositRunCost
+      ? estimateCreditRunway({
+          reserveWei: (watchingDeposit ? funds.watch : funds.execution) + parsedAmount,
+          debtWei: depositDebt,
+          estimatedCostPerRunWei: depositRunCost,
+        })
+      : null;
+  const activeFaucet = !isMainnet
+    ? activeOperation === 'watch-credit'
+      ? creditFaucetFor(automationChainId)
+      : activeOperation === 'run-credit'
+        ? creditFaucetFor(chain)
+        : activeOperation === 'add-usdc' || activeOperation === 'approve-refill-usdc'
+          ? usdcFaucetFor(chain)
+          : undefined
+    : undefined;
 
   function submit() {
     void wallet.perform(async () => {
@@ -2193,7 +2252,11 @@ export function WorkflowAccountV2({
                 {displayUnits(funds.execution, 18)}
                 <span>ETH</span>
               </p>
-              <p className="rb-balance-foot">Pays callback gas on {v2Network(chain).name}</p>
+              <p className="rb-balance-foot">
+                {executionRunway
+                  ? `${formatRunwayRuns(executionRunway)} at live gas · ${v2Network(chain).name}`
+                  : `Pays callback gas on ${v2Network(chain).name}`}
+              </p>
             </div>
           </div>
 
@@ -2349,6 +2412,33 @@ export function WorkflowAccountV2({
                           : null}
                       </p>
                     )}
+                    {depositTotalRunway && (
+                      <RunwayReadout
+                        size="compact"
+                        label="Runway after deposit"
+                        value={formatRunwayRuns(depositTotalRunway)}
+                        detail={
+                          depositDebt !== null && depositDebt > 0n
+                            ? `Deposits pay ${exactUnits(depositDebt, 18)} ${action.unit} in outstanding fees first.`
+                            : estimatedGasPerRunLabel(watchingDeposit ? 'watching' : 'execution')
+                        }
+                        tone={
+                          depositTotalRunway.depleted || depositTotalRunway.underOneRun
+                            ? 'paused'
+                            : 'default'
+                        }
+                      />
+                    )}
+                    {activeFaucet && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <ExternalLink href={activeFaucet.faucet}>
+                          {activeFaucet.linkLabel}
+                        </ExternalLink>
+                        {balance === 0n && (
+                          <span className="rb-funding-hint">{activeFaucet.instructions}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </form>
               </div>
@@ -2373,6 +2463,27 @@ export function WorkflowAccountV2({
                       <span>{nativeSymbol}</span>
                     </span>
                   </div>
+                  {watchingRunway && (
+                    <RunwayReadout
+                      size="compact"
+                      label="Watching runway"
+                      value={`${formatRunwayRuns(watchingRunway)} at live gas`}
+                      detail={
+                        watchDebt !== null && watchDebt > 0n
+                          ? `Net of ${exactUnits(watchDebt, 18)} ${nativeSymbol} owed · ${estimatedGasPerRunLabel('watching')} on ${automationName}`
+                          : `${estimatedGasPerRunLabel('watching')} on ${automationName}`
+                      }
+                      tone={
+                        watchDebt !== null && watchDebt > 0n
+                          ? 'danger'
+                          : funds.watch === 0n ||
+                              funds.watch < watchThreshold ||
+                              watchingRunway.underOneRun
+                            ? 'paused'
+                            : 'active'
+                      }
+                    />
+                  )}
                   <div className="rb-credit-row">
                     <span className="rb-credit-name">USDC refill allowance</span>
                     <span className="rb-credit-value">

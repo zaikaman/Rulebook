@@ -228,3 +228,16 @@ Don't:
 ## Browse cards
 
 Use `CardGrid` with `LinkCard` for items that open a detail page. Use the compact grid for short descriptions and let network badges wrap inside the footer at narrow widths. Keep the card cue short and name the item in the card title.
+
+### `src/ui` Primitives Added for Costs & Funding
+
+- `ExternalLink` (`src/ui/ExternalLink.tsx`, `.rb-external-link`): Opens outbound resources (`target="_blank" rel="noreferrer"`) with an outbound arrow icon and screen-reader new-tab notice. Supports `'link'` (default inline accent link) and `'button'` variants.
+- `RunwayReadout` (`src/ui/RunwayReadout.tsx`, `.rb-runway`): Translates credit reserve + live gas price into a scannable `~N runs covered` estimate with optional status `Badge` and gas-assumption note. `size="featured"` renders a bordered tonal inset block; `size="compact"` renders an unboxed inline summary for onboarding rows and funding forms. Supports `default`, `active`, `paused`, `danger`, and `muted` tones—never apply `active` to depleted, unfunded, or fees-due states.
+
+Use `LatencyBar` for labeled cross-chain timing. Use `RunProofPanel` and `RunProofList`
+for wallet-free proof links with network, status, and timing metadata.
+
+The workflow inspector shows the live dry-run result before its controls. A schedule with no
+scenario inputs opens directly on the result and actions. Use `Button` for examples that change
+the scenario, `Field` for editable values, and `FactList` for spending limits. Keep the branch
+highlight paired with the written result so it can be followed without relying on color.

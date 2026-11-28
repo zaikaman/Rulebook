@@ -171,13 +171,20 @@ test('finds a public workflow proof from workspace costs without connecting a wa
   await expect(page.getByRole('heading', { name: 'Workflow costs' })).toBeVisible({
     timeout: 15_000,
   });
-  await expect(page.getByRole('region', { name: 'Watching credit' })).toContainText('gwei');
-  await expect(
-    page.getByRole('region', { name: 'Execution credit (Unichain Sepolia)' }),
-  ).toContainText('gwei');
-  await expect(page.getByRole('region', { name: 'Execution credit (Base Sepolia)' })).toContainText(
-    'gwei',
-  );
+  const watchingLane = page.getByRole('region', { name: 'Watching credit' });
+  const unichainLane = page.getByRole('region', { name: 'Execution credit (Unichain Sepolia)' });
+  const baseLane = page.getByRole('region', { name: 'Execution credit (Base Sepolia)' });
+  await expect(watchingLane).toContainText('gwei');
+  await expect(watchingLane).toContainText(/runs? covered/);
+  await expect(watchingLane.getByRole('link', { name: /Get Lasna lREACT/ })).toBeVisible();
+  await expect(unichainLane).toContainText('gwei');
+  await expect(unichainLane).toContainText(/runs? covered/);
+  await expect(unichainLane.getByRole('link', { name: /Get Unichain Sepolia ETH/ })).toBeVisible();
+  await expect(baseLane).toContainText('gwei');
+  await expect(baseLane).toContainText(/runs? covered/);
+  await expect(baseLane.getByRole('link', { name: /Get Base Sepolia ETH/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Unichain Sepolia USDC/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Base Sepolia USDC/ })).toBeVisible();
   await page.getByRole('link', { name: 'Open workflow proof' }).click();
   await page.getByLabel('Run ID').fill(run.id);
   await page.getByRole('button', { name: 'Open proof' }).click();

@@ -11,6 +11,7 @@ import {
   workflowIdSchema,
   workflowActivityFilterSchema,
   workflowActivityStatuses,
+  workflowV2RecentRunsResponseSchema,
   workflowV2RunProofSchema,
   workflowV2RunStatusSchema,
   workflowV2Trigger,
@@ -129,6 +130,7 @@ const proofRow = run
   .extend({
     agent: addressSchema.optional(),
   });
+const publicProofRow = proofRow.omit({ agent: true });
 const proofColumns = Object.keys(proofRow.shape).join(',');
 const demoRunRow = z.object({
   id: workflowIdSchema,
@@ -140,6 +142,7 @@ const demoRunRow = z.object({
   path: z.number().int().nonnegative().nullable(),
 });
 const demoRunColumns = Object.keys(demoRunRow.shape).join(',');
+const publicProofColumns = Object.keys(publicProofRow.shape).join(',');
 const routeRateLimit = { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } } as const;
 
 function runProof(row: z.infer<typeof proofRow>) {
@@ -442,6 +445,41 @@ export function registerWorkflowV2Routes(
       nextCursor: page.nextCursor,
       previousCursor: page.previousCursor,
     };
+  });
+
+  app.get('/v3/runs/recent', routeRateLimit, async (request, reply) => {
+    const input = z
+      .object({
+        network: networkModeSchema.default('testnet'),
+        limit: z.coerce.number().int().min(1).max(12).default(6),
+      })
+      .safeParse(request.query);
+    if (!input.success)
+      return reply.code(400).send({ message: 'Check the recent runs query parameters.' });
+    const owner = demoConfig?.owner;
+    if (input.data.network !== 'testnet' || !owner)
+      return workflowV2RecentRunsResponseSchema.parse({ runs: [] });
+    const { deployment, chains } = resolveDeployment(input.data.network);
+    if (!deployment) return workflowV2RecentRunsResponseSchema.parse({ runs: [] });
+    const { data, error } = await db
+      .from('workflow_v2_activity')
+      .select(publicProofColumns)
+      .eq('deployment', deployment)
+      .eq('owner', owner.toLowerCase())
+      .in('chain', [...chains])
+      .eq('status', 'confirmed')
+      .not('destination_transaction', 'is', null)
+      .order('lasna_block', { ascending: false })
+      .order('id', { ascending: false })
+      .order('chain', { ascending: false })
+      .limit(input.data.limit);
+    if (error) throw error;
+    const rows = z.array(publicProofRow).parse(data ?? []);
+    const runs = rows
+      .filter((row) => row.destination_transaction !== null)
+      .map((row) => runProof(row));
+    reply.header('cache-control', 'public, max-age=15');
+    return workflowV2RecentRunsResponseSchema.parse({ runs });
   });
 
   app.get('/v3/runs/:id', routeRateLimit, async (request, reply) => {

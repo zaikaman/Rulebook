@@ -15,6 +15,7 @@ import {
   isFundsChain,
   networkModeForChain,
   readWeeklyLimit,
+  simulateWorkflowV2Draft,
   slippageIssue,
   stepAmountRules,
   toCopyDraft,
@@ -35,6 +36,7 @@ import {
   type WeeklyBudgetAmounts,
   type WorkflowFieldName,
   type WorkflowFieldSpec,
+  type WorkflowV2DraftScenario,
   type WorkflowV2Program,
   type WorkflowV2RecipeId,
 } from '@rulebook/shared';
@@ -43,6 +45,7 @@ import {
   Coins01Icon,
   GitBranchIcon,
   Notification03Icon,
+  PlayIcon,
   PlusSignIcon,
   Pulse01Icon,
   Search01Icon,
@@ -93,6 +96,7 @@ import { RequireAccountSetup, useLinkedAccount } from './useLinkedAccount';
 import { WorkflowCanvas, type GraphSelection, type WorkflowNodePositions } from './Graph';
 import { WorkflowCreditNotice } from './WorkflowCredit';
 import { useWorkflowFunding, WorkflowFundingNotice } from './WorkflowFunding';
+import { createInitialSimulationScenario, WorkflowSimulator } from './WorkflowSimulator';
 import {
   hasRulewrightBaseline,
   RulewrightDialog,
@@ -980,6 +984,11 @@ export function WorkflowBuilderV2() {
       startReview={startReview}
       onConsumeReview={consumeReview}
       active={query.data?.active}
+      initialWeeklySpent={
+        budgetQuery.data
+          ? { usdc: budgetQuery.data.usdcSpent, weth: budgetQuery.data.wethSpent }
+          : undefined
+      }
     />
   );
 }
@@ -1051,6 +1060,7 @@ function Editor({
   onConsumeReview,
   storageKey,
   active = false,
+  initialWeeklySpent,
 }: {
   id?: Hex;
   original?: V2Draft;
@@ -1060,6 +1070,7 @@ function Editor({
   onConsumeReview?: () => void;
   storageKey: string;
   active?: boolean;
+  initialWeeklySpent?: { readonly usdc: bigint; readonly weth: bigint };
 }) {
   const wallet = useWorkflowV2Wallet();
   const linkedAccount = useLinkedAccount();
@@ -1098,7 +1109,20 @@ function Editor({
   const [nodeGroup, setNodeGroup] = useState<(typeof nodeGroups)[number]>('Triggers');
   const [canvasSelection, setCanvasSelection] = useState<GraphSelection | null>(null);
   const [canvasStep, setCanvasStep] = useState<number>();
-  const [inspectorView, setInspectorView] = useState<'properties' | 'library'>('properties');
+  const [inspectorView, setInspectorView] = useState<'properties' | 'library' | 'simulate'>(
+    'properties',
+  );
+  const [simScenario, setSimScenario] = useState<WorkflowV2DraftScenario>(() =>
+    createInitialSimulationScenario(
+      saved?.draft ?? original ?? emptyDraft(defaultFundsChainId),
+      initialWeeklySpent,
+    ),
+  );
+  const simTouched = useRef(false);
+  const simulation = useMemo(
+    () => (inspectorView === 'simulate' ? simulateWorkflowV2Draft(draft, simScenario) : undefined),
+    [inspectorView, draft, simScenario],
+  );
   const inspectorBody = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<WorkflowNodePositions>(saved?.positions ?? {});
   const [dragged, setDragged] = useState<NodeTool>();
@@ -1336,6 +1360,16 @@ function Editor({
     setCanvasSelection(selection);
     setCanvasStep(step);
     setInspectorView('properties');
+  }
+
+  function openInspectorView(view: 'properties' | 'library' | 'simulate') {
+    if (view === 'simulate' && view !== inspectorView) {
+      if (!simTouched.current) {
+        setSimScenario(createInitialSimulationScenario(draft, initialWeeklySpent));
+      }
+      inspectorBody.current?.scrollTo({ top: 0 });
+    }
+    setInspectorView(view);
   }
 
   function showWorkflow() {
@@ -2298,6 +2332,8 @@ function Editor({
             setCanvasSelection(null);
             setCanvasStep(undefined);
             setInspectorView('properties');
+            simTouched.current = false;
+            setSimScenario(createInitialSimulationScenario(next, initialWeeklySpent));
             setRecipes(false);
           }}
         />
@@ -2513,11 +2549,22 @@ function Editor({
           </aside>
         </div>
       ) : (
-        <div className="rb-builder">
+        <div className="rb-builder" data-inspector-view={inspectorView}>
           <section className="rb-canvas-panel" aria-label="Workflow graph">
             <div className="rb-canvas-toolbar">
               <h2 className="rb-panel-title">Canvas</h2>
               <div className="rb-action-row">
+                <Button
+                  variant="quiet"
+                  className="workflow-test-toggle"
+                  aria-pressed={inspectorView === 'simulate'}
+                  onClick={() =>
+                    openInspectorView(inspectorView === 'simulate' ? 'properties' : 'simulate')
+                  }
+                >
+                  <HugeiconsIcon icon={PlayIcon} size={14} aria-hidden="true" />
+                  Test
+                </Button>
                 <button
                   type="button"
                   className="app-button app-button--quiet"
@@ -2540,6 +2587,16 @@ function Editor({
               draft={diagram.canvas}
               selected={canvasSelection ?? undefined}
               select={selectNode}
+              leaf={
+                inspectorView === 'simulate' && simulation?.leafIndex !== null
+                  ? simulation?.leafIndex
+                  : undefined
+              }
+              canvasHint={
+                inspectorView === 'simulate' && simulation
+                  ? `Dry run: ${simulation.headline}`
+                  : undefined
+              }
               positions={positions}
               onPositionsChange={(moved) => setPositions((current) => ({ ...current, ...moved }))}
               onPaneClick={showWorkflow}
@@ -2559,16 +2616,23 @@ function Editor({
               <button
                 type="button"
                 aria-pressed={inspectorView === 'properties'}
-                onClick={() => setInspectorView('properties')}
+                onClick={() => openInspectorView('properties')}
               >
                 Properties
               </button>
               <button
                 type="button"
                 aria-pressed={inspectorView === 'library'}
-                onClick={() => setInspectorView('library')}
+                onClick={() => openInspectorView('library')}
               >
                 Library
+              </button>
+              <button
+                type="button"
+                aria-pressed={inspectorView === 'simulate'}
+                onClick={() => openInspectorView('simulate')}
+              >
+                Test
               </button>
             </div>
             <div
@@ -2578,7 +2642,7 @@ function Editor({
               aria-label="Inspector content"
               tabIndex={0}
             >
-              {(status || error) && (
+              {inspectorView !== 'simulate' && (status || error) && (
                 <div className="rb-inspector-feedback">
                   {status && <p role="status">{status}</p>}
                   {error && (
@@ -2588,7 +2652,24 @@ function Editor({
                   )}
                 </div>
               )}
-              {inspectorView === 'properties' ? renderProperties() : renderLibrary()}
+              {inspectorView === 'properties' ? (
+                renderProperties()
+              ) : inspectorView === 'library' ? (
+                renderLibrary()
+              ) : (
+                <WorkflowSimulator
+                  draft={draft}
+                  diagram={diagram}
+                  scenario={simScenario}
+                  onScenarioChange={(next) => {
+                    simTouched.current = true;
+                    setSimScenario(next);
+                  }}
+                  result={simulation!}
+                  initialWeeklySpent={initialWeeklySpent}
+                  onSelectNode={(nodeIndex) => selectNode(nodeIndex)}
+                />
+              )}
             </div>
           </aside>
         </div>
@@ -2622,6 +2703,8 @@ function Editor({
             )
               setPositions({});
             update(normalizedNext);
+            simTouched.current = false;
+            setSimScenario(createInitialSimulationScenario(normalizedNext, initialWeeklySpent));
             setRecipes(false);
             setRulewrightOpen(false);
             pick(undefined);

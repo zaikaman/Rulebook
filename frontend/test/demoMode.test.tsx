@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const demoOwner = '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc';
 const userOwner = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8';
@@ -105,6 +105,8 @@ function renderDemo(initialEntry = '/workflows') {
 }
 
 describe('DemoModeProvider', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
@@ -154,6 +156,15 @@ describe('DemoModeProvider', () => {
     await waitFor(() => expect(screen.getByTestId('is-demo')).toHaveTextContent('false'));
     expect(screen.getByTestId('view-owner')).toHaveTextContent(userOwner);
     expect(window.sessionStorage.getItem(DEMO_MODE_STORAGE_KEY)).toBeNull();
+  });
+
+  it('uses the configured read-only testnet owner when the availability request fails', async () => {
+    vi.stubEnv('VITE_DEMO_ACCOUNT_ADDRESS', demoOwner);
+    mockDemoAccount.mockRejectedValue(new Error('Unavailable'));
+    renderDemo('/workflows?demo=1');
+
+    await waitFor(() => expect(screen.getByTestId('is-demo')).toHaveTextContent('true'));
+    expect(screen.getByTestId('view-owner')).toHaveTextContent(demoOwner);
   });
 
   it('clears persisted demo mode when ?demo=0 is visited', async () => {

@@ -1,7 +1,9 @@
 import {
   automationChainFor,
+  estimateCreditRunway,
   executionCreditAbi,
   feeCreditWarningThreshold,
+  formatRunwayRuns,
   getChain,
   isAutomationChain,
   isFundsChain,
@@ -32,6 +34,7 @@ import {
   settlementFactory,
   workflowClient,
 } from './chainV2';
+import { useChainGasPrices } from './useGasPrices';
 
 export interface CreditLaneSpec {
   readonly kind: 'watching' | 'execution';
@@ -184,15 +187,21 @@ export function WorkflowCreditNotice({
   const { mode, automationName } = useNetworkMode();
   const credits = useWorkflowCredits(owner, chain);
   const { lanes, enabled, checking, unavailable, needsSetup, relevantIndices } = credits;
+  const attention = enabled
+    ? relevantIndices.flatMap((index) => {
+        const credit = lanes[index]!;
+        const result = credits.queries[index];
+        const balance = result?.data;
+        const minimum = feeCreditWarningThreshold(credit.chain);
+        if (!result || !balance || (balance.debt === 0n && balance.reserve >= minimum)) return [];
+        return [{ credit, ...balance, minimum, stale: result.isError }];
+      })
+    : [];
+  const attentionGasPrices = useChainGasPrices(
+    attention.map(({ credit }) => credit.chain),
+    mode,
+  );
   if (!enabled) return null;
-  const attention = relevantIndices.flatMap((index) => {
-    const credit = lanes[index]!;
-    const result = credits.queries[index];
-    const balance = result?.data;
-    const minimum = feeCreditWarningThreshold(credit.chain);
-    if (!result || !balance || (balance.debt === 0n && balance.reserve >= minimum)) return [];
-    return [{ credit, ...balance, minimum, stale: result.isError }];
-  });
   if (!attention.length && !unavailable && !(review && (needsSetup || checking))) return null;
 
   const status = attention.length
@@ -258,10 +267,18 @@ export function WorkflowCreditNotice({
 
         {attention.length > 0 && (
           <ul className="rb-fee-lanes">
-            {attention.map(({ credit, reserve, debt, minimum, stale }) => {
+            {attention.map(({ credit, reserve, debt, minimum, stale }, attentionIndex) => {
               const coverage = reserveCoverage(reserve, minimum);
               const chain = getChain(credit.chain);
               const icon = creditIcons[credit.kind];
+              const runCost = attentionGasPrices[attentionIndex]?.data?.runCostWei;
+              const runway = runCost
+                ? estimateCreditRunway({
+                    reserveWei: reserve,
+                    debtWei: debt,
+                    estimatedCostPerRunWei: runCost,
+                  })
+                : null;
               return (
                 <li
                   className="rb-fee-lane"
@@ -322,6 +339,12 @@ export function WorkflowCreditNotice({
                         <span>{credit.unit}</span>
                       </dd>
                     </div>
+                    {runway && (
+                      <div>
+                        <dt>Estimated runway</dt>
+                        <dd>{formatRunwayRuns(runway)}</dd>
+                      </div>
+                    )}
                   </dl>
 
                   <div className="rb-fee-coverage">

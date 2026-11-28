@@ -149,6 +149,7 @@ export function WorkflowCanvas({
   onPaneClick,
   fitViewOptions = fitOptions,
   drop,
+  canvasHint,
 }: {
   draft: CanvasDraft;
   selected?: GraphSelection;
@@ -159,6 +160,7 @@ export function WorkflowCanvas({
   onPaneClick?: () => void;
   fitViewOptions?: FitViewOptions;
   drop?: CanvasDrop;
+  canvasHint?: string;
 }) {
   const editable = Boolean(select);
   const [measurements, setMeasurements] = useState<Record<string, Dimensions>>({});
@@ -324,6 +326,7 @@ export function WorkflowCanvas({
     <div
       className="workflow-canvas"
       aria-label="Workflow diagram"
+      data-has-match={leaf !== undefined ? 'true' : undefined}
       onDragOver={
         drop
           ? (event) => {
@@ -414,7 +417,7 @@ export function WorkflowCanvas({
       </ReactFlow>
       {editable && (
         <p className="workflow-canvas-hint" data-drop-active={drop?.active || undefined}>
-          {drop?.hint || 'Drag nodes to move · Scroll to zoom'}
+          {drop?.hint || canvasHint || 'Drag nodes to move · Scroll to zoom'}
         </p>
       )}
     </div>

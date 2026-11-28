@@ -850,6 +850,17 @@
   font-weight: 580;
 }
 
+.account-setup__funding-faucet-note {
+  color: var(--rb-ink-faint);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+
+.account-setup__funding-runway {
+  margin-block-start: 0.125rem;
+}
+
 .account-setup__funding-continue {
   margin-inline-start: auto;
 }

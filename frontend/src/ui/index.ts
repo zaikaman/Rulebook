@@ -5,6 +5,7 @@ export { cx } from './classNames.js';
 export { Dialog, type DialogProps } from './Dialog.js';
 export { EmptyState } from './EmptyState.js';
 export { ErrorState, type ErrorStateProps } from './ErrorState.js';
+export { ExternalLink, type ExternalLinkProps } from './ExternalLink.js';
 export { FactList, type Fact, type FactListProps } from './FactList.js';
 export { Field, type FieldProps } from './Field.js';
 export { CardGrid, LinkCard } from './LinkCard.js';
@@ -15,10 +16,24 @@ export {
   type FilterGroupProps,
   type FilterOption,
 } from './FilterGroup.js';
+export { LatencyBar, type LatencyBarProps, type LatencyHop } from './LatencyBar.js';
 export { PageHeading } from './PageHeading.js';
 export { Pagination } from './Pagination.js';
 export { Panel, PanelBody, PanelCopy, PanelHeading, PanelHeader, PanelTitle } from './Panel.js';
 export { PresetStrip, type PresetOption, type PresetStripProps } from './PresetStrip.js';
+export {
+  RunwayReadout,
+  type RunwayReadoutBadge,
+  type RunwayReadoutProps,
+  type RunwayReadoutTone,
+} from './RunwayReadout.js';
+export {
+  RunProofList,
+  RunProofPanel,
+  type RunProofListItem,
+  type RunProofListProps,
+  type RunProofPanelProps,
+} from './RunProofList.js';
 export { Select, type SelectGroup, type SelectOption, type SelectProps } from './Select.js';
 export { SyncState, type SyncStateProps } from './SyncState.js';
 export { Toolbar } from './Toolbar.js';

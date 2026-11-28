@@ -758,6 +758,13 @@
   color: var(--rb-ink);
 }
 
+.app-demo-banner__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .app-demo-banner__copy {
   display: grid;
   gap: 0.375rem;

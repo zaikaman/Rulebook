@@ -487,3 +487,110 @@ it('enriches pending/expired runs with getCallbacks fallback, forwards marketpla
     await app.close();
   }
 });
+
+it('lists settled runs from the configured public testnet demo account only', async () => {
+  const testnetFactory = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const mainnetFactory = '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const demoOwner = '0xcccccccccccccccccccccccccccccccccccccccc';
+  const runId1 = `0x${'1'.repeat(64)}`;
+  const runId2 = `0x${'2'.repeat(64)}`;
+  const hash = `0x${'3'.repeat(64)}`;
+  const requests: URL[] = [];
+  const confirmedRow = {
+    id: runId1,
+    chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+    program_hash: hash,
+    origin_chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+    origin_transaction: hash,
+    origin_log_index: '4',
+    lasna_transaction: hash,
+    destination_transaction: hash,
+    expires_at: 300,
+    status: 'confirmed',
+    path: 1,
+    reason: null,
+  };
+  const missingSettlementRow = {
+    ...confirmedRow,
+    id: runId2,
+    destination_transaction: null,
+  };
+  const db = createClient('https://database.example', 'fixture-key', {
+    global: {
+      fetch: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        return Response.json([confirmedRow, missingSettlementRow]);
+      },
+    },
+  });
+
+  const app = Fastify();
+  registerWorkflowV2Routes(app, db, { testnet: testnetFactory }, undefined, { owner: demoOwner });
+  const dualApp = Fastify();
+  registerWorkflowV2Routes(
+    dualApp,
+    db,
+    { testnet: testnetFactory, mainnet: mainnetFactory },
+    undefined,
+    { owner: demoOwner },
+  );
+  try {
+    const testnetRes = await app.inject({ url: '/v3/runs/recent?network=testnet&limit=3' });
+    expect(testnetRes.statusCode).toBe(200);
+    expect(testnetRes.headers['cache-control']).toBe('public, max-age=15');
+    expect(testnetRes.json()).toEqual({
+      runs: [
+        {
+          id: runId1,
+          chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+          programHash: hash,
+          originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+          originTransaction: hash,
+          originLogIndex: '4',
+          lasnaTransaction: hash,
+          destinationTransaction: hash,
+          expiresAt: 300,
+          status: 'confirmed',
+          path: 1,
+          reason: null,
+        },
+      ],
+    });
+    const req = requests[0];
+    expect(req?.searchParams.get('deployment')).toBe(
+      `eq.${workflowDeploymentKey(LASNA_CHAIN_ID, testnetFactory)}`,
+    );
+    expect(req?.searchParams.get('owner')).toBe(`eq.${demoOwner}`);
+    expect(req?.searchParams.get('status')).toBe('eq.confirmed');
+    expect(req?.searchParams.get('destination_transaction')).toBe('not.is.null');
+    expect(req?.searchParams.get('chain')).toBe(
+      `in.(${UNICHAIN_SEPOLIA_CHAIN_ID},${BASE_SEPOLIA_CHAIN_ID})`,
+    );
+    expect(req?.searchParams.get('limit')).toBe('3');
+    const select = req?.searchParams.get('select') ?? '';
+    expect(select).not.toContain('title');
+    expect(select).not.toContain('owner');
+    expect(select).not.toContain('workflow_id');
+    expect(select).not.toContain('agent');
+
+    // Unconfigured mainnet returns empty array without querying database.
+    const countBefore = requests.length;
+    const unconfigured = await app.inject({ url: '/v3/runs/recent?network=mainnet' });
+    expect(unconfigured.statusCode).toBe(200);
+    expect(unconfigured.json()).toEqual({ runs: [] });
+    expect(requests.length).toBe(countBefore);
+
+    const mainnetRes = await dualApp.inject({ url: '/v3/runs/recent?network=mainnet' });
+    expect(mainnetRes.statusCode).toBe(200);
+    expect(mainnetRes.json()).toEqual({ runs: [] });
+    expect(requests.length).toBe(countBefore);
+
+    expect((await app.inject({ url: '/v3/runs/recent?limit=0' })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/v3/runs/recent?limit=13' })).statusCode).toBe(400);
+    expect((await app.inject({ url: '/v3/runs/recent?limit=abc' })).statusCode).toBe(400);
+  } finally {
+    await app.close();
+    await dualApp.close();
+  }
+});

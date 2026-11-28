@@ -104,6 +104,10 @@ function fixtureWorkflowV2Database(clients: ChainClients, demo: FixtureDemoRecor
         predicates.push((row) => row[key] === value);
         return builder;
       },
+      not: (key: string, operator: 'is', value: null) => {
+        if (operator === 'is') predicates.push((row) => row[key] !== value);
+        return builder;
+      },
       in: (key: string, values: readonly unknown[]) => {
         predicates.push((row) => values.includes(row[key]));
         return builder;
@@ -240,8 +244,8 @@ const workflowValidatorV2Artifact = artifact(
 );
 const mockErc20Artifact = artifact('../../contracts/out/MockERC20.sol/MockERC20.json');
 const mockPairArtifact = artifact('../../contracts/out/MockPair.sol/MockPair.json');
-const mockSystemArtifact = artifact(
-  '../../contracts/out/MockSystemContract.sol/MockSystemContract.json',
+const browserFeeProviderArtifact = artifact(
+  '../../contracts/out/BrowserFeeProvider.sol/BrowserFeeProvider.json',
 );
 
 const anvilChain = {
@@ -364,21 +368,21 @@ async function main(): Promise<void> {
         method: 'anvil_setCode',
         params: [
           getChain(LASNA_CHAIN_ID).systemContract,
-          mockSystemArtifact.deployedBytecode.object,
+          browserFeeProviderArtifact.deployedBytecode.object,
         ],
       } as never),
       publicClient.request({
         method: 'anvil_setCode',
         params: [
           getChain(UNICHAIN_SEPOLIA_CHAIN_ID).callbackProxy,
-          mockSystemArtifact.deployedBytecode.object,
+          browserFeeProviderArtifact.deployedBytecode.object,
         ],
       } as never),
       basePublicClient.request({
         method: 'anvil_setCode',
         params: [
           getChain(BASE_SEPOLIA_CHAIN_ID).callbackProxy,
-          mockSystemArtifact.deployedBytecode.object,
+          browserFeeProviderArtifact.deployedBytecode.object,
         ],
       } as never),
     ]);

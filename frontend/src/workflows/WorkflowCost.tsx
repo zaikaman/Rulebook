@@ -1,4 +1,11 @@
-import { feeCreditWarningThreshold, getChain, isFundsChain } from '@rulebook/shared';
+import {
+  estimateCreditRunway,
+  estimatedGasPerRunLabel,
+  feeCreditWarningThreshold,
+  formatRunwayRuns,
+  getChain,
+  isFundsChain,
+} from '@rulebook/shared';
 import {
   ArrowRight01Icon,
   ArrowUpRight01Icon,
@@ -10,25 +17,19 @@ import {
   Wallet01Icon,
 } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { formatEther, formatGwei } from 'viem';
+import { useAccount } from 'wagmi';
 
 import { NetworkBadge } from '@/components/NetworkBadge';
 import { PageHeading } from '@/components/chrome/PageHeading';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes } from '@/lib/routes';
-import { workflowClient } from './chainV2';
-import { workflowCreditsFor } from './WorkflowCredit';
-
-function formatGasGwei(wei: bigint): string {
-  const numeric = Number(formatGwei(wei));
-  if (!Number.isFinite(numeric)) return formatGwei(wei);
-  if (numeric > 0 && numeric < 0.0001) return '< 0.0001';
-  return numeric.toLocaleString('en-US', {
-    maximumFractionDigits: numeric < 0.1 ? 4 : 2,
-  });
-}
+import { creditFaucetFor, usdcFaucetFor, type TestnetFaucetInfo } from '@/lib/testnetTokens';
+import { Callout, ExternalLink, RunwayReadout, type RunwayReadoutProps } from '@/ui';
+import { configuredFundsChains } from './chainV2';
+import { formatDisplayGasPrice, useChainGasPrices } from './useGasPrices';
+import { useWorkflowCredits, workflowCreditsFor } from './WorkflowCredit';
 
 const factorRows = [
   {
@@ -50,22 +51,25 @@ const factorRows = [
 
 export function WorkflowCost() {
   const { mode } = useNetworkMode();
+  const { address } = useAccount();
   const workflowCredits = workflowCreditsFor(mode);
-  const prices = useQueries({
-    queries: workflowCredits.map(({ chain }) => ({
-      queryKey: ['workflow-v2', 'gas-price', mode, chain],
-      queryFn: () => workflowClient(chain).getGasPrice(),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-      retry: 1,
-    })),
-  });
+  const credits = useWorkflowCredits(address);
+  const prices = useChainGasPrices(
+    workflowCredits.map(({ chain }) => chain),
+    mode,
+  );
+  const usdcFaucets: TestnetFaucetInfo[] =
+    mode === 'testnet'
+      ? configuredFundsChains(mode)
+          .map((chain) => usdcFaucetFor(chain))
+          .filter((token): token is TestnetFaucetInfo => Boolean(token))
+      : [];
 
   return (
     <section className="app-page">
       <PageHeading
         title="Workflow costs"
-        description="See which balances pay for your workflows and what changes the cost of a run."
+        description="See how far your credit goes at live gas prices and what changes the cost of a run."
         aside={
           <Link
             className="app-button app-button--primary"
@@ -88,8 +92,9 @@ export function WorkflowCost() {
                 {workflowCredits.length > 2 ? 'Fee credits by network' : 'Two balances, two jobs'}
               </h2>
               <p className="rb-panel-copy">
-                Credit is shared by workflows owned by the same wallet. Suggested reserves are
-                refill thresholds. Actual charges depend on the workflow and network.
+                Credit is shared by workflows owned by the same wallet. Runway estimates translate
+                reserves and live gas into approximate runs; actual charges depend on the workflow
+                and network.
               </p>
             </div>
           </div>
@@ -99,6 +104,16 @@ export function WorkflowCost() {
           {workflowCredits.map(({ kind, title, unit, chain }, index) => {
             const price = prices[index]!;
             const role = kind === 'watching' ? 'automation' : 'funds';
+            const threshold = feeCreditWarningThreshold(chain);
+            const creditQuery = credits.queries[index];
+            const creditBalance = creditQuery?.data;
+            const hasAccountBalance = creditBalance !== null && creditBalance !== undefined;
+            const creditCheckFailed = Boolean(
+              address && creditQuery?.isError && !hasAccountBalance,
+            );
+            const faucet = mode === 'testnet' ? creditFaucetFor(chain) : undefined;
+            const gasAssumption = estimatedGasPerRunLabel(kind);
+
             const gasState = price.isError
               ? price.data !== undefined
                 ? 'Last reported'
@@ -106,6 +121,82 @@ export function WorkflowCost() {
               : price.isPending
                 ? 'Checking'
                 : 'Live';
+
+            let runwayProps: RunwayReadoutProps;
+            if (price.data?.runCostWei) {
+              if (hasAccountBalance) {
+                const runway = estimateCreditRunway({
+                  reserveWei: creditBalance.reserve,
+                  debtWei: creditBalance.debt,
+                  estimatedCostPerRunWei: price.data.runCostWei,
+                });
+                const tone: RunwayReadoutProps['tone'] =
+                  creditBalance.debt > 0n
+                    ? 'danger'
+                    : creditBalance.reserve === 0n ||
+                        creditBalance.reserve < threshold ||
+                        runway?.underOneRun
+                      ? 'paused'
+                      : runway === null
+                        ? 'muted'
+                        : 'active';
+                const badge: RunwayReadoutProps['badge'] =
+                  creditBalance.debt > 0n
+                    ? { label: 'Fees due', tone: 'danger' }
+                    : creditBalance.reserve === 0n
+                      ? { label: 'Unfunded', tone: 'paused' }
+                      : creditBalance.reserve < threshold || runway?.underOneRun
+                        ? { label: 'Low runway', tone: 'paused' }
+                        : { label: 'Funded', tone: 'active' };
+                const detail =
+                  runway === null
+                    ? 'Network fee pricing is unavailable.'
+                    : creditBalance.debt > 0n
+                      ? `From ${formatEther(creditBalance.reserve)} ${unit} reserve minus ${formatEther(creditBalance.debt)} ${unit} owed · ${gasAssumption}`
+                      : `From your ${formatEther(creditBalance.reserve)} ${unit} reserve · ${gasAssumption}`;
+                runwayProps = {
+                  value: runway ? formatRunwayRuns(runway) : 'Runway unavailable',
+                  detail,
+                  badge,
+                  tone,
+                };
+              } else {
+                const runway = estimateCreditRunway({
+                  reserveWei: threshold,
+                  estimatedCostPerRunWei: price.data.runCostWei,
+                });
+                runwayProps = {
+                  value: runway ? formatRunwayRuns(runway) : 'Runway unavailable',
+                  detail:
+                    runway === null
+                      ? 'Network fee pricing is unavailable.'
+                      : creditCheckFailed
+                        ? `Could not read your reserve; showing suggested ${formatEther(threshold)} ${unit} · ${gasAssumption}`
+                        : `At suggested ${formatEther(threshold)} ${unit} reserve · ${gasAssumption}`,
+                  badge: creditCheckFailed
+                    ? { label: 'Balance unavailable', tone: 'paused' }
+                    : { label: 'At suggested reserve', plain: true },
+                  tone:
+                    creditCheckFailed || runway?.underOneRun
+                      ? 'paused'
+                      : runway === null
+                        ? 'muted'
+                        : 'default',
+                };
+              }
+            } else if (price.isPending) {
+              runwayProps = {
+                value: 'Estimating…',
+                detail: 'Reading network fee pricing.',
+                tone: 'muted',
+              };
+            } else {
+              runwayProps = {
+                value: 'Runway unavailable',
+                detail: 'Network fee pricing could not be loaded.',
+                tone: 'muted',
+              };
+            }
 
             return (
               <section
@@ -141,11 +232,22 @@ export function WorkflowCost() {
                     : 'Funds callbacks that settle in your vault. A branch with more actions can use more gas.'}
                 </p>
 
+                <RunwayReadout size="featured" {...runwayProps} />
+
                 <dl className="rb-cost-lane-facts">
+                  {hasAccountBalance && (
+                    <div>
+                      <dt>Your reserve</dt>
+                      <dd className="rb-cost-reserve">
+                        {formatEther(creditBalance.reserve)}
+                        <span>{unit}</span>
+                      </dd>
+                    </div>
+                  )}
                   <div>
                     <dt>Suggested reserve</dt>
                     <dd className="rb-cost-reserve">
-                      {formatEther(feeCreditWarningThreshold(chain))}
+                      {formatEther(threshold)}
                       <span>{unit}</span>
                     </dd>
                   </div>
@@ -155,13 +257,11 @@ export function WorkflowCost() {
                     </dt>
                     <dd
                       className="rb-cost-gas"
-                      title={
-                        price.data !== undefined ? `${formatGwei(price.data)} gwei` : undefined
-                      }
+                      title={price.data ? `${formatGwei(price.data.gasPriceWei)} gwei` : undefined}
                     >
                       {price.data !== undefined ? (
                         <>
-                          {formatGasGwei(price.data)}
+                          {formatDisplayGasPrice(price.data.gasPriceWei)}
                           <span>gwei</span>
                         </>
                       ) : price.isPending ? (
@@ -173,14 +273,14 @@ export function WorkflowCost() {
                   </div>
                 </dl>
 
-                {price.isError && (
+                {(price.isError || price.data?.runCostWei === null) && (
                   <button
                     type="button"
                     className="rb-cost-refresh"
                     disabled={price.isFetching}
                     onClick={() => void price.refetch()}
                   >
-                    {price.isFetching ? 'Checking gas price…' : 'Check gas price again'}
+                    {price.isFetching ? 'Checking gas price…' : 'Check network fees again'}
                   </button>
                 )}
 
@@ -195,12 +295,33 @@ export function WorkflowCost() {
                     Add {title.toLowerCase()}
                     <HugeiconsIcon icon={ArrowRight01Icon} size={15} aria-hidden="true" />
                   </Link>
+                  {faucet && <ExternalLink href={faucet.faucet}>{faucet.linkLabel}</ExternalLink>}
                 </footer>
               </section>
             );
           })}
         </div>
       </section>
+
+      {usdcFaucets.length > 0 && (
+        <Callout
+          title="Need testnet tokens for your vault?"
+          action={
+            <div className="flex flex-wrap items-center gap-3">
+              {usdcFaucets.map((token) => (
+                <ExternalLink key={token.linkLabel} href={token.faucet}>
+                  {token.linkLabel}
+                </ExternalLink>
+              ))}
+            </div>
+          }
+        >
+          <p>
+            Native gas and credit faucets are linked on each network lane above. Use Circle&apos;s
+            faucet for test USDC on your vault network.
+          </p>
+        </Callout>
+      )}
 
       <section className="app-panel rb-cost-factors" aria-labelledby="workflow-cost-factors">
         <header className="rb-panel-head">
@@ -237,9 +358,10 @@ export function WorkflowCost() {
           <div className="rb-cost-proof-note">
             <HugeiconsIcon icon={InformationCircleIcon} size={15} aria-hidden="true" />
             <p>
-              A workflow proof can show execution gas from the transaction receipts. The credit
-              system can apply its own billing parameters, and settlement transactions can also
-              incur data fees.
+              Runway estimates assume typical gas usage (~200k gas per trigger check and ~350k gas
+              per settlement callback), plus the network billing surcharge and multiplier. A
+              workflow proof can show actual execution gas from transaction receipts. Settlement
+              transactions can also incur data fees.
             </p>
           </div>
           <Link className="app-button" to={withNetworkQuery(appRoutes.proof, mode)}>

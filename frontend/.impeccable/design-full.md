@@ -227,6 +227,8 @@ Don't:
   Map: src/ui/EmptyState.tsx
   Map: src/ui/FactList.tsx
   Map: src/ui/Callout.tsx
+  Map: src/ui/LatencyBar.tsx
+  Map: src/ui/RunProofList.tsx
   Full: .impeccable/design-full.md (read a section when you need its detail)
 
 ## Overview

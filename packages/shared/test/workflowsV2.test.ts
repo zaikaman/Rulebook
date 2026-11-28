@@ -46,6 +46,7 @@ import {
   workflowV2Check,
   workflowV2DeploymentSchema,
   workflowV2MainnetDeploymentSchema,
+  workflowV2RecentRunsResponseSchema,
   workflowV2Recipes,
   workflowV2Trigger,
   workflowV2Unit,
@@ -1083,5 +1084,71 @@ describe('V2 on-chain constraint mirroring', () => {
       false,
     );
     expect(assistantPageSchema.safeParse({ path: 'workflows' }).success).toBe(false);
+  });
+
+  it('validates recent verified runs response payloads', () => {
+    const validHash = `0x${'a'.repeat(64)}`;
+    const parsed = workflowV2RecentRunsResponseSchema.parse({
+      runs: [
+        {
+          id: validHash,
+          chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+          programHash: validHash,
+          originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+          originTransaction: validHash,
+          originLogIndex: '3',
+          lasnaTransaction: validHash,
+          destinationTransaction: validHash,
+          expiresAt: 1_900_000_000,
+          status: 'confirmed',
+          path: 0,
+          reason: null,
+        },
+      ],
+    });
+    expect(parsed.runs).toHaveLength(1);
+    expect(parsed.runs[0]?.status).toBe('confirmed');
+
+    expect(
+      workflowV2RecentRunsResponseSchema.safeParse({
+        runs: [
+          {
+            id: 'not-a-hash',
+            chain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            programHash: validHash,
+            originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            originTransaction: validHash,
+            originLogIndex: '3',
+            lasnaTransaction: validHash,
+            destinationTransaction: validHash,
+            expiresAt: 1_900_000_000,
+            status: 'confirmed',
+            path: 0,
+            reason: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      workflowV2RecentRunsResponseSchema.safeParse({
+        runs: [
+          {
+            id: validHash,
+            chain: LASNA_CHAIN_ID,
+            programHash: validHash,
+            originChain: UNICHAIN_SEPOLIA_CHAIN_ID,
+            originTransaction: validHash,
+            originLogIndex: '3',
+            lasnaTransaction: validHash,
+            destinationTransaction: validHash,
+            expiresAt: 1_900_000_000,
+            status: 'confirmed',
+            path: 0,
+            reason: null,
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });

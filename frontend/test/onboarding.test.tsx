@@ -150,6 +150,8 @@ function makeFunds(overrides: Partial<SetupFundingBalances> = {}): SetupFundingB
     usdc: USDC_TOKEN,
     watch: 0n,
     execution: 0n,
+    watchDebt: 0n,
+    executionDebt: 0n,
     stable: 0n,
     walletWatch: parseEther('1'),
     walletNative: parseEther('0.1'),

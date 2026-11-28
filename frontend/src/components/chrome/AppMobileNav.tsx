@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router';
 
 import { useAssistant } from '@/assistant/AssistantContext';
+import { useDemoMode } from '@/lib/demoMode';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode';
 import { appRoutes, isActiveRoute } from '@/lib/routes';
 import { Badge, Button } from '@/ui';
@@ -18,6 +19,7 @@ const items = workflowNavigation;
 export function AppMobileNav() {
   const { pathname } = useLocation();
   const assistant = useAssistant();
+  const { isDemoMode } = useDemoMode();
   const { mode, isMainnet, automationName, isDeploymentConfigured } = useNetworkMode();
   const navRef = useRef<HTMLElement>(null);
 
@@ -51,7 +53,7 @@ export function AppMobileNav() {
           >
             <HugeiconsIcon icon={SparklesIcon} size={17} strokeWidth={1.8} aria-hidden="true" />
           </Button>
-          <WalletControl />
+          {!isDemoMode && <WalletControl />}
           <NewWorkflowLink compact />
         </div>
       </div>

@@ -610,11 +610,15 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
   const mode = networkModeForChain(chain);
   const autoChain = automationChainFor(mode);
   const autoClient = workflowClient(autoChain);
-  const [agent, vault] = await Promise.all([
-    readAgent(owner, undefined, mode),
-    readVault(owner, chain),
-  ]);
   const client = workflowClient(chain);
+  const [autoBlock, fundsBlock] = await Promise.all([
+    autoClient.getBlockNumber({ cacheTime: 0 }).catch(() => undefined),
+    client.getBlockNumber({ cacheTime: 0 }).catch(() => undefined),
+  ]);
+  const [agent, vault] = await Promise.all([
+    readAgent(owner, autoBlock, mode),
+    readVault(owner, chain, fundsBlock),
+  ]);
   const lasnaSystem = getChain(autoChain).systemContract;
   const factory = settlementFactory(chain);
   const proxy = factory
@@ -622,6 +626,7 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
         address: factory,
         abi: workflowVaultFactoryV2Abi,
         functionName: 'callbackProxy',
+        blockNumber: fundsBlock,
       })
     : undefined;
   const [
@@ -629,6 +634,8 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
     weth,
     watch,
     execution,
+    watchDebt,
+    executionDebt,
     native,
     agentNative,
     walletNative,
@@ -649,6 +656,7 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
           abi: executionCreditAbi,
           functionName: 'reserves',
           args: [agent],
+          blockNumber: autoBlock,
         }),
     vault === zeroAddress || !proxy
       ? 0n
@@ -657,7 +665,34 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
           abi: executionCreditAbi,
           functionName: 'reserves',
           args: [vault],
+          blockNumber: fundsBlock,
         }),
+    agent === zeroAddress
+      ? 0n
+      : autoBlock === undefined
+        ? null
+        : autoClient
+            .readContract({
+              address: lasnaSystem,
+              abi: executionCreditAbi,
+              functionName: 'debt',
+              args: [agent],
+              blockNumber: autoBlock,
+            })
+            .catch(() => null),
+    vault === zeroAddress || !proxy
+      ? 0n
+      : fundsBlock === undefined
+        ? null
+        : client
+            .readContract({
+              address: proxy,
+              abi: executionCreditAbi,
+              functionName: 'debt',
+              args: [vault],
+              blockNumber: fundsBlock,
+            })
+            .catch(() => null),
     vault === zeroAddress ? 0n : client.getBalance({ address: vault }),
     agent === zeroAddress ? 0n : autoClient.getBalance({ address: agent }),
     client.getBalance({ address: owner }),
@@ -713,6 +748,8 @@ export async function readFundsV2(owner: Address, chain: SettlementChain) {
     weth,
     watch,
     execution,
+    watchDebt,
+    executionDebt,
     native,
     agentNative,
     stable,

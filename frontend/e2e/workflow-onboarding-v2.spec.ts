@@ -108,6 +108,10 @@ test('supports draft-first workflow building, gates activation through /setup, a
   await expect(page.getByLabel('Watching credit (lREACT)')).toHaveValue('0.1');
   await expect(page.getByLabel('Execution credit (ETH)')).toHaveValue('0.001');
   await expect(page.getByLabel('Vault USDC (USDC)')).toHaveValue('10');
+  await expect(page.getByText(/runs? covered/).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Lasna lREACT/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Unichain Sepolia ETH/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Unichain Sepolia USDC/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Deposit funds' }).click();
   await expect(page.getByRole('button', { name: 'Return to workflow' })).toBeVisible({
@@ -143,9 +147,14 @@ test('supports draft-first workflow building, gates activation through /setup, a
   await expect(page.locator('.rb-balance').filter({ hasText: 'Execution credit' })).toContainText(
     /0\.001\s*ETH/,
   );
+  await expect(page.locator('.rb-balance').filter({ hasText: 'Execution credit' })).toContainText(
+    /runs? covered at live gas/,
+  );
   await expect(page.locator('.rb-credit-row').filter({ hasText: 'Watching credit' })).toContainText(
     /0\.1\s*lREACT/,
   );
+  await expect(page.getByText(/runs? covered at live gas/).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: /Get Unichain Sepolia USDC/ })).toBeVisible();
 });
 
 test('redirects connected unsetup wallets to /setup on personal routes while keeping public routes open', async ({

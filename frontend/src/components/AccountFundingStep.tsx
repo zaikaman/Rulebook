@@ -1,17 +1,15 @@
-import {
-  ArrowRight02Icon,
-  ArrowUpRight01Icon,
-  CircleArrowReload01Icon,
-  Tick02Icon,
-} from '@hugeicons/core-free-icons';
+import { ArrowRight02Icon, CircleArrowReload01Icon, Tick02Icon } from '@hugeicons/core-free-icons';
 import { HugeiconsIcon } from '@hugeicons/react';
 import {
   automationChainFor,
-  BASE_SEPOLIA_CHAIN_ID,
+  estimateCreditRunway,
+  estimatedGasPerRunLabel,
   feeCreditWarningThreshold,
+  formatRunwayRuns,
   getChain,
   networkModeForChain,
   type Address,
+  type FeeCreditKind,
   type FundsChainId,
 } from '@rulebook/shared';
 import { useEffect, useRef, useState } from 'react';
@@ -34,11 +32,97 @@ import {
   SetupTransactionError,
   WalletAuthorizationError,
 } from '../lib/errors.js';
-import { testnetTokens } from '../lib/testnetTokens.js';
-import { Badge, Button, ErrorState, Field } from '../ui/index.js';
+import { creditFaucetFor, usdcFaucetFor } from '../lib/testnetTokens.js';
+import { Badge, Button, ErrorState, ExternalLink, Field, RunwayReadout } from '../ui/index.js';
+import { useChainGasPrices } from '../workflows/useGasPrices.js';
 import { Spinner } from './chrome/Spinner.js';
 import { NetworkBadge } from './NetworkBadge.js';
 import { TxLink } from './TxLink.js';
+
+function renderFundingRunway({
+  kind,
+  currentReserve,
+  debt,
+  enteredAmount,
+  threshold,
+  suggested,
+  symbol,
+  runCost,
+  gasPending,
+}: {
+  kind: FeeCreditKind;
+  currentReserve: bigint;
+  debt: bigint | null;
+  enteredAmount: bigint;
+  threshold: bigint;
+  suggested: bigint;
+  symbol: string;
+  runCost: bigint | null | undefined;
+  gasPending: boolean;
+}) {
+  if (!runCost || debt === null) {
+    return (
+      <RunwayReadout
+        size="compact"
+        tone="muted"
+        value={gasPending ? 'Estimating…' : 'Runway unavailable'}
+        detail={gasPending ? 'Reading network fee pricing.' : undefined}
+        className="account-setup__funding-runway"
+      />
+    );
+  }
+
+  const totalReserve = currentReserve + enteredAmount;
+  const gasAssumption = estimatedGasPerRunLabel(kind);
+  if (totalReserve > 0n || debt > 0n) {
+    const runway = estimateCreditRunway({
+      reserveWei: totalReserve,
+      debtWei: debt,
+      estimatedCostPerRunWei: runCost,
+    });
+    if (!runway) return null;
+    const tone =
+      debt > enteredAmount
+        ? 'danger'
+        : runway.depleted || runway.underOneRun
+          ? 'paused'
+          : runway.netReserveWei >= threshold
+            ? 'active'
+            : 'default';
+    const detail =
+      debt > 0n
+        ? `Fees due: ${exactUnits(debt, 18)} ${symbol}. Deposits pay fees first.`
+        : enteredAmount > 0n && currentReserve > 0n
+          ? `Total with deposit (${exactUnits(totalReserve, 18)} ${symbol}) · ${gasAssumption}`
+          : enteredAmount > 0n
+            ? `For this ${exactUnits(enteredAmount, 18)} ${symbol} deposit · ${gasAssumption}`
+            : `From current ${exactUnits(currentReserve, 18)} ${symbol} reserve · ${gasAssumption}`;
+    return (
+      <RunwayReadout
+        size="compact"
+        value={formatRunwayRuns(runway)}
+        detail={detail}
+        tone={tone}
+        className="account-setup__funding-runway"
+      />
+    );
+  }
+
+  const suggestedRunway = estimateCreditRunway({
+    reserveWei: suggested,
+    estimatedCostPerRunWei: runCost,
+  });
+  if (!suggestedRunway) return null;
+  return (
+    <RunwayReadout
+      size="compact"
+      tone="muted"
+      value={`Suggested ${exactUnits(suggested, 18)} ${symbol}`}
+      detail={`Covers ${formatRunwayRuns(suggestedRunway, { suffix: 'none' })} at live gas · ${gasAssumption}`}
+      className="account-setup__funding-runway"
+    />
+  );
+}
 
 export function AccountFundingStep({
   owner,
@@ -93,7 +177,10 @@ export function AccountFundingStep({
   const autoChainId = automationChainFor(mode);
   const lasnaNetwork = getChain(autoChainId);
   const watchSymbol = lasnaNetwork.nativeSymbol;
-  const usdcToken = chainId === BASE_SEPOLIA_CHAIN_ID ? testnetTokens.baseUsdc : testnetTokens.usdc;
+  const [watchGasQuery, execGasQuery] = useChainGasPrices([autoChainId, chainId], mode);
+  const watchFaucet = !isMainnet ? creditFaucetFor(autoChainId) : undefined;
+  const execFaucet = !isMainnet ? creditFaucetFor(chainId) : undefined;
+  const usdcFaucet = !isMainnet ? usdcFaucetFor(chainId) : undefined;
 
   const watchingParsed = parseFundingAmount(amounts.watching, 18, watchSymbol, funds?.walletWatch);
   const executionParsed = parseFundingAmount(amounts.execution, 18, 'ETH', funds?.walletNative);
@@ -357,6 +444,34 @@ export function AccountFundingStep({
                     />
                   )}
                 </Field>
+                {renderFundingRunway({
+                  kind: 'watching',
+                  currentReserve: funds.watch,
+                  debt: funds.watchDebt,
+                  enteredAmount:
+                    !confirmed.watching && watchingParsed.amount ? watchingParsed.amount : 0n,
+                  threshold: watchingThreshold,
+                  suggested: suggestedWatchingCreditFor(autoChainId),
+                  symbol: watchSymbol,
+                  runCost: watchGasQuery?.isError ? null : watchGasQuery?.data?.runCostWei,
+                  gasPending: Boolean(watchGasQuery?.isPending),
+                })}
+                {watchFaucet && !confirmed.watching && (
+                  <>
+                    <ExternalLink
+                      className="account-setup__funding-faucet"
+                      href={watchFaucet.faucet}
+                    >
+                      {watchFaucet.linkLabel}
+                    </ExternalLink>
+                    {(funds.walletWatch === 0n ||
+                      (!watchingParsed.amount && funds.watch < watchingThreshold)) && (
+                      <p className="account-setup__funding-faucet-note">
+                        {watchFaucet.instructions}
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             </li>
 
@@ -414,6 +529,35 @@ export function AccountFundingStep({
                     />
                   )}
                 </Field>
+                {executionAvailable &&
+                  renderFundingRunway({
+                    kind: 'execution',
+                    currentReserve: funds.execution,
+                    debt: funds.executionDebt,
+                    enteredAmount:
+                      !confirmed.execution && executionParsed.amount ? executionParsed.amount : 0n,
+                    threshold: executionThreshold,
+                    suggested: suggestedExecutionCreditFor(chainId),
+                    symbol: 'ETH',
+                    runCost: execGasQuery?.isError ? null : execGasQuery?.data?.runCostWei,
+                    gasPending: Boolean(execGasQuery?.isPending),
+                  })}
+                {execFaucet && executionAvailable && !confirmed.execution && (
+                  <>
+                    <ExternalLink
+                      className="account-setup__funding-faucet"
+                      href={execFaucet.faucet}
+                    >
+                      {execFaucet.linkLabel}
+                    </ExternalLink>
+                    {(funds.walletNative === 0n ||
+                      (!executionParsed.amount && funds.execution < executionThreshold)) && (
+                      <p className="account-setup__funding-faucet-note">
+                        {execFaucet.instructions}
+                      </p>
+                    )}
+                  </>
+                )}
               </div>
             </li>
 
@@ -459,17 +603,20 @@ export function AccountFundingStep({
                     />
                   )}
                 </Field>
-                {!isMainnet && usdcAvailable && funds.walletStable === 0n && !confirmed.usdc && (
-                  <a
-                    className="app-link account-setup__funding-faucet"
-                    href={usdcToken.faucet}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {usdcToken.linkLabel}
-                    <HugeiconsIcon icon={ArrowUpRight01Icon} size={14} aria-hidden="true" />
-                    <span className="sr-only"> (opens in a new tab)</span>
-                  </a>
+                {usdcFaucet && usdcAvailable && !confirmed.usdc && (
+                  <>
+                    <ExternalLink
+                      className="account-setup__funding-faucet"
+                      href={usdcFaucet.faucet}
+                    >
+                      {usdcFaucet.linkLabel}
+                    </ExternalLink>
+                    {funds.walletStable === 0n && (
+                      <p className="account-setup__funding-faucet-note">
+                        {usdcFaucet.instructions}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             </li>

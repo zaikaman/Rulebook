@@ -138,7 +138,7 @@ Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the fron
 
 The app reads chain state through its API. The API has no key that can move Vault principal.
 
-To enable the demo, set `DEMO_ACCOUNT_ADDRESS` in the backend to the public testnet smoke wallet that owns the Agent and Vaults for the configured deployment. Use a dedicated public account with active workflows and indexed runs. Optionally set `DEMO_FEATURED_RUN_IDS` to up to four comma-separated run IDs owned by that account. By default, the proof page features its latest confirmed runs. The frontend reads availability from the backend. Apply [migration 0030](backend/db/migrations/0030_assistant_demo_sessions.sql) before enabling Bookkeeper guest access.
+To enable the demo, set `DEMO_ACCOUNT_ADDRESS` in the backend to the public testnet smoke wallet that owns the Agent and Vaults for the configured deployment. Use a dedicated public account with active workflows and indexed runs. Optionally set `DEMO_FEATURED_RUN_IDS` to up to six comma-separated run IDs owned by that account. By default, the proof page features its latest confirmed runs. The frontend reads availability from the backend and can use `VITE_DEMO_ACCOUNT_ADDRESS` to open the read-only workspace if that request fails. Apply [migration 0030](backend/db/migrations/0030_assistant_demo_sessions.sql) before enabling Bookkeeper guest access.
 
 ## Ask the Bookkeeper
 

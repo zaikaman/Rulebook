@@ -336,7 +336,17 @@ export function WorkflowMarketplaceV2() {
                   title={item.title}
                   icon={<HugeiconsIcon icon={icon} size={18} strokeWidth={1.7} />}
                   iconTone={meta.trigger === T.payment ? 'funds' : 'automation'}
-                  meta={triggerLabel}
+                  meta={
+                    <>
+                      <span className="font-mono">{shortAddress(item.owner)}</span>
+                      {triggerLabel && (
+                        <>
+                          <span aria-hidden="true"> · </span>
+                          {triggerLabel}
+                        </>
+                      )}
+                    </>
+                  }
                   description={item.description}
                   footer={
                     <div className="flex min-w-0 flex-wrap items-center gap-1">

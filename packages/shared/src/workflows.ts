@@ -55,3 +55,9 @@ export const workflowV2RunProofSchema = z.object({
 });
 
 export type WorkflowV2RunProof = z.infer<typeof workflowV2RunProofSchema>;
+
+export const workflowV2RecentRunsResponseSchema = z.object({
+  runs: z.array(workflowV2RunProofSchema),
+});
+
+export type WorkflowV2RecentRunsResponse = z.infer<typeof workflowV2RecentRunsResponseSchema>;

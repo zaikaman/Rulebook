@@ -23,6 +23,7 @@ interface ImportMetaEnv {
   readonly VITE_WORKFLOW_V2_DEPLOYMENT?: string;
   readonly VITE_WORKFLOW_V2_MAINNET_DEPLOYMENT?: string;
   readonly VITE_WORKFLOW_V2_ACTIVATION?: string;
+  readonly VITE_DEMO_ACCOUNT_ADDRESS?: string;
 }
 
 interface ImportMeta {

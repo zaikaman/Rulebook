@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { useNetworkMode, withNetworkQuery } from '@/lib/networkMode.js';
 import { appRoutes } from '@/lib/routes.js';
 import { PhoneShowcase } from './phone-showcase.js';
+import { RecentVerifiedRuns } from './recent-verified-runs.js';
 import { SectionHeading } from './section-heading.js';
 
 const steps = [
@@ -50,6 +51,8 @@ export function ExecutionSection() {
           </Link>
         </div>
       </div>
+
+      <RecentVerifiedRuns />
     </section>
   );
 }

@@ -1,6 +1,7 @@
 import { useDemoMode } from '@/lib/demoMode';
 import { Badge, Button, Panel } from '@/ui';
 import { CopyButton } from './chrome/CopyButton.js';
+import { WalletControl } from './chrome/WalletControl.js';
 
 function shortAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -22,11 +23,14 @@ export function DemoModeBanner() {
             <CopyButton value={demoOwner} label="demo account address" />
           </span>
         </div>
-        <p>View live testnet workflows, run history, and Vault balances.</p>
+        <p>View live testnet workflows, health, run history, and Vault balances.</p>
       </div>
-      <Button variant="quiet" onClick={exitDemoMode}>
-        Exit demo
-      </Button>
+      <div className="app-demo-banner__actions">
+        <WalletControl />
+        <Button variant="quiet" onClick={exitDemoMode}>
+          Exit demo
+        </Button>
+      </div>
     </Panel>
   );
 }

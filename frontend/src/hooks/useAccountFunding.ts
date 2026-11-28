@@ -21,6 +21,8 @@ export interface SetupFundingBalances {
   readonly usdc: Address;
   readonly watch: bigint;
   readonly execution: bigint;
+  readonly watchDebt: bigint | null;
+  readonly executionDebt: bigint | null;
   readonly stable: bigint;
   readonly walletWatch: bigint;
   readonly walletNative: bigint;

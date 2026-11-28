@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { addressSchema, fundsChainIdSchema, networkModeSchema } from './schemas.js';
 import { workflowIdSchema, workflowV2RunStatusSchema } from './workflows.js';
 
-export const demoFeaturedRunLimit = 4;
+export const demoFeaturedRunLimit = 6;
 
 export const demoFeaturedRunSchema = z.object({
   id: workflowIdSchema,
