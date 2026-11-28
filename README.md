@@ -1,60 +1,23 @@
 # Rulebook
 
-Rulebook is a Set It and Forget It entry for the [Reactive Omni Buildathon](https://dorahacks.io/hackathon/reactive-omni-buildathon). It lets a person who can connect a wallet leave a personal automation running: buy on a schedule, forward part of an incoming payment, refill a balance, sell when a pool price moves, or pay a chosen wallet after a long silence.
+Set aside part of a payment, buy on a schedule, or act when a price crosses your target. Rulebook lets you build these automations visually and leave them running after you close the app. [Reactive Omni Buildathon · Set It and Forget It](https://dorahacks.io/hackathon/reactive-omni-buildathon)
 
-The hosted app is at [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app).
+On Testnet, your wallet owns an Agent on Reactive Lasna and a Vault on Unichain Sepolia or Base Sepolia. The Agent watches events and requests callbacks. Your Vault checks the program you approved, then transfers, swaps, refills, records an alert, or skips the run. You fund the Vault and its network credits when you activate a workflow.
 
-You describe the workflow in the app. Your wallet owns an Agent on Reactive Lasna and a Vault on a settlement chain (Unichain Sepolia or Base Sepolia). The Agent subscribes to the origin logs that workflow needs on either supported network, evaluates them in `react`, and asks Reactive to call the settlement Vault. The Vault checks the program you signed and then swaps, transfers, refills, records an alert, or records a skip. Stopping the app leaves a funded workflow running.
+## Try it on Testnet
 
-Testnet only. You fund the Vault and the two network credits yourself.
+| Start here                                                                                                                                         | What you can do                                                                                       |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [Watch the demo (1:30)](docs/demo/rulebook-buildathon.mp4)                                                                                         | Follow an income sweep from the builder to three on-chain receipts. [Transcript](docs/demo/README.md) |
+| [Build the rule](https://rulebook-chi.vercel.app/workflows/new?network=testnet)                                                                    | Choose **Income sweep**, enter the amounts, and review the draft without connecting a wallet.         |
+| [Inspect a confirmed run](https://rulebook-chi.vercel.app/runs/0xfde2a4ef2a2dbebae6417c14112ef7ab6626867c7da52fd50d784e71aac57309?network=testnet) | Open the origin event, Lasna decision, and Unichain settlement without a wallet.                      |
+| [Verify the deployment](docs/submission-evidence.md#active-testnet-deployment)                                                                     | Find the deployed addresses, receipt triples from both settlement chains, and the source revision.    |
 
-## What to open first
+An income sweep can set aside part of a payment for savings or expenses. In the recorded workflow, a payment of at least 1.00 USDC sends 0.20 USDC. A smaller payment of at least 0.25 USDC sends 0.05 USDC. Payments below 0.25 USDC send nothing. A weekly budget caps the total the Vault can spend.
 
-The judging bar for this track is a reactive transaction, the callback it causes, a tool worth leaving on, and a repository someone else can follow. Start with the receipts, then the two contracts that produced them.
+The active Unichain deployment settled a 1.20 USDC payment on the first branch. [Origin transfer](https://unichain-sepolia.blockscout.com/tx/0x1bfa7efa7581d91e2d94d7a34ad09febf9444daacb430c9d09ca81b1cc8dbaa0) · [Lasna reaction](https://lasna.reactscan.net/tx/0xdd7e74fe0b75d7664133eb92ec3cf5ebb78f4d5687f16f76c8b01f45d7fcba3b) · [Unichain callback](https://unichain-sepolia.blockscout.com/tx/0xa149f9cffbff4b1ed121e6d581b95c92dc7506b1d65403fa7d3e2d68bd64bf1a)
 
-| Open this                                                                  | What it shows                                                                   |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [Income payment of 1.20 USDC](#a-payment-that-takes-three-different-paths) | One `Transfer` becomes a Lasna decision and a Unichain payout.                  |
-| [Scheduled buy](#a-schedule-that-fires-on-the-next-lasna-block)            | `Cron100` on Lasna, `react` on the next block, swap through the callback proxy. |
-| [`WorkflowAgentV2.sol`](contracts/src/workflow/v2/WorkflowAgentV2.sol)     | Subscriptions, price and activity memory, `Dispatched`, `requestCallbackV_1_0`. |
-| [`WorkflowVaultV2.sol`](contracts/src/workflow/v2/WorkflowVaultV2.sol)     | The signed program, per-run caps, weekly budget, and the settlement.            |
-
-## A payment that takes three different paths
-
-The workflow is an income sweep. It watches USDC transfers into one Vault. The signed program has two payment thresholds:
-
-- A payment of at least 1.00 USDC sends 0.20 USDC to the chosen recipient.
-- A smaller payment of at least 0.25 USDC sends 0.05 USDC.
-- Anything below both thresholds is skipped. The workflow stays on.
-
-Three USDC transfers into the same Vault each completed the loop: Unichain `Transfer`, Lasna `react`, Unichain callback.
-
-| Payment in | Path | Vault did             | Origin `Transfer`                                                                                                | Lasna `react`                                                                                                    | Callback                                                                                                         |
-| ---------- | ---- | --------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| 1.20 USDC  | 1    | Sent 0.20 USDC        | [0x714e…83f8](https://sepolia.uniscan.xyz/tx/0x714e0c157898d3a79b9e4ae3ab69f1dab6fa340eb0255d12053aac690fd983f8) | [0x03dc…2638](https://lasna.reactscan.net/tx/0x03dca7bb85b59ca005c20601f41f3e472e2a0bf3a58ab6a29d51d532fe192638) | [0xba91…099e](https://sepolia.uniscan.xyz/tx/0xba91dc7ea2e98b4acc03c3b322e810b08e5edc45685bfc21dc992a26dc25099e) |
-| 0.60 USDC  | 3    | Sent 0.05 USDC        | [0x17ec…b9a8](https://sepolia.uniscan.xyz/tx/0x17ec5ee9fe16604548b664e3634aa26469bdf8354bad45902e511e4e56bbb9a8) | [0x49a0…89c8](https://lasna.reactscan.net/tx/0x49a056ef6e9168ca65ccdfb923c1d8769d494efe43e8f3942036a84ce18e89c8) | [0x6a4d…dc07](https://sepolia.uniscan.xyz/tx/0x6a4d944f3d0d9bd4e8561a01506e00db5a6e9baaac39c358399f92718dafdc07) |
-| 0.10 USDC  | 4    | Skipped, sent nothing | [0x2396…bd60](https://sepolia.uniscan.xyz/tx/0x239630065d398b717bf19ac1d3c75c5b793f26bd8e9e54895fb1361e37a0bd60) | [0x2441…e422](https://lasna.reactscan.net/tx/0x2441cefd445348f64914787f76da66582e37bba2d643b0790e8de3f093c1e422) | [0xa7a5…6214](https://sepolia.uniscan.xyz/tx/0xa7a51f37fec05a39782a26feb3f60bb20e50d1840cf73a1ad3f1cb3032b66214) |
-
-The 1.20 USDC payment was mined on Unichain at 06:28:49 UTC. The callback was mined at 06:28:52 UTC. The skip has a callback too: the destination receipt contains the Vault and no USDC transfer. The same event still woke the Agent, and the Vault still applied the signed program.
-
-That sweep belongs to this wallet:
-
-| Contract | Address                                                                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| Agent    | [`0x6bF114548E7A748c7E8ED736b0E80c07B01291F8`](https://lasna.reactscan.net/address/0x6bF114548E7A748c7E8ED736b0E80c07B01291F8) |
-| Vault    | [`0x95855cd060ef40B1212Eb1366365f3C925F300be`](https://sepolia.uniscan.xyz/address/0x95855cd060ef40B1212Eb1366365f3C925F300be) |
-
-On the Lasna receipt, the transaction is sent to the system contract. The Agent emits `Dispatched` from inside that call. On Unichain, the settlement transaction is sent to the callback proxy, and the Vault emits `Outcome`.
-
-## A schedule that fires on the next Lasna block
-
-The same wallet ran a scheduled buy. It watches `Cron100` at `0x0000000000000000000000000000000000fffFfF`. Its tick and its `react` are consecutive Lasna blocks, one second apart on Lasna's clock. The swap landed on Unichain two seconds after `react`. The destination receipt moves USDC and WETH through the configured pair.
-
-| Workflow      | Origin                                                                                                                             | Lasna `react`                                                                                                                 | Callback                                                                                                                         |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Scheduled buy | [Lasna `Cron100`, 06:30:33 UTC](https://lasna.reactscan.net/tx/0xa0dbed575f09181e3c3c62b83fc3a3cbdd6b76e68ff2aa330a39ccc61cfa10df) | [Next block, 06:30:34 UTC](https://lasna.reactscan.net/tx/0xc66cac219fbffefcac68212e1a984edc775d8e7c7936c497bd001900149d549c) | [Unichain swap, 06:30:36 UTC](https://sepolia.uniscan.xyz/tx/0xd377b1311e7aa8871e1c25bd3e46480e0da35944f25164d53d5674dd06a7005d) |
-
-The runs above are historical receipts from the November 24 demonstration. The receipt file identifies the factories and source that produced them. [Historical smoke receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json)
+For a first test with your own wallet, follow the [income sweep walkthrough](docs/workflows.md#run-your-first-income-sweep). To trace the code, start with the [receipt and source guide](docs/submission-evidence.md#trace-a-receipt-through-the-code).
 
 ## What you can leave running
 
@@ -157,7 +120,7 @@ Intervals, expiries, and the weekly reset use timestamps (so 200ms block times o
 
 With the ERC-1967 factories, each wallet calls `create()` on the Lasna factory and receives its own `WorkflowAgentV2` proxy. It then calls `create(agent)` on the Unichain Sepolia or Base Sepolia `WorkflowVaultFactoryV2` and receives its own `WorkflowVaultV2` ERC-1967 proxy for that chain. A second call returns the contract that wallet already owns. Each wallet owner retains sole authority to opt in to factory-approved UUPS implementation upgrades on their own Agent and Vault proxies (`upgradeToAndCall`). Factory admins publish approved implementations. The owner links each Vault from the Agent (`linkVault(chainId, vault)`). Cross-chain workflows can watch a price feed or transfer on one supported funds chain and settle on another, and inactivity workflows watch owner transfers across every linked funds chain while isolating price histories per `(originChain, pair)`. Setup can resume after any deployment.
 
-The backend, frontend, and release job use the active factory record. The November 24 receipts above identify their own historical factories. The staged ERC-1967 candidate has separate smoke evidence covering Unichain Sepolia and Base Sepolia. [Active factory record](deployments/workflows-v2.json) · [Staged smoke evidence](docs/submission-evidence.md#staged-erc-1967-smoke-verification)
+The backend, frontend, and release job use the active factory record. The November 28 receipt triples come from those factories. Historical November 24 receipts identify their own factories. [Active factory record](deployments/workflows-v2.json) · [Receipt triples](docs/submission-evidence.md#active-testnet-deployment)
 
 Lasna RPC: `https://lasna-rpc.rnk.dev/`. Unichain Sepolia RPC: `https://sepolia.unichain.org`. Base Sepolia RPC: `https://sepolia.base.org`. Explorers: [lasna.reactscan.net](https://lasna.reactscan.net), [sepolia.uniscan.xyz](https://sepolia.uniscan.xyz), and [sepolia.basescan.org](https://sepolia.basescan.org).
 
@@ -232,7 +195,7 @@ npm test -w contracts
 npm run verify
 ```
 
-`npm run verify` is the repository gate and mirrors everything CI runs: formatting, design checks, lint, the secret scan, the Foundry format/build/test suite with its gas snapshot and coverage, the frontend and backend build, typecheck, unit tests, the generated-ABI drift check, and the Playwright browser flows against a local chain. Install the browser once with `npx playwright install chromium`; `npm run test:e2e` runs only the browser suite. Both git and agent hooks call `node scripts/verify-changes.mjs`, which runs this same gate once per change set before a push or before an agent finishes. Running the app against the public testnets also needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the same `WORKFLOW_V2_DEPLOYMENT` JSON on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. The shape is `{ lasna: { factory, startBlock }, unichain: { factory, startBlock }, base?: { factory, startBlock } }`. Set `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Deployment steps are in [`docs/workflows.md`](docs/workflows.md).
+`npm run verify` is the repository gate and mirrors everything CI runs: formatting, design checks, lint, the secret scan, the Foundry format/build/test suite with its gas snapshot and coverage, the frontend and backend build, typecheck, unit tests, the generated-ABI drift check, and the Playwright browser flows against a local chain. Install the browser once with `npx playwright install chromium`; `npm run test:e2e` runs only the browser suite. The pre-push hook runs the full gate. The Codex stop hook runs `npm run verify:fast` through `node scripts/verify-changes.mjs --fast`. Running the app against the public testnets also needs `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and the same `WORKFLOW_V2_DEPLOYMENT` JSON on the backend and `VITE_WORKFLOW_V2_DEPLOYMENT` on the frontend. The shape is `{ lasna: { factory, startBlock }, unichain: { factory, startBlock }, base?: { factory, startBlock } }`. Set `VITE_WORKFLOW_V2_ACTIVATION=true` to allow new activations. Deployment steps are in [`docs/workflows.md`](docs/workflows.md).
 
 ## License
 

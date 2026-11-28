@@ -35,6 +35,19 @@ Each workflow card and its detail page show one health status: **Watching for th
 
 The Marketplace publishes the exact enabled program version. Copying creates an editable draft that keeps the trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the payout recipients so the copier chooses their own. Each wallet provides its own Vault funds and signs its own authorization.
 
+## Run your first income sweep
+
+1. Open **Account & Vault** in Testnet mode. On Unichain Sepolia, create and link your Vault to your Lasna Agent. Fund watching credit with testnet lREACT and execution credit with Unichain Sepolia ETH. Check **Workflow costs** for the current suggested reserves. Keep testnet gas in both signing wallets for transactions you send directly.
+2. Open **New workflow → Income sweep**. Select **Unichain Sepolia**. Enter a minimum payment of **1 USDC**, a sweep of **0.20 USDC**, a smaller threshold of **0.25 USDC**, and a smaller sweep of **0.05 USDC**. Use a recipient you control that differs from your Vault. Open the builder.
+3. Set a **1 USDC** weekly budget in the workflow settings. In **Review workflow**, check the thresholds, the recipient, the **0.20 USDC** cap per run, and the weekly budget. Approve the program on Unichain Sepolia, then enable it on Reactive Lasna. Wait for the workflow to show **Waiting for a payment**.
+4. From a second wallet, transfer **1.20 USDC** to the Vault address shown in **Account & Vault**. Use the configured [Unichain Sepolia test USDC](https://sepolia.uniscan.xyz/address/0x31d0220469e10c4E71834a79b1f276d740d3768F). The owner’s deposits and Vault refills are excluded from the payment trigger.
+5. Open **Activity → Public proof** for the confirmed run. Check the payment into the Vault, the Lasna decision, and the **0.20 USDC** transfer to your recipient in the callback receipt. Send **0.60 USDC** from the same payer to see the smaller branch deliver **0.05 USDC**. A **0.10 USDC** payment should produce a skip.
+6. When finished, pause the workflow from its detail page and confirm both transactions. This revokes Vault authorization and turns off the Lasna subscription. Withdraw any remaining principal from **Account & Vault**.
+
+If the run is missing, verify the sender, token, and destination Vault in the origin receipt. If it is pending, open **Public proof** to see which receipt is available and check both credit balances in **Account & Vault**. A pause affects future execution. Use the destination receipt to verify money already sent.
+
+[Example confirmed run](https://rulebook-chi.vercel.app/runs/0xfde2a4ef2a2dbebae6417c14112ef7ab6626867c7da52fd50d784e71aac57309?network=testnet) · [Testnet deployment evidence](submission-evidence.md#active-testnet-deployment)
+
 ## Mainnet swap slippage and trade-size limits
 
 - **Unichain Mainnet oracle heartbeat vs. slippage**: Unichain Mainnet Chainlink feeds (`ethUsdFeed` and `usdcUsdFeed`, both configured with `maxAge = 90_000` seconds) have 24-hour heartbeats, so an oracle answer can lag live pool spot by hours during quiet or trending markets. Because `WorkflowProtocolsV2._swap` sets `floor = max(applySlippage(spotQuote, slippage), applySlippage(oracleQuote, slippage))` and requires `spotQuote >= floor`, tight slippage (`<= 0.5%`) will revert (`SlippageExceeded`) whenever spot drifts past that tolerance relative to the last Chainlink update. Use **1.0% or higher slippage** (within the 10% protocol cap) for Unichain Mainnet swaps and the mainnet smoke check.
@@ -48,4 +61,4 @@ Apply migrations through `0029_reliability_and_security_hardening.sql` with `npm
 
 Run `npm run verify`; it includes the Playwright browser suite. Test the branching income sweep on the live testnets with 1.20, 0.60, and 0.10 USDC deposits. Record the origin, Lasna decision, and destination transactions, and check the selected path and balances for each. Verify scheduled and price-triggered runs before presenting them as live-tested recipes.
 
-[Active testnet factory record](../deployments/workflows-v2.json) · [Historical income sweep receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json) · [Staged smoke evidence](submission-evidence.md#staged-erc-1967-smoke-verification)
+[Active testnet factory record](../deployments/workflows-v2.json) · [Historical income sweep receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json) · [Active deployment smoke evidence](submission-evidence.md#active-testnet-deployment)

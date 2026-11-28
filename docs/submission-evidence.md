@@ -1,15 +1,37 @@
 # Submission evidence
 
-## Staged ERC-1967 smoke verification
+## Active testnet deployment
 
-On November 28, 2026, Vaults created by the staged factories settled the large and small income sweeps and the scheduled buy on both funds chains. A 1.20 USDC payment sent 0.20 USDC, a 0.60 USDC payment sent 0.05 USDC, and each scheduled buy spent 0.20 USDC. All four workflows were revoked on their Vaults and disabled on their Agent after the tests. [Lasna factory receipt](https://lasna.reactscan.net/tx/0x0fd13fd16bb54f2b1396f4f269cf7315180146c47acce4905b1bfd539d439c22) · [Unichain Sepolia factory receipt](https://sepolia.uniscan.xyz/tx/0x66fad58a7add12ed3f20e5c04798df752da0e6453177ea24e9ac2df0071926e8) · [Base Sepolia factory receipt](https://sepolia.basescan.org/tx/0x319f930faf3d392a500934dc82beaf1978ec66e9bdc0adfabfc7f49cfc88a4f2)
+These are the contracts used in the November 28, 2026 testnet runs. The smoke wallets revoked and disabled the four workflows after verification. The public proofs remain available.
 
-| Settlement chain | 1.20 USDC payment                                                                                                | 0.60 USDC payment                                                                                                | Scheduled buy                                                                                                    |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Unichain Sepolia | [Settlement](https://sepolia.uniscan.xyz/tx/0xa149f9cffbff4b1ed121e6d581b95c92dc7506b1d65403fa7d3e2d68bd64bf1a)  | [Settlement](https://sepolia.uniscan.xyz/tx/0xf521d0901b6c18bcc9f052f5d0f1e5dc7007b59b92bc68b19a9075d50dfdaab6)  | [Settlement](https://sepolia.uniscan.xyz/tx/0x5daade087d192861151065e47de8949cfdf8c7caa2e113c0b209737aa501dd61)  |
-| Base Sepolia     | [Settlement](https://sepolia.basescan.org/tx/0x28de738bf14c5a7b7b75787eb7dda7b445c94231379567d6cde3b4339577019e) | [Settlement](https://sepolia.basescan.org/tx/0xe01a2cd900297c089b7ceece86c117a98de01083b5a1b3d40b022083a9485dad) | [Settlement](https://sepolia.basescan.org/tx/0xdbd106931705b3bd602af3f450c48f8cc4d878f0c980a1358d373d9c0390119e) |
+| Network          | Factory                                                                                                                                    | Contract that ran the workflow                                                                                                             |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Reactive Lasna   | [`0xe8779e7c2eef222d8df44191ef1a7993df5778bf`](https://lasna.reactscan.net/address/0xe8779e7c2eef222d8df44191ef1a7993df5778bf)             | [`0x026B69EBF52aE7F0568B544A41B805bdcfa9746a`](https://lasna.reactscan.net/address/0x026B69EBF52aE7F0568B544A41B805bdcfa9746a)             |
+| Unichain Sepolia | [`0x273f4b5ed558326ac3355a84f5f60e291c7db6d6`](https://unichain-sepolia.blockscout.com/address/0x273f4b5ed558326ac3355a84f5f60e291c7db6d6) | [`0xb814D7C2246903AAf83767e07EC0660508483c52`](https://unichain-sepolia.blockscout.com/address/0xb814D7C2246903AAf83767e07EC0660508483c52) |
+| Base Sepolia     | [`0x5a7c7c075a0cc782c5f6167f2344e83b00937851`](https://base-sepolia.blockscout.com/address/0x5a7c7c075a0cc782c5f6167f2344e83b00937851)     | [`0x8B343a19Ba9c3E53c8eCd968F525e8edB5f24e31`](https://base-sepolia.blockscout.com/address/0x8B343a19Ba9c3E53c8eCd968F525e8edB5f24e31)     |
 
-The runner needed a Lasna gas top-up during the final cleanup. The staged evidence was reconciled from successful on-chain settlement and cleanup receipts. The release gate verifies the clean source commit and deployed bytecode before publication. [Cutover runbook](../deployments/README.md#cutover-to-erc-1967-proxies)
+The factory record contains the deployment transactions, bytecode hashes, and source revision. The smoke record contains the authorization, run, and cleanup transactions. [Factory record](../deployments/workflows-v2.json) · [Smoke record](../deployments/workflows-v2-smoke.json) · [Deployed source](https://github.com/zaikaman/Rulebook/tree/7eb7cc9506f6e07557a4377501936d79b5bb2dc3/contracts/src/workflow/v2)
+
+## Complete transaction trails
+
+Amounts are in test USDC. Each proof opens without a wallet. The three explorer links let you verify each step independently.
+
+| Settlement network | Outcome                   | Origin event                                                                                                                   | Reactive Lasna                                                                                                      | Settlement                                                                                                                      | In Rulebook                                                                                                                           |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Unichain Sepolia   | 1.20 in, 0.20 sent        | [USDC transfer](https://unichain-sepolia.blockscout.com/tx/0x1bfa7efa7581d91e2d94d7a34ad09febf9444daacb430c9d09ca81b1cc8dbaa0) | [Lasna reaction](https://lasna.reactscan.net/tx/0xdd7e74fe0b75d7664133eb92ec3cf5ebb78f4d5687f16f76c8b01f45d7fcba3b) | [Vault callback](https://unichain-sepolia.blockscout.com/tx/0xa149f9cffbff4b1ed121e6d581b95c92dc7506b1d65403fa7d3e2d68bd64bf1a) | [Open proof](https://rulebook-chi.vercel.app/runs/0xfde2a4ef2a2dbebae6417c14112ef7ab6626867c7da52fd50d784e71aac57309?network=testnet) |
+| Unichain Sepolia   | 0.60 in, 0.05 sent        | [USDC transfer](https://unichain-sepolia.blockscout.com/tx/0x75d0b26732f5e4f9ddb640a7ee2169525ec95ea2ef1c6914b269af8e76d69a46) | [Lasna reaction](https://lasna.reactscan.net/tx/0xa166964d47ce14f07ee89b25788ce07e2d38e1dca4bf8457938e835686506964) | [Vault callback](https://unichain-sepolia.blockscout.com/tx/0xf521d0901b6c18bcc9f052f5d0f1e5dc7007b59b92bc68b19a9075d50dfdaab6) | [Open proof](https://rulebook-chi.vercel.app/runs/0xfa496fb75cc35521f8bdc9baf81a48ec3553d8a2c60202d889fea014d603f0de?network=testnet) |
+| Unichain Sepolia   | Scheduled buy, 0.20 spent | [Lasna tick](https://lasna.reactscan.net/tx/0xd969804a28d0729b3516e1b6dfd05a9ca1704ab2dccc5c1258eaa1646256b3be)                | [Lasna reaction](https://lasna.reactscan.net/tx/0x9e73beaf15f223dc28c69012153a719a88e6927ebbc7038723402977a223f9a5) | [Vault callback](https://unichain-sepolia.blockscout.com/tx/0x5daade087d192861151065e47de8949cfdf8c7caa2e113c0b209737aa501dd61) | [Open proof](https://rulebook-chi.vercel.app/runs/0xfffe69f8cdaa1d23532aa4e11501b73f3a2092f25d62fdc0665477a9e04ba1af?network=testnet) |
+| Base Sepolia       | 1.20 in, 0.20 sent        | [USDC transfer](https://base-sepolia.blockscout.com/tx/0x999e3d77a3f29bffbf82e467fd2b6878eb1d2e798c73f21faec03cf202b6590d)     | [Lasna reaction](https://lasna.reactscan.net/tx/0x9b5d8bf8f123e12451af1b13331d812a9888cd1ae50f43812a000c20cf6ada94) | [Vault callback](https://base-sepolia.blockscout.com/tx/0x28de738bf14c5a7b7b75787eb7dda7b445c94231379567d6cde3b4339577019e)     | [Open proof](https://rulebook-chi.vercel.app/runs/0xcc86135b1643f348db86320d7d10cc5c92f34e16fa8bc7b50f682fdbd558bb07?network=testnet) |
+| Base Sepolia       | 0.60 in, 0.05 sent        | [USDC transfer](https://base-sepolia.blockscout.com/tx/0xfae706f05380beb2d83373338acd306034ad8919548b9999b9f824dd48a2c516)     | [Lasna reaction](https://lasna.reactscan.net/tx/0x2ad87442ff7710b450a9fc1c4aece3e1ed75ecfe84328c1df9b6372dfaec5f33) | [Vault callback](https://base-sepolia.blockscout.com/tx/0xe01a2cd900297c089b7ceece86c117a98de01083b5a1b3d40b022083a9485dad)     | [Open proof](https://rulebook-chi.vercel.app/runs/0xc19cb6b78609c87e0eb011589c0fd80fb9544d6fa7ca9cd524da924a8c644083?network=testnet) |
+| Base Sepolia       | Scheduled buy, 0.20 spent | [Lasna tick](https://lasna.reactscan.net/tx/0x5b54f6f4496906e10ce397c713709d11d76860582d25526578b8ec981789c880)                | [Lasna reaction](https://lasna.reactscan.net/tx/0x176c1eb3026b464a6cbf2e66d18c7fe60db58792249603d8e58add100989055a) | [Vault callback](https://base-sepolia.blockscout.com/tx/0xdbd106931705b3bd602af3f450c48f8cc4d878f0c980a1358d373d9c0390119e)     | [Open proof](https://rulebook-chi.vercel.app/runs/0xc2bd27dd53053da6eb65c0379216aa06dc5c9e5332db294a73fc715a10c11477?network=testnet) |
+
+## Trace a receipt through the code
+
+1. **Origin.** In a payment receipt, find the USDC `Transfer` into the Vault. In a scheduled run, find the Lasna `Cron100` tick.
+2. **Reactive.** In the Lasna receipt, find `Dispatched` from the Agent proxy. Follow `react` into the delegated implementation. It matches the subscription and packs the origin chain, transaction, log index, and observation into a callback request. [Agent entry point](../contracts/src/workflow/v2/WorkflowAgentV2.sol) · [Reaction and dispatch](../contracts/src/workflow/v2/WorkflowAgentReactV2.sol)
+3. **Settlement.** In the destination receipt, find `Outcome` from the Vault and the token transfers for a confirmed payment or swap. The Vault authenticates the callback proxy and its Agent, checks the authorized program and expiry, and evaluates the path using the observation from Lasna. Spending caps and the weekly budget are enforced as part of settlement. The run ID in `Outcome` matches the one in `Dispatched`. [Vault entry point](../contracts/src/workflow/v2/WorkflowVaultV2.sol) · [Path evaluation and settlement](../contracts/src/workflow/v2/WorkflowVaultSettlementV2.sol)
+
+The proof page numbers paths from one. The stored path index in the smoke record starts at zero, so stored path 1 appears as **Path 2** in Rulebook.
 
 ## Historical Workflow V2 testnet verification · 24 November 2026
 
@@ -43,24 +65,24 @@ The archived smoke file contains these November 24 receipts. [Historical smoke r
 
 ## Verified automated evidence
 
-- **Contracts** — The staged source passed 195 Foundry tests with zero skips and three separate fork tests. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
+- **Contracts** — The deployed source passed 195 Foundry tests with zero skips and three separate fork tests. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
 - **Shared** — Vitest tests cover program encoding, validation, recipe generation, health derivation, and chain configuration.
 - **Backend** — Vitest tests cover workflow indexing, activity, proof reads, health, marketplace, Rulewright, Bookkeeper assistant, Telegram linking, and release deployment validation.
 - **Frontend** — Vitest tests and 73 Playwright tests cover account onboarding, multichain setup, the builder, execution activity, proof, marketplace, Telegram notifications, Bookkeeper assistant, and offline recovery.
 - **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses, start blocks, source commits, and bytecode hashes for Reactive Lasna, Unichain Sepolia, and Base Sepolia.
 
-### Submission checklist
+## Submission checklist
 
 | Requirement                              | Result                                                                                                                     |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Public source repository and MIT license | GitHub reported `PUBLIC`. The repository includes the MIT license.                                                         |
-| Active Workflow V2 factory pair          | Recorded with addresses, blocks, and bytecode hashes in [deployments/workflows-v2.json](../deployments/workflows-v2.json). |
-| Origin → Reactive → callback             | Verified live loops linked above.                                                                                          |
+| Public source repository and MIT license | [Public GitHub repository](https://github.com/zaikaman/Rulebook) with the [MIT license](../LICENSE).                       |
+| Active Workflow V2 factories             | Recorded with addresses, blocks, and bytecode hashes in [deployments/workflows-v2.json](../deployments/workflows-v2.json). |
+| Origin → Reactive → callback             | Six complete loops from the active factories, plus the historical skip.                                                    |
 | Hosted app                               | [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app).                                                                |
-| Demo video under three minutes           | Not published yet. The walkthrough is recorded against the hosted app before submission.                                   |
+| Demo video under three minutes           | [90-second video](demo/rulebook-buildathon.mp4) and [transcript](demo/README.md).                                          |
 
 - [Hosted app](https://rulebook-chi.vercel.app)
 - [Public repository](https://github.com/zaikaman/Rulebook)
-- [Active Workflow V2 factory pair](../deployments/workflows-v2.json)
+- [Active Workflow V2 factories](../deployments/workflows-v2.json)
 - [Lasna V2 Smoke Agent (recorded receipt)](https://lasna.reactscan.net/address/0x6bF114548E7A748c7E8ED736b0E80c07B01291F8)
 - [Unichain V2 Smoke Vault (recorded receipt)](https://sepolia.uniscan.xyz/address/0x95855cd060ef40B1212Eb1366365f3C925F300be)
