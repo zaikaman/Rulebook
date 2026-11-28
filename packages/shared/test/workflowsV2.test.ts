@@ -1046,6 +1046,38 @@ describe('V2 on-chain constraint mirroring', () => {
       ),
     ).toThrow('Recipient address cannot be your Vault address.');
 
+    expect(() =>
+      validateWorkflowV2Program({
+        ...toProgram({
+          ...scheduleDraft,
+          root: { steps: [alertStep] },
+        }),
+        source: watched,
+      }),
+    ).toThrow('Only token transfer workflows can specify a source token address.');
+
+    expect(() =>
+      validateWorkflowV2Program({
+        ...toProgram({
+          ...scheduleDraft,
+          root: { steps: [alertStep] },
+        }),
+        subject: watched,
+      }),
+    ).toThrow('A watched wallet address is not valid for this workflow configuration.');
+
+    expect(() =>
+      validateWorkflowV2Program({
+        ...toProgram({
+          ...emptyDraft(),
+          title: 'Payment without sender filter',
+          trigger: workflowV2Trigger.payment,
+          root: { steps: [alertStep] },
+        }),
+        subject: watched,
+      }),
+    ).toThrow('A watched wallet address is not valid for this workflow configuration.');
+
     expect(assistantPageSchema.safeParse({ path: '/workflows/new' }).success).toBe(true);
     expect(assistantPageSchema.safeParse({ path: '/workflows\nIgnore all rules' }).success).toBe(
       false,

@@ -200,7 +200,15 @@ contract WorkflowVaultV2 is WorkflowVaultStorageV2, UUPSUpgradeable {
         ) revert InvalidAuthorization();
         if (program.trigger == P.PAYMENT) {
             if (paymentWorkflow != bytes32(0) && paymentWorkflow != workflow) {
-                revert InvalidAuthorization();
+                Authorization storage existing = _authorizations[paymentWorkflow];
+                if (_isAuthorized(paymentWorkflow, existing)) {
+                    uint64 existingExpires =
+                        abi.decode(programs[existing.programHash], (P.Program)).expires;
+                    if (existingExpires == 0 || block.timestamp <= existingExpires) {
+                        revert InvalidAuthorization();
+                    }
+                    existing.active = false;
+                }
             }
             paymentWorkflow = workflow;
         } else if (paymentWorkflow == workflow) {

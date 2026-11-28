@@ -13,6 +13,8 @@ import {WorkflowProgramValidatorV2} from "./WorkflowProgramValidatorV2.sol";
 contract WorkflowAgentFactoryV2 {
     event AgentCreated(address indexed owner, address indexed agent);
     event ImplementationApproved(address indexed implementation, bool current);
+    event ImplementationRevoked(address indexed implementation);
+    event AdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
     event AdminUpdated(address indexed previousAdmin, address indexed nextAdmin);
     event Published(
         uint256 indexed listing,
@@ -40,6 +42,7 @@ contract WorkflowAgentFactoryV2 {
     }
 
     address public admin;
+    address public pendingAdmin;
     address public implementation;
     WorkflowProgramValidatorV2 public immutable validator;
     mapping(address => bool) public approvedImplementation;
@@ -71,11 +74,26 @@ contract WorkflowAgentFactoryV2 {
         _approveImplementation(impl, makeCurrent);
     }
 
+    function revokeImplementation(address impl) external onlyAdmin {
+        if (!approvedImplementation[impl] || impl == implementation) {
+            revert InvalidImplementation();
+        }
+        approvedImplementation[impl] = false;
+        emit ImplementationRevoked(impl);
+    }
+
     function setAdmin(address nextAdmin) external onlyAdmin {
         if (nextAdmin == address(0)) revert Unauthorized();
+        pendingAdmin = nextAdmin;
+        emit AdminTransferStarted(admin, nextAdmin);
+    }
+
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert Unauthorized();
         address previous = admin;
-        admin = nextAdmin;
-        emit AdminUpdated(previous, nextAdmin);
+        admin = msg.sender;
+        delete pendingAdmin;
+        emit AdminUpdated(previous, admin);
     }
 
     function _approveImplementation(address impl, bool makeCurrent) private {

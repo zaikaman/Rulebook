@@ -26,31 +26,41 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
         _authenticate();
         Entry storage entry = entries[workflow];
         PriceState storage state = prices[entry.originChain][pair];
-        PriceHigh storage high = highs[workflow];
-        uint128 sustained = state.previousPrice < state.price ? state.previousPrice : state.price;
-        if (
-            sustained > high.value && state.previousTime >= entry.nextDue
-                && (entry.originChain != entry.chain
-                    || state.previousBlockNumber > entry.originAfter)
-        ) {
-            high.value = sustained;
-            high.blockNumber = state.previousBlockNumber;
-            high.observedAt = state.previousTime;
-        }
         WorkflowMeta storage info = meta[workflow];
-        (uint128 previousLow, uint128 previousHigh) = _crossingRange(workflow, info, state);
+        bool hasTrailing = (info.flags & P.FLAG_TRAILING) != 0;
+        uint128 peakValue;
+        uint64 peakBlock;
+        uint64 peakObservedAt;
+        if (hasTrailing) {
+            PriceHigh storage high = highs[workflow];
+            uint128 sustained =
+                state.previousPrice < state.price ? state.previousPrice : state.price;
+            if (
+                sustained > high.value && state.previousTime >= entry.nextDue
+                    && (entry.originChain != entry.chain
+                        || state.previousBlockNumber > entry.originAfter)
+            ) {
+                high.value = sustained;
+                high.blockNumber = state.previousBlockNumber;
+                high.observedAt = state.previousTime;
+            }
+            peakValue = high.value;
+            peakBlock = high.blockNumber;
+            peakObservedAt = high.observedAt;
+        }
+        (uint128 previousLow, uint128 previousHigh) = _crossingRange(workflow, entry, info, state);
         bool cooling = block.timestamp < info.cooldownUntil;
         bool hasCrossing = (info.flags & P.FLAG_CROSSING) != 0;
         if (cooling && !hasCrossing) return run;
         uint256 refPrice = (info.flags & FLAG_REF_PENDING) != 0
-            && block.timestamp < uint256(info.cooldownUntil) + LIFETIME
+            && block.timestamp < refPendingUntil[workflow]
             ? type(uint256).max
             : info.referencePrice;
         bytes memory encoded = programs[entry.hash];
         bool crossing;
         if (hasCrossing && crossingInFlight[workflow].length < MAX_CROSSING_IN_FLIGHT) {
             crossing = validator.canTriggerPriceRange(
-                encoded, state.price, previousLow, previousHigh, high.value, refPrice, true
+                encoded, state.price, previousLow, previousHigh, peakValue, refPrice, true
             );
             CrossingRecovery storage recovery = crossingRecoveries[workflow];
             if (!crossing && recovery.sequence != 0 && block.timestamp >= recovery.retryAt) {
@@ -61,7 +71,7 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
                 }
                 if (recovery.high > recoveredHigh) recoveredHigh = recovery.high;
                 crossing = validator.canTriggerPriceRange(
-                    encoded, state.price, recoveredLow, recoveredHigh, high.value, refPrice, true
+                    encoded, state.price, recoveredLow, recoveredHigh, peakValue, refPrice, true
                 );
                 if (crossing) {
                     previousLow = recoveredLow;
@@ -75,24 +85,28 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
             !crossing
                 && (cooling
                     || !validator.canTriggerPriceRange(
-                        encoded, state.price, previousLow, previousHigh, high.value, refPrice, false
+                        encoded, state.price, previousLow, previousHigh, peakValue, refPrice, false
                     ))
         ) return run;
         run.observed = state.price;
         run.previous = state.previousPrice;
-        run.high = high.value;
-        run.highBlock = high.blockNumber;
+        run.high = peakValue;
+        run.highBlock = peakBlock;
         run.observationTime = state.time;
-        run.observationId = P.priceEvidence(previousHigh, high.observedAt, crossing);
+        run.observationId = P.priceEvidence(previousHigh, peakObservedAt, crossing);
         // A price log has no payer. Preserve the immediate previous price for old Vaults.
         run.actor = address(uint160(previousLow));
     }
 
-    function _crossingRange(bytes32 workflow, WorkflowMeta storage info, PriceState storage state)
-        private
-        returns (uint128 low, uint128 high)
-    {
-        low = state.previousPrice;
+    function _crossingRange(
+        bytes32 workflow,
+        Entry storage entry,
+        WorkflowMeta storage info,
+        PriceState storage state
+    ) private returns (uint128 low, uint128 high) {
+        bool freshPrev = state.previousPrice != 0 && state.previousTime >= entry.nextDue
+            && (entry.originChain != entry.chain || state.previousBlockNumber > entry.originAfter);
+        low = freshPrev ? state.previousPrice : 0;
         high = low;
         if ((info.flags & P.FLAG_CROSSING) == 0) return (low, high);
         bytes32[] storage inFlight = crossingInFlight[workflow];
@@ -163,6 +177,7 @@ contract WorkflowAgentFeedbackV2 is WorkflowAgentStorageV2 {
         info.referenceBlock = uint48(log.block_number);
         info.referenceLogIndex = uint32(log.log_index);
         info.flags &= ~FLAG_REF_PENDING;
+        delete refPendingUntil[workflow];
     }
 
     function _syncPeak(bytes32 workflow, bytes calldata data) private {

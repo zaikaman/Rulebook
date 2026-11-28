@@ -692,6 +692,17 @@ export function validateWorkflowV2Program(
         'Enter a watched wallet address when watching a token transfer on another network.',
       );
     }
+  } else if (program.source !== zeroAddress) {
+    throw new Error('Only token transfer workflows can specify a source token address.');
+  }
+  const hasPaymentFrom = program.nodes.some((node) => node.check === C.paymentFrom);
+  if (
+    program.subject !== zeroAddress &&
+    (program.trigger === T.schedule ||
+      program.trigger === T.price ||
+      (program.trigger === T.payment && !hasPaymentFrom))
+  ) {
+    throw new Error('A watched wallet address is not valid for this workflow configuration.');
   }
 
   const count = program.nodes.length;
@@ -823,12 +834,15 @@ export function toProgram(draft: V2Draft, options?: { vault?: Address }): Workfl
       draft.trigger === T.transfer
         ? account(draft.source, 'a source token address', true)
         : zeroAddress,
-    subject: account(
-      draft.subject,
-      'a watched wallet address',
-      (hasPaymentFrom && draft.trigger === T.payment) ||
-        (draft.trigger === T.transfer && draft.originChain !== draft.chain),
-    ),
+    subject:
+      draft.trigger === T.transfer || (draft.trigger === T.payment && hasPaymentFrom)
+        ? account(
+            draft.subject,
+            'a watched wallet address',
+            (hasPaymentFrom && draft.trigger === T.payment) ||
+              (draft.trigger === T.transfer && draft.originChain !== draft.chain),
+          )
+        : zeroAddress,
     usdcCap,
     wethCap,
     slippage: Number(readField(workflowGuardrailFields.slippage, draft.slippage)),

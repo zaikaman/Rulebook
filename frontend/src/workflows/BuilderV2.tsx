@@ -787,12 +787,14 @@ export function WorkflowProgramSummary({
               <dd className="workflow-v2-address">{draft.source}</dd>
             </div>
           )}
-          {draft.subject && (
-            <div>
-              <dt>Account or protocol</dt>
-              <dd className="workflow-v2-address">{draft.subject}</dd>
-            </div>
-          )}
+          {draft.subject &&
+            (draft.trigger === T.transfer ||
+              (draft.trigger === T.payment && draftHasCheck(draft, C.paymentFrom))) && (
+              <div>
+                <dt>Account or protocol</dt>
+                <dd className="workflow-v2-address">{draft.subject}</dd>
+              </div>
+            )}
           {draft.expires && (
             <div>
               <dt>Expires</dt>
@@ -1643,42 +1645,43 @@ function Editor({
                   text
                 />
               )}
-              {(() => {
-                const subjectRequired =
-                  (hasPaymentFrom && draft.trigger === T.payment) ||
-                  (draft.trigger === T.transfer && draft.originChain !== draft.chain);
-                const subjectInput = (
-                  <Input
-                    name="Watched wallet address"
-                    value={draft.subject}
-                    hint={
-                      hasPaymentFrom && draft.trigger === T.payment
-                        ? 'Required for the Payment is from the specified wallet check.'
-                        : draft.trigger === T.transfer && draft.originChain !== draft.chain
-                          ? `Required when watching a transfer on ${v2Network(draft.originChain).name}.`
-                          : 'Optional. Limits the live check to activity from this wallet.'
-                    }
-                    placeholder="0x…"
-                    error={
-                      draft.subject.trim()
-                        ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
-                        : subjectRequired
-                          ? 'Enter a watched wallet address.'
-                          : undefined
-                    }
-                    change={(subject) => update({ subject })}
-                    text
-                  />
-                );
-                return subjectRequired ? (
-                  subjectInput
-                ) : (
-                  <details className="rb-advanced">
-                    <summary>Live check settings</summary>
-                    <div className="rb-inspector-fields">{subjectInput}</div>
-                  </details>
-                );
-              })()}
+              {(draft.trigger === T.transfer || (draft.trigger === T.payment && hasPaymentFrom)) &&
+                (() => {
+                  const subjectRequired =
+                    (hasPaymentFrom && draft.trigger === T.payment) ||
+                    (draft.trigger === T.transfer && draft.originChain !== draft.chain);
+                  const subjectInput = (
+                    <Input
+                      name="Watched wallet address"
+                      value={draft.subject}
+                      hint={
+                        hasPaymentFrom && draft.trigger === T.payment
+                          ? 'Required for the Payment is from the specified wallet check.'
+                          : draft.trigger === T.transfer && draft.originChain !== draft.chain
+                            ? `Required when watching a transfer on ${v2Network(draft.originChain).name}.`
+                            : 'Optional. Limits the live check to activity from this wallet.'
+                      }
+                      placeholder="0x…"
+                      error={
+                        draft.subject.trim()
+                          ? addressIssue(draft.subject, { noun: 'a watched wallet address' })
+                          : subjectRequired
+                            ? 'Enter a watched wallet address.'
+                            : undefined
+                      }
+                      change={(subject) => update({ subject })}
+                      text
+                    />
+                  );
+                  return subjectRequired ? (
+                    subjectInput
+                  ) : (
+                    <details className="rb-advanced">
+                      <summary>Live check settings</summary>
+                      <div className="rb-inspector-fields">{subjectInput}</div>
+                    </details>
+                  );
+                })()}
             </div>
           </div>
         </>

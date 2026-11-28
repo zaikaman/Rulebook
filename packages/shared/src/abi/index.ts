@@ -1204,6 +1204,13 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "acceptAdmin",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "admin",
     "inputs": [],
     "outputs": [
@@ -1380,6 +1387,19 @@ export const workflowAgentFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "pendingAdmin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "publish",
     "inputs": [
       {
@@ -1400,6 +1420,19 @@ export const workflowAgentFactoryV2Abi = [
         "internalType": "uint256"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "revokeImplementation",
+    "inputs": [
+      {
+        "name": "impl",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -1440,6 +1473,25 @@ export const workflowAgentFactoryV2Abi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AdminTransferStarted",
+    "inputs": [
+      {
+        "name": "currentAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pendingAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -1494,6 +1546,19 @@ export const workflowAgentFactoryV2Abi = [
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ImplementationRevoked",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -3120,31 +3185,6 @@ export const workflowVaultV2Abi = [
   },
   {
     "type": "event",
-    "name": "PeakSynced",
-    "inputs": [
-      {
-        "name": "workflow",
-        "type": "bytes32",
-        "indexed": true,
-        "internalType": "bytes32"
-      },
-      {
-        "name": "epoch",
-        "type": "uint64",
-        "indexed": true,
-        "internalType": "uint64"
-      },
-      {
-        "name": "peak",
-        "type": "uint128",
-        "indexed": false,
-        "internalType": "uint128"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
     "name": "ReferenceSynced",
     "inputs": [
       {
@@ -3509,6 +3549,13 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "acceptAdmin",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "admin",
     "inputs": [],
     "outputs": [
@@ -3617,6 +3664,32 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "function",
+    "name": "pendingAdmin",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "revokeImplementation",
+    "inputs": [
+      {
+        "name": "impl",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setAdmin",
     "inputs": [
       {
@@ -3662,6 +3735,25 @@ export const workflowVaultFactoryV2Abi = [
   },
   {
     "type": "event",
+    "name": "AdminTransferStarted",
+    "inputs": [
+      {
+        "name": "currentAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "pendingAdmin",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "AdminUpdated",
     "inputs": [
       {
@@ -3694,6 +3786,19 @@ export const workflowVaultFactoryV2Abi = [
         "type": "bool",
         "indexed": false,
         "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ImplementationRevoked",
+    "inputs": [
+      {
+        "name": "implementation",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

@@ -306,7 +306,15 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
             WorkflowMeta storage info = meta[workflow];
             info.cooldownUntil =
                 nextCooldown > type(uint40).max ? type(uint40).max : uint40(nextCooldown);
-            if ((info.flags & P.FLAG_USES_REFERENCE) != 0) info.flags |= FLAG_REF_PENDING;
+            if ((info.flags & P.FLAG_USES_REFERENCE) != 0) {
+                if (
+                    (info.flags & FLAG_REF_PENDING) == 0
+                        || block.timestamp >= refPendingUntil[workflow]
+                ) {
+                    info.flags |= FLAG_REF_PENDING;
+                    refPendingUntil[workflow] = run.expiresAt;
+                }
+            }
             if (P.requiresCrossing(run)) {
                 uint8 backoff;
                 if (run.activityTime == 0) {
@@ -512,6 +520,10 @@ contract WorkflowAgentReactV2 is WorkflowAgentStorageV2 {
         if (!paused[workflow]) return;
         paused[workflow] = false;
         meta[workflow].cooldownUntil = 0;
+        if (entry.trigger == P.PRICE && (meta[workflow].flags & P.FLAG_CROSSING) != 0) {
+            entry.nextDue = uint64(block.timestamp);
+            delete crossings[workflow];
+        }
         _unpin(workflow);
         _triggerFilters(workflow, entry, true);
         emit WatchingResumed(workflow, entry.epoch);

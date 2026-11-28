@@ -323,12 +323,11 @@ for (const kind of Object.values(check)) {
     }
     if (kindOfTrigger === trigger.transfer)
       await page.getByLabel('Token contract address').fill(token);
-    if (kind === check.paymentFrom) {
-      await page.getByText('Live check settings', { exact: true }).click();
-      await page.getByLabel('Watched wallet address').fill(USER_ADDRESS);
-    }
     await pickNode(page, 'Checks', metadata.name);
     await placeNode(page);
+    if (kind === check.paymentFrom) {
+      await page.getByLabel('Watched wallet address').fill(USER_ADDRESS);
+    }
     if (metadata.decimals !== undefined) {
       const threshold =
         kind === check.inactivity ? '86400' : metadata.decimals === 18 ? '1200' : '2';
@@ -354,10 +353,6 @@ for (const [kind, name] of Object.entries(triggers) as [string, string][]) {
     } else {
       await chooseTrigger(page, id);
       if (id === trigger.transfer) await page.getByLabel('Token contract address').fill(token);
-      if (id === trigger.payment)
-        await page.getByText('Live check settings', { exact: true }).click();
-      if (id === trigger.payment)
-        await page.getByLabel('Watched wallet address').fill(USER_ADDRESS);
     }
     await addAlert(page);
     await expectReview(page, title);

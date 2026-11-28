@@ -269,7 +269,8 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
     mapping(bytes32 => CrossingRecovery) internal crossingRecoveries;
     mapping(bytes32 => uint128) internal confirmedCrossingPosition;
     uint64 internal nextCrossingSequence;
-    uint256[36] private __gap;
+    mapping(bytes32 => uint64) internal refPendingUntil;
+    uint256[35] private __gap;
 
     constructor(IReactiveSystem system_, WorkflowProgramValidatorV2 validator_) {
         if (!ChainConfig.isAutomationChain(block.chainid)) revert InvalidWorkflow();
@@ -316,6 +317,7 @@ abstract contract WorkflowAgentStorageV2 is AbstractPayer {
         _clearPending(workflow);
         _unpin(workflow);
         delete meta[workflow];
+        delete refPendingUntil[workflow];
         delete crossings[workflow];
         delete crossingRecoveries[workflow];
         bytes32[] storage inFlight = crossingInFlight[workflow];

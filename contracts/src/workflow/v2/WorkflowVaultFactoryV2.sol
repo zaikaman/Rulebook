@@ -12,6 +12,8 @@ import {WorkflowVaultV2} from "./WorkflowVaultV2.sol";
 contract WorkflowVaultFactoryV2 {
     event VaultCreated(address indexed owner, address indexed vault, address indexed agent);
     event ImplementationApproved(address indexed implementation, bool current);
+    event ImplementationRevoked(address indexed implementation);
+    event AdminTransferStarted(address indexed currentAdmin, address indexed pendingAdmin);
     event AdminUpdated(address indexed previousAdmin, address indexed nextAdmin);
     error AgentMismatch();
     error InactiveDeployment();
@@ -22,6 +24,7 @@ contract WorkflowVaultFactoryV2 {
     address public immutable callbackProxy;
     WorkflowProgramValidatorV2 public immutable validator;
     address public admin;
+    address public pendingAdmin;
     address public implementation;
     mapping(address => bool) public approvedImplementation;
     mapping(address => address) public vaultOf;
@@ -55,11 +58,26 @@ contract WorkflowVaultFactoryV2 {
         _approveImplementation(impl, makeCurrent);
     }
 
+    function revokeImplementation(address impl) external onlyAdmin {
+        if (!approvedImplementation[impl] || impl == implementation) {
+            revert InvalidImplementation();
+        }
+        approvedImplementation[impl] = false;
+        emit ImplementationRevoked(impl);
+    }
+
     function setAdmin(address nextAdmin) external onlyAdmin {
         if (nextAdmin == address(0)) revert Unauthorized();
+        pendingAdmin = nextAdmin;
+        emit AdminTransferStarted(admin, nextAdmin);
+    }
+
+    function acceptAdmin() external {
+        if (msg.sender != pendingAdmin) revert Unauthorized();
         address previous = admin;
-        admin = nextAdmin;
-        emit AdminUpdated(previous, nextAdmin);
+        admin = msg.sender;
+        delete pendingAdmin;
+        emit AdminUpdated(previous, admin);
     }
 
     function _approveImplementation(address impl, bool makeCurrent) private {

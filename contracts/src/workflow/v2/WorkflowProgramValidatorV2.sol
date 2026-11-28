@@ -11,6 +11,7 @@ import {WorkflowProgramV2 as P} from "./WorkflowProgramV2.sol";
 /// @notice Shared stateless validator for the Agent and settlement Vaults on a chain.
 contract WorkflowProgramValidatorV2 {
     uint64 private constant SEQUENCER_GRACE_PERIOD = 1 hours;
+    uint64 private constant PEAK_CLOCK_SKEW = 2 minutes;
     uint16 private constant MAX_PEAK_DEVIATION_BPS = 200;
     uint16 private constant MAX_PRICE_DEVIATION_BPS = 500;
     uint256 private constant MAX_PEAK_ORACLE_ROUNDS = 24;
@@ -216,18 +217,45 @@ contract WorkflowProgramValidatorV2 {
         uint32 ethMaxAge,
         uint32 usdcMaxAge
     ) external view returns (bool) {
-        if (peakTime < since || peakTime > block.timestamp) return false;
-        (uint256 eth, uint256 updatedAt) = _roundAt(ethFeed, latestEthRound, peakTime, ethScale);
-        if (eth == 0 || peakTime - updatedAt > ethMaxAge) return false;
-        uint256 price = eth;
+        if (peakTime < since || peakTime > uint256(block.timestamp) + PEAK_CLOCK_SKEW) {
+            return false;
+        }
+        uint64 queryTime = peakTime > block.timestamp ? uint64(block.timestamp) : peakTime;
+        uint256 price = _freshRoundAt(ethFeed, latestEthRound, queryTime, ethScale, ethMaxAge);
+        if (price == 0) return false;
         if (usdcFeed != address(0)) {
-            (uint80 latestUsdcRound,,,,) = IAggregatorV3(usdcFeed).latestRoundData();
-            (uint256 usd, uint256 usdTime) =
-                _roundAt(usdcFeed, latestUsdcRound, peakTime, usdcScale);
-            if (usd == 0 || peakTime - usdTime > usdcMaxAge) return false;
+            uint256 usd = _freshUsdcAt(usdcFeed, queryTime, usdcScale, usdcMaxAge);
+            if (usd == 0) return false;
             price = Math.mulDiv(price, PriceMath.PRICE_SCALE, usd);
         }
         return peak <= Math.mulDiv(price, PriceMath.BPS + MAX_PEAK_DEVIATION_BPS, PriceMath.BPS);
+    }
+
+    function _freshUsdcAt(address feed, uint64 queryTime, uint256 scale, uint32 maxAge)
+        private
+        view
+        returns (uint256)
+    {
+        try IAggregatorV3(feed).latestRoundData() returns (
+            uint80 round, int256, uint256, uint256, uint80
+        ) {
+            return _freshRoundAt(feed, round, queryTime, scale, maxAge);
+        } catch {
+            return 0;
+        }
+    }
+
+    function _freshRoundAt(
+        address feed,
+        uint80 latestRound,
+        uint64 queryTime,
+        uint256 scale,
+        uint32 maxAge
+    ) private view returns (uint256 value) {
+        (uint256 answer, uint256 updatedAt) = _roundAt(feed, latestRound, queryTime, scale);
+        if (answer != 0 && queryTime - updatedAt <= uint256(maxAge) + PEAK_CLOCK_SKEW) {
+            value = answer;
+        }
     }
 
     function _roundAt(address feed, uint80 head, uint64 timestamp, uint256 scale)
@@ -237,30 +265,45 @@ contract WorkflowProgramValidatorV2 {
     {
         if (uint64(head) == 0) return (0, 0);
         uint16 phase = uint16(head >> 64);
-        // Find the phase containing the observation, then binary-search its contiguous rounds.
-        if (phase != 0) {
-            uint16 startPhase = 1;
-            while (startPhase < phase) {
-                uint16 mid = startPhase + uint16((uint256(phase) - startPhase + 1) / 2);
-                (, uint256 firstTime) = _historicalRound(feed, (uint80(mid) << 64) | 1);
-                if (firstTime == 0) return (0, 0);
-                if (firstTime <= timestamp) startPhase = mid;
-                else phase = mid - 1;
-            }
-        }
-        if (phase != uint16(head >> 64)) {
-            (uint80 last, uint256 phaseScale) = _phaseEnd(feed, phase);
-            if (last == 0) return (0, 0);
-            scale = phaseScale;
-            head = (uint80(phase) << 64) | last;
-        }
         uint80 low = (uint80(phase) << 64) | 1;
         (, uint256 startTime) = _historicalRound(feed, low);
-        if (startTime == 0 || startTime > timestamp) return (0, 0);
+        // Check the active phase first so retired phases are untouched for current observations.
+        if (startTime == 0 || startTime > timestamp) {
+            if (phase <= 1) return (0, 0);
+            uint16 resolvedPhase;
+            uint16 candidate = phase;
+            for (uint256 step; step < 8 && candidate > 1; ++step) {
+                --candidate;
+                (, uint256 firstTime) = _historicalRound(feed, (uint80(candidate) << 64) | 1);
+                if (firstTime != 0 && firstTime <= timestamp) {
+                    resolvedPhase = candidate;
+                    break;
+                }
+            }
+            if (resolvedPhase == 0) return (0, 0);
+            (uint80 last, uint256 phaseScale) = _phaseEnd(feed, resolvedPhase);
+            if (last == 0) return (0, 0);
+            scale = phaseScale;
+            phase = resolvedPhase;
+            low = (uint80(phase) << 64) | 1;
+            head = (uint80(phase) << 64) | last;
+        }
         while (low < head) {
             uint80 mid = low + (head - low + 1) / 2;
             (, uint256 midTime) = _historicalRound(feed, mid);
-            if (midTime == 0) return (0, 0);
+            if (midTime == 0) {
+                uint80 probe = mid;
+                for (uint256 step; step < 4 && probe > low + 1; ++step) {
+                    --probe;
+                    (, midTime) = _historicalRound(feed, probe);
+                    if (midTime != 0) break;
+                }
+                if (midTime == 0) {
+                    head = mid - 1;
+                    continue;
+                }
+                mid = probe;
+            }
             if (midTime <= timestamp) low = mid;
             else head = mid - 1;
         }

@@ -76,6 +76,9 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         uint256(keccak256("BudgetSynced(bytes32,uint96,uint96,uint128,uint128,uint64,uint32)"));
     uint256 private constant PEAK_CORRECTED =
         uint256(keccak256("PeakCorrected(bytes32,uint64,uint128,uint128,uint64,uint64)"));
+    uint256 private constant REFERENCE_SYNCED =
+        uint256(keccak256("ReferenceSynced(bytes32,uint64,uint128)"));
+    uint256 private constant TRANSFER = uint256(keccak256("Transfer(address,address,uint256)"));
 
     MockERC20 private usdc;
     MockERC20 private weth;
@@ -183,15 +186,21 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
             nextProxy, address(0), address(0), P.BASE_MAINNET, market, validator
         );
 
-        // Non-admin cannot approve implementations or transfer admin.
+        // Non-admin cannot approve/revoke implementations or transfer admin.
         vm.prank(OWNER);
         vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
         vaultFactory.approveImplementation(address(v21), true);
         vm.prank(OWNER);
         vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
+        vaultFactory.revokeImplementation(address(v21));
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
         vaultFactory.setAdmin(OWNER);
         vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
         vaultFactory.setAdmin(address(0));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
+        vaultFactory.acceptAdmin();
 
         // Bad implementations are rejected.
         vm.expectRevert(WorkflowVaultFactoryV2.InvalidImplementation.selector);
@@ -253,11 +262,31 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         vault.execute(address(agent), wf, run2);
         assertEq(usdc.balanceOf(RECIPIENT), 10e6);
 
-        // Rotating admin and making v21 current gives new wallets V2.1.
+        // Rotating admin and making v21 current gives new wallets V2.1, and allows revoking old default.
         vaultFactory.setAdmin(OTHER);
+        assertEq(vaultFactory.pendingAdmin(), OTHER);
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowVaultFactoryV2.Unauthorized.selector);
+        vaultFactory.acceptAdmin();
+        vm.prank(OTHER);
+        vaultFactory.acceptAdmin();
+        assertEq(vaultFactory.admin(), OTHER);
+        assertEq(vaultFactory.pendingAdmin(), address(0));
         vm.prank(OTHER);
         vaultFactory.approveImplementation(address(v21), true);
         assertEq(vaultFactory.implementation(), address(v21));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowVaultFactoryV2.InvalidImplementation.selector);
+        vaultFactory.revokeImplementation(address(v21));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowVaultFactoryV2.InvalidImplementation.selector);
+        vaultFactory.revokeImplementation(address(0xdead));
+        vm.prank(OTHER);
+        vaultFactory.revokeImplementation(oldDefault);
+        assertFalse(vaultFactory.approvedImplementation(oldDefault));
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.upgradeToAndCall(oldDefault, "");
         vm.prank(OTHER);
         address otherVault = vaultFactory.create(address(agent));
         assertEq(MockVaultV2Upgrade(payable(otherVault)).version(), 201);
@@ -305,9 +334,15 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         agentFactory.approveImplementation(address(a21), true);
         vm.prank(OWNER);
         vm.expectRevert(WorkflowAgentFactoryV2.Unauthorized.selector);
+        agentFactory.revokeImplementation(address(a21));
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowAgentFactoryV2.Unauthorized.selector);
         agentFactory.setAdmin(OWNER);
         vm.expectRevert(WorkflowAgentFactoryV2.Unauthorized.selector);
         agentFactory.setAdmin(address(0));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowAgentFactoryV2.Unauthorized.selector);
+        agentFactory.acceptAdmin();
         vm.expectRevert(WorkflowAgentFactoryV2.InvalidImplementation.selector);
         agentFactory.approveImplementation(address(0), true);
         vm.expectRevert(WorkflowAgentFactoryV2.InvalidImplementation.selector);
@@ -350,7 +385,26 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
         assertEq(storedHash, keccak256(encoded));
 
         agentFactory.setAdmin(OTHER);
+        assertEq(agentFactory.pendingAdmin(), OTHER);
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowAgentFactoryV2.Unauthorized.selector);
+        agentFactory.acceptAdmin();
+        vm.prank(OTHER);
+        agentFactory.acceptAdmin();
         assertEq(agentFactory.admin(), OTHER);
+        assertEq(agentFactory.pendingAdmin(), address(0));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowAgentFactoryV2.InvalidImplementation.selector);
+        agentFactory.revokeImplementation(address(a21));
+        vm.prank(OTHER);
+        vm.expectRevert(WorkflowAgentFactoryV2.InvalidImplementation.selector);
+        agentFactory.revokeImplementation(address(0xdead));
+        vm.prank(OTHER);
+        agentFactory.revokeImplementation(oldAgentDefault);
+        assertFalse(agentFactory.approvedImplementation(oldAgentDefault));
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowAgentStorageV2.InvalidWorkflow.selector);
+        agent.upgradeToAndCall(oldAgentDefault, "");
         vm.prank(OTHER);
         address otherAgent = agentFactory.create();
         assertEq(MockAgentV2Upgrade(payable(otherAgent)).version(), 201);
@@ -1065,6 +1119,490 @@ contract WorkflowV2UpgradeAndFixesTest is Test {
                 referencePrice: 1_000e18
             })
         );
+    }
+
+    function testReferencePendingDoesNotSlideForeverOnSkippedOrFailedCallbacks() public {
+        uint256 t0 = block.timestamp;
+        bytes32 wf = keccak256("ref pending no slide");
+        P.Node[] memory nodes = new P.Node[](5);
+        nodes[0] = P.Node(P.ABOVE_REFERENCE, 1, 2, 1_000, 2_000e18, new P.Action[](0));
+        nodes[1].actions = _actions(_action(P.SELL, 0.1 ether, address(0)));
+        nodes[2] = P.Node(P.BELOW_REFERENCE, 3, 4, 1_000, 2_000e18, new P.Action[](0));
+        nodes[3].actions = _actions(_action(P.BUY, 5e6, address(0)));
+        P.Program memory prog = _program(P.BASE_MAINNET, P.BASE_MAINNET, P.PRICE, nodes);
+        bytes memory encoded = abi.encode(prog);
+
+        vm.startPrank(OWNER);
+        vault.authorize(wf, 1, encoded, "Ref no slide");
+        agent.enable(wf, 1, encoded, "Ref no slide", uint64(block.number));
+        vm.stopPrank();
+
+        // First swap at $2,250 dispatches and opens a fixed 10-minute pending window.
+        _sync(P.BASE_MAINNET, 10, 2_250e6);
+        assertEq(system.requestCount(), 1);
+
+        // Callback skipped/failed (no ReferenceSynced). After cooldown, a speculative swap dispatches
+        // inside the original window, without sliding the pending deadline forward.
+        vm.warp(t0 + 61);
+        _sync(P.BASE_MAINNET, 11, 2_050e6);
+        assertEq(system.requestCount(), 2, "speculative dispatch allowed inside original window");
+
+        // Once the original LIFETIME window expires, non-matching swaps no longer loop every 60s.
+        vm.warp(t0 + 10 minutes + 1);
+        _sync(P.BASE_MAINNET, 12, 2_050e6);
+        assertEq(system.requestCount(), 2, "expired pending window stops callback spam");
+        vm.prank(OWNER);
+        agent.disable(wf, 1);
+
+        // Non-swap SEND reference workflow emits ReferenceSynced after seed and clears pending.
+        bytes32 sendWf = keccak256("ref send sync");
+        P.Node[] memory sendNodes = new P.Node[](3);
+        sendNodes[0] = P.Node(P.ABOVE_REFERENCE, 1, 2, 1_000, 0, new P.Action[](0));
+        sendNodes[1].actions = _actions(_action(P.SEND, 5e6, RECIPIENT));
+        P.Program memory sendProg = _program(P.BASE_MAINNET, P.BASE_MAINNET, P.PRICE, sendNodes);
+        bytes memory sendEncoded = abi.encode(sendProg);
+        usdc.mint(address(vault), 20e6);
+        vm.startPrank(OWNER);
+        vault.authorize(sendWf, 1, sendEncoded, "Ref send");
+        agent.enable(sendWf, 1, sendEncoded, "Ref send", uint64(block.number));
+        vm.stopPrank();
+
+        _sync(P.BASE_MAINNET, 13, 2_000e6);
+        assertEq(system.requestCount(), 3);
+        CallbackConfiguration memory seedReq = system.requestAt(2);
+        bytes memory seedPayload = seedReq.payload;
+        address sender = address(agent);
+        assembly ("memory-safe") {
+            mstore(add(seedPayload, 36), sender)
+        }
+        vm.prank(PROXY);
+        (bool okSeed,) = address(vault).call{gas: seedReq.gasLimit}(seedPayload);
+        assertTrue(okSeed);
+
+        vm.warp(vm.getBlockTimestamp() + 61);
+        pair.setReserves(2_300_000e6, 1_000 ether);
+        ethUsd.setAnswer(2_300e8);
+        _sync(P.BASE_MAINNET, 14, 2_300e6);
+        assertEq(system.requestCount(), 4);
+
+        CallbackConfiguration memory sendReq = system.requestAt(3);
+        bytes memory sendPayload = sendReq.payload;
+        assembly ("memory-safe") {
+            mstore(add(sendPayload, 36), sender)
+        }
+        vm.expectEmit(true, true, false, true, address(vault));
+        emit WorkflowVaultStorageV2.ReferenceSynced(sendWf, 1, 2_000e18);
+        vm.prank(PROXY);
+        (bool okSend,) = address(vault).call{gas: sendReq.gasLimit}(sendPayload);
+        assertTrue(okSend);
+        assertEq(usdc.balanceOf(RECIPIENT), 5e6);
+
+        IReactive.LogRecord memory refLog;
+        refLog.chain_id = P.BASE_MAINNET;
+        refLog._contract = address(vault);
+        refLog.topic_0 = REFERENCE_SYNCED;
+        refLog.topic_1 = uint256(sendWf);
+        refLog.topic_2 = 1;
+        refLog.block_number = 300;
+        refLog.tx_hash = 300;
+        refLog.data = abi.encode(uint128(2_000e18));
+        vm.prank(address(system));
+        agent.react(refLog);
+
+        vm.warp(vm.getBlockTimestamp() + 61);
+        _sync(P.BASE_MAINNET, 15, 2_100e6);
+        assertEq(system.requestCount(), 4, "ReferenceSynced cleared pending flag immediately");
+    }
+
+    function testPeakVerificationHandlesClockSkewPhaseLookupAndFallback() public {
+        uint64 since = uint64(MONDAY + 1 hours);
+        uint80 phase2 = uint80(2) << 64;
+        // Phase 1 round 1 is NOT populated (reverts like live Unichain ETH/USD), phase 2 starts at `since`.
+        ethUsd.setRound(phase2 | 1, 3_500e8, since, since, phase2 | 1);
+        // Leave a gap of missing rounds (2..4) and populate rounds 5..10.
+        for (uint80 r = 5; r <= 10; ++r) {
+            ethUsd.setRound(phase2 | r, 3_200e8, since + (r * 10), since + (r * 10), phase2 | r);
+        }
+        usdcUsd.setRound(1, 1e8, since, since, 1);
+
+        // 1. Active phase checked first even when phase 1 reverts, and binary search survives both
+        //    multi-round gaps and single-round gaps (probing back from an empty mid round).
+        assertTrue(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                since + 45,
+                since,
+                3_500e18,
+                1 hours,
+                1 hours
+            ),
+            "active phase and gap probing succeed"
+        );
+
+        ethUsd.setRound(phase2 | 2, 3_400e8, since + 20, since + 20, phase2 | 2);
+        ethUsd.setRound(phase2 | 4, 3_200e8, since + 40, since + 40, phase2 | 4);
+        vm.warp(since + 100);
+        // Binary search on [1..10] -> mid=6 (>since+25) -> head=5 -> mid=3 (empty) -> probe=2 (hit).
+        assertTrue(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                since + 25,
+                since,
+                3_400e18,
+                1 hours,
+                1 hours
+            ),
+            "single-round gap probes back to round 2"
+        );
+
+        // Stale usdcFeed round beyond usdcMaxAge + PEAK_CLOCK_SKEW (130s) returns false.
+        vm.warp(since + 200);
+        ethUsd.setRound(phase2 | 10, 3_200e8, since + 200, since + 200, phase2 | 10);
+        assertFalse(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                since + 200,
+                since,
+                3_200e18,
+                1 hours,
+                10
+            ),
+            "stale usdcFeed historical round rejected"
+        );
+        // Restore state for clock-skew checks below.
+        ethUsd.setRound(phase2 | 10, 3_200e8, since + 100, since + 100, phase2 | 10);
+
+        // 2. Reactive clock ahead by <= 2 minutes succeeds; > 2 minutes fails.
+        vm.warp(since + 100);
+        assertTrue(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                uint64(vm.getBlockTimestamp() + 60),
+                since,
+                3_200e18,
+                1 hours,
+                1 hours
+            ),
+            "within PEAK_CLOCK_SKEW succeeds"
+        );
+        assertFalse(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                uint64(vm.getBlockTimestamp() + 121),
+                since,
+                3_200e18,
+                1 hours,
+                1 hours
+            ),
+            "beyond PEAK_CLOCK_SKEW rejected"
+        );
+
+        // 3. Reverted usdcFeed latestRoundData returns false gracefully.
+        usdcUsd.setReverts(true);
+        assertFalse(
+            validator.verifyPeakAt(
+                address(ethUsd),
+                address(usdcUsd),
+                1e10,
+                1e10,
+                phase2 | 10,
+                since + 50,
+                since,
+                3_200e18,
+                1 hours,
+                1 hours
+            )
+        );
+        usdcUsd.setReverts(false);
+
+        // 4. Vault _isPeakOracleConsistent falls back to verifyHistoricalPeak if verifyPeakAt returns false.
+        bytes32 wf = keccak256("trailing fallback");
+        P.Program memory prog = _program(
+            P.BASE_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.TRAILING, 1_000, _action(P.SELL, 0.1 ether, address(0)))
+        );
+        prog.once = true;
+        vm.prank(OWNER);
+        vault.authorize(wf, 1, abi.encode(prog), "Fallback");
+        weth.mint(address(vault), 1 ether);
+        pair.setReserves(3_100_000e6, 1_000 ether);
+        ethUsd.setRound(phase2 | 10, 3_500e8, since + 105, since + 105, phase2 | 10);
+        ethUsd.setRound(phase2 | 11, 3_100e8, since + 110, since + 110, phase2 | 11);
+        vm.warp(since + 120);
+
+        P.Run memory run = _run(wf, 55, P.BASE_MAINNET, 3_100e18);
+        run.high = 3_500e18;
+        run.highBlock = 50;
+        // peakTime < since makes verifyPeakAt return false, but verifyHistoricalPeak sees phase2 | 10 at $3,500.
+        run.observationId = P.priceEvidence(0, since - 10, false);
+        vm.prank(PROXY);
+        vault.execute(address(agent), wf, run);
+        assertEq(
+            vault.outcomes(_runId(wf, P.BASE_MAINNET, bytes32(uint256(55)), 0)),
+            vault.CONFIRMED(),
+            "historical fallback recovers peak"
+        );
+    }
+
+    function testStalePreEnableAndPreResumePricesCannotFalseTriggerCrossing() public {
+        // 1. Prior workflow records $1,800 in shared prices[BASE_MAINNET][pair].
+        bytes32 priorWf = keccak256("prior price wf");
+        P.Program memory priorProg = _program(
+            P.BASE_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_AT_LEAST, 10_000e18, _action(P.ALERT, 0, address(0)))
+        );
+        vm.startPrank(OWNER);
+        vault.authorize(priorWf, 1, abi.encode(priorProg), "Prior");
+        agent.enable(priorWf, 1, abi.encode(priorProg), "Prior", uint64(block.number));
+        vm.stopPrank();
+        _sync(P.BASE_MAINNET, 10, 1_800e6);
+        vm.prank(OWNER);
+        agent.disable(priorWf, 1);
+
+        // 2. New crossing workflow enabled later must NOT use stale $1,800 on first swap at $2,500.
+        vm.warp(block.timestamp + 10 minutes);
+        vm.roll(block.number + 20);
+        bytes32 crossWf = keccak256("fresh crossing");
+        P.Program memory crossProg = _program(
+            P.BASE_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_RISES_THROUGH, 2_200e18, _action(P.SEND, 5e6, RECIPIENT))
+        );
+        bytes memory crossEncoded = abi.encode(crossProg);
+        usdc.mint(address(vault), 20e6);
+        vm.startPrank(OWNER);
+        vault.authorizeWithWeeklyBudget(crossWf, 1, crossEncoded, "Fresh cross", 10e6, 0);
+        agent.enableWithBudget(
+            crossWf,
+            1,
+            crossEncoded,
+            "Fresh cross",
+            uint64(block.number),
+            WorkflowAgentStorageV2.BudgetSeed(10e6, 0, 0, 0, uint64(MONDAY), 1)
+        );
+        vm.stopPrank();
+
+        _sync(P.BASE_MAINNET, uint64(block.number + 1), 2_500e6);
+        assertEq(system.requestCount(), 0, "stale pre-enable price must not trigger crossing");
+
+        // Fresh post-enable crossing $2,100 -> $2,300 triggers cleanly.
+        _sync(P.BASE_MAINNET, uint64(block.number + 2), 2_100e6);
+        _sync(P.BASE_MAINNET, uint64(block.number + 3), 2_300e6);
+        assertEq(system.requestCount(), 1, "fresh post-enable crossing triggers");
+
+        // 3. Pausing and resuming resets crossing baseline so frozen pre-pause price does not trigger.
+        IReactive.LogRecord memory pauseLog;
+        pauseLog.chain_id = P.BASE_MAINNET;
+        pauseLog._contract = address(vault);
+        pauseLog.topic_0 = BUDGET_SYNCED;
+        pauseLog.topic_1 = uint256(crossWf);
+        pauseLog.data = abi.encode(
+            uint96(10e6), uint96(0), uint128(10e6), uint128(0), uint64(MONDAY), uint32(1)
+        );
+        vm.prank(address(system));
+        agent.react(pauseLog);
+        assertTrue(agent.watchingPaused(crossWf));
+
+        // Seed another workflow at $2,100 while crossWf is paused, then resume crossWf.
+        bytes32 spyWf = keccak256("spy wf");
+        vm.startPrank(OWNER);
+        vault.authorize(spyWf, 1, abi.encode(priorProg), "Spy");
+        agent.enable(spyWf, 1, abi.encode(priorProg), "Spy", uint64(block.number));
+        vm.stopPrank();
+        _sync(P.BASE_MAINNET, uint64(block.number + 4), 2_100e6);
+
+        vm.warp(block.timestamp + 1 minutes);
+        IReactive.LogRecord memory resumeLog;
+        resumeLog.chain_id = P.BASE_MAINNET;
+        resumeLog._contract = address(vault);
+        resumeLog.topic_0 = BUDGET_SYNCED;
+        resumeLog.topic_1 = uint256(crossWf);
+        resumeLog.data = abi.encode(
+            uint96(20e6), uint96(0), uint128(10e6), uint128(0), uint64(MONDAY), uint32(2)
+        );
+        vm.prank(address(system));
+        agent.react(resumeLog);
+        assertFalse(agent.watchingPaused(crossWf));
+
+        _sync(P.BASE_MAINNET, uint64(block.number + 5), 2_300e6);
+        assertEq(system.requestCount(), 1, "frozen pre-resume price must not trigger crossing");
+
+        _sync(P.BASE_MAINNET, uint64(block.number + 6), 2_150e6);
+        _sync(P.BASE_MAINNET, uint64(block.number + 7), 2_250e6);
+        assertEq(system.requestCount(), 2, "fresh post-resume crossing triggers");
+    }
+
+    function testNonTrailingPriceWorkflowSkipsPeakTrackingAndVerification() public {
+        bytes32 wf = keccak256("non trailing price");
+        P.Program memory prog = _program(
+            P.BASE_MAINNET,
+            P.BASE_MAINNET,
+            P.PRICE,
+            _branch(P.PRICE_BELOW, 2_100e18, _action(P.ALERT, 0, address(0)))
+        );
+        bytes memory encoded = abi.encode(prog);
+        vm.startPrank(OWNER);
+        vault.authorize(wf, 1, encoded, "Non trailing");
+        agent.enable(wf, 1, encoded, "Non trailing", uint64(block.number));
+        vm.stopPrank();
+
+        _sync(P.BASE_MAINNET, 10, 3_000e6);
+        _sync(P.BASE_MAINNET, 11, 2_900e6);
+        _sync(P.BASE_MAINNET, 12, 1_950e6);
+        assertEq(system.requestCount(), 1);
+
+        CallbackConfiguration memory req = system.requestAt(0);
+        bytes memory payload = req.payload;
+        address sender = address(agent);
+        assembly ("memory-safe") {
+            mstore(add(payload, 36), sender)
+        }
+        vm.expectCall(
+            address(validator),
+            abi.encodeWithSelector(WorkflowProgramValidatorV2.verifyPeakAt.selector),
+            0
+        );
+        vm.prank(PROXY);
+        (bool ok,) = address(vault).call{gas: req.gasLimit}(payload);
+        assertTrue(ok);
+        (uint128 peak,,,,,,,) = vault.workflowMemory(wf);
+        assertEq(peak, 0, "non-trailing workflow never records peak");
+    }
+
+    function testExpiredPaymentWorkflowReleasesSlotForReplacement() public {
+        bytes32 wf1 = keccak256("pay 1");
+        bytes32 wf2 = keccak256("pay 2");
+        bytes32 wf3 = keccak256("pay 3");
+
+        P.Program memory p1 = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.PAYMENT, _path(_action(P.ALERT, 0, address(0)))
+        );
+        p1.expires = uint64(block.timestamp + 100);
+        vm.prank(OWNER);
+        vault.authorize(wf1, 1, abi.encode(p1), "Pay 1");
+        assertEq(vault.paymentWorkflow(), wf1);
+
+        // Cannot replace while active and unexpired.
+        P.Program memory p2 = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.PAYMENT, _path(_action(P.ALERT, 0, address(0)))
+        );
+        p2.expires = uint64(block.timestamp + 300);
+        vm.prank(OWNER);
+        vm.expectRevert(WorkflowVaultStorageV2.InvalidAuthorization.selector);
+        vault.authorize(wf2, 1, abi.encode(p2), "Pay 2");
+
+        // Once expired, a new PAYMENT workflow can authorize directly without manual revoke.
+        vm.warp(vm.getBlockTimestamp() + 150);
+        vm.prank(OWNER);
+        vault.authorize(wf2, 1, abi.encode(p2), "Pay 2");
+        assertEq(vault.paymentWorkflow(), wf2);
+        (,,, bool wf1Active) = vault.authorizations(wf1);
+        assertFalse(wf1Active);
+
+        // Settling an expired PAYMENT workflow clears paymentWorkflow immediately.
+        vm.warp(vm.getBlockTimestamp() + 200);
+        P.Run memory expRun = _run(wf2, 1, P.BASE_MAINNET, 10e6);
+        vm.prank(PROXY);
+        vault.execute(address(agent), wf2, expRun);
+        assertEq(
+            vault.outcomes(_runId(wf2, P.BASE_MAINNET, bytes32(uint256(1)), 0)), vault.EXPIRED()
+        );
+        assertEq(vault.paymentWorkflow(), bytes32(0));
+
+        P.Program memory p3 = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.PAYMENT, _path(_action(P.ALERT, 0, address(0)))
+        );
+        vm.prank(OWNER);
+        vault.authorize(wf3, 1, abi.encode(p3), "Pay 3");
+        assertEq(vault.paymentWorkflow(), wf3);
+    }
+
+    function testDynamicReferenceSeedUsesLivePriceObservationPreservesAmountAndStrictFields()
+        public
+    {
+        // 1. Same-chain dynamic reference seeds from live ctx.price rather than run.observed.
+        bytes32 wf = keccak256("dyn ref live price");
+        P.Node[] memory nodes = new P.Node[](3);
+        nodes[0] = P.Node(P.ABOVE_REFERENCE, 1, 2, 1_000, 0, new P.Action[](0));
+        nodes[1].actions = _actions(_action(P.ALERT, 0, address(0)));
+        P.Program memory prog = _program(P.BASE_MAINNET, P.BASE_MAINNET, P.PRICE, nodes);
+        vm.prank(OWNER);
+        vault.authorize(wf, 1, abi.encode(prog), "Dyn live");
+
+        pair.setReserves(2_020_000e6, 1_000 ether);
+        P.Run memory run = _run(wf, 1, P.BASE_MAINNET, 2_000e18);
+        vm.prank(PROXY);
+        vault.execute(address(agent), wf, run);
+        (, uint128 refPrice,,,,,,) = vault.workflowMemory(wf);
+        assertEq(refPrice, 2_020e18, "dynamic reference seeds to live spot price");
+
+        // 2. TRANSFER with PRICE check logs transfer amount in Observation event.
+        bytes32 xferWf = keccak256("xfer obs amount");
+        P.Program memory xferProg = _program(
+            P.BASE_MAINNET,
+            P.BASE_MAINNET,
+            P.TRANSFER,
+            _branch(P.PRICE_AT_LEAST, 1_900e18, _action(P.ALERT, 0, address(0)))
+        );
+        xferProg.source = address(usdc);
+        xferProg.subject = RECIPIENT;
+        vm.prank(OWNER);
+        vault.authorize(xferWf, 1, abi.encode(xferProg), "Xfer obs");
+
+        P.Run memory xferRun = _run(xferWf, 2, P.BASE_MAINNET, 500e6);
+        xferRun.actor = RECIPIENT;
+        bytes32 xferRunId = _runId(xferWf, P.BASE_MAINNET, bytes32(uint256(2)), 0);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit WorkflowVaultStorageV2.Observation(xferRunId, 500e6, RECIPIENT);
+        vm.prank(PROXY);
+        vault.execute(address(agent), xferWf, xferRun);
+
+        // 3. Unused source and subject fields are rejected by validateProgram.
+        P.Program memory badSource = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.SCHEDULE, _path(_action(P.ALERT, 0, address(0)))
+        );
+        badSource.source = address(usdc);
+        vm.expectRevert(P.InvalidProgram.selector);
+        validator.validateProgram(abi.encode(badSource));
+
+        P.Program memory badSubject = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.PRICE, _path(_action(P.ALERT, 0, address(0)))
+        );
+        badSubject.subject = RECIPIENT;
+        vm.expectRevert(P.InvalidProgram.selector);
+        validator.validateProgram(abi.encode(badSubject));
+
+        P.Program memory badPaySubject = _program(
+            P.BASE_MAINNET, P.BASE_MAINNET, P.PAYMENT, _path(_action(P.ALERT, 0, address(0)))
+        );
+        badPaySubject.subject = RECIPIENT;
+        vm.expectRevert(P.InvalidProgram.selector);
+        validator.validateProgram(abi.encode(badPaySubject));
     }
 
     function _sync(uint32 chainId, uint64 blockNum, uint256 quotePerWeth) private {

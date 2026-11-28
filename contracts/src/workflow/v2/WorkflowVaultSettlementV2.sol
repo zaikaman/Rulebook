@@ -32,7 +32,11 @@ contract WorkflowVaultSettlementV2 is WorkflowVaultStorageV2 {
             revert InvalidAuthorization();
         }
         Memory storage memory_ = workflowMemory[workflow];
-        if (program.expires != 0 && block.timestamp > program.expires) return (EXPIRED, NO_PATH);
+        if (program.expires != 0 && block.timestamp > program.expires) {
+            _authorizations[workflow].active = false;
+            if (paymentWorkflow == workflow) paymentWorkflow = bytes32(0);
+            return (EXPIRED, NO_PATH);
+        }
         if (memory_.closed) return (SKIPPED, NO_PATH);
         if (program.trigger == P.PAYMENT && run.actor == owner) revert NoLongerEligible();
 
@@ -59,33 +63,35 @@ contract WorkflowVaultSettlementV2 is WorkflowVaultStorageV2 {
             }
             _guardOraclePrice(ctx.market, run.observed);
             ctx.price = program.originChain == chain ? _price(ctx.market) : run.observed;
-            if (
-                ctx.price > memory_.peak
-                    && _isPeakOracleConsistent(ctx.market, ctx.price, memory_.lastCheckIn, 0)
-            ) {
-                memory_.peak = _toUint128Price(ctx.price);
-            }
-            if (run.high > memory_.peak) {
+            if (P.hasCheck(program, P.TRAILING)) {
                 if (
-                    _isPeakOracleConsistent(
-                            ctx.market,
-                            run.high,
-                            memory_.lastCheckIn,
-                            uint64(uint256(run.observationId))
-                        )
-                        && (run.originChain != chain
-                            || run.highBlock > _authorizations[workflow].originAfter)
+                    ctx.price > memory_.peak
+                        && _isPeakOracleConsistent(ctx.market, ctx.price, memory_.lastCheckIn, 0)
                 ) {
-                    memory_.peak = run.high;
-                } else {
-                    emit PeakCorrected(
-                        workflow,
-                        run.epoch,
-                        memory_.peak,
-                        run.high,
-                        run.highBlock,
-                        uint64(uint256(run.observationId))
-                    );
+                    memory_.peak = _toUint128Price(ctx.price);
+                }
+                if (run.high > memory_.peak) {
+                    if (
+                        _isPeakOracleConsistent(
+                                ctx.market,
+                                run.high,
+                                memory_.lastCheckIn,
+                                uint64(uint256(run.observationId))
+                            )
+                            && (run.originChain != chain
+                                || run.highBlock > _authorizations[workflow].originAfter)
+                    ) {
+                        memory_.peak = run.high;
+                    } else {
+                        emit PeakCorrected(
+                            workflow,
+                            run.epoch,
+                            memory_.peak,
+                            run.high,
+                            run.highBlock,
+                            uint64(uint256(run.observationId))
+                        );
+                    }
                 }
             }
         }
@@ -138,17 +144,17 @@ contract WorkflowVaultSettlementV2 is WorkflowVaultStorageV2 {
             memory_.positionBlock = run.originBlock;
             memory_.positionIndex = run.originLogIndex;
         }
+        bool hasReference = !program.once && program.trigger == P.PRICE
+            && (P.hasCheck(program, P.ABOVE_REFERENCE) || P.hasCheck(program, P.BELOW_REFERENCE));
         if (ctx.swapped) {
             uint128 refPrice = _toUint128Price(ctx.price);
             memory_.referencePrice = refPrice;
-            if (
-                !program.once
-                    && (P.hasCheck(program, P.ABOVE_REFERENCE)
-                        || P.hasCheck(program, P.BELOW_REFERENCE))
-            ) {
+            if (hasReference) {
                 emit ReferenceSynced(workflow, run.epoch, refPrice);
             }
-        } else if (ctx.referenceSeeded && !program.once) {
+        } else if (
+            (ctx.referenceSeeded && !program.once) || (hasReference && memory_.referencePrice != 0)
+        ) {
             emit ReferenceSynced(workflow, run.epoch, memory_.referencePrice);
         }
         if (ctx.dip) {
@@ -166,7 +172,9 @@ contract WorkflowVaultSettlementV2 is WorkflowVaultStorageV2 {
         }
         emit Observation(
             runId,
-            ctx.price == 0 ? run.observed : ctx.price,
+            program.trigger == P.PAYMENT || program.trigger == P.TRANSFER
+                ? run.observed
+                : (ctx.price == 0 ? run.observed : ctx.price),
             program.trigger == P.PRICE ? address(0) : run.actor
         );
         return (CONFIRMED, cursor);
@@ -279,7 +287,7 @@ contract WorkflowVaultSettlementV2 is WorkflowVaultStorageV2 {
         if (check == P.TRAILING) {
             referencePrice = memory_.peak;
         } else if (referencePrice == 0) {
-            referencePrice = node.upper == 0 ? run.observed : node.upper;
+            referencePrice = node.upper == 0 ? ctx.price : node.upper;
             memory_.referencePrice = _toUint128Price(referencePrice);
             ctx.referenceSeeded = true;
         }

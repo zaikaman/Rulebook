@@ -163,6 +163,16 @@ library WorkflowProgramV2 {
                 program.source == address(0)
                     || (program.originChain != program.chain && program.subject == address(0))
             ) revert InvalidProgram();
+        } else if (program.source != address(0)) {
+            revert InvalidProgram();
+        }
+        if (
+            program.subject != address(0)
+                && (program.trigger == SCHEDULE
+                    || program.trigger == PRICE
+                    || (program.trigger == PAYMENT && !hasCheck(program, PAYMENT_FROM)))
+        ) {
+            revert InvalidProgram();
         }
 
         uint256 count = program.nodes.length;

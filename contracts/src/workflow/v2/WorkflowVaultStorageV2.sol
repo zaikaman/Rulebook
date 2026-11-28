@@ -89,7 +89,6 @@ abstract contract WorkflowVaultStorageV2 is AbstractCallback, ReentrancyGuard, W
     event Closed(bytes32 indexed workflow, uint64 indexed epoch);
     event GraceStarted(bytes32 indexed workflow, uint64 indexed epoch, uint64 eligibleAt);
     event ReferenceSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 referencePrice);
-    event PeakSynced(bytes32 indexed workflow, uint64 indexed epoch, uint128 peak);
     event PeakCorrected(
         bytes32 indexed workflow,
         uint64 indexed epoch,
