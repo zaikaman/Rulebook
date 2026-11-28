@@ -7,7 +7,13 @@ export { EmptyState } from './EmptyState.js';
 export { ErrorState, type ErrorStateProps } from './ErrorState.js';
 export { FactList, type Fact, type FactListProps } from './FactList.js';
 export { Field, type FieldProps } from './Field.js';
-export { FilterBar, FilterGroup, type FilterGroupProps, type FilterOption } from './FilterGroup.js';
+export {
+  FilterBar,
+  FilterGroup,
+  type FilterBarProps,
+  type FilterGroupProps,
+  type FilterOption,
+} from './FilterGroup.js';
 export { PageHeading } from './PageHeading.js';
 export { Panel, PanelBody, PanelCopy, PanelHeading, PanelHeader, PanelTitle } from './Panel.js';
 export { PresetStrip, type PresetOption, type PresetStripProps } from './PresetStrip.js';

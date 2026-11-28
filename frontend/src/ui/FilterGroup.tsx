@@ -1,4 +1,4 @@
-import type { HTMLAttributes } from 'react';
+import type { HTMLAttributes, ReactNode } from 'react';
 
 import { cx } from './classNames.js';
 
@@ -14,6 +14,7 @@ export interface FilterGroupProps<Value extends string> {
   readonly showLabel?: boolean;
   readonly options: readonly FilterOption<Value>[];
   readonly value: Value;
+  readonly defaultValue?: Value;
   readonly onChange: (value: Value) => void;
   readonly disabled?: boolean;
   readonly className?: string;
@@ -25,12 +26,18 @@ export function FilterGroup<Value extends string>({
   showLabel = true,
   options,
   value,
+  defaultValue,
   onChange,
   disabled = false,
   className,
 }: FilterGroupProps<Value>) {
+  const isFiltered = defaultValue !== undefined && value !== defaultValue;
+
   return (
-    <div className={cx('rb-filter-group', className)}>
+    <div
+      className={cx('rb-filter-group', className)}
+      data-filtered={isFiltered ? 'true' : undefined}
+    >
       {showLabel ? (
         <span className="rb-filter-label" aria-hidden="true">
           {label}
@@ -44,6 +51,9 @@ export function FilterGroup<Value extends string>({
             className="rb-filter"
             disabled={disabled || option.disabled}
             aria-pressed={value === option.value}
+            data-default={
+              defaultValue !== undefined && option.value === defaultValue ? 'true' : undefined
+            }
             onClick={() => onChange(option.value)}
           >
             <span>{option.label}</span>
@@ -57,7 +67,16 @@ export function FilterGroup<Value extends string>({
   );
 }
 
-/** Wrapping strip that arranges multiple FilterGroup controls cleanly across breakpoints. */
-export function FilterBar({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cx('rb-filter-bar', className)} {...props} />;
+export interface FilterBarProps extends HTMLAttributes<HTMLDivElement> {
+  readonly toolbar?: ReactNode;
+}
+
+/** Container-aware filter surface combining an optional search toolbar with grouped FilterGroup controls. */
+export function FilterBar({ toolbar, className, children, ...props }: FilterBarProps) {
+  return (
+    <div className={cx('rb-filter-bar', className)} {...props}>
+      {toolbar ? <div className="rb-filter-bar-head">{toolbar}</div> : null}
+      <div className="rb-filter-bar-groups">{children}</div>
+    </div>
+  );
 }

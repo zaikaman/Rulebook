@@ -285,22 +285,22 @@ The workspace uses restrained rounded rectangles: 0.375rem tags, 0.5625rem field
 
 New feature code imports from `src/ui`. A feature file may keep layout-only classes and its own domain classes, but it must not recreate a primitive recipe.
 
-| Primitive                                           | Use                                        | Replaces                             |
-| --------------------------------------------------- | ------------------------------------------ | ------------------------------------ |
-| `Button`                                            | All actions and dialog footers             | `button.app-button` markup           |
-| `Panel`, `PanelHeader`, `PanelBody`, `PanelHeading` | Every bordered content panel               | `div.app-panel` plus `rb-panel-*`    |
-| `Badge`                                             | Status, visibility, and index chips        | `rb-chip` with a raw `data-tone`     |
-| `FactList`                                          | Addresses, IDs, networks, and spec facts   | `dl.rb-spec-facts`                   |
-| `ErrorState`                                        | Failed reads, chain errors, copy failures  | `rb-error`                           |
-| `SyncState`                                         | Indexing and not-yet-visible records       | `rb-sync`                            |
-| `EmptyState`                                        | Empty collections and first-run guidance   | `rb-empty`                           |
-| `Callout`                                           | One explanation plus one action            | `rb-callout`                         |
-| `Dialog`                                            | Modal surfaces with focus trap and restore | `dialog.app-dialog`                  |
-| `Field`                                             | Labelled inputs with hint or error         | `label.app-field`                    |
-| `Select`                                            | Grouped single-choice pickers              | native `select` option popups        |
-| `PageHeading`                                       | Page title, description, breadcrumb, aside | `header.app-heading`                 |
-| `Toolbar`                                           | Search and filter rows                     | `div.rb-toolbar`                     |
-| `FilterBar`, `FilterGroup`                          | Accessible filter chip strips and groups   | raw `rb-filter-group` / `rb-filters` |
+| Primitive                                           | Use                                                   | Replaces                             |
+| --------------------------------------------------- | ----------------------------------------------------- | ------------------------------------ |
+| `Button`                                            | All actions and dialog footers                        | `button.app-button` markup           |
+| `Panel`, `PanelHeader`, `PanelBody`, `PanelHeading` | Every bordered content panel                          | `div.app-panel` plus `rb-panel-*`    |
+| `Badge`                                             | Status, visibility, and index chips                   | `rb-chip` with a raw `data-tone`     |
+| `FactList`                                          | Addresses, IDs, networks, and spec facts              | `dl.rb-spec-facts`                   |
+| `ErrorState`                                        | Failed reads, chain errors, copy failures             | `rb-error`                           |
+| `SyncState`                                         | Indexing and not-yet-visible records                  | `rb-sync`                            |
+| `EmptyState`                                        | Empty collections and first-run guidance              | `rb-empty`                           |
+| `Callout`                                           | One explanation plus one action                       | `rb-callout`                         |
+| `Dialog`                                            | Modal surfaces with focus trap and restore            | `dialog.app-dialog`                  |
+| `Field`                                             | Labelled inputs with hint or error                    | `label.app-field`                    |
+| `Select`                                            | Grouped single-choice pickers                         | native `select` option popups        |
+| `PageHeading`                                       | Page title, description, breadcrumb, aside            | `header.app-heading`                 |
+| `Toolbar`                                           | Search and filter rows                                | `div.rb-toolbar`                     |
+| `FilterBar`, `FilterGroup`                          | Unified search toolbar + container-aware facet groups | raw `rb-filter-group` / `rb-filters` |
 
 Rules that apply across components:
 
@@ -311,6 +311,7 @@ Rules that apply across components:
 - A fact list keeps a visible label for every value. Never render a bare address with no term.
 - `Field` renders its hint and error outside the label so a control's accessible name stays the field name; controls receive the hint and error ids to set `aria-describedby`.
 - `Select` keeps a grouped choice inside the workspace: a `role="combobox"` trigger, an absolutely positioned `listbox`, arrow/Home/End/Enter/Escape/Tab handling, and `aria-activedescendant` on the trigger. Use it instead of a native `select` wherever the operating system's option window would escape the design system or clip at the viewport.
+- `FilterBar` accepts an optional `toolbar` header slot and arranges `FilterGroup` facets in a container-aware 1 / 2+1 / 3 column grid inside one tonal surface. Pass `defaultValue` to `FilterGroup` so the default `"All"` chip renders as a calm neutral raised chip while narrowing selections receive the accent tint and a facet indicator dot on the label.
 - If a new pattern is genuinely missing, add it to `src/ui`, document it here, then use it.
 
 ### Adding a UI surface

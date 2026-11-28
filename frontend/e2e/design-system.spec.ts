@@ -92,6 +92,7 @@ test('captures the key surfaces at desktop and mobile', async ({ page }, testInf
   const routes = [
     { path: '/workflows', name: 'workflows' },
     { path: '/marketplace', name: 'marketplace' },
+    { path: '/cost', name: 'cost' },
     { path: '/setup', name: 'setup' },
     { path: '/proof', name: 'proof' },
   ];

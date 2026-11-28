@@ -21,6 +21,15 @@ import { appRoutes } from '@/lib/routes';
 import { workflowClient } from './chainV2';
 import { workflowCreditsFor } from './WorkflowCredit';
 
+function formatGasGwei(wei: bigint): string {
+  const numeric = Number(formatGwei(wei));
+  if (!Number.isFinite(numeric)) return formatGwei(wei);
+  if (numeric > 0 && numeric < 0.0001) return '< 0.0001';
+  return numeric.toLocaleString('en-US', {
+    maximumFractionDigits: numeric < 0.1 ? 4 : 2,
+  });
+}
+
 const factorRows = [
   {
     icon: Pulse01Icon,
@@ -142,14 +151,17 @@ export function WorkflowCost() {
                   </div>
                   <div>
                     <dt>
-                      {price.isError && price.data !== undefined
-                        ? 'Last reported gas price'
-                        : 'Current network gas price'}
+                      {price.isError && price.data !== undefined ? 'Last gas price' : 'Gas price'}
                     </dt>
-                    <dd className="rb-cost-gas">
+                    <dd
+                      className="rb-cost-gas"
+                      title={
+                        price.data !== undefined ? `${formatGwei(price.data)} gwei` : undefined
+                      }
+                    >
                       {price.data !== undefined ? (
                         <>
-                          {formatGwei(price.data)}
+                          {formatGasGwei(price.data)}
                           <span>gwei</span>
                         </>
                       ) : price.isPending ? (

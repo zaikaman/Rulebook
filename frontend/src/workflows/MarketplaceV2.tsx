@@ -229,32 +229,35 @@ export function WorkflowMarketplaceV2() {
           </p>
         ))}
 
-      <Toolbar>
-        <label className="rb-search">
-          <span className="sr-only">Search listings</span>
-          <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden="true" />
-          <input
-            className="app-input"
-            type="search"
-            maxLength={160}
-            value={search}
-            disabled={!isDeploymentConfigured}
-            placeholder="Search by name or description"
-            onChange={(event) => setSearch(event.target.value)}
-          />
-        </label>
-        {hasFilters && isDeploymentConfigured && (
-          <Button variant="quiet" onClick={resetFilters}>
-            Reset filters
-          </Button>
-        )}
-      </Toolbar>
-
-      <FilterBar>
+      <FilterBar
+        toolbar={
+          <Toolbar>
+            <label className="rb-search">
+              <span className="sr-only">Search listings</span>
+              <HugeiconsIcon icon={Search01Icon} size={16} aria-hidden="true" />
+              <input
+                className="app-input"
+                type="search"
+                maxLength={160}
+                value={search}
+                disabled={!isDeploymentConfigured}
+                placeholder="Search by name or description"
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            {hasFilters && isDeploymentConfigured && (
+              <Button variant="quiet" onClick={resetFilters}>
+                Reset filters
+              </Button>
+            )}
+          </Toolbar>
+        }
+      >
         <FilterGroup
           label="Network"
           options={networkOptions}
           value={effectiveChain}
+          defaultValue="all"
           onChange={setChainFilter}
           disabled={!isDeploymentConfigured}
         />
@@ -262,6 +265,7 @@ export function WorkflowMarketplaceV2() {
           label="Routing"
           options={scopeOptions}
           value={scopeFilter}
+          defaultValue="all"
           onChange={setScopeFilter}
           disabled={!isDeploymentConfigured}
         />
@@ -269,6 +273,7 @@ export function WorkflowMarketplaceV2() {
           label="Trigger"
           options={triggerOptions}
           value={triggerFilter}
+          defaultValue="all"
           onChange={setTriggerFilter}
           disabled={!isDeploymentConfigured}
         />
