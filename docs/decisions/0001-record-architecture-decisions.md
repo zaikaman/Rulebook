@@ -19,9 +19,7 @@ differently, and a contest build has one person maintaining all of it.
 3. **`module: nodenext` in backend/shared** so emitted ESM actually runs on Node 24 without
    a bundler. Relative imports inside those packages carry `.js` extensions.
 4. **Pinned versions**: Solidity `0.8.29` (Reactive's `AbstractCallback` requires `^0.8.29`),
-   Node `24` LTS (Heroku supports 26/24/22), `reactive-lib` pinned to an exact commit and
-   `openzeppelin-contracts` to an exact tag, both recorded in `contracts/remappings.txt`
-   when T008 runs.
+   Node `24` LTS. Solidity dependency revisions are recorded in `contracts/foundry.lock` and the Git submodule pointers. `contracts/remappings.txt` maps Solidity import paths.
 5. **Foundry artifacts are copied into `packages/shared/src/abi`** by a script; no ABI is
    ever hand-written.
 
@@ -34,7 +32,7 @@ differently, and a contest build has one person maintaining all of it.
 - Any new chain constant lands in `contracts/src/chain/ChainConfig.sol` and
   `packages/shared/src/chains.ts` in the same commit.
 
-## Pinned dependencies (T008)
+## Solidity dependency pins
 
 Installed with `forge install --no-commit` on 2026-11-16 (forge Version: 1.9.0). Pins are commits, not branches:
 
@@ -44,4 +42,4 @@ Installed with `forge install --no-commit` on 2026-11-16 (forge Version: 1.9.0).
 | reactive-lib           | v0.2.0      | d664678a7d86 |
 | openzeppelin-contracts | v5.7.0      | cab19933c33c |
 
-Changing a pin means changing this table in the same commit as `contracts/remappings.txt`.
+When updating a pin, keep this table and the lockfile aligned. [Foundry lockfile](../../contracts/foundry.lock)

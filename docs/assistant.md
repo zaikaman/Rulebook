@@ -41,9 +41,9 @@ The provider may call at most eight tools across at most four model rounds. The 
 
 ## Configuration
 
-Bookkeeper uses the existing `GEMINI_MODEL`, `GEMINI_BASE_URL`, and `GEMINI_API_KEY` values. Set all three, plus `WORKFLOW_V2_DEPLOYMENT`. The assistant is unavailable, not broken, when either is missing.
+Bookkeeper uses `GEMINI_MODEL`, `GEMINI_BASE_URL`, and `GEMINI_API_KEY`. Configure the workflow deployment for each network you serve using `WORKFLOW_V2_DEPLOYMENT` for Testnet and `WORKFLOW_V2_MAINNET_DEPLOYMENT` for Mainnet.
 
-Apply the assistant migrations (`0021_assistant.sql`, `0022_assistant_persistent_sessions.sql`, and `0029_reliability_and_security_hardening.sql`) with the normal migration command:
+Apply all pending backend migrations, including the assistant session, network scoping, and demo session migrations.
 
 ```bash
 npm run migrate -w backend

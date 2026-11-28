@@ -19,19 +19,30 @@ sources. Its bytecode hashes still identify exactly what is running, but `commit
 base revision. Replace `source` and `dirty` with `"commit"` once a commit contains that exact
 source, and redeploy from the commit when reproducible evidence is required.
 
-A weekly budget release deploys a fresh factory pair and replaces the entries in
-`deployments/workflows-v2.json`. The backend, the frontend, and the release job all read that
-file through their deployment settings, so the repository only needs the active pair. See the
-[weekly budget rollout](../docs/runbooks/weekly-budgets.md).
+The backend, the frontend, and the release job use the active testnet deployment in
+`workflows-v2.json`. The November 28, 2026 smoke receipts cover the promoted ERC-1967 proxies
+on Lasna, Unichain Sepolia, and Base Sepolia. [Active testnet evidence](../docs/submission-evidence.md#active-testnet-deployment)
 
 - [Workflow V2 factories](./workflows-v2.json)
 - [Published smoke receipts](./workflows-v2-smoke.json)
 - [Legacy factory records](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2.json)
 - [Historical November 24 smoke receipts](https://github.com/zaikaman/Rulebook/blob/75dd7930d025d627dd08a7d4e8c25c881594f411/deployments/workflows-v2-smoke.json)
 
-The staged candidate uses the local `workflows-v2.pending.json` and `workflows-v2-smoke.pending.json` files. The November 28 receipts cover both settlement chains. Promotion requires the exact deployed source in a clean commit and a passing strict deployment check. [Staged smoke evidence](../docs/submission-evidence.md#staged-erc-1967-smoke-verification)
+## Deploy and verify a testnet candidate
 
-## Cutover to ERC-1967 proxies
+1. From a clean commit that passed CI, deploy with `npm run deploy:workflows -- --stage --base`.
+   This writes the local `workflows-v2.pending.json` candidate without changing the active record.
+2. Run `node scripts/deploy-workflows-v2.mjs --check --stage --require-artifacts --base`. The strict
+   check verifies the factory and implementation configuration and bytecode, including the Agent
+   React and feedback modules and the Vault settlement module.
+3. Run `npx tsx scripts/smoke-workflows-v2.ts --stage --chains all`. Set `SMOKE_PAYER_PRIVATE_KEY`
+   to a second wallet with gas and at least 1.80 USDC on each settlement chain. The smoke script
+   writes `workflows-v2-smoke.pending.json`.
+4. Promote with `npm run deploy:workflows -- --promote-stage` after the staged checks pass.
+   Include the updated records in the coordinated application release. Keep activations disabled
+   during a factory cutover until the app and indexer use the verified records.
+
+## Migrating wallets from the legacy deployment
 
 The legacy Lasna Agent factory creates immutable clones. The legacy Unichain and Base
 Sepolia factories create Vaults directly. Owners need a new Agent and new Vaults to adopt the
@@ -41,29 +52,17 @@ upgradeable release. The legacy addresses remain accessible on-chain.
    Vault authorizations, then disable the Agent workflows. Confirm both transactions before
    moving principal. Revoke old token allowances and withdraw assets and direct native balances
    through the legacy contracts. Prepaid Reactive credits stay attached to the legacy addresses.
-2. From the exact clean commit that passed CI, deploy candidates with
-   `npm run deploy:workflows -- --stage --base`. Verify their runtime and configuration with
-   `node scripts/deploy-workflows-v2.mjs --check --stage --require-artifacts --base`. Run
-   `npx tsx scripts/smoke-workflows-v2.ts --stage --chains all` against the candidate factories.
-   Set `SMOKE_PAYER_PRIVATE_KEY` to a second wallet with gas and at least 1.80 USDC on each funds chain.
-3. After smoke passes, publish the tested candidate with
-   `npm run deploy:workflows -- --promote-stage`, and include the updated record in the
-   coordinated application release. Keep activations disabled during cutover.
-4. Create a fresh Agent and Vaults with each wallet, link them, fund them, and authorize the
-   desired workflows again. Review lifetime, spending limits and beneficiaries when signing.
-   Marketplace listings and run history remain associated with their original deployment.
-5. Enable activations once the new app and indexer use the verified record.
-
-The strict staged check reads the React module's feedback module and the Vault
-implementation's settlement module from their deployed contracts. It verifies
-their runtime bytecode and configuration alongside the implementation and
-factory. Keep the live record on the verified legacy deployment until the staged
-Agent and Vaults pass the same clean-commit build and smoke test.
+2. Create and link a fresh Agent and Vaults with the same wallet on the active deployment.
+   Fund the new addresses and authorize the desired workflows. Review lifetime, spending limits,
+   and beneficiaries when signing. Marketplace listings and run history remain associated with
+   their original deployment.
 
 ## Upgrading an existing proxy release
 
-Review the storage layout of the Agent, its delegatecall modules, and both
-Vault contracts before approving new implementations. Upgrade the settlement
+Review storage layout across the Agent, Vault, and their delegatecall modules. The factory
+admin uses `approveImplementation(implementation, makeCurrent)` to approve an implementation
+and optionally make it the default for new accounts. An existing proxy upgrades when its own
+wallet owner calls `upgradeToAndCall` with the approved implementation. Upgrade the settlement
 Vaults before enabling Agent features that use their feedback events. Existing
 subscriptions are removed using the exact filters that were installed. If an
 upgrade changes the desired filters, call `refreshWorkflowFilters(workflow)`

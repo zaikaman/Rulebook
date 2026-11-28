@@ -35,7 +35,7 @@ The proof page numbers paths from one. The stored path index in the smoke record
 
 ## Historical Workflow V2 testnet verification · 24 November 2026
 
-Workflow V2 operates across Reactive Lasna (automation and monitoring) and Unichain Sepolia (vault custody and settlement). The live loops below demonstrate multi-path branch evaluation, scheduled execution, and destination callback settlement.
+These historical runs used an earlier Lasna and Unichain Sepolia deployment. They record all three income sweep outcomes, including the skip, as well as a scheduled buy.
 
 ### Multi-path branching income sweep
 
@@ -65,10 +65,10 @@ The archived smoke file contains these November 24 receipts. [Historical smoke r
 
 ## Verified automated evidence
 
-- **Contracts** — The deployed source passed 195 Foundry tests with zero skips and three separate fork tests. The coverage gate measures every shipped `src` contract and enforces 80% line and 50% branch overall, plus the per-contract floors recorded in the [coverage summary](../contracts/.coverage-summary.json).
+- **Contracts** — Foundry covers authorization, triggers, settlement, and weekly budget enforcement. The repository also has a separate mainnet fork suite. The coverage gate measures shipped `src` contracts and enforces 80% line and 50% branch overall, with additional per-contract thresholds. [Coverage summary](../contracts/.coverage-summary.json)
 - **Shared** — Vitest tests cover program encoding, validation, recipe generation, health derivation, and chain configuration.
 - **Backend** — Vitest tests cover workflow indexing, activity, proof reads, health, marketplace, Rulewright, Bookkeeper assistant, Telegram linking, and release deployment validation.
-- **Frontend** — Vitest tests and 73 Playwright tests cover account onboarding, multichain setup, the builder, execution activity, proof, marketplace, Telegram notifications, Bookkeeper assistant, and offline recovery.
+- **Frontend** — Vitest and Playwright cover account onboarding, multichain setup, the builder, workflow archiving and restoration, execution activity, proof, Marketplace, Telegram notifications, Bookkeeper assistant, and offline recovery.
 - **Deployments** — [V2 deployment records](../deployments/workflows-v2.json) hold the factory addresses, start blocks, source commits, and bytecode hashes for Reactive Lasna, Unichain Sepolia, and Base Sepolia.
 
 ## Submission checklist

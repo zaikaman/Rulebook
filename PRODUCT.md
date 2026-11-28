@@ -32,8 +32,8 @@ Each workflow maps to an on-chain program signed by the user. A wallet-owned Age
 - Each check can split execution into Yes and Otherwise paths, supporting up to 3 checks and 3 ordered actions per path (15 nodes total per program).
 - An AI-powered Rulewright drafting assistant helps translate natural language requirements into validated workflow drafts without bypassing explicit wallet approval.
 - Weekly spending budgets can be configured per asset (USDC and WETH) on the Vault, enforcing spending ceilings that reset every Monday at 00:00 UTC. [Weekly budgets runbook](docs/runbooks/weekly-budgets.md)
-- Users can inspect, pause, resume, edit, and adjust budgets for their workflows. Vault owners retain full custody and can withdraw principal while automations are paused.
-- The Marketplace enables owners to publish verified workflows from their Agent's on-chain program hash. Others can copy them into clean drafts with empty limits and recipients.
+- Users can inspect, pause, resume, edit, adjust budgets, archive workflows, and restore them without restarting execution. Run history remains available after archiving. Vault owners retain full custody and can withdraw principal while automations are paused.
+- The Marketplace enables owners to publish verified workflows from their Agent's on-chain program hash. Others can copy them into drafts that keep the published per-run caps, leave weekly budgets blank, and clear payout recipients.
 - Telegram integration provides background monitoring for low gas reserves, required check-ins, and execution outcomes. [Telegram notifications runbook](docs/runbooks/telegram-notifications.md)
 
 ## Brand Commitments
@@ -42,7 +42,7 @@ Use the name Rulebook. Existing product copy uses concrete examples and names th
 
 ## Evidence on Hand
 
-The repository records explorer receipts, measured fees, validation coverage, and multi-path testnet execution proofs. It identifies outcomes verified on testnet (including the 3-path branching income sweep, scheduled buy, recurring transfer, and alerts) and flows verified with local fixtures and fork settlements. Use those records when making claims about settlement, latency, cost, or verification. [Submission evidence](docs/submission-evidence.md)
+The repository records receipts for confirmed income sweeps and scheduled buys on both active testnet settlement chains, plus the skipped income sweep from the earlier Unichain Sepolia deployment. It also documents local verification and fork coverage. [Submission evidence](docs/submission-evidence.md)
 
 ## Product Principles
 

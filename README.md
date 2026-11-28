@@ -26,17 +26,17 @@ Open **Workflows → New workflow**, pick a recipe, and fill in the amounts. The
 | You want                              | Recipe               | What wakes it                                                   | What the Vault can do                          |
 | ------------------------------------- | -------------------- | --------------------------------------------------------------- | ---------------------------------------------- |
 | Buy a fixed amount on a timer         | Scheduled buy        | `Cron100`                                                       | Swap USDC for WETH                             |
-| Buy only after a drop                 | Buy more on a dip    | `Cron100` (same-chain live pool, or cross-chain `Sync`/`Swap`)  | Swap, or skip                                  |
-| Buy if the price reaches a limit      | Limit buy            | Pair `Sync`                                                     | One swap, then the workflow closes             |
-| Sell into strength                    | Take profit          | Pair `Sync`                                                     | One swap, then the workflow closes             |
-| Sell if the price falls from its high | Trailing stop        | Pair `Sync`                                                     | One swap off a fixed stop or a trail           |
-| Trade around a reference price        | Price-band trading   | Pair `Sync`                                                     | Buy below the band, sell above it              |
+| Buy only after a drop                 | Buy more on a dip    | `Cron100`, with `Sync` or `Swap` for cross-chain pricing        | Swap, or skip                                  |
+| Buy if the price reaches a limit      | Limit buy            | Pair `Sync` or `Swap`                                           | One swap, then the workflow closes             |
+| Sell into strength                    | Take profit          | Pair `Sync` or `Swap`                                           | One swap, then the workflow closes             |
+| Sell if the price falls from its high | Trailing stop        | Pair `Sync` or `Swap`                                           | One swap off a fixed stop or a trail           |
+| Trade around a reference price        | Price-band trading   | Pair `Sync` or `Swap`                                           | Buy below the band, sell above it              |
 | Pay someone on a timer                | Recurring transfer   | `Cron100`                                                       | Send USDC                                      |
 | Forward part of income                | Income sweep         | USDC `Transfer` into the Vault                                  | Send a larger or smaller amount, or skip       |
 | Top up the Vault from your wallet     | Balance refill       | `Cron100`                                                       | `transferFrom` up to the allowance and the cap |
 | Name a recipient if you go quiet      | Inactivity payout    | `Cron100`, plus your own USDC transfers                         | One payout after a 24-hour grace period        |
-| Hear about a price                    | Price alert          | Pair `Sync`                                                     | Record an alert, move no funds                 |
-| Hear when a price leaves a range      | Price-range alert    | Pair `Sync`                                                     | Record an alert                                |
+| Hear about a price                    | Price alert          | Pair `Sync` or `Swap`                                           | Record an alert, move no funds                 |
+| Hear when a price leaves a range      | Price-range alert    | Pair `Sync` or `Swap`                                           | Record an alert                                |
 | Hear about a large movement           | Large-transfer alert | `Transfer` of a token you name, from or to the wallet you watch | Record an alert                                |
 
 Price checks use the last `Sync`/`Swap` on the configured USDC/WETH pair, quoted as USDC per WETH. The Agent keeps that price, the previous price, and, for a trailing stop, the sustained high since the workflow was enabled. For Buy more on a dip, the Vault compares the scheduled price against its recorded baseline price (updating the baseline when price rises and resetting it after a confirmed dip).
@@ -47,7 +47,7 @@ A weekly spending budget is optional and per asset. It sits on top of the per-ru
 
 The Marketplace lists a workflow you choose to publish. The factory reads the program hash from your Agent, so the listing matches the program you enabled. Someone else can copy it. The copy keeps the listed trigger, checks, amounts, per-run caps, watched wallet, and expiry, and clears the recipients so the copier chooses where their own funds go. They sign it onto their own Agent and fund their own Vault. Publishing, or unpublishing, leaves your workflow running.
 
-Activity shows each run and the path that was taken. **Public proof** is a link to the origin, the Lasna decision, and the settlement. It opens without a wallet. Telegram can send funding warnings, failure and inactivity warnings, and per-workflow run messages. Those messages are notices. The callback remains the settlement.
+Workflow details let you pause, archive, and restore a workflow. Archived workflows keep their run history and can be restored without resuming execution. Activity shows each run and the path that was taken. **Public proof** is a link to the origin, the Lasna decision, and the settlement. It opens without a wallet. Telegram can send funding warnings, failure and inactivity warnings, and per-workflow run messages. Those messages are notices. The callback remains the settlement.
 
 An optional drafter can turn a sentence into a workflow draft. You still review the program and sign both transactions. The Agent stores those signed bytes, and settlement reads them from the Agent.
 
@@ -72,10 +72,10 @@ sequenceDiagram
 
 1. The owner signs `authorizeWithWeeklyBudget` on the Vault. That stores the program, its hash, the epoch, the title, and the weekly limits.
 2. After that authorization is mined, the owner signs `enable` on the Agent. The Agent checks the same bytes, stores them, and subscribes through the system contract at `0x8888888888888888888888888888888888888888`.
-3. A schedule subscribes to `Cron100` on Lasna. A dip or a price workflow also subscribes to `Sync` on the pair. A payment workflow subscribes to USDC transfers into that Vault. A watched-wallet workflow subscribes to transfers of the named token. An inactivity workflow also watches USDC leaving the owner. A one-shot workflow subscribes to the Vault's own `Closed` event and removes its subscriptions after it finishes.
+3. A schedule subscribes to `Cron100` on Lasna. A price trigger or cross-chain dip check subscribes to `Sync` for a V2 pair or `Swap` for a V3 pool. A payment workflow subscribes to USDC transfers into that Vault. A watched-wallet workflow subscribes to transfers of the named token. An inactivity workflow also watches USDC leaving the owner. A one-shot workflow subscribes to the Vault's own `Closed` event and removes its subscriptions after it finishes.
 4. `react` accepts only the system contract. It ignores logs the program did not subscribe to. For a schedule it waits until `nextDue`, then carries the cached price or the last activity time. For a price log it updates the cached price and the trailing high. For a transfer it carries the amount and the counterparty. It builds a `Run` that names the origin chain, transaction, log index, and block.
-5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets the configured settlement Vault chain (`1301` Unichain Sepolia or `84532` Base Sepolia), this owner's Vault, and a 1,200,000 gas limit. The payload expires ten minutes after the Lasna block. The same origin log cannot dispatch twice.
-6. The callback proxy injects the Agent address as the first argument. `execute` requires that caller to be the proxy and that injected address to be the Vault's immutable Agent. A mismatched program hash, epoch, or stale origin is recorded as a skip. An expired payload is recorded as expired.
+5. The Agent emits `Dispatched` and calls `requestCallbackV_1_0`. The callback targets the configured settlement Vault chain (`1301` Unichain Sepolia or `84532` Base Sepolia), this owner's Vault, and a 1,200,000 gas limit. The payload expires ten minutes after the Lasna block. A retry can dispatch the original event again, and the Vault enforces at-most-once settlement.
+6. The callback proxy injects the Agent address as the first argument. `execute` requires that caller to be the proxy and that injected address to be the Agent currently bound to the Vault. A mismatched program hash, epoch, or stale origin is recorded as a skip. An expired payload is recorded as expired.
 7. The Vault walks the tree. Caps, slippage, the weekly budget, a one-hour price age, and the inactivity grace period are enforced in that call. A failing step rolls the whole run back, and the Vault still records the outcome. Statuses are confirmed, skipped, expired, failed, and in grace period.
 
 The owner pauses a workflow by revoking the Vault authorization, then disabling it on Lasna. The owner can withdraw Vault principal and recover ETH that was sent to the Vault by mistake. ETH held by the Vault does not pay for callbacks. Callback gas is paid from execution credit deposited to the proxy for that Vault. Lasna gas is paid from watching credit deposited to the system contract for that Agent.
@@ -138,7 +138,7 @@ Open [rulebook-chi.vercel.app](https://rulebook-chi.vercel.app), or run the fron
 
 The app reads chain state through its API. The API has no key that can move Vault principal.
 
-To enable the demo, set `DEMO_ACCOUNT_ADDRESS` in the backend to the public testnet smoke wallet that owns the Agent and Vaults for the configured deployment. Use a dedicated public account with active workflows and indexed runs. Optionally set `DEMO_FEATURED_RUN_IDS` to up to six comma-separated run IDs owned by that account. By default, the proof page features its latest confirmed runs. The frontend reads availability from the backend and can use `VITE_DEMO_ACCOUNT_ADDRESS` to open the read-only workspace if that request fails. Apply [migration 0030](backend/db/migrations/0030_assistant_demo_sessions.sql) before enabling Bookkeeper guest access.
+To enable the demo, set `DEMO_ACCOUNT_ADDRESS` in the backend to the public testnet smoke wallet that owns the Agent and Vaults for the configured deployment. Use a dedicated public account with active workflows and indexed runs. Optionally set `DEMO_FEATURED_RUN_IDS` to up to six comma-separated run IDs owned by that account. By default, the proof page features its latest confirmed runs. The frontend reads availability from the backend and can use `VITE_DEMO_ACCOUNT_ADDRESS` to open the read-only workspace if that request fails. Apply all pending backend migrations before enabling Bookkeeper guest access. [Bookkeeper setup](docs/assistant.md#configuration)
 
 ## Ask the Bookkeeper
 
